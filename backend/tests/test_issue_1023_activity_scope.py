@@ -28,6 +28,7 @@ from htdt.application_pages import (
     count_recent_revisions,
     list_known_document_ids,
     list_recent_revisions,
+    list_revisions_page,
 )
 from htdt.cad_project_activity import CadProjectActivityService
 from htdt.cad_project_activity_repository import (
@@ -98,13 +99,13 @@ def _page(
 
     service = _service(repository)
 
-    def list_revisions(doc_id, limit, offset):
-        return list_recent_revisions(
+    def list_revisions(doc_id, limit, after):
+        return list_revisions_page(
             repository,
             limit,
             scope="global" if doc_id is None else "project",
             document_id=doc_id,
-            offset=offset,
+            after=after,
         )
 
     def count_revisions(doc_id):
@@ -431,21 +432,21 @@ def test_timeline_paging_walks_every_row(tmp_path) -> None:
 
     first_page = page.events_table.rowCount()
     assert first_page == 50
-    count_text = page.events_pager[3].text()
+    count_text = page.events_pager[2].text()
     assert "全" in count_text and "件" in count_text
-    first_page_ids = {
-        page.events_table.item(row, 0).data(Qt.ItemDataRole.UserRole + 1)
-        for row in range(first_page)
-    }
 
-    page._events_next_page()
-    rest = {
+    # さらに読み込む extends the window — earlier rows stay visible (#1017).
+    page._events_load_more()
+    assert page.events_table.rowCount() > first_page
+    seen = {
         page.events_table.item(row, 0).data(Qt.ItemDataRole.UserRole + 1)
         for row in range(page.events_table.rowCount())
     }
-    assert rest
-    assert not rest & first_page_ids
-    assert page.events_pager[1].isEnabled()  # 前へ
+    # 60 notes + the project_created event = 61 rows, all reachable.
+    assert len(seen) == 61
+    while page.events_pager[1].isEnabled():
+        page._events_load_more()
+    assert page.events_table.rowCount() == 61
 
 
 def test_revision_paging_walks_every_row(tmp_path) -> None:
@@ -455,19 +456,21 @@ def test_revision_paging_walks_every_row(tmp_path) -> None:
     page = _page(repository, document_id="doc-alpha")
 
     assert page.table.rowCount() == 50
-    assert "61" in page.revisions_pager[3].text()
+    assert "61" in page.revisions_pager[2].text()
     first_ids = {
         page.table.item(row, 2).data(Qt.ItemDataRole.UserRole)
         for row in range(page.table.rowCount())
     }
-    page._revisions_next_page()
-    assert page.table.rowCount() == 11
+    page._revisions_load_more()
+    # The keyset page appends the remaining 11 without re-reading or
+    # duplicating the first window (#1017).
+    assert page.table.rowCount() == 61
     rest_ids = {
         page.table.item(row, 2).data(Qt.ItemDataRole.UserRole)
-        for row in range(page.table.rowCount())
+        for row in range(50, 61)
     }
     assert not rest_ids & first_ids
-    assert page.revisions_pager[1].isEnabled()
+    assert not page.revisions_pager[1].isEnabled()
 
 
 # -- selection stability + honest activation ------------------------------------

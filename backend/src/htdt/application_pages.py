@@ -16,10 +16,12 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Callable, Iterable, Literal
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QDate, Qt, Signal
 from PySide6.QtWidgets import (
     QComboBox,
+    QDateEdit,
     QFileDialog,
+    QFrame,
     QHBoxLayout,
     QHeaderView,
     QInputDialog,
@@ -3011,16 +3013,146 @@ _EVENT_KIND_GROUPS: tuple[tuple[str, frozenset | None], ...] = (
 )
 
 #: Timeline date-range filter options: (label, days-back-or-None).
-#: ``0`` means today (UTC); ``None`` disables the range filter.
-_EVENT_RANGE_OPTIONS: tuple[tuple[str, int | None], ...] = (
+#: ``0`` means today (UTC); ``None`` disables the range filter;
+#: :data:`_CUSTOM_RANGE` reveals the arbitrary start/end date inputs
+#: (#1017).
+_EVENT_RANGE_OPTIONS: tuple[tuple[str, int | str | None], ...] = (
     ("すべての期間", None),
     ("今日", 0),
     ("過去7日間", 7),
     ("過去30日間", 30),
+    ("期間を指定", "custom"),
 )
+
+#: Sentinel selecting the operator-entered start/end bounds (#1017).
+_CUSTOM_RANGE = "custom"
+
+#: Unique object marking "no cached projection" — distinct from any real
+#: document_id including ``None`` (the global scope).
+_CACHE_MISS = object()
 
 _EVENT_PAGE_SIZE = 50
 _REVISION_PAGE_SIZE = 50
+
+#: Per-kind JA labels for the timeline inspector (#1017) — finer than the
+#: filter groups: the inspector names the exact kind, the filter groups
+#: them.
+_EVENT_KIND_LABELS: dict[str, str] = {
+    'project_created': 'プロジェクト作成',
+    'project_note': 'メモ',
+    'scene_revision_saved': '部屋リビジョン保存',
+    'scene_revision_labeled': 'リビジョンラベル',
+    'system_variant_proposed': 'バリアント提案',
+    'system_variant_applied': 'バリアント適用',
+    'system_variant_as_built': 'バリアント設置済み記録',
+    'system_variant_measured': 'バリアント計測',
+    'capture_staged': 'キャプチャ受信',
+    'capture_promoted': 'キャプチャ昇格',
+    'capture_superseded': 'キャプチャ置き換え',
+    'capture_deferred': 'キャプチャ保留',
+    'capture_rejected': 'キャプチャ却下',
+    'measurement_imported': '測定インポート',
+    'calibration_plan_created': '校正プラン作成',
+    'calibration_exported': '校正設定出力',
+    'calibration_applied': '校正適用記録',
+    'calibration_remeasured': '校正再測定',
+    'calibration_validated': '校正検証',
+    'design_checkpoint_created': 'チェックポイント作成',
+    'design_checkpoint_restored': 'チェックポイント復元',
+    'operating_preset_created': 'プリセット作成',
+    'operating_preset_applied': 'プリセット適用記録',
+    'health_baseline_created': '健全性ベースライン',
+    'health_check_completed': '健全性チェック',
+    'av_sync_recorded': 'AV同期記録',
+    'other_authority': 'その他の権威記録',
+}
+
+#: Evidence typing of a timeline event (#1017): ``'evidence'`` is a row
+#: projected from surviving canonical authority; ``'assumption'`` is an
+#: operator-attested record (recorded as applied/as-built by a person,
+#: not measured); ``'historical'`` is a non-current row — detached or
+#: inherited; ``'failed'`` is a terminal rejection; ``'note'`` is a user
+#: メモ, which is documentation and is never presented as canonical
+#: evidence.
+ActivityEvidenceClass = Literal[
+    'evidence', 'assumption', 'historical', 'failed', 'note'
+]
+
+_EVENT_EVIDENCE_CLASS: dict[str, ActivityEvidenceClass] = {
+    'project_created': 'evidence',
+    'project_note': 'note',
+    'scene_revision_saved': 'evidence',
+    'scene_revision_labeled': 'evidence',
+    'system_variant_proposed': 'evidence',
+    'system_variant_applied': 'evidence',
+    # Operator-confirmed placement — a person attested the variant is
+    # installed; no device or measurement verified it.
+    'system_variant_as_built': 'assumption',
+    'system_variant_measured': 'evidence',
+    'capture_staged': 'evidence',
+    'capture_promoted': 'evidence',
+    'capture_superseded': 'historical',
+    'capture_deferred': 'evidence',
+    'capture_rejected': 'failed',
+    'measurement_imported': 'evidence',
+    'calibration_plan_created': 'evidence',
+    'calibration_exported': 'evidence',
+    # 'user_applied' lifecycle state — operator assertion, not a verified
+    # device state.
+    'calibration_applied': 'assumption',
+    'calibration_remeasured': 'evidence',
+    'calibration_validated': 'evidence',
+    'design_checkpoint_created': 'evidence',
+    'design_checkpoint_restored': 'evidence',
+    'operating_preset_created': 'evidence',
+    # 「実機へ適用と記録」 — recorded by operator assertion.
+    'operating_preset_applied': 'assumption',
+    'health_baseline_created': 'evidence',
+    'health_check_completed': 'evidence',
+    'av_sync_recorded': 'evidence',
+    'other_authority': 'evidence',
+}
+
+_EVIDENCE_CLASS_LABELS: dict[ActivityEvidenceClass, str] = {
+    'evidence': '証跡',
+    'assumption': '申告記録',
+    'historical': '履歴（非現行）',
+    'failed': '失敗・却下',
+    'note': 'メモ',
+}
+
+#: One-line honest gloss under the class label — メモ is explicitly
+#: marked as documentation, never canonical evidence (#1017).
+_EVIDENCE_CLASS_NOTES: dict[ActivityEvidenceClass, str] = {
+    'evidence': '正準権威から投影された記録です。',
+    'assumption': '操作者が記録した申告です。実測値としては扱いません。',
+    'historical': '現在の状態を表さない過去・継承の記録です。',
+    'failed': '失敗・却下として記録された出来事です。',
+    'note': 'メモはドキュメントであり、正準の証拠としては扱いません。',
+}
+
+
+def event_evidence_class(event: object) -> ActivityEvidenceClass:
+    """Evidence typing of one timeline event (#1017) — read-only.
+
+    ``inherited`` rows and detached scene revisions are ``'historical'``
+    regardless of kind: they describe a state that is not the current
+    project. Everything else follows the closed kind map; an unknown
+    kind falls back to ``'evidence'`` only when the row is a normal
+    projected authority event.
+    """
+
+    if getattr(event, 'inherited', False):
+        return 'historical'
+    kind = getattr(event, 'kind', 'other_authority')
+    # ``_scene_events`` marks detached (non-head) revisions via their
+    # detail text — that is the only existing detached marker on the
+    # projected event.
+    if kind == 'scene_revision_saved' and (
+        getattr(event, 'detail', None) == '非ヘッド履歴'
+    ):
+        return 'historical'
+    return _EVENT_EVIDENCE_CLASS.get(kind, 'evidence')
 
 
 def _event_timestamp(value: str) -> str:
@@ -3046,19 +3178,29 @@ class ActivityPage(QWidget):
       into this-project rows (``project_ref`` match) and a separate
       app-global/other-project section,
     * ``timeline`` — the canonical ``CadProjectActivityService`` projection
-      (kind/date-range/search filters + paging, newest first); a row's nav
-      URI deep link opens on double-click,
-    * ``revisions`` — the persisted scene-revision ledger, scoped in SQL by
-      ``document_id`` with explicit paging so no fixed cap can hide the
-      current project's past (#1023).
+      (kind/date-range/search filters, newest first). The latest 50 rows
+      are the initial view and さらに読み込む walks deeper history via a
+      ``(occurred_at_utc, event_id)`` cursor; selecting a row fills a
+      read-only detail inspector typed by evidence class (#1017), and a
+      row's nav URI deep link opens on double-click,
+    * ``revisions`` — the persisted scene-revision ledger, scoped in SQL
+      by ``document_id`` with keyset (cursor) paging so no fixed cap can
+      hide the current project's past (#1023, #1017).
 
-    ``list_revisions`` / ``count_revisions`` / ``list_events`` all take the
-    effective document id — ``None`` requests the explicit global merge.
+    ``list_revisions`` / ``count_revisions`` / ``list_events`` all take
+    the effective document id — ``None`` requests the explicit global
+    merge. ``list_revisions`` is the cursor reader:
+    ``(document_id, limit, after) -> (rows, next_cursor)`` where
+    ``after`` is the opaque cursor returned by the previous call (``None``
+    for the newest page) and ``next_cursor`` is ``None`` once history is
+    exhausted (#1017).
     """
 
     def __init__(
         self,
-        list_revisions: Callable[[str | None, int, int], tuple],
+        list_revisions: Callable[
+            [str | None, int, str | None], tuple[tuple, str | None]
+        ],
         *,
         count_revisions: Callable[[str | None], int] | None = None,
         list_operations: Callable[[], tuple] | None = None,
@@ -3086,8 +3228,20 @@ class ActivityPage(QWidget):
             for ref in (document_id, *project_refs)
             if ref
         }
-        self._events_page = 0
-        self._revisions_page = 0
+        # Load-more/cursor state (#1017): ``_events_shown`` is the visible
+        # window length over the filtered list and ``_events_cursor`` the
+        # (occurred_at_utc, event_id) key of its last row — the continue
+        # point even if new events arrive above it. ``_revisions_after``
+        # is the opaque SQL keyset cursor; ``_revisions_shown`` the window.
+        self._events_shown = _EVENT_PAGE_SIZE
+        self._events_cursor: tuple[str, str] | None = None
+        self._revisions_shown = _REVISION_PAGE_SIZE
+        self._revisions_after: str | None = None
+        # Per-refresh projection cache (#1017): filter/search/paging re-use
+        # one rebuild; only an external refresh() re-derives the timeline.
+        self._events_cache: tuple | None = None
+        self._events_cache_doc: str | None | object = _CACHE_MISS
+        self._displayed_events: list = []
         layout = _page_layout(
             self,
             "アクティビティ",
@@ -3167,6 +3321,36 @@ class ActivityPage(QWidget):
                 self._on_event_filter_changed
             )
             filter_row.addWidget(self.range_combo)
+            # Arbitrary start/end bounds (#1017): inclusive UTC calendar
+            # days. Only enabled while 期間を指定 is selected.
+            self.range_start_edit = QDateEdit()
+            self.range_start_edit.setCalendarPopup(True)
+            self.range_start_edit.setDisplayFormat("yyyy/MM/dd")
+            self.range_start_edit.setDate(
+                QDate.currentDate().addDays(-30)
+            )
+            self.range_start_edit.setToolTip(
+                "期間の開始日です（この日を含みます）。"
+            )
+            self.range_start_edit.setAccessibleName("期間の開始日")
+            self.range_start_edit.dateChanged.connect(
+                self._on_event_filter_changed
+            )
+            filter_row.addWidget(self.range_start_edit)
+            filter_row.addWidget(QLabel("〜"))
+            self.range_end_edit = QDateEdit()
+            self.range_end_edit.setCalendarPopup(True)
+            self.range_end_edit.setDisplayFormat("yyyy/MM/dd")
+            self.range_end_edit.setDate(QDate.currentDate())
+            self.range_end_edit.setToolTip(
+                "期間の終了日です（この日を含みます）。"
+            )
+            self.range_end_edit.setAccessibleName("期間の終了日")
+            self.range_end_edit.dateChanged.connect(
+                self._on_event_filter_changed
+            )
+            filter_row.addWidget(self.range_end_edit)
+            self._sync_range_edit_visibility()
             self.search_edit = QLineEdit()
             self.search_edit.setPlaceholderText("タイムラインを検索")
             self.search_edit.setClearButtonEnabled(True)
@@ -3203,18 +3387,25 @@ class ActivityPage(QWidget):
             )
             self.events_table.itemActivated.connect(self._activate_event)
             self.events_table.itemDoubleClicked.connect(self._activate_event)
-            layout.addWidget(self.events_table, 1)
-            self.events_pager = self._pager(
-                self._events_prev_page, self._events_next_page
+            self.events_table.itemSelectionChanged.connect(
+                self._on_event_selection_changed
             )
+            self.events_table.setAccessibleName("タイムライン一覧")
+            layout.addWidget(self.events_table, 1)
+            self.events_pager = self._more_pager(self._events_load_more)
             layout.addLayout(self.events_pager[0])
+            self.event_inspector = self._build_event_inspector()
+            layout.addWidget(self.event_inspector)
         else:
             self.timeline_heading = None
             self.events_table = None
             self.kind_combo = None
             self.range_combo = None
+            self.range_start_edit = None
+            self.range_end_edit = None
             self.search_edit = None
             self.events_pager = None
+            self.event_inspector = None
 
         # -- revisions --------------------------------------------------------
         self.revisions_heading = QLabel()
@@ -3238,9 +3429,10 @@ class ActivityPage(QWidget):
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.itemActivated.connect(self._activate_revision)
         self.table.itemDoubleClicked.connect(self._activate_revision)
+        self.table.setAccessibleName("リビジョン履歴一覧")
         layout.addWidget(self.table, 1)
-        self.revisions_pager = self._pager(
-            self._revisions_prev_page, self._revisions_next_page
+        self.revisions_pager = self._more_pager(
+            self._revisions_load_more
         )
         layout.addLayout(self.revisions_pager[0])
         self.empty_label = QLabel(
@@ -3303,8 +3495,12 @@ class ActivityPage(QWidget):
             self.events_table.setColumnHidden(1, self._scope() == "project")
 
     def _on_scope_changed(self, _index: int) -> None:
-        self._events_page = 0
-        self._revisions_page = 0
+        self._events_shown = _EVENT_PAGE_SIZE
+        self._events_cursor = None
+        self._revisions_shown = _REVISION_PAGE_SIZE
+        self._revisions_after = None
+        self._events_cache = None
+        self._events_cache_doc = _CACHE_MISS
         self._sync_scope_headings()
         self.refresh()
 
@@ -3320,62 +3516,134 @@ class ActivityPage(QWidget):
         self._restore_selection(keys)
 
     def _on_event_filter_changed(self, *_args: object) -> None:
-        self._events_page = 0
+        self._sync_range_edit_visibility()
+        self._events_shown = _EVENT_PAGE_SIZE
+        self._events_cursor = None
         self._preserve_selection(self._refresh_events)
 
-    # -- paging -----------------------------------------------------------------
+    def _sync_range_edit_visibility(self) -> None:
+        """The arbitrary bounds only edit while 期間を指定 is selected."""
 
-    def _pager(
-        self, on_prev: Callable[[], None], on_next: Callable[[], None]
-    ) -> tuple[QHBoxLayout, QPushButton, QPushButton, QLabel]:
+        if self.range_combo is None:
+            return
+        custom = self.range_combo.currentData() == _CUSTOM_RANGE
+        for edit in (self.range_start_edit, self.range_end_edit):
+            if edit is not None:
+                edit.setEnabled(custom)
+
+    # -- load-more paging (cursor / さらに読み込む, #1017) -----------------------
+
+    def _more_pager(
+        self, on_more: Callable[[], None]
+    ) -> tuple[QHBoxLayout, QPushButton, QLabel]:
+        """(row, load-more button, count label) — append-mode paging.
+
+        The latest page is the initial view; さらに読み込む extends the
+        window into deeper history instead of replacing it.
+        """
+
         row = QHBoxLayout()
-        prev_button = QPushButton("前へ")
-        prev_button.setToolTip("前のページへ移動します。")
-        prev_button.clicked.connect(on_prev)
-        next_button = QPushButton("次へ")
-        next_button.setToolTip("次のページへ移動します。")
-        next_button.clicked.connect(on_next)
+        more_button = QPushButton("さらに読み込む")
+        more_button.setToolTip(
+            "古い記録を50件ずつ追加で表示します。"
+        )
+        more_button.clicked.connect(on_more)
         count_label = QLabel()
         set_typography_role(count_label, TypographyRole.SECONDARY)
-        row.addWidget(prev_button)
-        row.addWidget(next_button)
+        row.addWidget(more_button)
         row.addStretch(1)
         row.addWidget(count_label)
-        return row, prev_button, next_button, count_label
+        return row, more_button, count_label
 
-    def _events_prev_page(self) -> None:
-        if self._events_page > 0:
-            self._events_page -= 1
-            self._preserve_selection(self._refresh_events)
-
-    def _events_next_page(self) -> None:
-        self._events_page += 1
-        self._preserve_selection(self._refresh_events)
-
-    def _revisions_prev_page(self) -> None:
-        if self._revisions_page > 0:
-            self._revisions_page -= 1
-            self._preserve_selection(self._refresh_revisions)
-
-    def _revisions_next_page(self) -> None:
-        self._revisions_page += 1
-        self._preserve_selection(self._refresh_revisions)
-
-    def _update_pager(
+    def _update_more_pager(
         self,
-        pager: tuple[QHBoxLayout, QPushButton, QPushButton, QLabel],
+        pager: tuple[QHBoxLayout, QPushButton, QLabel],
         *,
         total: int,
-        page: int,
-        page_size: int,
         shown: int,
     ) -> None:
-        _row, prev_button, next_button, count_label = pager
-        first = page * page_size + 1 if shown else 0
-        last = page * page_size + shown
-        count_label.setText(f"全{total}件 · {first}–{last}件を表示")
-        prev_button.setEnabled(page > 0)
-        next_button.setEnabled(last < total)
+        _row, more_button, count_label = pager
+        first = 1 if shown else 0
+        count_label.setText(f"全{total}件 · {first}–{shown}件を表示")
+        more_button.setEnabled(shown < total)
+
+    def _events_load_more(self) -> None:
+        """Extend the timeline window by one page from the key cursor.
+
+        ``_events_cursor`` (occurred_at_utc, event_id of the last shown
+        row) is the continue point: events arriving at the top while the
+        operator browses shift the window's start, never skip or
+        duplicate a row. A vanished cursor row falls back to the current
+        window length (#1017).
+        """
+
+        events = self._filtered_events()
+        if self._events_cursor is not None:
+            position = next(
+                (
+                    index
+                    for index, event in enumerate(events)
+                    if (
+                        event.occurred_at_utc,
+                        event.event_id,
+                    )
+                    == self._events_cursor
+                ),
+                None,
+            )
+            start = position + 1 if position is not None else self._events_shown
+        else:
+            start = self._events_shown
+        self._events_shown = start + _EVENT_PAGE_SIZE
+        self._preserve_selection(self._refresh_events)
+
+    def _revisions_load_more(self) -> None:
+        """Append one SQL keyset page after ``_revisions_after`` (#1017)."""
+
+        if self._revisions_after is None:
+            return
+        document_id = self._scope_document_id()
+        rows, self._revisions_after = self._list_revisions(
+            document_id, _REVISION_PAGE_SIZE, self._revisions_after
+        )
+        self._revisions_shown += len(rows)
+        self._append_revision_rows(rows)
+        total = (
+            self._count_revisions(document_id)
+            if self._count_revisions is not None
+            else self.table.rowCount()
+            + (1 if self._revisions_after is not None else 0)
+        )
+        self._update_more_pager(
+            self.revisions_pager,
+            total=total,
+            shown=self.table.rowCount(),
+        )
+
+    def _append_revision_rows(self, rows: Iterable[tuple]) -> None:
+        for created_at, row_document_id, revision_id in rows:
+            row = self.table.rowCount()
+            self.table.insertRow(row)
+            for column, value in enumerate(
+                (
+                    created_at,
+                    self._document_name(row_document_id),
+                    revision_id,
+                )
+            ):
+                cell = QTableWidgetItem(str(value))
+                if column == 0:
+                    cell.setData(
+                        Qt.ItemDataRole.UserRole,
+                        self._revision_link(row_document_id, revision_id),
+                    )
+                elif column == 1:
+                    cell.setData(
+                        Qt.ItemDataRole.UserRole, row_document_id
+                    )
+                elif column == 2:
+                    cell.setData(Qt.ItemDataRole.UserRole, revision_id)
+                self.table.setItem(row, column, cell)
 
     # -- operations ---------------------------------------------------------------
 
@@ -3451,10 +3719,60 @@ class ActivityPage(QWidget):
 
     # -- timeline -------------------------------------------------------------------
 
+    def _scoped_events(self) -> tuple:
+        """The merged projection for the current scope — cached per scope.
+
+        Rebuilding the canonical projection walks every authority store;
+        filter/search/paging share one rebuild and ``refresh()`` is the
+        only point that re-derives it (#1017).
+        """
+
+        if self._list_events is None:
+            return ()
+        document_id = self._scope_document_id()
+        if (
+            self._events_cache is None
+            or self._events_cache_doc != document_id
+        ):
+            self._events_cache = tuple(self._list_events(document_id))
+            self._events_cache_doc = document_id
+        return self._events_cache
+
+    def _custom_range_bounds(self) -> tuple[str, str] | None:
+        """Inclusive ISO bounds for 期間を指定 — (start, end-of-day) UTC.
+
+        ``None`` while a preset is selected. A start after the end is
+        applied literally: no event can satisfy it, so the filter returns
+        an empty list rather than silently reordering the operator's
+        bounds (#1017).
+        """
+
+        if (
+            self.range_combo is None
+            or self.range_combo.currentData() != _CUSTOM_RANGE
+        ):
+            return None
+        start = self.range_start_edit.date()
+        end = self.range_end_edit.date()
+        start_iso = datetime(
+            start.year(), start.month(), start.day(), tzinfo=timezone.utc
+        ).isoformat()
+        end_iso = datetime(
+            end.year(),
+            end.month(),
+            end.day(),
+            23,
+            59,
+            59,
+            999999,
+            tzinfo=timezone.utc,
+        ).isoformat()
+        return start_iso, end_iso
+
     def _filtered_events(self) -> tuple:
         if self._list_events is None:
             return ()
-        events = list(self._list_events(self._scope_document_id()))
+        events = list(self._scoped_events())
         if self.kind_combo is not None:
             kinds = self.kind_combo.currentData()
             if kinds is not None:
@@ -3462,15 +3780,26 @@ class ActivityPage(QWidget):
                     event for event in events if event.kind in kinds
                 ]
         if self.range_combo is not None:
-            days = self.range_combo.currentData()
-            if days is not None:
+            option = self.range_combo.currentData()
+            if option == _CUSTOM_RANGE:
+                bounds = self._custom_range_bounds()
+                if bounds is not None:
+                    start_iso, end_iso = bounds
+                    events = [
+                        event
+                        for event in events
+                        if start_iso
+                        <= _event_timestamp(event.occurred_at_utc)
+                        <= end_iso
+                    ]
+            elif option is not None:
                 now = datetime.now(timezone.utc)
-                if days == 0:
+                if option == 0:
                     cutoff = now.replace(
                         hour=0, minute=0, second=0, microsecond=0
                     )
                 else:
-                    cutoff = now - timedelta(days=days)
+                    cutoff = now - timedelta(days=option)
                 cutoff_iso = cutoff.isoformat()
                 events = [
                     event
@@ -3496,12 +3825,10 @@ class ActivityPage(QWidget):
             return
         events = self._filtered_events()
         total = len(events)
-        max_page = max(0, (total - 1) // _EVENT_PAGE_SIZE)
-        if self._events_page > max_page:
-            self._events_page = max_page
-        start = self._events_page * _EVENT_PAGE_SIZE
-        page_events = events[start : start + _EVENT_PAGE_SIZE]
+        shown = min(self._events_shown, total)
+        page_events = events[:shown]
         self.events_table.setRowCount(0)
+        self._displayed_events = list(page_events)
         for event in page_events:
             row = self.events_table.rowCount()
             self.events_table.insertRow(row)
@@ -3526,13 +3853,18 @@ class ActivityPage(QWidget):
                         Qt.ItemDataRole.UserRole + 2, event.document_id
                     )
                 self.events_table.setItem(row, column, cell)
-        self._update_pager(
-            self.events_pager,
-            total=total,
-            page=self._events_page,
-            page_size=_EVENT_PAGE_SIZE,
-            shown=len(page_events),
+        self._events_cursor = (
+            (
+                page_events[-1].occurred_at_utc,
+                page_events[-1].event_id,
+            )
+            if page_events
+            else None
         )
+        self._update_more_pager(
+            self.events_pager, total=total, shown=len(page_events)
+        )
+        self._update_event_inspector()
 
     def _activate_event(self, item: QTableWidgetItem) -> None:
         anchor = self.events_table.item(item.row(), 0)
@@ -3582,52 +3914,163 @@ class ActivityPage(QWidget):
 
     def _refresh_revisions(self) -> None:
         document_id = self._scope_document_id()
+        # One bounded keyset query re-reads the whole visible window; the
+        # returned cursor is where さらに読み込む continues (#1017).
+        rows, self._revisions_after = self._list_revisions(
+            document_id, self._revisions_shown, None
+        )
         total = (
             self._count_revisions(document_id)
             if self._count_revisions is not None
-            else 0
+            else len(rows) + (1 if self._revisions_after is not None else 0)
         )
-        if self._count_revisions is not None and total:
-            max_page = (total - 1) // _REVISION_PAGE_SIZE
-            if self._revisions_page > max_page:
-                self._revisions_page = max_page
-        start = self._revisions_page * _REVISION_PAGE_SIZE
-        rows = self._list_revisions(
-            document_id, _REVISION_PAGE_SIZE, start
-        )
-        if self._count_revisions is None:
-            total = start + len(rows)
         self.table.setRowCount(0)
-        self.empty_label.setVisible(not rows and self._revisions_page == 0)
-        for created_at, row_document_id, revision_id in rows:
-            row = self.table.rowCount()
-            self.table.insertRow(row)
-            for column, value in enumerate(
-                (
-                    created_at,
-                    self._document_name(row_document_id),
-                    revision_id,
-                )
-            ):
-                cell = QTableWidgetItem(str(value))
-                if column == 0:
-                    cell.setData(
-                        Qt.ItemDataRole.UserRole,
-                        self._revision_link(row_document_id, revision_id),
-                    )
-                elif column == 1:
-                    cell.setData(
-                        Qt.ItemDataRole.UserRole, row_document_id
-                    )
-                elif column == 2:
-                    cell.setData(Qt.ItemDataRole.UserRole, revision_id)
-                self.table.setItem(row, column, cell)
-        self._update_pager(
+        self.empty_label.setVisible(not rows)
+        self._append_revision_rows(rows)
+        self._update_more_pager(
             self.revisions_pager,
             total=total,
-            page=self._revisions_page,
-            page_size=_REVISION_PAGE_SIZE,
-            shown=len(rows),
+            shown=self.table.rowCount(),
+        )
+
+    # -- detail inspector (#1017) ------------------------------------------------------
+
+    def _build_event_inspector(self) -> QFrame:
+        """Read-only detail panel for the selected timeline row.
+
+        Shows the event's evidence class (証跡/申告記録/履歴/失敗・却下/
+        メモ), its source authority ids and any correlated refs. メモ
+        rows are labeled as documentation — never canonical evidence.
+        Every value is selectable text so keyboard/screen-reader users
+        reach the same content.
+        """
+
+        frame = QFrame()
+        frame.setAccessibleName("選択した出来事の詳細")
+        frame.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        box = QVBoxLayout(frame)
+        box.setContentsMargins(8, 4, 8, 8)
+        heading = QLabel("出来事の詳細")
+        set_typography_role(heading, TypographyRole.SECTION_TITLE)
+        box.addWidget(heading)
+
+        def value_label(name: str) -> QLabel:
+            label = QLabel()
+            label.setAccessibleName(name)
+            label.setWordWrap(True)
+            label.setTextInteractionFlags(
+                Qt.TextInteractionFlag.TextSelectableByMouse
+                | Qt.TextInteractionFlag.TextSelectableByKeyboard
+            )
+            label.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+            box.addWidget(label)
+            return label
+
+        self._inspector_summary = value_label("出来事の時刻・プロジェクト・種類")
+        self._inspector_class = value_label("出来事の区分")
+        self._inspector_title = value_label("出来事の内容")
+        self._inspector_detail = value_label("出来事の詳細")
+        self._inspector_sources = value_label("出来事のソース権威")
+        self._inspector_correlation = value_label("出来事の相関")
+        self._inspector_id = value_label("出来事ID")
+        self._inspector_note = value_label("区分の説明")
+        set_typography_role(self._inspector_note, TypographyRole.SECONDARY)
+        self._clear_event_inspector()
+        return frame
+
+    def _clear_event_inspector(self) -> None:
+        placeholder = "行を選ぶと詳細を表示します。"
+        self._inspector_summary.setText(placeholder)
+        for label in (
+            self._inspector_class,
+            self._inspector_title,
+            self._inspector_detail,
+            self._inspector_sources,
+            self._inspector_correlation,
+            self._inspector_id,
+            self._inspector_note,
+        ):
+            label.setText("")
+
+    def _on_event_selection_changed(self) -> None:
+        self._update_event_inspector()
+
+    def _selected_event(self):
+        """The event object for the selected timeline row, or ``None``.
+
+        Selection — not the current cell — drives the inspector, so a
+        cleared selection empties it even though ``currentRow`` stays
+        put after ``clearSelection``.
+        """
+
+        if self.events_table is None:
+            return None
+        selection = self.events_table.selectionModel()
+        rows = selection.selectedRows() if selection is not None else []
+        if not rows:
+            return None
+        row = rows[0].row()
+        if 0 <= row < len(self._displayed_events):
+            return self._displayed_events[row]
+        return None
+
+    def _update_event_inspector(self) -> None:
+        if self.event_inspector is None:
+            return
+        event = self._selected_event()
+        if event is None:
+            self._clear_event_inspector()
+            return
+        kind_label = _EVENT_KIND_LABELS.get(event.kind, event.kind)
+        evidence_class = event_evidence_class(event)
+        self._inspector_summary.setText(
+            f"時刻: {event.occurred_at_utc}　プロジェクト: "
+            f"{self._document_name(event.document_id)}　種類: {kind_label}"
+        )
+        self._inspector_class.setText(
+            f"区分: {_EVIDENCE_CLASS_LABELS[evidence_class]}"
+        )
+        self._inspector_title.setText(f"内容: {event.title}")
+        self._inspector_detail.setText(
+            f"詳細: {event.detail or '—'}"
+        )
+        refs = tuple(getattr(event, 'source_refs', ()))
+        if refs:
+            self._inspector_sources.setText(
+                "ソース権威:\n"
+                + "\n".join(
+                    f"  {ref.kind}: {ref.ref_id}"
+                    + (
+                        f"（sha256 {ref.ref_sha256[:12]}…）"
+                        if ref.ref_sha256
+                        else ""
+                    )
+                    for ref in refs[:1]
+                )
+            )
+            self._inspector_correlation.setText(
+                "相関:\n"
+                + "\n".join(
+                    f"  {ref.kind}: {ref.ref_id}"
+                    + (
+                        f"（sha256 {ref.ref_sha256[:12]}…）"
+                        if ref.ref_sha256
+                        else ""
+                    )
+                    for ref in refs[1:]
+                )
+                if len(refs) > 1
+                else "相関: なし"
+            )
+        else:
+            self._inspector_sources.setText("ソース権威: なし")
+            self._inspector_correlation.setText("相関: なし")
+        inherited = "（継承元の記録）" if event.inherited else ""
+        self._inspector_id.setText(
+            f"event_id: {event.event_id}{inherited}"
+        )
+        self._inspector_note.setText(
+            _EVIDENCE_CLASS_NOTES[evidence_class]
         )
 
     # -- selection stability ---------------------------------------------------------
@@ -3715,6 +4158,11 @@ class ActivityPage(QWidget):
     # -- refresh -----------------------------------------------------------------------
 
     def refresh(self) -> None:
+        # The projected timeline is re-derived here only; intra-refresh
+        # work (filters, search, paging, selection) reuses the cache.
+        self._events_cache = None
+        self._events_cache_doc = _CACHE_MISS
+
         def _refresh_all() -> None:
             self._refresh_operations()
             self._refresh_events()
@@ -3805,6 +4253,77 @@ def count_recent_revisions(
     except sqlite3.Error:
         return 0
     return int(row[0]) if row else 0
+
+
+def _decode_revision_cursor(after: str | None) -> int | None:
+    """Opaque keyset cursor → seq bound; ``None`` starts at the newest.
+
+    A malformed cursor fails closed with ``ValueError`` — a corrupted
+    bookmark must never silently restart or widen the listing (#1017).
+    """
+
+    if after is None:
+        return None
+    if isinstance(after, str) and after.startswith('seq:'):
+        try:
+            return int(after[4:])
+        except ValueError:
+            pass
+    raise ValueError(f'unknown revision page cursor: {after!r}')
+
+
+def list_revisions_page(
+    repository: SceneRepository,
+    limit: int = 50,
+    *,
+    scope: RevisionListScope = 'project',
+    document_id: str | None = None,
+    after: str | None = None,
+) -> tuple[tuple, str | None]:
+    """Keyset (cursor) page over the scoped revision ledger (#1017).
+
+    Returns ``(rows, next_cursor)`` — rows are ``(created_at_utc,
+    document_id, revision_id)`` ordered newest-first, ``next_cursor`` the
+    opaque ``seq:<n>`` token to pass as ``after`` for the next page, or
+    ``None`` once history is exhausted. Unlike ``OFFSET`` paging the
+    cursor key (``seq``) is stable under concurrent inserts: rows
+    committed while the operator browses never shift the window and can
+    never skip or repeat a row.
+    """
+
+    clause, params = _revision_scope_clause(scope, document_id)
+    before_seq = _decode_revision_cursor(after)
+    cursor_clause = ''
+    cursor_params: tuple = ()
+    if before_seq is not None:
+        cursor_clause = ' AND seq < ?'
+        cursor_params = (before_seq,)
+    path = Path(repository.path)
+    if not path.is_file():
+        return (), None
+    try:
+        with closing(repository._read()) as connection, connection:
+            rows = connection.execute(
+                """
+                SELECT created_at_utc, document_id, revision_id, seq
+                FROM scene_revisions
+                WHERE detached = 0"""
+                + clause
+                + cursor_clause
+                + """
+                ORDER BY seq DESC LIMIT ?
+                """,
+                (*params, *cursor_params, limit + 1),
+            ).fetchall()
+    except sqlite3.Error:
+        return (), None
+    has_more = len(rows) > limit
+    rows = rows[:limit]
+    next_cursor = f'seq:{rows[-1][3]}' if has_more and rows else None
+    return (
+        tuple((str(a), str(b), str(c)) for a, b, c, _seq in rows),
+        next_cursor,
+    )
 
 
 def list_known_document_ids(repository: SceneRepository) -> tuple:
@@ -4210,12 +4729,24 @@ def activity_focus(page: ActivityPage, target: NavigationTarget) -> TargetFocusR
     if target.primary_id is None:
         return TargetFocusResult(focused=True)
     if page.events_table is not None:
-        for row in range(page.events_table.rowCount()):
-            cell = page.events_table.item(row, 0)
-            if cell is not None and _event_row_matches(cell, target):
-                page.events_table.selectRow(row)
-                page.events_table.scrollToItem(cell)
-                return TargetFocusResult(focused=True)
+        # Deep history (#1017): a linked event older than the initial
+        # window loads more pages until it surfaces, so deep links reach
+        # the oldest row instead of reporting it missing. The row-count
+        # guard stops the walk if a cursor ever stalls without growth.
+        while True:
+            for row in range(page.events_table.rowCount()):
+                cell = page.events_table.item(row, 0)
+                if cell is not None and _event_row_matches(cell, target):
+                    page.events_table.selectRow(row)
+                    page.events_table.scrollToItem(cell)
+                    return TargetFocusResult(focused=True)
+            _more, more_button, _label = page.events_pager
+            before = page.events_table.rowCount()
+            if not more_button.isEnabled():
+                break
+            page._events_load_more()
+            if page.events_table.rowCount() == before:
+                break
     for table in (page.operations_table, page.other_operations_table):
         if table is None:
             continue
@@ -4228,15 +4759,23 @@ def activity_focus(page: ActivityPage, target: NavigationTarget) -> TargetFocusR
                 table.selectRow(row)
                 table.scrollToItem(cell)
                 return TargetFocusResult(focused=True)
-    for row in range(page.table.rowCount()):
-        cell = page.table.item(row, 2)
-        if (
-            cell is not None
-            and cell.data(Qt.ItemDataRole.UserRole) in target.object_ids
-        ):
-            page.table.selectRow(row)
-            page.table.scrollToItem(cell)
-            return TargetFocusResult(focused=True)
+    while True:
+        for row in range(page.table.rowCount()):
+            cell = page.table.item(row, 2)
+            if (
+                cell is not None
+                and cell.data(Qt.ItemDataRole.UserRole) in target.object_ids
+            ):
+                page.table.selectRow(row)
+                page.table.scrollToItem(cell)
+                return TargetFocusResult(focused=True)
+        _more, more_button, _label = page.revisions_pager
+        before = page.table.rowCount()
+        if not more_button.isEnabled():
+            break
+        page._revisions_load_more()
+        if page.table.rowCount() == before:
+            break
     return TargetFocusResult(
         focused=False,
         message="アクティビティ一覧に該当の記録がありません",
@@ -4244,6 +4783,7 @@ def activity_focus(page: ActivityPage, target: NavigationTarget) -> TargetFocusR
 
 
 __all__ = [
+    "ActivityEvidenceClass",
     "ActivityPage",
     "CaptureInboxPage",
     "ProjectEntry",
@@ -4254,8 +4794,10 @@ __all__ = [
     "SupportPage",
     "activity_focus",
     "count_recent_revisions",
+    "event_evidence_class",
     "inbox_focus",
     "list_known_document_ids",
+    "list_revisions_page",
     "projects_focus",
     "list_recent_revisions",
 ]

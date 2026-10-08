@@ -363,6 +363,10 @@ _LAZY_IMPORTS = {
     'inbox_focus': ('.application_pages', 'inbox_focus'),
     'list_recent_revisions': ('.application_pages', 'list_recent_revisions'),
     'count_recent_revisions': ('.application_pages', 'count_recent_revisions'),
+    'list_revisions_page': (
+        '.application_pages',
+        'list_revisions_page',
+    ),
     'list_known_document_ids': (
         '.application_pages',
         'list_known_document_ids',
@@ -3111,15 +3115,17 @@ class WorkflowApplicationComposition:
         _self = sys.modules[__name__]
 
         def list_revisions(
-            document_id: str | None, limit: int, offset: int
+            document_id: str | None, limit: int, after: str | None
         ) -> tuple:
-            # document_id=None is the page's explicit global-scope request.
-            return _self.list_recent_revisions(
+            # document_id=None is the page's explicit global-scope request;
+            # ``after`` is the opaque keyset cursor from the previous page
+            # (#1017 — None reads the newest window).
+            return _self.list_revisions_page(
                 self.repository,
                 limit,
                 scope='global' if document_id is None else 'project',
                 document_id=document_id,
-                offset=offset,
+                after=after,
             )
 
         def count_revisions(document_id: str | None) -> int:

@@ -217,7 +217,7 @@ def test_activity_page_lists_project_timeline_events(tmp_path: Path) -> None:
     )
     opened: list[str] = []
     page = ActivityPage(
-        lambda doc, limit, offset: (),
+        lambda doc, limit, after: ((), None),
         list_events=lambda doc: tuple(
             reversed(service.events('doc-round6'))
         ),
@@ -243,7 +243,7 @@ def test_activity_page_lists_operations(tmp_path: Path) -> None:
     )
     center.mark_running(op_id)
     page = ActivityPage(
-        lambda doc, limit, offset: (),
+        lambda doc, limit, after: ((), None),
         list_operations=lambda: (*center.active(), *center.recent()),
     )
     # The op carries no project_ref — it lands in the app-global section

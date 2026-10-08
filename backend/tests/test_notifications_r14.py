@@ -197,7 +197,7 @@ def test_activity_page_ops_table_follows_op_mutations() -> None:
         return (*center.active(), *reversed(center.recent(30)))
 
     page = ActivityPage(
-        lambda _doc, _limit, _offset: (),
+        lambda _doc, _limit, _after: ((), None),
         list_operations=operations,
     )
     try:
