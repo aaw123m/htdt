@@ -329,11 +329,9 @@ entries:
   landed:
     prs:
     - 894
+    - 942
     commits: []
   remaining_gates:
-  - kind: structural
-    description: ソフトウェア残 — 実 IFC/GLB ソース取込による source_refs 生成、および GeometryIntakePanel
-      の Room ワークスペースへの配線 (コントローラはリポジトリ+決定永続化を担う) が未実装
   - kind: manual
     description: オペレータ受入 — ジオメトリ取込パネルの実運用確認 + VTK ハイライト描画の実機検証
   evidence_refs:
