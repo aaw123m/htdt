@@ -766,3 +766,97 @@ def test_deploy_dry_run(tmp_path, capsys):
     assert code == 0
     assert env['outcome'] == 'dry_run'
     assert env['run_record_id'] is None
+
+
+def test_deploy_run_records_simulated_adapter(tmp_path, capsys):
+    """The sealed run record must expose the adapter substrate honestly —
+    an avr-lan deploy is always the fake transport on this CLI."""
+    from htdt.cad_avr_lan_adapter import AVR_LAN_ADAPTER_ID
+
+    data_dir = _data_dir(tmp_path)
+    spec = _deploy_spec(tmp_path)
+    code, env = _run(
+        capsys, 'deploy', 'run', '--spec', spec,
+        '--authorize-apply', 'op-1',
+        '--authorize-rollback', 'op-1',
+        '--json', '--data-dir', data_dir)
+    assert code == 0, env
+    code, env2 = _run(
+        capsys, 'records', 'export', '--kind', 'headless_run',
+        '--id', env['run_record_id'], '--json',
+        '--data-dir', data_dir)
+    payload = env2['data']['payload']
+    assert payload['backend_id'] == AVR_LAN_ADAPTER_ID
+    assert payload['backend_is_simulated'] is True
+
+
+def test_deploy_file_adapter_records_backend(tmp_path, capsys):
+    """The file lane is a real (offline_file) adapter — record names it
+    and is not marked simulated."""
+    from htdt.cad_device_adapter_file import FILE_ADAPTER_ID
+
+    data_dir = _data_dir(tmp_path)
+    spec_path = Path(_deploy_spec(tmp_path))
+    spec = json.loads(spec_path.read_text(encoding='utf-8'))
+    spec['adapter'] = {
+        'kind': 'file', 'file_root': str(tmp_path / 'files')}
+    spec = _write(tmp_path / 'deploy-file.json', spec)
+
+    code, env = _run(
+        capsys, 'deploy', 'run', '--spec', spec,
+        '--preview-only', '--json', '--data-dir', data_dir)
+    assert code == 0, env
+    code, env2 = _run(
+        capsys, 'records', 'export', '--kind', 'headless_run',
+        '--id', env['run_record_id'], '--json',
+        '--data-dir', data_dir)
+    payload = env2['data']['payload']
+    assert payload['backend_id'] == FILE_ADAPTER_ID
+    assert payload['backend_is_simulated'] is False
+
+
+def test_deploy_avr_lan_simulated_false_is_blocked(tmp_path, capsys):
+    """adapter.simulated=false claims a real telnet transport the CLI
+    does not have — the spec must be refused, not laundered into a
+    'documented network_api' capability record."""
+    spec_path = Path(_deploy_spec(tmp_path))
+    spec = json.loads(spec_path.read_text(encoding='utf-8'))
+    spec['adapter']['simulated'] = False
+    spec = _write(tmp_path / 'deploy-nonsim.json', spec)
+
+    code, env = _run(
+        capsys, 'deploy', 'run', '--spec', spec,
+        '--authorize-apply', 'op-1',
+        '--json', '--data-dir', _data_dir(tmp_path))
+    assert code == 3
+    assert env['outcome'] == 'blocked'
+    assert 'simulated' in env['reason']
+
+
+def test_campaign_run_backend_spec_records_declared_backend(
+        tmp_path, capsys):
+    """backend_is_simulated must follow the parsed backend spec, not the
+    mere presence of the --backend-spec flag."""
+    data_dir = _data_dir(tmp_path)
+    spec = _campaign_spec(tmp_path)
+    out_file = str(tmp_path / 'campaign-plan.json')
+    code, env = _run(
+        capsys, 'campaign', 'plan', '--spec', spec,
+        '--out', out_file, '--json', '--data-dir', data_dir)
+    assert code == 0
+
+    backend_spec = _write(
+        tmp_path / 'backend.json', {'backend': 'fake'})
+    code, env = _run(
+        capsys, 'campaign', 'run', '--plan', out_file,
+        '--backend-spec', backend_spec,
+        '--arm', '--auto-confirm-position', '--json',
+        '--data-dir', data_dir)
+    assert code in (0, 2), env
+    code, env2 = _run(
+        capsys, 'records', 'export', '--kind', 'headless_run',
+        '--id', env['run_record_id'], '--json',
+        '--data-dir', data_dir)
+    payload = env2['data']['payload']
+    assert payload['backend_id'] == 'fake'
+    assert payload['backend_is_simulated'] is True

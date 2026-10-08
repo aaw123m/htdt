@@ -649,6 +649,7 @@ def _verb_campaign_run(ctx: _Ctx) -> _VerbOutcome:
         kind='campaign_execution_plan')
     ctx.document_id = plan.document_id
     backend_spec = _load_backend_spec(args.backend_spec)
+    args.resolved_backend_spec = backend_spec
     if ctx.args.dry_run:
         return _VerbOutcome(
             'dry_run', verdict='planned',
@@ -781,6 +782,7 @@ def _verb_channel_verify_run(ctx: _Ctx) -> _VerbOutcome:
         kind='channel_verification_plan')
     ctx.document_id = plan.document_id
     backend_spec = _load_backend_spec(args.backend_spec)
+    args.resolved_backend_spec = backend_spec
     if ctx.args.dry_run:
         return _VerbOutcome(
             'dry_run', verdict='planned',
@@ -940,6 +942,13 @@ def _build_adapter(spec: HeadlessDeploymentSpec | HeadlessDiagnosticSpec):
                 'file adapter needs adapter.file_root')
         adapter = FileCalibrationAdapter(adapter_spec.file_root)
         return adapter, FILE_ADAPTER_ID
+    if not adapter_spec.simulated:
+        raise HeadlessCliError(
+            'blocked',
+            'avr-lan adapter is loopback-only on this CLI — '
+            'simulated=false claims a real telnet transport that does '
+            'not exist here; keep adapter.simulated=true or use the '
+            'file adapter')
     transport = FakeAvrLanTransport(
         initial=adapter_spec.initial_gains)
     # The binding's device_serial IS the endpoint key the adapter resolves.
@@ -949,7 +958,7 @@ def _build_adapter(spec: HeadlessDeploymentSpec | HeadlessDiagnosticSpec):
         transports,
         approved_remote_endpoints=tuple(
             adapter_spec.approved_remote_endpoints),
-        simulated=adapter_spec.simulated)
+        simulated=True)
     return adapter, AVR_LAN_ADAPTER_ID
 
 
@@ -971,6 +980,11 @@ def _verb_deployment_run(ctx: _Ctx) -> _VerbOutcome:
     args = ctx.args
     spec: HeadlessDeploymentSpec = args.resolved_spec
     adapter, adapter_id = _build_adapter(spec)
+    args.deployment_backend = (
+        adapter_id,
+        adapter is not None
+        and adapter.capability().adapter_kind == 'simulated',
+    )
     binding = _build_binding(spec.binding, adapter_id, _utc_now())
     service = DeploymentPipelineService(
         adapter, binding,
@@ -1523,14 +1537,27 @@ def main(argv: list[str] | None = None) -> int:
         elapsed_ms = int(
             (time.monotonic() - monotonic_start) * 1000)
         backend_id = None
-        backend_is_simulated = False
+        backend_is_simulated: bool | None = None
         if spec is not None and isinstance(spec, HeadlessBackendSpec):
             backend_id = spec.backend
             backend_is_simulated = spec.backend == 'fake'
         elif verb in ('campaign.run', 'channel_verify.run'):
-            bspec = getattr(args, 'backend_spec', None)
-            backend_id = 'fake' if not bspec else None
-            backend_is_simulated = bspec is None
+            bspec = getattr(args, 'resolved_backend_spec', None)
+            if bspec is not None:
+                backend_id = bspec.backend
+                backend_is_simulated = bspec.backend == 'fake'
+            elif getattr(args, 'backend_spec', None) is None:
+                backend_id = 'fake'
+                backend_is_simulated = True
+        elif verb == 'deployment.run':
+            dep_backend = getattr(args, 'deployment_backend', None)
+            if dep_backend is not None:
+                backend_id, backend_is_simulated = dep_backend
+        if backend_is_simulated is None:
+            # Substrate never resolved (handler failed before building
+            # it) — the sealed record claims simulated rather than a
+            # real lane the run cannot prove.
+            backend_is_simulated = True
         seal_document_id = ctx.document_id or document_id
         if sealed and not args.dry_run and seal_document_id:
             spec_json = None
