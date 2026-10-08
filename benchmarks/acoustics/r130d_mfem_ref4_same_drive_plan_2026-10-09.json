@@ -1,0 +1,67 @@
+{
+  "schema_version": "htdt.r130d.same-source-independent-mfem-r4-experiment-1",
+  "issue": 938,
+  "scope": "Experimental same-source independent MFEM spatial refinement r3→r4 using pinned MFEM P2 geometry, a sparse implicit-midpoint solver, and unchanged FV grid n32 authority",
+  "mfem_git_source_pin": "d964264cdb9a13e94a201b6c236c7721e0c8765f",
+  "mfem_compile_project": "benchmarks/acoustics/r130d_mfem_reference/CMakeLists.txt",
+  "mfem_compile_reference": "benchmarks/acoustics/r130d_mfem_reference/sloped_tet_system.cpp",
+  "previous_mfem_r3_comparison_evidence": "benchmarks/acoustics/r130d_fv_mfem_same_drive_evidence_2026-10-09.json",
+  "baseline_mfem_r3_json_sha256": "6a43a624223fa512152059d103c4d841723fa1266ea8a22842322fb50db42511",
+  "new_mfem_uniform_refinements": 4,
+  "expected_tetra_elements": 24576,
+  "expected_dofs": 35937,
+  "polynomial_order": 2,
+  "geometry": "R130D exact sloped tetra polyhedron 56m3, natural Neumann",
+  "c_m_s": 343.2,
+  "density_kg_m3": 1.2,
+  "source_xyz_m": [
+    1.5,
+    2,
+    2
+  ],
+  "receiver_xyz_m": [
+    2.5,
+    2,
+    2
+  ],
+  "source_q_m3_s": {
+    "waveform": "exp(-0.5*((t-0.012)/0.003)^2)",
+    "midpoint_sampled": true
+  },
+  "dt_s": 0.00025,
+  "duration_s": 0.25,
+  "steps": 1000,
+  "frequencies_hz": [
+    40,
+    80
+  ],
+  "normalization": "midpoint finite-record P_T/Q_T using exp(+i 2π f t), identical to FV and MFEM r1/r2/r3",
+  "method": "independently compiled MFEM P2 K,M,b,r; implicit midpoint same wave equation; sparse preconditioned conjugate gradients, not dense modal decomposition",
+  "linear_solver": {
+    "rtol": 1e-11,
+    "atol": 1e-12,
+    "maxiter": 350,
+    "preconditioner": "Jacobi diagonal A=M+dt^2/4K",
+    "true_residual_relative_max": 1e-8
+  },
+  "resources": {
+    "max_dofs": 35937,
+    "max_nnz_per_matrix": 1500000,
+    "max_json_bytes": 200000000,
+    "max_run_memory_mb": 7000,
+    "max_solve_wall_seconds": 1200,
+    "max_workflow_minutes": 60
+  },
+  "compare": [
+    "r3→r4 complex L2 and per-bin phase/magnitude",
+    "FV n32 versus MFEM r4 using identical source"
+  ],
+  "interpretation": "If MFEM r3→r4 discrepancy decreases, this supports independent FEM refinement but r4 is not automatically a continuum reference. Do not select bins or retune sources; retain canonical failed gates.",
+  "gate": {
+    "canonical_pffdtd": "SELF_CONVERGENCE_FAILED",
+    "canonical_mfem_impulse": "SELF_CONVERGENCE_FAILED",
+    "independent_cross_solver_qualified": false,
+    "physical_validation": "NOT_VALIDATED",
+    "production_ready": false
+  }
+}
