@@ -20,7 +20,7 @@ if TYPE_CHECKING:
 
 import pyqtgraph as pg
 from pyqtgraph.exporters import ImageExporter
-from PySide6.QtCore import Qt, QTimer, Signal, Slot
+from PySide6.QtCore import QEvent, Qt, QTimer, Signal, Slot
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
@@ -192,6 +192,16 @@ _VARIANT_PURPOSE_LABELS = {
     "validation": "検証",
 }
 _USER_ROLE = int(Qt.ItemDataRole.UserRole)
+
+# #969: below this VIEWPORT width the quality table and its selection
+# detail stack vertically instead of sharing a horizontal split — the
+# detail must stay readable without any horizontal scrolling. The value
+# covers the side-by-side minimum (~1160 px: both cards' minimum widths
+# plus margins) so horizontal mode never needs an h-scrollbar of its own.
+_QUALITY_DETAIL_STACK_MIN_WIDTH = 1180
+# Verdict-filter sentinel matching rows whose 品質 cell shows 検証エラー
+# (a dataset authoritative-read failure, which is not a quality_status).
+_QUALITY_VERDICT_DATASET_ERROR = "__dataset_error__"
 
 # Background automation retries are transient-failure paths, not permanent
 # ones: a REW fetch or watch-file stage that fails this many times in a row
@@ -627,6 +637,12 @@ class MeasurementPageWorkspace(QWidget):
         self._rew_timer.timeout.connect(self._rew_auto_tick)
         self._rew_rows: list[dict[str, Any]] = []
         self._quality_views: tuple[MeasurementView, ...] = ()
+        # #969: the table is filtered and sortable, so a visual row index
+        # can never be trusted — every row→view lookup goes through the
+        # measurement_id stored on each item's UserRole.
+        self._quality_views_by_id: dict[str, MeasurementView] = {}
+        self._filtered_quality_views: tuple[MeasurementView, ...] = ()
+        self._quality_page_viewport: QWidget | None = None
         self._commit_job_key: str | None = None
         self._last_comparison: CadMeasurementComparison | None = None
         self._saved_comparisons: tuple[CadMeasurementComparison, ...] = ()
@@ -763,24 +779,32 @@ class MeasurementPageWorkspace(QWidget):
         self._update_context_label()
 
     def focus_entity(self, entity_id: str) -> None:
-        def _row_index() -> int | None:
-            for index, row in enumerate(self._quality_views):
+        def _match() -> MeasurementView | None:
+            for row in self._quality_views:
                 if (
                     row.measurement_id == entity_id
                     or row.target_entity_id == entity_id
                 ):
-                    return index
+                    return row
             return None
 
-        row_index = _row_index()
-        if row_index is None:
+        view = _match()
+        if view is None:
             return
         if self.current_context_id != "quality":
             # The selection only exists on the quality page — show it before
             # selecting, otherwise the row changes invisibly behind the
             # section the link specified.
             self.set_context("quality")
-            row_index = _row_index()
+            view = _match()
+            if view is None:
+                return
+        row_index = self._quality_row_index_for_id(view.measurement_id)
+        if row_index is None:
+            # #969: a deep link must reach its row — when the active filters
+            # hide it, reset them instead of selecting invisibly.
+            self._clear_quality_filters()
+            row_index = self._quality_row_index_for_id(view.measurement_id)
             if row_index is None:
                 return
         self.quality_table.selectRow(row_index)
@@ -790,13 +814,19 @@ class MeasurementPageWorkspace(QWidget):
         """Deep-link/palette focus port: select the quality row for
         ``measurement_id``; returns False when the record is absent."""
         self.refresh()
-        for index, row in enumerate(self._quality_views):
+        for row in self._quality_views:
             if row.measurement_id != measurement_id:
                 continue
             if self.current_context_id != "quality":
                 self.set_context("quality")
-            self.quality_table.selectRow(index)
-            self._show_quality_row(index)
+            row_index = self._quality_row_index_for_id(measurement_id)
+            if row_index is None:
+                self._clear_quality_filters()
+                row_index = self._quality_row_index_for_id(measurement_id)
+            if row_index is None:
+                return False
+            self.quality_table.selectRow(row_index)
+            self._show_quality_row(row_index)
             return True
         return False
 
@@ -873,6 +903,12 @@ class MeasurementPageWorkspace(QWidget):
             (self.campaign_pattern_combo, 'campaign.pattern'),
             (self.campaign_variant_combo, 'campaign.variant_plan'),
             (self.campaign_measurement_combo, 'campaign.measurement'),
+            (self.quality_verdict_combo, 'quality.filter.verdict'),
+            (self.quality_state_combo, 'quality.filter.state'),
+            (self.quality_channel_filter, 'quality.filter.channel'),
+            (self.quality_position_filter, 'quality.filter.position'),
+            (self.quality_search_edit, 'quality.filter.search'),
+            (self.quality_filter_clear, 'quality.filter.clear'),
             (self.quality_smoothing_combo, 'quality.smoothing'),
             (self.quality_target_combo, 'quality.target'),
             (self.phase_unwrap_check, 'quality.phase_unwrap'),
@@ -4425,7 +4461,83 @@ class MeasurementPageWorkspace(QWidget):
         layout.addLayout(capability_row)
 
         table_card, table_layout = _card("保存済み測定", host)
+
+        # #969: combinable filters over the saved-measurement listing —
+        # quality verdict, attention/status flag, channel role, measurement
+        # position and free text all intersect; the count stays honest.
+        filter_row = QHBoxLayout()
+        self.quality_verdict_combo = QComboBox(table_card)
+        self.quality_verdict_combo.addItem("品質: すべて", None)
+        self.quality_verdict_combo.setAccessibleName("品質で絞り込み")
+        self.quality_verdict_combo.currentIndexChanged.connect(
+            lambda _i: self._apply_quality_filters()
+        )
+        filter_row.addWidget(self.quality_verdict_combo)
+        self.quality_state_combo = QComboBox(table_card)
+        for label, value in (
+            ("状態: すべて", None),
+            ("要対応のみ", "attention"),
+            ("要再測定", "retake"),
+            ("レポート再評価", "stale_report"),
+            ("校正が未確認/不合格", "calibration"),
+            ("検証エラー", "verification_error"),
+            ("通常利用から除外", "excluded"),
+        ):
+            self.quality_state_combo.addItem(label, value)
+        self.quality_state_combo.setAccessibleName("状態で絞り込み")
+        self.quality_state_combo.currentIndexChanged.connect(
+            lambda _i: self._apply_quality_filters()
+        )
+        filter_row.addWidget(self.quality_state_combo)
+        self.quality_channel_filter = QComboBox(table_card)
+        self.quality_channel_filter.addItem("入力: すべて", None)
+        self.quality_channel_filter.setAccessibleName("入力役割で絞り込み")
+        self.quality_channel_filter.currentIndexChanged.connect(
+            lambda _i: self._apply_quality_filters()
+        )
+        filter_row.addWidget(self.quality_channel_filter)
+        self.quality_position_filter = QComboBox(table_card)
+        self.quality_position_filter.addItem("測定位置: すべて", None)
+        self.quality_position_filter.setAccessibleName("測定位置で絞り込み")
+        self.quality_position_filter.currentIndexChanged.connect(
+            lambda _i: self._apply_quality_filters()
+        )
+        filter_row.addWidget(self.quality_position_filter)
+        filter_row.addStretch(1)
+        table_layout.addLayout(filter_row)
+
+        search_row = QHBoxLayout()
+        self.quality_search_edit = QLineEdit(table_card)
+        self.quality_search_edit.setPlaceholderText(
+            "測定ID・測定位置・入力役割で検索"
+        )
+        self.quality_search_edit.setAccessibleName(
+            "測定ID・測定位置・入力役割で検索"
+        )
+        self.quality_search_edit.setClearButtonEnabled(True)
+        self.quality_search_edit.textChanged.connect(
+            lambda _t: self._apply_quality_filters()
+        )
+        search_row.addWidget(self.quality_search_edit, 1)
+        self.quality_filter_clear = QPushButton("絞り込みをクリア", table_card)
+        self.quality_filter_clear.setAccessibleName("絞り込みをクリア")
+        self.quality_filter_clear.clicked.connect(self._clear_quality_filters)
+        search_row.addWidget(self.quality_filter_clear)
+        self.quality_count_label = QLabel("", table_card)
+        self.quality_count_label.setAccessibleName("表示件数")
+        set_typography_role(self.quality_count_label, TypographyRole.SECONDARY)
+        search_row.addWidget(self.quality_count_label)
+        table_layout.addLayout(search_row)
+
+        self.quality_selection_note = QLabel("", table_card)
+        self.quality_selection_note.setWordWrap(True)
+        set_typography_role(
+            self.quality_selection_note, TypographyRole.SECONDARY
+        )
+        table_layout.addWidget(self.quality_selection_note)
+
         self.quality_table = QTableWidget(0, 10, table_card)
+        self.quality_table.setAccessibleName("保存済み測定一覧")
         self.quality_table.setHorizontalHeaderLabels(
             ["入力", "証拠", "測定位置", "品質", "位相", "共通タイミング", "配置", "帯域", "状態", "再測定"]
         )
@@ -4442,12 +4554,22 @@ class MeasurementPageWorkspace(QWidget):
         )
         self.quality_table.horizontalHeader().setStretchLastSection(True)
         self.quality_table.itemSelectionChanged.connect(self._quality_selection_changed)
+        # #969: column sorting is allowed — every row→record lookup resolves
+        # through the measurement_id on UserRole, never the visual index.
+        self.quality_table.setSortingEnabled(True)
         self.quality_table.setMinimumHeight(220)
         table_layout.addWidget(self.quality_table)
 
         detail_card, detail_layout = _card("選択した測定", host)
         self.quality_detail = QLabel("測定を選択してください", detail_card)
+        self.quality_detail.setAccessibleName("選択した測定の詳細")
         self.quality_detail.setWordWrap(True)
+        # #969: keyboard users must reach and copy the detail text too.
+        self.quality_detail.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+            | Qt.TextInteractionFlag.TextSelectableByKeyboard
+        )
+        self.quality_detail.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         detail_layout.addWidget(self.quality_detail)
 
         analysis_row = QHBoxLayout()
@@ -4508,12 +4630,20 @@ class MeasurementPageWorkspace(QWidget):
 
         # Synchronized table + detail split (#586): row selection and its
         # plot/detail stay adjacent instead of separated by a long scroll.
-        quality_split = QSplitter(Qt.Orientation.Horizontal, host)
-        quality_split.addWidget(table_card)
-        quality_split.addWidget(detail_card)
-        quality_split.setStretchFactor(0, 1)
-        quality_split.setStretchFactor(1, 1)
-        layout.addWidget(quality_split)
+        # #969: below _QUALITY_DETAIL_STACK_MIN_WIDTH the same splitter
+        # flips to a vertical stack — detail under the table, no horizontal
+        # scroll needed to read it. The flip keys on the scroll area's
+        # VIEWPORT width: the host itself cannot shrink below its own
+        # minimum size, so its width never signals "narrow".
+        self.quality_split = QSplitter(Qt.Orientation.Horizontal, host)
+        self.quality_split.addWidget(table_card)
+        self.quality_split.addWidget(detail_card)
+        self.quality_split.setStretchFactor(0, 1)
+        self.quality_split.setStretchFactor(1, 1)
+        layout.addWidget(self.quality_split)
+        self._quality_page_viewport = page.viewport()
+        self._quality_page_viewport.installEventFilter(self)
+        self._relayout_quality_split()
 
         spatial_card, spatial_layout = _card("空間コンテキスト", host)
         self.spatial_summary = QLabel("測定を選択してください", spatial_card)
@@ -4674,14 +4804,24 @@ class MeasurementPageWorkspace(QWidget):
         if views is None:
             views = self.controller.measurement_views()
         self._quality_views = views
+        self._quality_views_by_id = {
+            row.measurement_id: row for row in views
+        }
+        self._rebuild_quality_filter_choices()
         selected_id = None
         selected_items = self.quality_table.selectedItems()
         if selected_items:
             selected_id = selected_items[0].data(Qt.ItemDataRole.UserRole)
 
-        self._quality_views = views
-        self.quality_table.setRowCount(len(views))
-        for row_index, row in enumerate(views):
+        # #969: the combinable filters decide which rows the table shows;
+        # the listing itself keeps every measurement. Sorting is disabled
+        # while rows are inserted, then re-enabled — all row→record lookups
+        # resolve the measurement_id on UserRole, never the visual index.
+        filtered = self._quality_filtered_views()
+        self._filtered_quality_views = filtered
+        self.quality_table.setSortingEnabled(False)
+        self.quality_table.setRowCount(len(filtered))
+        for row_index, row in enumerate(filtered):
             values = (
                 _channel_role_label(row.effective_channel_role),
                 _evidence_label(row.evidence_type),
@@ -4724,9 +4864,13 @@ class MeasurementPageWorkspace(QWidget):
                 if tip:
                     item.setToolTip(tip)
                 self.quality_table.setItem(row_index, column, item)
-            if selected_id == row.measurement_id:
-                self.quality_table.selectRow(row_index)
-                self._show_quality_row(row_index)
+        self.quality_table.setSortingEnabled(True)
+
+        # #969: honest count — hidden rows are stated, never silently dropped.
+        self.quality_count_label.setText(
+            f"{len(views)}件中{len(filtered)}件を表示"
+        )
+        self._update_quality_selection_note(selected_id)
 
         dataset_count = sum(1 for row in views if row.dataset_id is not None)
         phase_count = sum(
@@ -4786,9 +4930,258 @@ class MeasurementPageWorkspace(QWidget):
             self.retake_label.setText("保存済み測定はありません")
             self.retake_button.setEnabled(False)
             self._update_context_label()
-        elif not self.quality_table.selectedItems():
+            return
+        # Selection persists keyed by measurement_id (#969). A vanished or
+        # filter-hidden selection stays cleared — the note above explains
+        # why; an untouched first fill keeps the historic row-0 default.
+        target_row = (
+            self._quality_row_index_for_id(selected_id)
+            if selected_id is not None
+            else None
+        )
+        if target_row is not None:
+            self.quality_table.selectRow(target_row)
+        elif selected_id is None and filtered and not self.quality_table.selectedItems():
             self.quality_table.selectRow(0)
-            self._show_quality_row(0)
+        if self.quality_table.selectedItems():
+            self._show_quality_row(self.quality_table.currentRow())
+        elif filtered:
+            self.quality_detail.setText("測定を選択してください")
+        else:
+            self.quality_detail.setText(
+                "絞り込み条件に一致する測定はありません"
+            )
+
+    def _quality_row_index_for_id(self, measurement_id: str) -> int | None:
+        """#969: resolve a measurement_id to its current VISUAL table row.
+
+        Filtering and sorting decouple the visual index from
+        ``_quality_views`` order — only the UserRole binding is stable."""
+        for row_index in range(self.quality_table.rowCount()):
+            item = self.quality_table.item(row_index, 0)
+            if (
+                item is not None
+                and item.data(Qt.ItemDataRole.UserRole) == measurement_id
+            ):
+                return row_index
+        return None
+
+    def _quality_view_for_row(self, row_index: int) -> MeasurementView | None:
+        """#969: map a visual table row back to its record by id."""
+        item = self.quality_table.item(row_index, 0)
+        if item is None:
+            return None
+        measurement_id = item.data(Qt.ItemDataRole.UserRole)
+        if measurement_id is None:
+            return None
+        return self._quality_views_by_id.get(measurement_id)
+
+    # -- #969 combinable filters ------------------------------------------
+
+    @staticmethod
+    def _refill_filter_combo(combo: QComboBox, entries) -> None:
+        """Rebuild a filter combo's choices, preserving the current value
+        when it still exists (filters survive refresh keyed on data)."""
+        current = combo.currentData()
+        combo.blockSignals(True)
+        combo.clear()
+        for label, data in entries:
+            combo.addItem(label, data)
+        index = combo.findData(current)
+        combo.setCurrentIndex(index if index >= 0 else 0)
+        combo.blockSignals(False)
+
+    def _rebuild_quality_filter_choices(self) -> None:
+        """#969: verdict/channel/position choices reflect the current
+        listing — a value that disappeared unselects itself honestly."""
+        statuses: list[str] = []
+        roles: list[str] = []
+        positions: list[str] = []
+        has_dataset_error = False
+        for row in self._quality_views:
+            if row.quality_status not in statuses:
+                statuses.append(row.quality_status)
+            if row.effective_channel_role not in roles:
+                roles.append(row.effective_channel_role)
+            if row.effective_target_name not in positions:
+                positions.append(row.effective_target_name)
+            has_dataset_error = has_dataset_error or bool(row.dataset_error)
+        verdict_entries: list[tuple[str, object]] = [("品質: すべて", None)]
+        if has_dataset_error:
+            verdict_entries.append(
+                ("品質: 検証エラー", _QUALITY_VERDICT_DATASET_ERROR)
+            )
+        verdict_entries.extend(
+            (f"品質: {_quality_label(status)}", status)
+            for status in sorted(statuses)
+        )
+        self._refill_filter_combo(self.quality_verdict_combo, verdict_entries)
+        self._refill_filter_combo(
+            self.quality_channel_filter,
+            [("入力: すべて", None)]
+            + [
+                (f"入力: {_channel_role_label(role)}", role)
+                for role in sorted(roles)
+            ],
+        )
+        self._refill_filter_combo(
+            self.quality_position_filter,
+            [("測定位置: すべて", None)]
+            + [(f"測定位置: {name}", name) for name in sorted(positions)],
+        )
+
+    def _quality_attention_reasons(self, row: MeasurementView) -> list[str]:
+        """#969 「要対応」 facets — each reason is stated, never implied."""
+        reasons: list[str] = []
+        if (
+            row.dataset_error
+            or row.report_error
+            or row.quality_report_state == "error"
+        ):
+            reasons.append("検証エラー")
+        if row.quality_status == "invalid":
+            reasons.append("品質 invalid")
+        if row.retake_recommendation == "RETAKE":
+            reasons.append("要再測定")
+        if row.quality_report_state == "stale":
+            reasons.append("レポート再評価")
+        if any(item.status == "FAIL" for item in row.quality_checks):
+            reasons.append("チェック不合格")
+        if not row.is_normally_eligible:
+            reasons.append("通常利用から除外")
+        return reasons
+
+    def _quality_state_matches(self, row: MeasurementView, state: str) -> bool:
+        if state == "attention":
+            return bool(self._quality_attention_reasons(row))
+        if state == "retake":
+            return row.retake_recommendation == "RETAKE"
+        if state == "stale_report":
+            return row.quality_report_state in ("stale", "error")
+        if state == "calibration":
+            # Honest reading: only an evaluated calibration check that did
+            # not pass counts — missing evidence never claims uncalibrated.
+            return any(
+                item.check == "calibration" and item.status != "PASS"
+                for item in row.quality_checks
+            )
+        if state == "verification_error":
+            return bool(
+                row.dataset_error
+                or row.report_error
+                or row.quality_report_state == "error"
+            )
+        if state == "excluded":
+            return not row.is_normally_eligible
+        return True
+
+    def _quality_filtered_views(self) -> tuple[MeasurementView, ...]:
+        verdict = self.quality_verdict_combo.currentData()
+        state = self.quality_state_combo.currentData()
+        channel = self.quality_channel_filter.currentData()
+        position = self.quality_position_filter.currentData()
+        needle = self.quality_search_edit.text().strip().lower()
+        filtered: list[MeasurementView] = []
+        for row in self._quality_views:
+            if verdict is not None:
+                if verdict == _QUALITY_VERDICT_DATASET_ERROR:
+                    if not row.dataset_error:
+                        continue
+                elif row.dataset_error or row.quality_status != verdict:
+                    continue
+            if state is not None and not self._quality_state_matches(
+                row, state
+            ):
+                continue
+            if (
+                channel is not None
+                and row.effective_channel_role != channel
+            ):
+                continue
+            if (
+                position is not None
+                and row.effective_target_name != position
+            ):
+                continue
+            if needle:
+                haystack = " ".join(
+                    (
+                        row.measurement_id,
+                        row.effective_target_name,
+                        row.target_name,
+                        row.effective_target_entity_id,
+                        row.effective_channel_role,
+                        _channel_role_label(row.effective_channel_role),
+                        row.dataset_id or "",
+                    )
+                ).lower()
+                if needle not in haystack:
+                    continue
+            filtered.append(row)
+        return tuple(filtered)
+
+    def _update_quality_selection_note(self, selected_id) -> None:
+        """#969: when the prior selection can no longer be shown, say why
+        instead of silently pointing at a different measurement."""
+        if selected_id is None:
+            self.quality_selection_note.setText("")
+            return
+        row = self._quality_views_by_id.get(selected_id)
+        if row is None:
+            self.quality_selection_note.setText(
+                "選択していた測定は現在の一覧にありません"
+                "（別のリビジョンまたは削除済み）。"
+            )
+            return
+        if row not in self._filtered_quality_views:
+            self.quality_selection_note.setText(
+                "選択していた測定は絞り込み条件で非表示です。"
+            )
+            return
+        self.quality_selection_note.setText("")
+
+    def _apply_quality_filters(self) -> None:
+        """Re-run the listing through the current filter controls — reuses
+        the fetched views so a keystroke never re-verifies the store."""
+        self._refresh_quality(self._quality_views)
+
+    def _clear_quality_filters(self) -> None:
+        for combo in (
+            self.quality_verdict_combo,
+            self.quality_state_combo,
+            self.quality_channel_filter,
+            self.quality_position_filter,
+        ):
+            combo.blockSignals(True)
+            combo.setCurrentIndex(0)
+            combo.blockSignals(False)
+        self.quality_search_edit.blockSignals(True)
+        self.quality_search_edit.clear()
+        self.quality_search_edit.blockSignals(False)
+        self.quality_selection_note.setText("")
+        self._apply_quality_filters()
+
+    def _relayout_quality_split(self) -> None:
+        """#969 adaptive layout: wide pages keep table‖detail side-by-side;
+        narrow/high-DPI pages stack detail under the table."""
+        viewport = self._quality_page_viewport
+        if viewport is None:
+            return
+        target = (
+            Qt.Orientation.Horizontal
+            if viewport.width() >= _QUALITY_DETAIL_STACK_MIN_WIDTH
+            else Qt.Orientation.Vertical
+        )
+        if self.quality_split.orientation() != target:
+            self.quality_split.setOrientation(target)
+
+    def eventFilter(self, watched, event) -> bool:
+        if (
+            watched is self._quality_page_viewport
+            and event.type() == QEvent.Type.Resize
+        ):
+            self._relayout_quality_split()
+        return super().eventFilter(watched, event)
 
     def _quality_selection_changed(self) -> None:
         row_index = self.quality_table.currentRow()
@@ -4922,9 +5315,11 @@ class MeasurementPageWorkspace(QWidget):
             ]
 
     def _show_quality_row(self, row_index: int) -> None:
-        if not (0 <= row_index < len(self._quality_views)):
+        # #969: the visual row is never an index into _quality_views —
+        # resolve the record through the item's measurement_id binding.
+        row = self._quality_view_for_row(row_index)
+        if row is None:
             return
-        row = self._quality_views[row_index]
         reasons = "、".join(row.quality_reasons) if row.quality_reasons else "理由情報なし"
         captured = row.captured_at or "取得時刻未記録"
         scene = "現在の配置と一致" if row.scene_matches_current else "測定時の配置を保持"
@@ -4940,6 +5335,7 @@ class MeasurementPageWorkspace(QWidget):
                 f"（{row.dataset_error}）。比較・解析からは除外されています。"
             )
         detail_lines.append(
+            f"測定ID: {row.measurement_id}\n"
             f"{row.effective_target_name} · {_evidence_label(row.evidence_type)} · "
             f"{_channel_role_label(row.effective_channel_role)}\n"
             f"品質: {_quality_label(row.quality_status)} · {reasons}\n"
@@ -5116,10 +5512,7 @@ class MeasurementPageWorkspace(QWidget):
         self.level_reference_button.setEnabled(False)
 
     def _selected_quality_view(self) -> MeasurementView | None:
-        row_index = self.quality_table.currentRow()
-        if not (0 <= row_index < len(self._quality_views)):
-            return None
-        return self._quality_views[row_index]
+        return self._quality_view_for_row(self.quality_table.currentRow())
 
     def _refresh_quality_plot(self) -> None:
         """Redraw the FR analysis view: stored trace, optional deterministic
@@ -5437,10 +5830,9 @@ class MeasurementPageWorkspace(QWidget):
         self._update_context_label()
 
     def _start_retake(self) -> None:
-        row_index = self.quality_table.currentRow()
-        if not (0 <= row_index < len(self._quality_views)):
+        row = self._selected_quality_view()
+        if row is None:
             return
-        row = self._quality_views[row_index]
         self._retake_source_id = row.measurement_id
         self._correction_target_id = None
         self._set_notice(
@@ -7078,9 +7470,8 @@ class MeasurementPageWorkspace(QWidget):
             )
             return
         if self.current_context_id == "quality":
-            row_index = self.quality_table.currentRow()
-            if 0 <= row_index < len(self._quality_views):
-                row = self._quality_views[row_index]
+            row = self._selected_quality_view()
+            if row is not None:
                 self.context_label.setText(
                     f"{_channel_role_label(row.channel_role)} · {row.target_name} · "
                     f"{_evidence_label(row.evidence_type)} · "

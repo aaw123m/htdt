@@ -300,6 +300,28 @@ FIELD_EXPLANATIONS: dict[str, FieldExplanation] = {
         '再測定の推奨です。品質証拠が不足している場合に'
         '再測定を促します。',
     ),
+    # --- Quality page filters (#969) --------------------------------------
+    'quality.filter.verdict': FieldExplanation(
+        '品質状態で絞り込みます。検証エラーはデータセットの検証失敗を'
+        '示し、品質状態とは別の値です。',
+        topic='trouble.unknown_value',
+    ),
+    'quality.filter.state': FieldExplanation(
+        '運用状態で絞り込みます（要対応 / 要再測定 / レポート再評価 / '
+        '校正未確認 / 検証エラー / 除外中）。',
+    ),
+    'quality.filter.channel': FieldExplanation(
+        '入力役割で絞り込みます。一覧にある役割だけが候補になります。',
+    ),
+    'quality.filter.position': FieldExplanation(
+        '測定位置で絞り込みます。一覧にある位置だけが候補になります。',
+    ),
+    'quality.filter.search': FieldExplanation(
+        '測定ID・測定位置・入力役割の文字列で絞り込みます。',
+    ),
+    'quality.filter.clear': FieldExplanation(
+        'すべての絞り込み条件を解除して全件表示に戻します。',
+    ),
     'quality.smoothing': FieldExplanation(
         '表示用の 1/N オクターブ平滑化です。見やすくするだけで'
         'データ自体は変更しません。',
