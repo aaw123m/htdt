@@ -7202,9 +7202,17 @@ class MeasurementPageWorkspace(QWidget):
         device_card, device = _card("バックエンド・デバイス", page)
         backend_id = getattr(self._acq_backend, 'backend_id', 'unknown')
         if backend_id == _WASAPI_BACKEND_ID:
-            backend_text = (
-                f"バックエンド: {backend_id}（このビルドでは未実装 — "
-                "デバイスI/Oは利用できません）")
+            if getattr(self._acq_backend, 'available', lambda: False)():
+                backend_text = (
+                    f"バックエンド: {backend_id}（実デバイスI/O — "
+                    "利用可能）")
+            else:
+                _reason = getattr(
+                    self._acq_backend, 'unavailable_reason',
+                    lambda: '利用不可')()
+                backend_text = (
+                    f"バックエンド: {backend_id}（利用不可 — "
+                    f"{_reason}）")
         elif backend_id == _FAKE_BACKEND_ID:
             backend_text = (
                 f"バックエンド: {backend_id}（シミュレーション — "
@@ -7719,9 +7727,17 @@ class MeasurementPageWorkspace(QWidget):
         lane_card, lane_box = _card("校正レーン", page)
         backend_id = getattr(self._acq_backend, 'backend_id', 'unknown')
         if backend_id == _WASAPI_BACKEND_ID:
-            wiz_backend_text = (
-                f"バックエンド: {backend_id}（このビルドでは未実装 — "
-                "実デバイス取得は利用できません）")
+            if getattr(self._acq_backend, 'available', lambda: False)():
+                wiz_backend_text = (
+                    f"バックエンド: {backend_id}（実デバイスI/O — "
+                    "利用可能）")
+            else:
+                _wiz_reason = getattr(
+                    self._acq_backend, 'unavailable_reason',
+                    lambda: '利用不可')()
+                wiz_backend_text = (
+                    f"バックエンド: {backend_id}（利用不可 — "
+                    f"{_wiz_reason}）")
         elif backend_id == _FAKE_BACKEND_ID:
             wiz_backend_text = (
                 f"バックエンド: {backend_id}（シミュレーション — "

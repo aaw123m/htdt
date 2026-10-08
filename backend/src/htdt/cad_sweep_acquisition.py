@@ -12,8 +12,10 @@ Provider-neutral core:
 - AudioIOBackend: device enumeration/routing/rate binding contract with
   no silent fallback. ``FakeAudioBackend`` deterministically simulates
   latency, drift, clipping, xruns, truncation, noise, cancellation and
-  device loss; ``WasapiAudioBackend`` reports backend_unavailable until a
-  device-capable implementation lands (fail closed, never pretend).
+  device loss; ``WasapiAudioBackend`` performs real WASAPI shared-mode
+  render+capture over COM/ctypes (see ``cad_wasapi_io``) and fails
+  closed with a precise reason whenever the device path cannot honestly
+  bind (fail closed, never pretend).
 - TimingReferenceResolver: loopback / declared-topology / onset evidence
   with an explicit UNKNOWN/limited path — timing is never silently
   aligned into validity.
@@ -36,6 +38,7 @@ Provider-neutral core:
 from __future__ import annotations
 
 import math
+import sys
 import uuid
 from dataclasses import dataclass
 from typing import Any, Callable, Literal, Mapping, Sequence
@@ -60,7 +63,7 @@ SWEEP_ACQUISITION_SCHEMA_VERSION = 'rev66-869-1'
 _FAKE_BACKEND_ID = 'fake-audio-io'
 _FAKE_BACKEND_VERSION = 'fake-audio-io-1'
 _WASAPI_BACKEND_ID = 'wasapi-audio-io'
-_WASAPI_BACKEND_VERSION = 'wasapi-unavailable-1'
+_WASAPI_BACKEND_VERSION = 'wasapi-audio-io-1'
 
 # ---------------------------------------------------------------------------
 # Errors — every failure the engine can raise is one of these so the error
@@ -256,6 +259,12 @@ class AudioDeviceInfo(BaseModel):
     supported_sample_rates: tuple[int, ...] = ()
     supported_formats: tuple[str, ...] = ()
     is_default: bool = False
+    # Real endpoint channel mask (WAVEFORMATEXTENSIBLE.dwChannelMask) and
+    # the per-channel-index logical labels it maps to in the #621/#876
+    # vocabulary. Empty/0 when the backend cannot report one — never
+    # guessed. Not hashed into sealed records.
+    channel_mask: int = 0
+    channel_labels: tuple[str, ...] = ()
 
 
 class ChannelRouting(BaseModel):
@@ -350,27 +359,236 @@ class AudioIOBackend:
 
 
 class WasapiAudioBackend(AudioIOBackend):
-    """Windows WASAPI backend — stubbed.
+    """Windows WASAPI backend — real shared-mode device I/O.
 
-    Real device I/O is untestable on this box, so this backend reports
-    itself unavailable and fails closed. Everything the engine records
-    about it says exactly that.
+    Uses :class:`cad_wasapi_io.CtypesWasapiDriver` (raw COM/ctypes, no
+    third-party audio dependency) unless a driver implementing
+    :class:`cad_wasapi_io.WasapiDriverBase` is injected — the injected
+    seam is how tests exercise enumeration mapping, config negotiation
+    and error paths without hardware.
+
+    Availability is honest: non-Windows hosts, a missing/stopped Windows
+    Audio service, absent render or capture endpoints, and driver errors
+    all yield ``available() == False`` with a precise
+    ``unavailable_reason()`` — never a bare 'unavailable'.
+    ``open_stream`` mirrors ``FakeAudioBackend``'s validation order
+    (unknown device -> DeviceNotFoundError, wrong direction/channel/
+    rate/format -> UnsupportedConfigurationError, backend-level failure
+    -> BackendUnavailableError) and binds exactly the negotiated
+    shared-mode float32 stream — never a silent substitute.
     """
 
     backend_id = _WASAPI_BACKEND_ID
     backend_version = _WASAPI_BACKEND_VERSION
 
+    def __init__(self, driver: Any = None):
+        # ``driver`` is a cad_wasapi_io.WasapiDriverBase; imported lazily
+        # so this module never hard-requires the ctypes/COM layer.
+        self._driver_override = driver
+        self._driver: Any = None
+        self._last_reason: str | None = None
+
+    # -- driver plumbing -------------------------------------------------
+
+    def _get_driver(self):
+        if self._driver_override is not None:
+            return self._driver_override
+        if self._driver is None:
+            from .cad_wasapi_io import CtypesWasapiDriver
+            self._driver = CtypesWasapiDriver()
+        return self._driver
+
+    def _probe(self):
+        """(driver|None, endpoints|None, reason|None) — one honest probe."""
+        from .cad_wasapi_io import WasapiDriverError
+
+        if self._driver_override is None and sys.platform != 'win32':
+            return None, None, (
+                f'wasapi requires Windows; this host is {sys.platform}')
+        try:
+            driver = self._get_driver()
+        except WasapiDriverError as exc:
+            return None, None, str(exc)
+        except Exception as exc:  # never surface a raw crash as the reason
+            return None, None, f'wasapi driver init failed: {exc}'
+        try:
+            endpoints = driver.enumerate_endpoints()
+        except WasapiDriverError as exc:
+            return driver, None, f'endpoint enumeration failed: {exc}'
+        except Exception as exc:
+            return driver, None, f'endpoint enumeration failed: {exc}'
+        return driver, endpoints, None
+
+    # -- honesty surface --------------------------------------------------
+
     def available(self) -> bool:
-        return False
+        _, endpoints, reason = self._probe()
+        if reason is not None or endpoints is None:
+            self._last_reason = reason
+            return False
+        renders = [e for e in endpoints if e.data_flow == 'render']
+        captures = [e for e in endpoints if e.data_flow == 'capture']
+        if not renders and not captures:
+            self._last_reason = (
+                'no active WASAPI endpoints (the Windows Audio service '
+                'may be stopped or no audio hardware is present)')
+            return False
+        if not renders:
+            self._last_reason = (
+                f'no active WASAPI render endpoint '
+                f'({len(captures)} capture endpoint(s) present)')
+            return False
+        if not captures:
+            self._last_reason = (
+                f'no active WASAPI capture endpoint '
+                f'({len(renders)} render endpoint(s) present)')
+            return False
+        self._last_reason = None
+        return True
 
     def unavailable_reason(self) -> str:
-        return 'wasapi backend is not implemented on this build (device i/o untestable)'
+        if self._last_reason is None and not self.available():
+            pass  # available() populated _last_reason
+        return self._last_reason or 'wasapi backend reports available'
 
     def enumerate_devices(self) -> tuple[AudioDeviceInfo, ...]:
-        return ()
+        from .cad_wasapi_io import channel_mask_labels
+
+        _, endpoints, reason = self._probe()
+        if endpoints is None or reason is not None:
+            self._last_reason = reason
+            return ()
+        devices: list[AudioDeviceInfo] = []
+        for ep in endpoints:
+            labels = channel_mask_labels(ep.mix_channel_mask,
+                                         ep.mix_channels)
+            devices.append(AudioDeviceInfo(
+                device_id=ep.endpoint_id,
+                display_name=ep.friendly_name or ep.endpoint_id,
+                direction=('playback' if ep.data_flow == 'render'
+                           else 'capture'),
+                max_output_channels=(
+                    ep.mix_channels if ep.data_flow == 'render' else 0),
+                max_input_channels=(
+                    ep.mix_channels if ep.data_flow == 'capture' else 0),
+                supported_sample_rates=(
+                    (ep.mix_sample_rate_hz,)
+                    if ep.mix_sample_rate_hz else ()),
+                # 'float64' is the accepted domain format — converted to
+                # shared-mode float32 on the wire; CaptureResult reports
+                # the actual wire format honestly as 'float32'.
+                supported_formats=(
+                    ('float64', 'float32') if ep.supports_float32 else ()),
+                is_default=ep.is_default,
+                channel_mask=ep.mix_channel_mask,
+                channel_labels=labels,
+            ))
+        return tuple(devices)
+
+    # -- stream binding ----------------------------------------------------
 
     def open_stream(self, config: AudioStreamConfig) -> AcquisitionStream:
-        raise BackendUnavailableError(self.unavailable_reason())
+        from .cad_wasapi_io import (
+            WasapiBusyError,
+            WasapiDriverError,
+            WasapiEndpointGoneError,
+            WasapiUnsupportedFormatError,
+            _WasapiStream,
+        )
+
+        if self._driver_override is None and sys.platform != 'win32':
+            raise BackendUnavailableError(
+                f'wasapi requires Windows; this host is {sys.platform}')
+        if not self.available():
+            raise BackendUnavailableError(self.unavailable_reason())
+        try:
+            driver = self._get_driver()
+        except WasapiDriverError as exc:
+            raise BackendUnavailableError(str(exc)) from exc
+        except Exception as exc:
+            raise BackendUnavailableError(
+                f'wasapi driver init failed: {exc}') from exc
+        try:
+            endpoints = {e.endpoint_id: e
+                         for e in driver.enumerate_endpoints()}
+        except WasapiDriverError as exc:
+            raise BackendUnavailableError(
+                f'endpoint enumeration failed: {exc}') from exc
+
+        routing = config.routing
+        for dev_id, flow in (
+            (routing.playback_device_id, 'render'),
+            (routing.capture_device_id, 'capture'),
+        ):
+            ep = endpoints.get(dev_id)
+            if ep is None:
+                raise DeviceNotFoundError(f'unknown device: {dev_id}')
+            if flow == 'render' and ep.data_flow != 'render':
+                raise UnsupportedConfigurationError(
+                    f'{dev_id} has no playback direction')
+            if flow == 'capture' and ep.data_flow != 'capture':
+                raise UnsupportedConfigurationError(
+                    f'{dev_id} has no capture direction')
+        play = endpoints[routing.playback_device_id]
+        cap = endpoints[routing.capture_device_id]
+        if routing.playback_channel >= max(1, play.mix_channels):
+            raise UnsupportedConfigurationError(
+                'playback_channel out of range')
+        if routing.capture_channel >= max(1, cap.mix_channels):
+            raise UnsupportedConfigurationError(
+                'capture_channel out of range')
+        if (routing.loopback_input_channel is not None
+                and routing.loopback_input_channel
+                >= max(1, cap.mix_channels)):
+            raise UnsupportedConfigurationError(
+                'loopback_input_channel out of range')
+        for ep, role in ((play, 'playback'), (cap, 'capture')):
+            if ep.mix_sample_rate_hz <= 0:
+                raise UnsupportedConfigurationError(
+                    f'{ep.endpoint_id} did not report a mix format — '
+                    'cannot negotiate a shared-mode rate')
+            if config.sample_rate_hz != ep.mix_sample_rate_hz:
+                raise UnsupportedConfigurationError(
+                    f'sample_rate_hz {config.sample_rate_hz} unsupported '
+                    f'for {role} endpoint {ep.endpoint_id} — shared-mode '
+                    f'mix rate is {ep.mix_sample_rate_hz} Hz')
+        if config.sample_format not in ('float64', 'float32'):
+            raise UnsupportedConfigurationError(
+                f'sample_format {config.sample_format} unsupported — '
+                'the wasapi backend accepts float64/float32 domain '
+                'samples (float32 on the wire)')
+        for ep, role in ((play, 'playback'), (cap, 'capture')):
+            if not ep.supports_float32:
+                raise UnsupportedConfigurationError(
+                    f'{role} endpoint {ep.endpoint_id} did not accept '
+                    'shared-mode float32 during capability probing')
+        try:
+            render = driver.open_render(
+                routing.playback_device_id,
+                config.sample_rate_hz, play.mix_channels)
+            try:
+                capture = driver.open_capture(
+                    routing.capture_device_id,
+                    config.sample_rate_hz, cap.mix_channels)
+            except Exception:
+                render.close()
+                raise
+        except WasapiUnsupportedFormatError as exc:
+            raise UnsupportedConfigurationError(str(exc)) from exc
+        except WasapiBusyError as exc:
+            raise BackendUnavailableError(str(exc)) from exc
+        except WasapiEndpointGoneError as exc:
+            raise BackendUnavailableError(
+                f'endpoint vanished while binding: {exc}') from exc
+        except WasapiDriverError as exc:
+            raise BackendUnavailableError(str(exc)) from exc
+        return _WasapiStream(
+            driver, render, capture, config,
+            render_endpoint_id=routing.playback_device_id,
+            capture_endpoint_id=routing.capture_device_id,
+            default_render_id=driver.default_endpoint_id('render'),
+            default_capture_id=driver.default_endpoint_id('capture'),
+        )
 
 
 # ---------------------------------------------------------------------------

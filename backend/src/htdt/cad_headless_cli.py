@@ -139,8 +139,9 @@ class HeadlessBackendSpec(BaseModel):
     ``fake`` selects the deterministic ``FakeAudioBackend``; its knobs go
     in ``fake_scenario`` (forwarded to ``default_fake_scenario(**kw)``) or
     per-channel in ``fake_scenarios_by_channel`` for multi-target verbs.
-    ``wasapi`` selects the real device lane (fail-closed stub until the
-    WASAPI backend lands).
+    ``wasapi`` selects the real device lane (shared-mode WASAPI via
+    ``WasapiAudioBackend`` — fails closed with a precise reason when no
+    usable endpoint pair exists).
     """
 
     model_config = ConfigDict(frozen=True, extra='forbid')
