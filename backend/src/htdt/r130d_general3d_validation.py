@@ -4341,6 +4341,25 @@ def reproduction_values_match(
     return False
 
 
+def wrapped_phase_separation_deg(a: complex, b: complex) -> float:
+    """Return the shortest unsigned phase distance on the unit circle.
+
+    Principal angles are in [-180, 180]. Subtracting them directly can
+    turn a 2-degree crossing (+179 to -179) into a false 358-degree
+    phase-wrap diagnostic. This is diagnostic-only; it changes neither
+    canonical transfer samples nor the R130D convergence acceptance.
+    """
+    a, b = complex(a), complex(b)
+    if not all(math.isfinite(v) for v in (a.real, a.imag, b.real, b.imag)):
+        raise ValueError('phase separation requires finite complex samples')
+    if a == 0 or b == 0:
+        raise ValueError('phase separation is undefined at exact zero')
+    difference = math.degrees(
+        math.atan2(b.imag, b.real) - math.atan2(a.imag, a.real)
+    )
+    return abs(math.remainder(difference, 360.0))
+
+
 def classify_dense_bin_cause(
     *,
     reference_magnitude: float,
