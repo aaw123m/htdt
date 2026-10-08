@@ -139,12 +139,14 @@ entries:
   landed:
     prs:
     - 823
+    - 998
     commits: []
   remaining_gates:
   - kind: structural
     description: BRAS v3/RS8 データセット取込 + 修飾実行（#836 Action 2–6 で追跡）
   evidence_refs:
   - docs/issues/issue-809-benchmark-qualification.md
+  - benchmarks/acoustics/rev71_other_nonconvergence_diagnostic_summary.json
   close_when_gates_clear: true
 - issue: 810
   lifecycle: acceptance_remaining
@@ -633,8 +635,8 @@ entries:
 - issue: 938
   lifecycle: structural_followup_remaining
   landed:
-    prs: [945]
-    commits: [bf1ba6b3]
+    prs: [945, 998]
+    commits: [bf1ba6b3, ecc74ddf]
   remaining_gates:
     - kind: structural
       description: "MFEM ビルド可能な環境 — fem_conditioning_pollution 軸は MFEM 未構築のため UNRESOLVED_ENVIRONMENT_BLOCKED のまま (fail/closed ではなく環境ブロック)"
