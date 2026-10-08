@@ -1,0 +1,468 @@
+{
+  "analysis": {
+    "baseline_replay": [
+      {
+        "baseline_within_replay_tolerance": true,
+        "maximum_complex_replay_difference": 1.764428363560301e-10,
+        "refinement": 1
+      },
+      {
+        "baseline_within_replay_tolerance": true,
+        "maximum_complex_replay_difference": 8.53209903597324e-10,
+        "refinement": 2
+      },
+      {
+        "baseline_within_replay_tolerance": true,
+        "maximum_complex_replay_difference": 2.1772109166898214e-09,
+        "refinement": 3
+      }
+    ],
+    "baseline_replay_state": "MATCH",
+    "cross_solver_eligible": false,
+    "general_3d_physical_validation": "NOT_VALIDATED",
+    "mfem_errors_strictly_decreasing": false,
+    "mfem_final_pair_within_frozen_thresholds": false,
+    "mfem_self_convergence": "SELF_CONVERGENCE_FAILED",
+    "reference_adjacent_metrics": [
+      {
+        "coarse_refinement": 1,
+        "compared_frequency_count": 2,
+        "complex_rms_relative": 0.9949966914409695,
+        "fine_refinement": 2,
+        "frequency_metrics": [
+          {
+            "complex_relative": 0.5472005701368763,
+            "frequency_hz": 40.0,
+            "magnitude_absolute": 3.734469990386078,
+            "magnitude_db": 1.4546191201523306,
+            "magnitude_relative": 0.18230889236642336,
+            "masked_in": true,
+            "phase_deg": 27.448305634142287
+          },
+          {
+            "complex_relative": 0.9980450818036214,
+            "frequency_hz": 80.0,
+            "magnitude_absolute": 194.33523663158567,
+            "magnitude_db": 19.159823729647915,
+            "magnitude_relative": 0.8898438335731522,
+            "masked_in": true,
+            "phase_deg": 85.82474174739133
+          }
+        ],
+        "magnitude_max_db": 19.159823729647915,
+        "magnitude_max_relative": 0.8898438335731522,
+        "mask_floor": 0.6906177850510202,
+        "phase_max_deg": 85.82474174739133
+      },
+      {
+        "coarse_refinement": 2,
+        "compared_frequency_count": 2,
+        "complex_rms_relative": 0.20704266998281243,
+        "fine_refinement": 3,
+        "frequency_metrics": [
+          {
+            "complex_relative": 1.8275180698567144,
+            "frequency_hz": 40.0,
+            "magnitude_absolute": 4.2582639491105105,
+            "magnitude_db": 1.6404714973777643,
+            "magnitude_relative": 0.17210277836962454,
+            "masked_in": true,
+            "phase_deg": 177.65555728284107
+          },
+          {
+            "complex_relative": 0.017491379495410655,
+            "frequency_hz": 80.0,
+            "magnitude_absolute": 0.6231616441109793,
+            "magnitude_db": 0.024819761815225858,
+            "magnitude_relative": 0.0028615671677115324,
+            "masked_in": true,
+            "phase_deg": 0.9872804471976622
+          }
+        ],
+        "magnitude_max_db": 1.6404714973777643,
+        "magnitude_max_relative": 0.17210277836962454,
+        "mask_floor": 0.6886471749051744,
+        "phase_max_deg": 177.65555728284107
+      }
+    ]
+  },
+  "levels": [
+    {
+      "aligned_diagnostic_transfer_pa_per_m3_s": [
+        [
+          22.094442348168737,
+          9.91889222404335
+        ],
+        [
+          -24.049770677817758,
+          -0.6011502053744349
+        ]
+      ],
+      "aligned_diagnostic_transfer_sha256": "61fb1fdeb1d6e2f2aa000ef904c1a727d1fe6cddeb8599835e3001f9a11b8d10",
+      "canonical_aligned_delta": {
+        "compared_frequency_count": 2,
+        "complex_rms_relative": 6.7306753954265465e-15,
+        "frequency_metrics": [
+          {
+            "complex_relative": 2.3653466912589584e-15,
+            "frequency_hz": 40.0,
+            "magnitude_absolute": 3.552713678800501e-14,
+            "magnitude_db": 1.350058453174601e-14,
+            "magnitude_relative": 1.4669257453088366e-15,
+            "masked_in": true,
+            "phase_deg": 1.1368683772161603e-13
+          },
+          {
+            "complex_relative": 9.248999032863649e-15,
+            "frequency_hz": 80.0,
+            "magnitude_absolute": 3.552713678800501e-14,
+            "magnitude_db": 1.2536257065192741e-14,
+            "magnitude_relative": 1.4767726356005013e-15,
+            "masked_in": true,
+            "phase_deg": 5.115907697472721e-13
+          }
+        ],
+        "magnitude_max_db": 1.350058453174601e-14,
+        "magnitude_max_relative": 1.4767726356005013e-15,
+        "mask_floor": 0.07658647436909066,
+        "phase_max_deg": 5.115907697472721e-13
+      },
+      "clamped_negative_eigenvalue_count": 0,
+      "dofs": 125,
+      "dt_s": 8.333333333333333e-05,
+      "elements": 48,
+      "frequency_hz": [
+        40.0,
+        80.0
+      ],
+      "generalized_eigen_residual_relative": 1.7811496875732925e-15,
+      "geometry_fixture_sha256": "b846084627eb266d174e8412b5737b8691bbc279ff21e066c48dc61ded1d72c3",
+      "mass_orthonormality_max_abs_error": 2.6645352591003757e-15,
+      "mass_symmetry_max_abs": 0.0,
+      "max_frequency_hz": 459.2021531125442,
+      "mesh_characteristic_size_m": 3.2015621187164243,
+      "mesh_identity_sha256": "6c7ce68a6e5bea482129b8aed7f148db6f655ee1b5d2bef9bad7a8bdbeba2c58",
+      "min_frequency_hz": 4.6501873730289285e-06,
+      "polynomial_order": 2,
+      "raw_min_eigenvalue": 8.536908799096122e-10,
+      "receiver_representation": "MFEM DomainLFIntegrator(DeltaCoefficient) H1 point functional; continuous trace is single-valued on the audited internal facet",
+      "refinement": 1,
+      "resource": {
+        "checkpoint_rss_max_mb": 116.8359375,
+        "estimated_dense_modal_bytes": 750000
+      },
+      "sample_count": 3000,
+      "sample_rate_hz": 12000,
+      "sampling_metadata": {
+        "actual_first_sample_time_s": 0.0,
+        "actual_last_sample_time_s": 0.24991666666666665,
+        "actual_n_dt_s": 0.25,
+        "analysis_fourier_kernel": "exp(+i*omega*t)",
+        "canonical_effective_integration_interval_s": [
+          0.0,
+          0.25
+        ],
+        "canonical_endpoint_convention": "sample timestamps are t_n=n*dt with t_n<T; every native sample receives a full dt left-rectangle weight",
+        "canonical_rectangular_weighting_rule": "dt * sum_n y[n] * exp(+i*2*pi*f*n*dt)",
+        "frequency_evaluation_rule": "direct evaluation at exact requested frequencies; no FFT-bin rounding, masking change, shift, or fit",
+        "frequency_hz": [
+          40.0,
+          80.0
+        ],
+        "generated_sample_count": 3000,
+        "n_dt_minus_requested_duration_s": 0.0,
+        "native_dt_s": 8.333333333333333e-05,
+        "phasor_convention": "exp(-i*omega*t)",
+        "pressure_p_t_sampling": "full-basis modal pressure samples rho*r^T*phi_t at t_n=n*dt",
+        "requested_duration_s": 0.25,
+        "solver": "MFEM",
+        "source_q_t_sampling": "unit discrete volume-velocity impulse q[0]=1, q[n>0]=0 on the MFEM modal sample grid",
+        "target_effective_integration_interval_s": [
+          0.0,
+          0.25
+        ],
+        "target_endpoint_convention": "exact [0,T); final left-rectangle cell is clipped at T and no sample at T is included",
+        "target_window_weighting_rule": "sum_n Delta_t[n] * y[n] * exp(+i*2*pi*f*n*dt), Delta_t[n]=min(dt,T-n*dt)"
+      },
+      "source_mass_relative_residual": 3.12662535792744e-16,
+      "source_representation": "MFEM DomainLFIntegrator(DeltaCoefficient) point functional; Mesh::FindPoints selects one containing element",
+      "stiffness_symmetry_max_abs": 0.0,
+      "system_export_stdout_tail": "",
+      "system_file_sha256": "758dff6aeafeaa5c902e905aa797c2e5f8250e4b81822723e968bb842187161b",
+      "system_numeric_identity_sha256": "070a03d8b25678ff2916da72c22c5e1710ab0c1a4594ec9206ee0f5ae9c81fba",
+      "timings_s": {
+        "generalized_eigen": 0.003237000000012813,
+        "modal_reconstruction": 0.0029623000000356114,
+        "system_export": 0.020885000000021137
+      },
+      "transfer_pa_per_m3_s": [
+        [
+          22.094442348168688,
+          9.918892224043379
+        ],
+        [
+          -24.049770677817797,
+          -0.6011502053742158
+        ]
+      ],
+      "transfer_sha256": "dcf179109125404ae1c62a2d9f801591650bc94a9d52e653790da51e566edb64"
+    },
+    {
+      "aligned_diagnostic_transfer_pa_per_m3_s": [
+        [
+          20.450917203250796,
+          -1.1689824676799772
+        ],
+        [
+          -10.452883021402574,
+          -218.14222365103566
+        ]
+      ],
+      "aligned_diagnostic_transfer_sha256": "1b22b54461613f0d0573b5a7a56b77a7e21cde24691ec1fea013588f48ccd118",
+      "canonical_aligned_delta": {
+        "compared_frequency_count": 2,
+        "complex_rms_relative": 1.3524357012510422e-15,
+        "frequency_metrics": [
+          {
+            "complex_relative": 3.845284336581825e-15,
+            "frequency_hz": 40.0,
+            "magnitude_absolute": 7.815970093361102e-14,
+            "magnitude_db": 3.278713386281182e-14,
+            "magnitude_relative": 3.8155905768637376e-15,
+            "masked_in": true,
+            "phase_deg": 2.842170943040401e-14
+          },
+          {
+            "complex_relative": 1.3096144567578657e-15,
+            "frequency_hz": 80.0,
+            "magnitude_absolute": 3.126388037344441e-13,
+            "magnitude_db": 1.1571929598639454e-14,
+            "magnitude_relative": 1.3014048977745882e-15,
+            "masked_in": true,
+            "phase_deg": 0.0
+          }
+        ],
+        "magnitude_max_db": 3.278713386281182e-14,
+        "magnitude_max_relative": 3.8155905768637376e-15,
+        "mask_floor": 0.6906177850510202,
+        "phase_max_deg": 2.842170943040401e-14
+      },
+      "clamped_negative_eigenvalue_count": 0,
+      "dofs": 729,
+      "dt_s": 8.333333333333333e-05,
+      "elements": 384,
+      "frequency_hz": [
+        40.0,
+        80.0
+      ],
+      "generalized_eigen_residual_relative": 2.098603977836632e-15,
+      "geometry_fixture_sha256": "b846084627eb266d174e8412b5737b8691bbc279ff21e066c48dc61ded1d72c3",
+      "mass_orthonormality_max_abs_error": 3.1086244689504383e-15,
+      "mass_symmetry_max_abs": 0.0,
+      "max_frequency_hz": 925.3382517847907,
+      "mesh_characteristic_size_m": 1.6007810593582121,
+      "mesh_identity_sha256": "fd49cf4612207c2a55b40e3181bd722db259a02503277a24ab47d353fa096880",
+      "min_frequency_hz": 8.17852742025449e-06,
+      "polynomial_order": 2,
+      "raw_min_eigenvalue": 2.6406446651854867e-09,
+      "receiver_representation": "MFEM DomainLFIntegrator(DeltaCoefficient) H1 point functional; continuous trace is single-valued on the audited internal facet",
+      "refinement": 2,
+      "resource": {
+        "checkpoint_rss_max_mb": 152.6953125,
+        "estimated_dense_modal_bytes": 25509168
+      },
+      "sample_count": 3000,
+      "sample_rate_hz": 12000,
+      "sampling_metadata": {
+        "actual_first_sample_time_s": 0.0,
+        "actual_last_sample_time_s": 0.24991666666666665,
+        "actual_n_dt_s": 0.25,
+        "analysis_fourier_kernel": "exp(+i*omega*t)",
+        "canonical_effective_integration_interval_s": [
+          0.0,
+          0.25
+        ],
+        "canonical_endpoint_convention": "sample timestamps are t_n=n*dt with t_n<T; every native sample receives a full dt left-rectangle weight",
+        "canonical_rectangular_weighting_rule": "dt * sum_n y[n] * exp(+i*2*pi*f*n*dt)",
+        "frequency_evaluation_rule": "direct evaluation at exact requested frequencies; no FFT-bin rounding, masking change, shift, or fit",
+        "frequency_hz": [
+          40.0,
+          80.0
+        ],
+        "generated_sample_count": 3000,
+        "n_dt_minus_requested_duration_s": 0.0,
+        "native_dt_s": 8.333333333333333e-05,
+        "phasor_convention": "exp(-i*omega*t)",
+        "pressure_p_t_sampling": "full-basis modal pressure samples rho*r^T*phi_t at t_n=n*dt",
+        "requested_duration_s": 0.25,
+        "solver": "MFEM",
+        "source_q_t_sampling": "unit discrete volume-velocity impulse q[0]=1, q[n>0]=0 on the MFEM modal sample grid",
+        "target_effective_integration_interval_s": [
+          0.0,
+          0.25
+        ],
+        "target_endpoint_convention": "exact [0,T); final left-rectangle cell is clipped at T and no sample at T is included",
+        "target_window_weighting_rule": "sum_n Delta_t[n] * y[n] * exp(+i*2*pi*f*n*dt), Delta_t[n]=min(dt,T-n*dt)"
+      },
+      "source_mass_relative_residual": 8.030980873954707e-16,
+      "source_representation": "MFEM DomainLFIntegrator(DeltaCoefficient) point functional; Mesh::FindPoints selects one containing element",
+      "stiffness_symmetry_max_abs": 0.0,
+      "system_export_stdout_tail": "",
+      "system_file_sha256": "e61410d4a69000c39975762b9986008974353953f7d8d9f100f9953a33c5ecb4",
+      "system_numeric_identity_sha256": "4d41b95e43c4ead11cd141c58baa72b278146219b0bca9673608af1a0c19f08d",
+      "timings_s": {
+        "generalized_eigen": 0.07895519999999578,
+        "modal_reconstruction": 0.015759399999978996,
+        "system_export": 0.0396734999999353
+      },
+      "transfer_pa_per_m3_s": [
+        [
+          20.450917203250874,
+          -1.1689824676799674
+        ],
+        [
+          -10.452883021402606,
+          -218.14222365103595
+        ]
+      ],
+      "transfer_sha256": "c6b64d4b7029929060537ad65a669b63601b7926efb86233bbbd13be120afd52"
+    },
+    {
+      "aligned_diagnostic_transfer_pa_per_m3_s": [
+        [
+          -24.623804962829023,
+          2.421298288602252
+        ],
+        [
+          -14.169471220847633,
+          -217.30789041314026
+        ]
+      ],
+      "aligned_diagnostic_transfer_sha256": "c7da620eaf12ae60995eb349372f671397b842681ed6a9c822be5fc41433129b",
+      "canonical_aligned_delta": {
+        "compared_frequency_count": 2,
+        "complex_rms_relative": 9.242107837290608e-16,
+        "frequency_metrics": [
+          {
+            "complex_relative": 7.831115676911699e-15,
+            "frequency_hz": 40.0,
+            "magnitude_absolute": 1.5276668818842154e-13,
+            "magnitude_db": 5.2073683193877346e-14,
+            "magnitude_relative": 6.030659416977739e-15,
+            "masked_in": true,
+            "phase_deg": 2.8421709430404007e-13
+          },
+          {
+            "complex_relative": 2.711531045912255e-16,
+            "frequency_hz": 80.0,
+            "magnitude_absolute": 8.526512829121202e-14,
+            "magnitude_db": 1.928654933106574e-15,
+            "magnitude_relative": 2.6102579106039175e-16,
+            "masked_in": true,
+            "phase_deg": 0.0
+          }
+        ],
+        "magnitude_max_db": 5.2073683193877346e-14,
+        "magnitude_max_relative": 6.030659416977739e-15,
+        "mask_floor": 0.6886471749051744,
+        "phase_max_deg": 2.8421709430404007e-13
+      },
+      "clamped_negative_eigenvalue_count": 0,
+      "dofs": 4913,
+      "dt_s": 8.333333333333333e-05,
+      "elements": 3072,
+      "frequency_hz": [
+        40.0,
+        80.0
+      ],
+      "generalized_eigen_residual_relative": 2.7734303230099813e-15,
+      "geometry_fixture_sha256": "b846084627eb266d174e8412b5737b8691bbc279ff21e066c48dc61ded1d72c3",
+      "mass_orthonormality_max_abs_error": 1.0658141036401503e-14,
+      "mass_symmetry_max_abs": 0.0,
+      "max_frequency_hz": 1856.054235551105,
+      "mesh_characteristic_size_m": 0.8003905296791061,
+      "mesh_identity_sha256": "87d118e082faf2d7d35e3470876f3184d994d40dec90dbbb4917dbee9c4b823d",
+      "min_frequency_hz": 1.3337782360893883e-05,
+      "polynomial_order": 2,
+      "raw_min_eigenvalue": 7.023069881794658e-09,
+      "receiver_representation": "MFEM DomainLFIntegrator(DeltaCoefficient) H1 point functional; continuous trace is single-valued on the audited internal facet",
+      "refinement": 3,
+      "resource": {
+        "checkpoint_rss_max_mb": 1283.6484375,
+        "estimated_dense_modal_bytes": 1158603312
+      },
+      "sample_count": 3000,
+      "sample_rate_hz": 12000,
+      "sampling_metadata": {
+        "actual_first_sample_time_s": 0.0,
+        "actual_last_sample_time_s": 0.24991666666666665,
+        "actual_n_dt_s": 0.25,
+        "analysis_fourier_kernel": "exp(+i*omega*t)",
+        "canonical_effective_integration_interval_s": [
+          0.0,
+          0.25
+        ],
+        "canonical_endpoint_convention": "sample timestamps are t_n=n*dt with t_n<T; every native sample receives a full dt left-rectangle weight",
+        "canonical_rectangular_weighting_rule": "dt * sum_n y[n] * exp(+i*2*pi*f*n*dt)",
+        "frequency_evaluation_rule": "direct evaluation at exact requested frequencies; no FFT-bin rounding, masking change, shift, or fit",
+        "frequency_hz": [
+          40.0,
+          80.0
+        ],
+        "generated_sample_count": 3000,
+        "n_dt_minus_requested_duration_s": 0.0,
+        "native_dt_s": 8.333333333333333e-05,
+        "phasor_convention": "exp(-i*omega*t)",
+        "pressure_p_t_sampling": "full-basis modal pressure samples rho*r^T*phi_t at t_n=n*dt",
+        "requested_duration_s": 0.25,
+        "solver": "MFEM",
+        "source_q_t_sampling": "unit discrete volume-velocity impulse q[0]=1, q[n>0]=0 on the MFEM modal sample grid",
+        "target_effective_integration_interval_s": [
+          0.0,
+          0.25
+        ],
+        "target_endpoint_convention": "exact [0,T); final left-rectangle cell is clipped at T and no sample at T is included",
+        "target_window_weighting_rule": "sum_n Delta_t[n] * y[n] * exp(+i*2*pi*f*n*dt), Delta_t[n]=min(dt,T-n*dt)"
+      },
+      "source_mass_relative_residual": 6.55050092579467e-16,
+      "source_representation": "MFEM DomainLFIntegrator(DeltaCoefficient) point functional; Mesh::FindPoints selects one containing element",
+      "stiffness_symmetry_max_abs": 0.0,
+      "system_export_stdout_tail": "",
+      "system_file_sha256": "6a43a624223fa512152059d103c4d841723fa1266ea8a22842322fb50db42511",
+      "system_numeric_identity_sha256": "a8185c9a85e8fe132713478161ee2fb6aaf28be236c3267e97e891b6397b05b4",
+      "timings_s": {
+        "generalized_eigen": 12.217609799999991,
+        "modal_reconstruction": 0.10619180000003325,
+        "system_export": 0.2614002000000255
+      },
+      "transfer_pa_per_m3_s": [
+        [
+          -24.623804962828885,
+          2.4212982886021166
+        ],
+        [
+          -14.169471220847617,
+          -217.3078904131402
+        ]
+      ],
+      "transfer_sha256": "2f19a837343231781ea2133899c201af101e9a8d31e445b3b54a1f9d7a486a0a"
+    }
+  ],
+  "nonclaims": {
+    "cross_solver_comparison": "BLOCKED",
+    "owned_room_validated": false,
+    "pffdtd_self_convergence": "NOT_REASSESSED",
+    "production_solver_selected": false
+  },
+  "plan_sha256": "5c753073a88d6705ee2962aa387006d4c563f90f0249b722dcf309a8155f62ec",
+  "repository_head": "df794f27d1de3e111cf0bc896c88f3929d08bd81",
+  "runtime": {
+    "elapsed_seconds": 23.24863909999999,
+    "numpy": "1.26.4",
+    "platform": "Windows-2022Server-10.0.20348-SP0",
+    "python": "3.12.10",
+    "scipy": "1.14.1"
+  },
+  "schema_version": "htdt.r130d.mfem-independent-reference-replay-1",
+  "source_commit": "d964264cdb9a13e94a201b6c236c7721e0c8765f"
+}
