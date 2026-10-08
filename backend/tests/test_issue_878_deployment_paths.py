@@ -348,6 +348,41 @@ class TestPathEvaluation:
             reachability='unknown'))
         assert verdict.availability == 'conditional'
 
+    def test_unconfirmed_reachability_is_conditional(self) -> None:
+        verdict = evaluate_deployment_path(self._candidate(
+            _report(
+                supports_apply=True, supports_read_back=True,
+                deploy_mechanism='machine_write',
+                readback_mechanism='machine_exact',
+                protocol_authority='documented'),
+            reachability='unconfirmed'))
+        assert verdict.availability == 'conditional'
+
+    def test_simulated_file_lane_not_production(self) -> None:
+        verdict = evaluate_deployment_path(self._candidate(_report(
+            adapter_kind='simulated',
+            deploy_mechanism='file_export',
+            readback_mechanism='operator_captured_file',
+            protocol_authority='simulated')))
+        assert verdict.evidence_strength == 'file_verified'
+        assert not verdict.production_eligible
+
+    def test_production_selection_skips_simulated_file(self) -> None:
+        simulated_file = self._candidate(_report(
+            adapter_id='sim-file', adapter_kind='simulated',
+            deploy_mechanism='file_export',
+            readback_mechanism='operator_captured_file',
+            protocol_authority='simulated'))
+        real_file = self._candidate(_report(
+            adapter_id='real-file',
+            deploy_mechanism='file_export',
+            readback_mechanism='operator_captured_file',
+            protocol_authority='none'))
+        verdict = select_strongest_production_path(
+            (simulated_file, real_file))
+        assert verdict is not None
+        assert verdict.candidate_id == 'cand-real-file'
+
     def test_ranking_order(self) -> None:
         from htdt.cad_authority_resolver import AuthorityRef
         machine = self._candidate(_report(
@@ -622,6 +657,45 @@ class TestPipelineService:
         with pytest.raises(PipelineStageError):
             service.preview(at=NOW)
 
+    def test_abort_never_masks_terminal_stage(self) -> None:
+        transport = FakeAvrLanTransport({'fl': 0.0})
+        service, _a, _b = self._service(transport)
+        service.open(at=NOW)
+        record = service.abort(at=NOW, reason='operator cancel')
+        assert record.stage == 'aborted'
+        # already-aborted runs are terminal
+        with pytest.raises(PipelineStageError):
+            service.abort(at=NOW, reason='again')
+
+    def test_abort_rejected_after_verified_rollback(self) -> None:
+        transport = FakeAvrLanTransport({'fl': 0.0})
+        service, _a, _b = self._service(transport)
+        service.open(at=NOW)
+        service.compile(_export(), at=NOW)
+        service.preview(at=NOW)
+        service.apply(service.authorize(operator_id='op-1', at=NOW), at=NOW)
+        service.verify_readback(at=NOW)
+        service.rollback(
+            service.authorize(operator_id='op-1', scope='rollback', at=NOW),
+            at=NOW)
+        assert service.latest.stage == 'rollback_verified'
+        with pytest.raises(PipelineStageError):
+            service.abort(at=NOW, reason='late cancel')
+        assert service.latest.stage == 'rollback_verified'
+
+    def test_abort_rejected_after_failed_apply(self) -> None:
+        transport = FakeAvrLanTransport(fail_on_send_index=0)
+        service, _a, _b = self._service(transport)
+        service.open(at=NOW)
+        service.compile(_export(), at=NOW)
+        service.preview(at=NOW)
+        with pytest.raises(AvrLanApplyError):
+            service.apply(
+                service.authorize(operator_id='op-1', at=NOW), at=NOW)
+        assert service.latest.stage == 'failed'
+        with pytest.raises(PipelineStageError):
+            service.abort(at=NOW, reason='late cancel')
+
     def test_apply_without_authorization_fails(self) -> None:
         service, _a, _b = self._service()
         service.open(at=NOW)
@@ -661,7 +735,40 @@ class TestPipelineService:
             consumed=True, consumed_by_record_id='dplr-x')
         assert consumed.consumed
         with pytest.raises(PipelineAuthorizationError):
-            service._assert_authorization(consumed, scope='apply')
+            service._assert_authorization(consumed, scope='apply', at=NOW)
+
+    def test_expired_authorization_rejected_at_apply(self) -> None:
+        service, _a, _b = self._service()
+        service.open(at=NOW)
+        service.compile(_export(), at=NOW)
+        service.preview(at=NOW)
+        authorization = service.authorize(
+            operator_id='op-1', at=NOW, expires_at_utc='2026-10-08T00:00:01+00:00')
+        with pytest.raises(PipelineAuthorizationError):
+            service.apply(authorization, at='2026-10-08T00:00:02+00:00')
+        # a still-valid authorization remains acceptable
+        service.apply(authorization, at='2026-10-08T00:00:00+00:00')
+
+    def test_expired_authorization_rejected_at_rollback(self) -> None:
+        transport = FakeAvrLanTransport({'fl': 0.0})
+        service, _a, _b = self._service(transport)
+        service.open(at=NOW)
+        service.compile(_export(), at=NOW)
+        service.preview(at=NOW)
+        service.apply(service.authorize(operator_id='op-1', at=NOW), at=NOW)
+        rollback_auth = service.authorize(
+            operator_id='op-1', scope='rollback', at=NOW,
+            expires_at_utc='2026-10-08T00:00:01+00:00')
+        with pytest.raises(PipelineAuthorizationError):
+            service.rollback(
+                rollback_auth, at='2026-10-08T00:00:02+00:00')
+
+    def test_expiry_before_authorized_rejected_at_mint(self) -> None:
+        with pytest.raises(ValidationError):
+            build_operator_authorization(
+                document_id=DOC, pipeline_id='dpl-1', scope='rollback',
+                operator_id='op-1', authorized_at_utc=NOW,
+                expires_at_utc=NOW)
 
     def test_rollback_verified(self) -> None:
         transport = FakeAvrLanTransport({'fl': 0.0})
