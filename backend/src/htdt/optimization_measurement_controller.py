@@ -71,6 +71,7 @@ from .cad_validation_campaign_repository import CadValidationCampaignRepository
 from .cad_validation_campaign_service import CadValidationCampaignService
 from .cad_validation_metrics import CadApplicabilityCheck
 from .tree_item_role import ROLE
+from .error_boundary import EXPECTED_OPERATION_ERRORS
 from .user_facing_error import operation_error_message
 
 
@@ -91,7 +92,7 @@ class MeasurementPlanControllerMixin:
                 applied_scene_revision_id=latest.revision_id,
             )
             self.measurement_repository.save_measurement_plan(plan)
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: plan save surface — expected validation/store errors surface with reason; unexpected errors propagate to diagnostics
             self.statusBar().showMessage(f'実測候補を記録できません · {operation_error_message(exc)}')
             return
         if self.measurement_plan_label is not None:
@@ -201,7 +202,7 @@ class MeasurementPlanControllerMixin:
                 measurement_ids,
             )
             self.measurement_repository.save_measurement_plan(completed)
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: plan completion surface — expected validation/store errors surface with reason; unexpected errors propagate to diagnostics
             self.statusBar().showMessage(f'実測を関連付けできません · {operation_error_message(exc)}')
             return
         self.refresh_measurement_plans()

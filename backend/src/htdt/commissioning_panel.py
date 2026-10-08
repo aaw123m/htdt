@@ -49,6 +49,7 @@ from .commissioning_operations import (
     CommissioningOperatorServices,
 )
 from .ui_theme import SemanticState, set_semantic_state
+from .error_boundary import EXPECTED_OPERATION_ERRORS
 from .user_facing_error import operation_error_message
 
 
@@ -316,7 +317,7 @@ class CommissioningPanel(QWidget):
         }
         try:
             operations = self._controller.operations()
-        except Exception as exc:  # error-boundary: op derivation
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: op derivation — expected failures fail closed; unexpected errors propagate to diagnostics
             self._fail_closed(
                 '操作可否を評価できません: '
                 + operation_error_message(exc))
@@ -346,7 +347,7 @@ class CommissioningPanel(QWidget):
             button.setEnabled(False)
         try:
             result = fn()
-        except Exception as exc:  # error-boundary: controller call
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: controller call — expected failures become an error result row; unexpected errors propagate to diagnostics
             result = CommissioningOperationResult(
                 command='panel', ok=False, outcome='error',
                 summary=operation_error_message(exc))
@@ -537,14 +538,14 @@ class CommissioningPanel(QWidget):
                 state = self._orchestrator.derive_state(run)
             else:
                 run, state = opened
-        except Exception as exc:  # error-boundary: authority read
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: authority read — expected failures fail closed; unexpected errors propagate to diagnostics
             self._fail_closed(
                 'コミッショニング状態を読み込めません: '
                 + operation_error_message(exc))
             return
         try:
             self._render(run, state)
-        except Exception as exc:  # error-boundary: panel render
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: panel render — expected failures fail closed; unexpected errors propagate to diagnostics
             self._fail_closed(
                 'コミッショニング状態を表示できません: '
                 + operation_error_message(exc))

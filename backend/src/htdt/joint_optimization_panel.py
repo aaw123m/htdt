@@ -54,6 +54,11 @@ from .ui_theme import (
     set_semantic_state,
     set_typography_role,
 )
+from .error_boundary import (
+    EXPECTED_OPERATION_ERRORS,
+    is_authority_failure,
+    report_boundary_failure,
+)
 from .user_facing_error import operation_error_message
 
 
@@ -390,7 +395,7 @@ class JointOptimizationPanel(QWidget):
                 dsp_variables=dsp_variables,
                 candidate_budget=self.budget_spin.value(),
             )
-        except Exception as exc:  # defensive: preflight stays advisory
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: advisory preflight — expected estimate errors surface with reason and keep the create disabled; unexpected errors propagate to diagnostics
             self.preflight_label.setText(f'候補数を推定できません: {operation_error_message(exc)}')
             self.create_button.setEnabled(False)
             return
@@ -440,7 +445,7 @@ class JointOptimizationPanel(QWidget):
                 dsp_variables=self._selected_dsp_variables(),
                 candidate_budget=self.budget_spin.value(),
             )
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: spec save surface — expected validation/store errors surface with reason; unexpected errors propagate to diagnostics
             if self._on_status is not None:
                 self._on_status(f'ジョイント最適化仕様を保存できません: {operation_error_message(exc)}')
             return
@@ -467,7 +472,8 @@ class JointOptimizationPanel(QWidget):
             return self.context.assess_spec_staleness(
                 spec_id, baseline=baseline
             )
-        except Exception:
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: staleness probe — expected failures report and mark the row 'assessment_failed', never fabricate 'fresh'
+            report_boundary_failure(exc, operation='仕様の最新性評価')
             return ('assessment_failed',)
 
     def _on_spec_selection(self) -> None:
@@ -610,7 +616,10 @@ class JointOptimizationPanel(QWidget):
         self.spec_tree.clear()
         try:
             specs = self.context.list_specs()
-        except Exception:
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: spec listing probe — expected failures report and leave the tree empty; sealed-store failures must not silently empty it
+            if is_authority_failure(exc):
+                raise
+            report_boundary_failure(exc, operation='ジョイント最適化仕様の読み込み')
             return
         # One baseline resolution serves every row: assessing each spec
         # separately would re-read the whole authority chain per spec.
@@ -618,7 +627,10 @@ class JointOptimizationPanel(QWidget):
         if specs:
             try:
                 baseline = self.context.resolve_baseline()
-            except Exception:
+            except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: baseline resolution probe — expected failures report and re-resolve per spec; sealed-store failures propagate
+                if is_authority_failure(exc):
+                    raise
+                report_boundary_failure(exc, operation='ベースラインの解決')
                 baseline = _UNSET_BASELINE
         for spec in specs:
             dsp_count = len(spec.dsp_variables)

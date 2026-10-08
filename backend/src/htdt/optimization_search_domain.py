@@ -19,6 +19,7 @@ from PySide6.QtWidgets import QFrame, QLabel, QVBoxLayout, QWidget
 
 from .cad_constraints import evaluate_cad_constraints
 from .cad_search_models import CadSearchAxis
+from .error_boundary import EXPECTED_OPERATION_ERRORS
 from .room_viewport import RoomOverlayState
 from .ui_theme import SurfaceRole, TypographyRole, set_surface_role, set_typography_role
 
@@ -131,7 +132,7 @@ class SearchDomainPreview(QFrame):
             if constraint_set is not None and constraint_set.constraints:
                 try:
                     evaluation = evaluate_cad_constraints(document, constraint_set)
-                except Exception:
+                except EXPECTED_OPERATION_ERRORS:  # error-boundary: cosmetic constraint-overlay probe — expected evaluation failures render no overlay; unexpected errors propagate
                     evaluation = None
             # Document rebuild + constraint overlay + domain preview each end
             # in plotter.render(); coalesce to one draw of the final state.

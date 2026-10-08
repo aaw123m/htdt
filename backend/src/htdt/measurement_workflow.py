@@ -118,6 +118,11 @@ from .comparison import FrequencyResponse, compare_frequency_responses
 from .rew_api import RewFrequencyResponseSnapshot
 from .rew_auto import propose_assignment_target
 from .rew_parser import parse_rew_frequency_response
+from .error_boundary import (
+    EXPECTED_OPERATION_ERRORS,
+    is_authority_failure,
+    report_boundary_failure,
+)
 from .user_facing_error import operation_error_message
 
 _LOGGER = logging.getLogger('htdt.measurement_workflow')
@@ -814,8 +819,10 @@ class MeasurementWorkflowController:
                     **_pending_import_journal_state(self._pending),
                 }
             )
-        except Exception:
-            pass
+        except Exception as exc:  # error-boundary: best-effort volatile journal — every failure type is absorbed so journaling never gates the workflow; the exception identity is logged, never swallowed silently
+            _LOGGER.warning(
+                'pending-import journaling failed: %r', exc
+            )
 
     def list_rew_measurements(
         self, *, cancel_event: Event | None = None
@@ -946,7 +953,10 @@ class MeasurementWorkflowController:
             return None
         try:
             session = opener()
-        except Exception:
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: adapter probe — expected failures report and yield no session provenance; sealed-store failures propagate
+            if is_authority_failure(exc):
+                raise
+            report_boundary_failure(exc, operation='REWセッション証跡の確認')
             return None
         payload = session.payload() if hasattr(session, 'payload') else None
         return payload
@@ -1228,13 +1238,12 @@ class MeasurementWorkflowController:
                 dataset_by_measurement, dataset_errors = datasets_for_document(
                     self.document_id, datasets=datasets
                 )
-            except Exception:
+            except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: batch listing degrade — expected failures report and fall back to per-row reads so each measurement's error stays isolated on its own view
                 # A batch-level failure (connection, schema gate) must not
                 # kill the listing — fall back to the per-row path so each
                 # measurement's error stays isolated on its own view.
-                _LOGGER.exception(
-                    'document dataset listing failed; falling back to '
-                    'per-measurement reads'
+                report_boundary_failure(
+                    exc, operation='測定データセットの一括読み込み'
                 )
                 batch_listing_failed = True
         if batch_listing_failed:
@@ -1245,7 +1254,7 @@ class MeasurementWorkflowController:
                     dataset = self.measurement_repository.dataset_for_measurement(
                         record.measurement_id, datasets=datasets
                     )
-                except Exception as exc:
+                except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: per-row dataset read — expected failures isolate into the row's error view; unexpected errors propagate
                     dataset_errors[record.measurement_id] = exc
                 else:
                     if dataset is not None:
@@ -1463,7 +1472,7 @@ class MeasurementWorkflowController:
                     report = self._latest_report_for(
                         record.measurement_id, reports, report_errors
                     )
-                except Exception as exc:
+                except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: per-row report re-verification — a corrupt report isolates to report-less on its own row; unexpected errors propagate
                     # A corrupt report must isolate like a corrupt dataset:
                     # flag the row instead of crashing the whole listing.
                     _LOGGER.warning(
@@ -1516,7 +1525,7 @@ class MeasurementWorkflowController:
                     unverifiable_report = self._latest_report_for(
                         record.measurement_id, reports, report_errors
                     )
-                except Exception as exc:
+                except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: per-row report re-verification — failure marks the row 'error' with the reason; unexpected errors propagate
                     _LOGGER.warning(
                         'quality report re-verification failed for %s: %r',
                         record.measurement_id,
@@ -1658,7 +1667,7 @@ class MeasurementWorkflowController:
             return None
         try:
             result = producer.produce_report(measurement_id)
-        except Exception:
+        except EXPECTED_OPERATION_ERRORS:  # error-boundary: best-effort derivation — expected failures leave the measurement honestly report-less (retried by the next quality read); unexpected errors propagate
             _LOGGER.warning(
                 'quality report production failed for %s',
                 measurement_id,
@@ -2696,7 +2705,7 @@ class MeasurementWorkflowController:
                 error: str | None = None
                 try:
                     parsed = parse_rew_frequency_response(raw)
-                except Exception as exc:
+                except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: per-item parse — expected failures record the item's error; unexpected errors abort the stage atomically
                     error = operation_error_message(exc)
                 else:
                     pending = PendingMeasurementImport(
@@ -2748,7 +2757,7 @@ class MeasurementWorkflowController:
             return tuple(
                 self._batch_item_view(entry, names) for entry in staged_entries
             )
-        except Exception:
+        except Exception:  # error-boundary: teardown — unstage the appended entries on ANY failure (including unexpected) so a retry cannot duplicate queue rows, then re-raise
             # A mid-stage failure (e.g. the duplicate-name repository read)
             # must not leak the entries appended so far — a retry would
             # stage the same files again and double the queue rows.
@@ -2786,7 +2795,7 @@ class MeasurementWorkflowController:
                         has_phase_samples=decoded.phase_deg is not None,
                         rew_snapshot=snapshot,
                     )
-                except Exception as exc:
+                except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: per-item snapshot decode — expected failures record the item's error; unexpected errors abort the stage atomically
                     error = operation_error_message(exc)
                 kind, duplicate_of = self._classify_duplicate(
                     pending, None, source_maps
@@ -2828,7 +2837,7 @@ class MeasurementWorkflowController:
             return tuple(
                 self._batch_item_view(entry, names) for entry in staged_entries
             )
-        except Exception:
+        except Exception:  # error-boundary: teardown — unstage the appended entries on ANY failure (including unexpected) so a retry cannot duplicate queue rows, then re-raise
             # Same atomicity rule as stage_rew_text_files: a mid-stage
             # failure must not leak appended entries for a retry to
             # duplicate.
@@ -3092,7 +3101,7 @@ class MeasurementWorkflowController:
                 entry.committed_measurement_id = reuse_target
                 try:
                     self._install_staged_attachments(entry)
-                except Exception as exc:
+                except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: per-item attachment install — expected failures record the item's failed outcome; unexpected errors abort the commit
                     _LOGGER.warning('attachment install failed: %r', exc)
                     entry.error = operation_error_message(exc)
                     outcomes.append(
@@ -3147,7 +3156,7 @@ class MeasurementWorkflowController:
                 self._save_acquisition_context_for_commit(entry)
                 self._install_staged_attachments(entry)
                 self._produce_quality_report(record.measurement_id)
-            except Exception as exc:
+            except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: per-item commit — expected failures record the item's failed outcome; unexpected errors abort the commit
                 _LOGGER.warning('batch commit failed for staged item: %r', exc)
                 entry.error = operation_error_message(exc)
                 outcomes.append(

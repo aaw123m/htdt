@@ -43,6 +43,7 @@ from .robustness_authoring_context import (
     RobustnessCandidateChoice,
 )
 from .ui_theme import TypographyRole, set_typography_role
+from .error_boundary import EXPECTED_OPERATION_ERRORS
 from .user_facing_error import operation_error_message
 
 
@@ -206,7 +207,7 @@ class RobustnessAuthoringPanel(QWidget):
         )
         try:
             self._candidates = self.context.candidate_choices(spec)
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: candidate list surface — expected store errors surface with reason; unexpected errors propagate to diagnostics
             self.status_label.setText(
                 f'候補を読み込めません: {operation_error_message(exc)}'
             )
@@ -255,7 +256,7 @@ class RobustnessAuthoringPanel(QWidget):
             self._axes = self.context.axis_choices(
                 spec, choice.candidate_id
             )
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: axis list surface — expected store errors surface with reason; unexpected errors propagate to diagnostics
             self.status_label.setText(
                 f'軸を読み込めません: {operation_error_message(exc)}'
             )

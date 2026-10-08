@@ -73,6 +73,7 @@ from .cad_validation_campaign_service import CadValidationCampaignService
 from .cad_validation_metrics import CadApplicabilityCheck
 from .tree_item_role import ROLE
 from .native_worker import WORKER_CANCELLED
+from .error_boundary import EXPECTED_OPERATION_ERRORS
 from .user_facing_error import operation_error_message
 
 
@@ -195,7 +196,7 @@ class AdaptiveControllerMixin:
             return
         try:
             plans = self.adaptive_repository.list_for_search_spec(spec_id)
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: adaptive plan list surface — expected store errors surface with reason; unexpected errors propagate to diagnostics
             self.statusBar().showMessage(f'アダプティブ計画を読めません · {operation_error_message(exc)}')
             return
 

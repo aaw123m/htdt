@@ -287,7 +287,7 @@ def _multidimensional_sample(
         changed_entity_ids.add(axis.entity_id)
         try:
             document = apply_local_perturbation(document, axis, delta)
-        except Exception as exc:
+        except Exception as exc:  # error-boundary: per-sample evaluation — any failure type is sealed as failure_reason on this sample's record, never silently passed or allowed to abort the batch
             domain_rejections.append(f'__perturbation_unsupported__:{axis.axis_id}')
             failure_reason = f'perturbation_failed:{exc}'
 
@@ -327,7 +327,7 @@ def _multidimensional_sample(
                     raise ValueError(
                         'perturbed O30 vector candidate_id must equal sample_id'
                     )
-            except Exception as exc:
+            except Exception as exc:  # error-boundary: per-sample objective evaluation — any failure type is sealed as failure_reason on this sample's record, never silently passed or allowed to abort the batch
                 result = None
                 failure_reason = f'objective_evaluation_failed:{exc}'
     elif failure_reason is None:

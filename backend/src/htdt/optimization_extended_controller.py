@@ -84,6 +84,7 @@ from .optimization_search_controller import (
     _normalized_text,
     _update_candidate_filter_note,
 )
+from .error_boundary import EXPECTED_OPERATION_ERRORS
 from .user_facing_error import operation_error_message
 
 
@@ -240,7 +241,7 @@ class ExtendedSearchControllerMixin:
             capability = existing or built
             if existing is None:
                 self.extended_repository.save_capability(capability)
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: capability save surface — expected validation/store errors surface with reason; unexpected errors propagate to diagnostics
             self.statusBar().showMessage(
                 f'合成拡張能力を保存できません · {operation_error_message(exc)}'
             )
@@ -278,7 +279,7 @@ class ExtendedSearchControllerMixin:
             ):
                 parameters.insert(1, 'aim_pitch_deg')
             parameters = tuple(parameters)
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: evidence list surface — expected store errors surface with reason; unexpected errors propagate to diagnostics
             self.statusBar().showMessage(
                 f'拡張パラメーター証拠を読み込めません · {operation_error_message(exc)}'
             )
@@ -331,7 +332,7 @@ class ExtendedSearchControllerMixin:
                 self.extended_repository.save_capability(capability)
             else:
                 capability = existing
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: owned-room capability save surface — expected validation/store errors surface with reason; unexpected errors propagate to diagnostics
             self.statusBar().showMessage(
                 f'実室拡張能力を保存できません · {operation_error_message(exc)}'
             )
@@ -368,7 +369,7 @@ class ExtendedSearchControllerMixin:
                 max_value=float(self.extended_max_field.value()),
                 step=float(self.extended_step_field.value()),
             )
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: extended axis surface — expected validation errors surface with reason; unexpected errors propagate to diagnostics
             self.statusBar().showMessage(f'拡張軸が不正です · {operation_error_message(exc)}')
             return
         key = (entity_id, parameter)
@@ -492,7 +493,7 @@ class ExtendedSearchControllerMixin:
                 created_at_utc=datetime.now(timezone.utc).isoformat(),
             )
             self.extended_repository.save_spec(spec)
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: extended spec save surface — expected validation/store errors surface with reason; unexpected errors propagate to diagnostics
             self.statusBar().showMessage(
                 f'拡張探索仕様を保存できません · {operation_error_message(exc)}'
             )
@@ -974,7 +975,7 @@ class ExtendedSearchControllerMixin:
                 current_constraint_set=self.constraint_set,
                 current_document_id=self.document_id,
             )
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: extended candidate apply surface — expected validation/store errors surface with reason; unexpected errors propagate to diagnostics
             self.statusBar().showMessage(
                 f'拡張候補を適用できません · {operation_error_message(exc)}'
             )
@@ -1018,7 +1019,7 @@ class ExtendedSearchControllerMixin:
                     reset_camera=False,
                     render=False,
                 )
-            except Exception:
+            except EXPECTED_OPERATION_ERRORS:  # error-boundary: overlay teardown — a dead/renamed actor must not abort the rebuild; expected adapter failures are absorbed by design
                 pass
         self._extended_actor_names.clear()
 
@@ -1083,7 +1084,7 @@ class ExtendedSearchControllerMixin:
                     self.working.committed_document,
                     preview_candidate,
                 )
-            except Exception:
+            except EXPECTED_OPERATION_ERRORS:  # error-boundary: cosmetic preview degrade — expected failures render no preview; unexpected errors propagate
                 preview = None
             if preview is not None:
                 for index, entity_id in enumerate(

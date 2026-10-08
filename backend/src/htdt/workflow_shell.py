@@ -1189,7 +1189,7 @@ class WorkflowShellWindow(QMainWindow):
         for hook in self._close_hooks:
             try:
                 hook()
-            except Exception:
+            except Exception:  # error-boundary: teardown — every close hook must run; the failure identity is logged and exit continues
                 _LOGGER.exception("close hook failed")
         self.router.shutdown()
         super().closeEvent(event)

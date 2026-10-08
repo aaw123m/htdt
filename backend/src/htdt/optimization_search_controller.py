@@ -80,6 +80,7 @@ from .cad_validation_campaign_service import CadValidationCampaignService
 from .cad_validation_metrics import CadApplicabilityCheck
 from .tree_item_role import ROLE
 from .native_worker import WORKER_CANCELLED
+from .error_boundary import EXPECTED_OPERATION_ERRORS
 from .user_facing_error import operation_error_message
 
 
@@ -315,7 +316,7 @@ class SearchControllerMixin:
                 max_m=float(self.search_max_field.value()),
                 step_m=float(self.search_step_field.value()),
             )
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: axis input surface — expected validation errors surface with reason; unexpected errors propagate to diagnostics
             self.statusBar().showMessage(f'探索軸を追加できません · {operation_error_message(exc)}')
             return
 
@@ -395,7 +396,7 @@ class SearchControllerMixin:
                     max_m=high,
                     step_m=step,
                 )
-            except Exception as exc:
+            except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: preset axis surface — expected validation errors surface with reason; unexpected errors propagate to diagnostics
                 self.statusBar().showMessage(
                     f'プリセットを追加できません · {operation_error_message(exc)}'
                 )
@@ -495,7 +496,7 @@ class SearchControllerMixin:
                 relation=str(relation),
                 mirror_axis_x_m=mirror_axis,
             )
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: linked-variable surface — expected validation errors surface with reason; unexpected errors propagate to diagnostics
             self.statusBar().showMessage(f'連動変数を追加できません · {operation_error_message(exc)}')
             return
 
@@ -565,7 +566,7 @@ class SearchControllerMixin:
                 linked_variables=self._draft_linked_variables(),
             )
             self.search_repository.save(spec)
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: spec save surface — expected validation/store errors surface with reason; unexpected errors propagate to diagnostics
             self.statusBar().showMessage(f'探索設定を保存できません · {operation_error_message(exc)}')
             return
 
@@ -617,7 +618,7 @@ class SearchControllerMixin:
                 linked_variables=spec.linked_variables,
             )
             self.search_repository.save(new_spec)
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: spec re-author surface — expected validation/store errors surface with reason; unexpected errors propagate to diagnostics
             self.statusBar().showMessage(
                 f'探索設定を再作成できません · {operation_error_message(exc)}'
             )
@@ -1045,7 +1046,7 @@ class SearchControllerMixin:
                 current_constraint_set=self.constraint_set,
                 current_document_id=self.document_id,
             )
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: candidate apply surface — expected validation/store errors surface with reason; unexpected errors propagate to diagnostics
             self.statusBar().showMessage(f'候補を適用できません · {operation_error_message(exc)}')
             self._refresh_search_binding_state()
             return
@@ -1068,7 +1069,7 @@ class SearchControllerMixin:
         for name in tuple(self._search_actor_names):
             try:
                 self.viewport.remove_actor(name, reset_camera=False, render=False)
-            except Exception:
+            except EXPECTED_OPERATION_ERRORS:  # error-boundary: overlay teardown — a dead/renamed actor must not abort the rebuild; expected adapter failures are absorbed by design
                 pass
         self._search_actor_names.clear()
 

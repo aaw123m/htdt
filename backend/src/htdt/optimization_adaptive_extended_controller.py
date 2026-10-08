@@ -6,6 +6,7 @@ from .cad_adaptive_extended_service import CadAdaptiveExtendedPlannerService
 from .developer_mode import developer_mode_enabled
 from .tree_item_role import ROLE
 from .native_worker import WORKER_CANCELLED
+from .error_boundary import EXPECTED_OPERATION_ERRORS
 from .user_facing_error import operation_error_message
 
 
@@ -115,7 +116,7 @@ class AdaptiveExtendedControllerMixin:
             plans = self.adaptive_extended_repository.list_plans(
                 extended_search_id
             )
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: adaptive extended plan list surface — expected store errors surface with reason; unexpected errors propagate to diagnostics
             self.statusBar().showMessage(
                 f'アダプティブ拡張計画を読めません · {operation_error_message(exc)}'
             )

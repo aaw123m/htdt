@@ -80,6 +80,7 @@ from .cad_applicability import (
 from .cad_validation_campaign_repository import CadValidationCampaignRepository
 from .cad_validation_campaign_service import CadValidationCampaignService
 from .tree_item_role import ROLE
+from .error_boundary import EXPECTED_OPERATION_ERRORS
 from .user_facing_error import operation_error_message
 
 
@@ -309,7 +310,7 @@ class ValidationControllerMixin:
                 required_applicability_codes=('geometry', 'band', 'routing'),
             )
             self.campaign_repository.save(campaign)
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: campaign save surface — expected validation/store errors surface with reason; unexpected errors propagate to diagnostics
             self.statusBar().showMessage(f'検証条件を保存できません · {operation_error_message(exc)}')
             return
 
@@ -336,7 +337,7 @@ class ValidationControllerMixin:
         selected_item: QTreeWidgetItem | None = None
         try:
             campaigns = self.campaign_repository.list_for_search_spec(spec_id)
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: campaign list surface — expected store errors surface with reason; unexpected errors propagate to diagnostics
             self.statusBar().showMessage(f'検証条件を読み込めません · {operation_error_message(exc)}')
             return
         for display_index, campaign in enumerate(campaigns, start=1):
@@ -351,7 +352,7 @@ class ValidationControllerMixin:
                     if readiness.evidence_ready
                     else f'不足 {missing_count}件'
                 )
-            except Exception as exc:
+            except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: per-row readiness probe — expected failures mark the row 確認できません with the reason; unexpected errors propagate to diagnostics
                 readiness_text = f'確認できません: {operation_error_message(exc)}'
             item = QTreeWidgetItem([
                 f'検証条件 {display_index}',
@@ -393,7 +394,7 @@ class ValidationControllerMixin:
             registration = self.campaign_repository.get_registration(
                 campaign.campaign_id
             )
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: campaign detail surface — expected store errors surface with reason; unexpected errors propagate to diagnostics
             label.setText(f'検証条件の準備状況を読み込めません · {operation_error_message(exc)}')
             return
         objective_text = ", ".join(
@@ -437,7 +438,7 @@ class ValidationControllerMixin:
             evaluation_ids = self.campaign_service.materialize_objective_evidence(
                 campaign.campaign_id
             )
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: materialize surface — expected service/store errors surface with reason; unexpected errors propagate to diagnostics
             self.statusBar().showMessage(f'比較指標の根拠データを生成できません · {operation_error_message(exc)}')
             self._campaign_selected()
             return
@@ -455,7 +456,7 @@ class ValidationControllerMixin:
             return
         try:
             readiness = self.campaign_service.readiness(campaign.campaign_id)
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: readiness probe surface — expected service/store errors surface with reason; unexpected errors propagate to diagnostics
             self.statusBar().showMessage(f'検証条件の準備状況を読み込めません · {operation_error_message(exc)}')
             return
         if not readiness.evidence_ready:
@@ -500,7 +501,7 @@ class ValidationControllerMixin:
                 tuple(requests),
             )
             self.validation_repository.save(record)
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: validation save surface — expected validation/store errors surface with reason; unexpected errors propagate to diagnostics
             self.statusBar().showMessage(f'検証結果を保存できません · {operation_error_message(exc)}')
             return
 
@@ -582,7 +583,7 @@ class ValidationControllerMixin:
                 validation_campaign_id=campaign.campaign_id,
                 evidence_type_override='measured',
             )
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: REW read start surface — expected errors surface with reason; unexpected errors propagate to diagnostics
             self.statusBar().showMessage(f'検証用REW読み込みを開始できません · {operation_error_message(exc)}')
             return
 
@@ -613,7 +614,7 @@ class ValidationControllerMixin:
             return
         try:
             records = self.validation_repository.inspect_for_search_spec(spec_id)
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: validation list surface — expected store errors surface with reason; unexpected errors propagate to diagnostics
             self.statusBar().showMessage(f'検証結果を読み込めません · {operation_error_message(exc)}')
             return
         for display_index, record in enumerate(records, start=1):

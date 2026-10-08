@@ -76,6 +76,11 @@ from .cad_measurement_stimulus import (
 from .ingress import read_file_bounded
 from .limits import MAX_ATTACHMENT_BYTES
 from .ui_theme import SemanticState, set_semantic_state
+from .error_boundary import (
+    EXPECTED_OPERATION_ERRORS,
+    is_authority_failure,
+    report_boundary_failure,
+)
 from .user_facing_error import operation_error_message
 
 if TYPE_CHECKING:
@@ -348,7 +353,7 @@ class _RecordDialog(QDialog):
     def accept(self) -> None:
         try:
             self.record = self.build_record()
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: dialog accept — expected validation/store errors surface verbatim; unexpected errors propagate to diagnostics
             self.error_label.setText(f'登録内容を確定できません: {operation_error_message(exc)}')
             return
         super().accept()
@@ -821,7 +826,10 @@ class StimulusProfileDialog(_RecordDialog):
                 dataset = self.controller.measurement_repository.dataset_for_measurement(
                     view.measurement_id
                 )
-            except Exception:
+            except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: per-row dataset probe — expected failures report and skip the row; sealed-store failures must not silently empty the combo
+                if is_authority_failure(exc):
+                    raise
+                report_boundary_failure(exc, operation='由来データセットの確認')
                 continue
             if dataset is None:
                 continue
@@ -921,7 +929,7 @@ class StimulusProfileDialog(_RecordDialog):
             self.controller.quality_repository.save_excitation_asset(
                 asset, raw
             )
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: asset registration accept — expected validation/store errors surface verbatim; unexpected errors propagate to diagnostics
             self.error_label.setText(f'励振ファイルを登録できません: {operation_error_message(exc)}')
             return
         self.error_label.setText('')
@@ -1162,7 +1170,10 @@ class RoutingProfileDialog(_RecordDialog):
     def _latest_output_device_label(self) -> str | None:
         try:
             contexts = self.controller.quality_repository.list_acquisition_contexts()
-        except Exception:
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: label probe — expected failures report and degrade to no label; sealed-store failures must not silently degrade
+            if is_authority_failure(exc):
+                raise
+            report_boundary_failure(exc, operation='出力デバイス表示の確認')
             return None
         for context in reversed(contexts):
             playback = getattr(context, 'playback', None)

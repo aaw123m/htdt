@@ -1393,7 +1393,7 @@ def evaluate_local_robustness(
             if not domain_rejections:
                 try:
                     document = apply_local_perturbation(document, axis, delta)
-                except Exception as exc:
+                except Exception as exc:  # error-boundary: per-sample evaluation — any failure type is sealed as failure_reason on this sample's record, never silently passed or allowed to abort the batch
                     domain_rejections = (
                         f'__perturbation_unsupported__:{axis.axis_id}',
                     )
@@ -1431,7 +1431,7 @@ def evaluate_local_robustness(
                         raise ValueError(
                             'perturbed O30 vector candidate_id must equal sample_id'
                         )
-                except Exception as exc:
+                except Exception as exc:  # error-boundary: per-sample objective evaluation — any failure type is sealed as failure_reason on this sample's record, never silently passed or allowed to abort the batch
                     result = None
                     failure_reason = f'objective_evaluation_failed:{exc}'
 

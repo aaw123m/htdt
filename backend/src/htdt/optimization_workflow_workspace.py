@@ -49,6 +49,11 @@ from .comparison_context_strip import ComparisonContextStrip
 from .decision_brief_panel import DecisionBriefPanel
 from .revalidation_queue_panel import RevalidationQueuePanel
 from .developer_mode import developer_mode_enabled
+from .error_boundary import (
+    EXPECTED_OPERATION_ERRORS,
+    is_authority_failure,
+    report_boundary_failure,
+)
 from .intervention_planner import InterventionPlanner
 from .intervention_planner_panel import InterventionPlannerPanel
 from .joint_optimization_context import JointOptimizationContext
@@ -810,7 +815,10 @@ class OptimizationWorkflowWorkspace(QWidget):
         controller = self.controller
         try:
             head = controller.repository.latest(controller.document_id)
-        except Exception:  # noqa: BLE001 — head unreadable → step 1
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: degraded head read — expected failures report and degrade to step 1; sealed-store failures must not masquerade as 'no scene'
+            if is_authority_failure(exc):
+                raise
+            report_boundary_failure(exc, operation='最適化の手順の部屋状態確認')
             head = None
         scene_saved = head is not None
         specs: tuple = ()
@@ -819,7 +827,10 @@ class OptimizationWorkflowWorkspace(QWidget):
                 specs = controller.search_repository.list_specs(
                     controller.document_id
                 )
-            except Exception:  # noqa: BLE001 — spec state unreadable
+            except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: degraded spec listing — expected failures report and degrade to no-spec; sealed-store failures propagate
+                if is_authority_failure(exc):
+                    raise
+                report_boundary_failure(exc, operation='探索設定の読み込み')
                 specs = ()
         # Per-spec queries are bounded — an extreme spec count must not turn
         # a guide refresh into a scan.
@@ -837,8 +848,10 @@ class OptimizationWorkflowWorkspace(QWidget):
                         current_document_id=controller.document_id,
                     ):
                         spec_current_count += 1
-                except Exception:  # noqa: BLE001 — spec freshness unreadable
-                    pass
+                except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: per-spec freshness probe — expected failures report and count as not-current; sealed-store failures propagate
+                    if is_authority_failure(exc):
+                        raise
+                    report_boundary_failure(exc, operation='探索設定の最新性確認')
 
         # An applied candidate persists as either a measurement plan (a plan
         # can only be built over an applied revision) or a head revision that
@@ -860,7 +873,10 @@ class OptimizationWorkflowWorkspace(QWidget):
                     break
                 try:
                     cursor = controller.repository.get(parent_id)
-                except Exception:  # noqa: BLE001 — lineage unreadable
+                except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: lineage walk — expected failures report and stop the walk; sealed-store failures propagate
+                    if is_authority_failure(exc):
+                        raise
+                    report_boundary_failure(exc, operation='適用履歴の確認')
                     break
                 if cursor is None:
                     break
@@ -881,28 +897,36 @@ class OptimizationWorkflowWorkspace(QWidget):
                 plans_measured += sum(
                     1 for plan in plans if plan.status == 'measured'
                 )
-            except Exception:  # noqa: BLE001 — plan state unreadable
-                pass
+            except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: per-spec plan count — expected failures report and count zero; sealed-store failures propagate
+                if is_authority_failure(exc):
+                    raise
+                report_boundary_failure(exc, operation='実測計画の状態確認')
             try:
                 campaign_count += (
                     controller.campaign_repository.count_for_search_spec(
                         spec_id
                     )
                 )
-            except Exception:  # noqa: BLE001 — campaign state unreadable
-                pass
+            except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: per-spec campaign count — expected failures report and count zero; sealed-store failures propagate
+                if is_authority_failure(exc):
+                    raise
+                report_boundary_failure(exc, operation='検証条件の状態確認')
             try:
                 evaluation_count += (
                     controller.objective_repository.count_evaluations(spec_id)
                 )
-            except Exception:  # noqa: BLE001 — evidence state unreadable
-                pass
+            except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: per-spec evaluation count — expected failures report and count zero; sealed-store failures propagate
+                if is_authority_failure(exc):
+                    raise
+                report_boundary_failure(exc, operation='比較指標の状態確認')
             try:
                 pareto_set_count += (
                     controller.objective_repository.count_pareto_sets(spec_id)
                 )
-            except Exception:  # noqa: BLE001 — comparison state unreadable
-                pass
+            except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: per-spec pareto count — expected failures report and count zero; sealed-store failures propagate
+                if is_authority_failure(exc):
+                    raise
+                report_boundary_failure(exc, operation='比較集合の状態確認')
             try:
                 # The browse path skips per-record evidence re-attestation —
                 # a stale record must not blank the whole guide.
@@ -911,8 +935,10 @@ class OptimizationWorkflowWorkspace(QWidget):
                         spec_id
                     )
                 )
-            except Exception:  # noqa: BLE001 — validation state unreadable
-                pass
+            except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: per-spec validation count — expected failures report and count zero; sealed-store failures propagate
+                if is_authority_failure(exc):
+                    raise
+                report_boundary_failure(exc, operation='検証結果の状態確認')
         applied = applied or plan_count > 0
 
         steps = evaluate_optimization_journey(

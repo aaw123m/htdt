@@ -57,6 +57,7 @@ from .ui_theme import (
     set_surface_role,
     set_typography_role,
 )
+from .error_boundary import EXPECTED_OPERATION_ERRORS
 from .user_facing_error import operation_error_message
 
 
@@ -189,13 +190,13 @@ class RevalidationQueuePanel(QFrame):
 
     def refresh(self) -> None:
         """Reload the newest persisted queue + run for this document."""
-        try:  # error-boundary: repository read must never crash the page
+        try:
             self._queue = self._revalidation_repository.latest_queue(
                 self._document_id
             )
             run = self._latest_run()
             head = self._head()
-        except Exception as exc:  # noqa: BLE001
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: repository read surface — expected failures surface with reason; unexpected errors propagate to diagnostics
             self._queue = None
             run = None
             head = None
@@ -320,9 +321,9 @@ class RevalidationQueuePanel(QFrame):
     def _compose(self) -> None:
         if self._queue_supplier is None:
             return
-        try:  # error-boundary: compose must report, not crash the page
+        try:
             bundle = self._queue_supplier()
-        except Exception as exc:  # noqa: BLE001
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: compose surface — expected failures report; unexpected errors propagate to diagnostics
             self._set_status(
                 f'再検証キューを作成できません: '
                 f'{operation_error_message(exc)}'
@@ -342,7 +343,7 @@ class RevalidationQueuePanel(QFrame):
     def _verify(self) -> None:
         if self._queue is None:
             return
-        try:  # error-boundary: the run must report, not crash the page
+        try:
             pre_head = self._head()
             run = run_queue_software(
                 self._queue,
@@ -351,7 +352,7 @@ class RevalidationQueuePanel(QFrame):
                 software_runner=self._software_runner,
                 revalidation_repository=self._revalidation_repository,
             )
-        except Exception as exc:  # noqa: BLE001
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: run surface — expected failures report; unexpected errors propagate to diagnostics
             self._set_status(
                 f'影響の検証を実行できません: '
                 f'{operation_error_message(exc)}'

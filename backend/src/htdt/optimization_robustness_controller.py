@@ -11,6 +11,7 @@ from .cad_robustness_repository import CadRobustnessRepository
 from .cad_search_models import constraint_workspace_snapshot
 from .tree_item_role import ROLE
 from .optimization_robustness_overlay import build_robustness_overlay_model
+from .error_boundary import EXPECTED_OPERATION_ERRORS
 from .user_facing_error import operation_error_message
 from .optimization_robustness_presenter import (
     build_robustness_candidate_presentation,
@@ -114,7 +115,7 @@ class RobustnessControllerMixin:
                     reset_camera=False,
                     render=False,
                 )
-            except Exception:
+            except EXPECTED_OPERATION_ERRORS:  # error-boundary: overlay teardown — a dead/renamed actor must not abort the rebuild; expected adapter failures are absorbed by design
                 pass
         self._robustness_actor_names.clear()
 

@@ -77,6 +77,7 @@ from .room_workspace import RoomWorkspaceController
 if TYPE_CHECKING:
     from .measurement_workflow import RewReadSource
 from .workspace_dirty_state import DirtyResolutionAction, WorkspaceDirtyState
+from .error_boundary import EXPECTED_OPERATION_ERRORS
 from .user_facing_error import operation_error_message
 
 
@@ -543,7 +544,7 @@ class OptimizationWorkflowController(
                 self.objective_repository.save_pareto_set(
                     pareto_set, validated=validated
                 )
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: pareto save surface — expected build/store errors surface with reason; unexpected errors propagate to diagnostics
             self.pareto_tree.clear()
             self.pareto_summary_label.setText(f"Pareto比較を作成できません · {operation_error_message(exc)}")
             if self.decision_verdict_label is not None:
@@ -595,7 +596,7 @@ class OptimizationWorkflowController(
             return
         try:
             self._apply_decision_verdicts(spec_id, evaluations, selected)
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: verdict refresh surface — expected computation/store errors surface with reason; unexpected errors propagate to diagnostics
             self.decision_verdict_label.setText(
                 f"証拠判定を計算できません · {operation_error_message(exc)}"
             )
@@ -964,7 +965,7 @@ class OptimizationWorkflowController(
                 raw_bytes=raw,
             )
             self._produce_quality_report(record.measurement_id)
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: REW save surface — expected validation/store errors surface with reason; unexpected errors propagate to diagnostics
             self.statusChanged.emit(f"REW結果保存失敗 · {operation_error_message(exc)}")
             return
         self.refresh_measurement_plans()
@@ -984,7 +985,7 @@ class OptimizationWorkflowController(
                     CadMeasurementQualityRepository(self.measurement_repository)
                 )
             self._quality_producer.produce_report(measurement_id)
-        except Exception:
+        except EXPECTED_OPERATION_ERRORS:  # error-boundary: best-effort derivation — expected failures leave the measurement honestly report-less (retried by the next quality read); unexpected errors propagate
             logging.getLogger(__name__).warning(
                 'quality report production failed for %s',
                 measurement_id,

@@ -90,6 +90,7 @@ from .cad_system_health import (
 from .cad_system_health_repository import CadSystemHealthRepository
 from .cad_system_variant_repository import CadSystemVariantRepository
 from .ui_theme import TypographyRole, set_typography_role
+from .error_boundary import EXPECTED_OPERATION_ERRORS
 from .user_facing_error import operation_error_message
 
 
@@ -648,7 +649,7 @@ class AVSyncRecordDialog(QDialog):
                 created_at=_utc_now(),
             )
             self.av_sync_repository.save_condition(condition)
-        except Exception as exc:  # noqa: BLE001 — surface the typed error verbatim
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: condition save accept — expected validation/store errors surface verbatim; unexpected errors propagate to diagnostics
             self.status_label.setText(f'登録できませんでした: {operation_error_message(exc)}')
             return
         self.status_label.setText(
@@ -707,7 +708,7 @@ class AVSyncRecordDialog(QDialog):
                     kwargs['residual_offset_ms'] = value
                 measurement = advance_av_latency_measurement(head, **kwargs)
             self.av_sync_repository.save_measurement(measurement)
-        except Exception as exc:  # noqa: BLE001 — typed conflict/validation errors
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: latency record accept — expected conflict/validation errors surface verbatim; unexpected errors propagate to diagnostics
             self.status_label.setText(f'記録できませんでした: {operation_error_message(exc)}')
             return
         self.status_label.setText(
@@ -1491,7 +1492,7 @@ class HealthCheckDialog(QDialog):
             self.health_repository.verify_persisted_baseline(
                 baseline.baseline_id
             )
-        except Exception as exc:  # noqa: BLE001 — typed errors surface verbatim
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: baseline save accept — expected validation/store errors surface verbatim; unexpected errors propagate to diagnostics
             self.status_label.setText(f'登録できませんでした: {operation_error_message(exc)}')
             return
         self.status_label.setText(f'ベースライン「{name}」を登録しました。')
@@ -1579,7 +1580,7 @@ class HealthCheckDialog(QDialog):
             )
             self.health_repository.save_plan(plan)
             self.health_repository.verify_persisted_plan(plan.plan_id)
-        except Exception as exc:  # noqa: BLE001
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: plan save accept — expected validation/store errors surface verbatim; unexpected errors propagate to diagnostics
             self.status_label.setText(f'計画を保存できませんでした: {operation_error_message(exc)}')
             return
         self.status_label.setText('チェック計画を保存しました。')
@@ -1646,7 +1647,7 @@ class HealthCheckDialog(QDialog):
             )
             self.health_repository.save_run(run)
             self.health_repository.verify_persisted_run(run.run_id)
-        except Exception as exc:  # noqa: BLE001
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: run record accept — expected validation/store errors surface verbatim; unexpected errors propagate to diagnostics
             self.status_label.setText(f'チェックを記録できませんでした: {operation_error_message(exc)}')
             return
         self.status_label.setText('チェック結果を記録しました。')
@@ -1949,7 +1950,7 @@ class OperatingPresetRecordDialog(QDialog):
                 created_at_utc=_utc_now(),
             )
             self.preset_repository.save_preset(preset)
-        except Exception as exc:  # noqa: BLE001
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: preset save accept — expected validation/store errors surface verbatim; unexpected errors propagate to diagnostics
             self.status_label.setText(
                 f'プリセットを登録できませんでした: {operation_error_message(exc)}'
             )
@@ -1982,7 +1983,7 @@ class OperatingPresetRecordDialog(QDialog):
                 note=self.note_edit.text().strip() or None,
             )
             self.preset_repository.save_applied_state(applied)
-        except Exception as exc:  # noqa: BLE001
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: applied-state record accept — expected validation/store errors surface verbatim; unexpected errors propagate to diagnostics
             self.status_label.setText(f'適用を記録できませんでした: {operation_error_message(exc)}')
             return
         self.status_label.setText(
