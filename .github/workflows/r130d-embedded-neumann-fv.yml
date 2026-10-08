@@ -7,6 +7,10 @@ on:
       - 'backend/tests/test_r130d_embedded_neumann_fv.py'
       - 'backend/tests/test_r130d_embedded_neumann_fv_evidence.py'
       - 'backend/tests/test_r130d_fv_mfem_same_drive.py'
+      - 'backend/tests/test_r130d_candidate_same_source_qualification.py'
+      - 'backend/src/htdt/r130d_candidate_same_source_qualification.py'
+      - 'scripts/run_r130d_candidate_same_source_qualification.py'
+      - 'benchmarks/acoustics/r130d_candidate_same_source*'
       - 'scripts/run_r130d_fv_mfem_same_drive_comparison.py'
       - 'benchmarks/acoustics/r130d_fv_mfem_same_drive*'
       - 'benchmarks/acoustics/r130d_mfem_independent_sparse_systems/**'
@@ -40,8 +44,9 @@ jobs:
           Copy-Item backend/tests/test_r130d_embedded_neumann_fv.py scratch/tests/
           Copy-Item backend/tests/test_r130d_embedded_neumann_fv_evidence.py scratch/tests/
           Copy-Item backend/tests/test_r130d_fv_mfem_same_drive.py scratch/tests/
+          Copy-Item backend/tests/test_r130d_candidate_same_source_qualification.py scratch/tests/
           $env:PYTHONPATH = Join-Path $pwd 'backend/src'
-          python -m pytest -q scratch/tests/test_r130d_embedded_neumann_fv.py scratch/tests/test_r130d_embedded_neumann_fv_evidence.py scratch/tests/test_r130d_fv_mfem_same_drive.py --tb=short
+          python -m pytest -q scratch/tests/test_r130d_embedded_neumann_fv.py scratch/tests/test_r130d_embedded_neumann_fv_evidence.py scratch/tests/test_r130d_fv_mfem_same_drive.py scratch/tests/test_r130d_candidate_same_source_qualification.py --tb=short
       - name: Recompute modal benchmark and compare frozen evidence
         shell: pwsh
         env:
@@ -87,4 +92,24 @@ jobs:
                   assert abs(complex(*x)-complex(*y)) < 1e-6
           assert abs(actual['cross_solver_vs_mfem_r3'][-1]['normalized_complex_l2'] - 0.08243571292457451) < 1e-7
           print('PASS: actual MFEM drive replay matches immutable independent evidence; production NO_GO')
+          '@ | python -
+      - name: Re-evaluate preregistered candidate gate; require BLOCKED before r4 is independently accepted
+        shell: pwsh
+        env:
+          PYTHONUTF8: '1'
+        run: |
+          python scripts/run_r130d_candidate_same_source_qualification.py `
+            --candidate-plan benchmarks/acoustics/r130d_candidate_same_source_numerical_acceptance_plan_2026-10-09.json `
+            --parent-plan benchmarks/acoustics/r130d_general3d_validation_plan.json `
+            --fv-evidence benchmarks/acoustics/r130d_embedded_neumann_fv_driven_followup_2026-10-09.json `
+            --mfem-r123-evidence benchmarks/acoustics/r130d_fv_mfem_same_drive_evidence_2026-10-09.json `
+            --output scratch/ci_candidate_gate_pending_r4.json
+          @'
+          import json
+          r=json.load(open('scratch/ci_candidate_gate_pending_r4.json'))
+          assert r['gate']['fv_self_state']=='SELF_CONVERGENCE_PASS_CANDIDATE_ONLY'
+          assert r['gate']['mfem_self_state']=='REFINEMENT_R4_MISSING'
+          assert r['gate']['cross_solver_state']=='CROSS_SOLVER_BLOCKED'
+          assert r['production_ready'] is False
+          print('PASS: FV candidate-only self-convergence / missing MFEM ref4 blocks adoption')
           '@ | python -
