@@ -1111,6 +1111,10 @@ def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
                 diagnostics.logger.exception(
                     'background watch lanes failed to start'
                 )
+            # #886: offer the guided first-run wizard once the shell is
+            # shown — enabled only here (the real GUI run) so compositions
+            # booted by tests or Safe Mode never auto-open a modal.
+            application.enable_first_run_wizard_autoshow()
         if capture_receiver is not None:
             start_error = capture_receiver.start_if_requested()
             if start_error:

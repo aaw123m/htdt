@@ -52,6 +52,21 @@ from .activity_center import (
 from .capture_inbox import CaptureInboxRepository
 from .cad_av_sync_repository import CadAVSyncRepository
 from .cad_calibration_repository import CadCalibrationRepository
+from .cad_calibration_wizard import derive_wizard_state
+from .cad_calibration_wizard_repository import (
+    CadCalibrationWizardRepository,
+)
+from .cad_channel_verification_repository import (
+    CadChannelVerificationRepository,
+)
+from .cad_commissioning_orchestrator import (
+    COMMISSIONING_STAGE_ORDER,
+    derive_run_state,
+)
+from .cad_commissioning_orchestrator_repository import (
+    CadCommissioningOrchestratorRepository,
+)
+from .cad_sweep_acquisition import WasapiAudioBackend
 from .cad_calibration_workflow import CadCalibrationWorkflowService
 from .cad_correction_qualification import qualification_scope_label
 from .cad_correction_qualification_repository import (
@@ -199,6 +214,18 @@ from .support_diagnostics import (
     run_health_checks,
 )
 from .workflow_help import GlossaryDialog, HelpDialog
+from .first_run_wizard import FirstRunWizardDialog
+from .first_run_wizard_state import (
+    FirstRunWizardFacts,
+    WizardStage,
+    derive_wizard_progress,
+    first_incomplete_stage,
+)
+from .first_run_wizard_store import (
+    FirstRunWizardRecord,
+    load_wizard_state,
+    save_wizard_state,
+)
 from .authority_graph import (
     build_authority_graph,
     measurement_authority_source,
@@ -1350,6 +1377,12 @@ class WorkflowApplicationComposition:
             "プロジェクトを開く…(&O)", self._open_project_dialog
         )
         menu.addSeparator()
+        # #886: guided golden-path wizard — reopenable any time; stage
+        # progress re-derives from canonical state on open.
+        menu.addAction(
+            "初回セットアップウィザード…(&W)", self._open_first_run_wizard
+        )
+        menu.addSeparator()
         menu.addAction(
             "プロジェクト名を変更…(&R)", self._rename_project
         )
@@ -2343,6 +2376,10 @@ class WorkflowApplicationComposition:
         # artifact the close+respawn path restores at composition build.
         self.shell.reset_selected_contexts()
         self._restore_window_state()
+        # #886: resume an unfinished wizard after the switch settles
+        # (enabled only in the real GUI run — see native_cad._run_gui).
+        if self._wizard_auto_show_enabled:
+            QTimer.singleShot(0, self._maybe_show_first_run_wizard)
         return None
 
     def _open_project_entry(self, document_id: str) -> ProjectLibraryEntry:
@@ -2875,6 +2912,170 @@ class WorkflowApplicationComposition:
         )
         dialog = _self.ApplicabilityEnvelopeDialog(envelope, parent=parent)
         dialog.exec()
+
+    # -- first-run wizard (#886) ----------------------------------------
+
+    #: Off by default — enabled by ``native_cad._run_gui`` after the
+    #: window is shown so test-booted compositions never auto-open a
+    #: modal dialog.
+    _wizard_auto_show_enabled = False
+
+    def enable_first_run_wizard_autoshow(self) -> None:
+        """Turn on first-run auto-show and schedule the first check."""
+        self._wizard_auto_show_enabled = True
+        QTimer.singleShot(0, self._maybe_show_first_run_wizard)
+
+    def _first_run_facts(self) -> FirstRunWizardFacts:
+        """Assemble the canonical-state snapshot the wizard derives from.
+
+        Every fact reads a sealed authority or the Overview readiness
+        aggregation — the wizard itself stores only display resume state.
+        """
+        _self = sys.modules[__name__]
+        if not self.document_id:
+            return FirstRunWizardFacts()
+        vm = self._build_overview_service().read(self.document_id)
+        step_status = {step.key: step.status for step in vm.golden_path_steps}
+        revision = self.repository.current_head(self.document_id)
+        speakers = ()
+        roles_ok = False
+        if revision is not None:
+            speakers = tuple(
+                entity
+                for entity in revision.document.entities
+                if entity.kind == 'speaker'
+            )
+            notice_codes = {
+                notice.code for notice in (*vm.blockers, *vm.warnings)
+            }
+            roles_ok = bool(speakers) and not any(
+                code in {'speaker.role_missing', 'speaker.role_duplicate'}
+                for code in notice_codes
+            )
+        equipment_unresolved = sum(
+            1
+            for notice in (*vm.blockers, *vm.warnings)
+            if notice.code == 'equipment.binding_missing'
+        )
+        backend_available = False
+        backend_reason: str | None = None
+        try:
+            backend = _self.WasapiAudioBackend()
+            backend_available = backend.available()
+            if not backend_available:
+                backend_reason = backend.unavailable_reason()
+        except Exception as exc:  # error-boundary: a probe failure reports as unavailable, never crashes the wizard
+            backend_reason = operation_error_message(exc)
+        calibration_done = False
+        channel_verified = False
+        readback_verified = False
+        try:
+            calib_repo = _self.CadCalibrationWizardRepository(
+                self.repository
+            )
+            for run in calib_repo.list_runs(self.document_id):
+                state = _self.derive_wizard_state(
+                    run, calib_repo.list_transitions(run.run_id)
+                )
+                if state.completed:
+                    calibration_done = True
+                    break
+            cv_repo = _self.CadChannelVerificationRepository(
+                self.repository
+            )
+            channel_verified = any(
+                verdict.map_state == 'verified'
+                for verdict in cv_repo.list_verdicts(self.document_id)
+            )
+            orch_repo = _self.CadCommissioningOrchestratorRepository(
+                self.repository
+            )
+            readback_index = _self.COMMISSIONING_STAGE_ORDER.index(
+                'readback_verify'
+            )
+            for run in orch_repo.list_runs(self.document_id):
+                state = _self.derive_run_state(
+                    run, orch_repo.list_transitions(run.run_id)
+                )
+                furthest = _self.COMMISSIONING_STAGE_ORDER.index(
+                    state.furthest_stage
+                )
+                if state.completed or furthest >= readback_index:
+                    readback_verified = True
+                    break
+        except Exception:  # error-boundary: an authority read failure reports the stage as not done — it never fabricates progress
+            pass
+        return FirstRunWizardFacts(
+            project_exists=bool(self.document_id),
+            room_saved=step_status.get('room') == 'done',
+            speakers_present=bool(speakers),
+            speaker_roles_ok=roles_ok,
+            equipment_unresolved_count=equipment_unresolved,
+            audio_backend_available=backend_available,
+            audio_backend_reason=backend_reason,
+            calibration_complete=calibration_done,
+            channel_verified=channel_verified,
+            baseline_measured=step_status.get('measurement') == 'done',
+            has_candidates=step_status.get('comparison') == 'done'
+            or step_status.get('comparison') == 'current',
+            deploy_applied=step_status.get('apply') == 'done',
+            deploy_readback_verified=readback_verified,
+            verify_measured=step_status.get('verify') == 'done',
+        )
+
+    def _open_first_run_wizard(self) -> None:
+        """Open the guided setup wizard; persist resume state on close."""
+        dialog = FirstRunWizardDialog(
+            self._first_run_facts,
+            navigate=self._navigate_target,
+            parent=self.shell,
+        )
+        dialog.exec()
+        self._save_wizard_record(dialog)
+
+    def _maybe_show_first_run_wizard(self) -> None:
+        """Auto-open when the wizard never ran or was left unfinished.
+
+        A 'dismissed'/'completed' record suppresses the auto-show — the
+        wizard always reopens from the project menu.
+        """
+        record = load_wizard_state(self.data_dir)
+        if record is not None and record.status != 'active':
+            return
+        views = derive_wizard_progress(self._first_run_facts())
+        if first_incomplete_stage(views) is None:
+            # Nothing left to guide — record completion so the menu entry
+            # is the only way back in.
+            self._save_wizard_record(None)
+            return
+        self._open_first_run_wizard()
+
+    def _save_wizard_record(
+        self, dialog: FirstRunWizardDialog | None
+    ) -> None:
+        now = datetime.now(timezone.utc).isoformat()
+        record = load_wizard_state(self.data_dir)
+        started = record.started_utc if record is not None else now
+        views = derive_wizard_progress(self._first_run_facts())
+        if first_incomplete_stage(views) is None:
+            status = 'completed'
+        elif dialog is not None and dialog.deferred:
+            status = 'dismissed'
+        else:
+            status = 'active'
+        save_wizard_state(
+            self.data_dir,
+            FirstRunWizardRecord(
+                started_utc=started,
+                last_shown_stage=(
+                    dialog.current_stage.value
+                    if dialog is not None and dialog.current_stage
+                    else None
+                ),
+                status=status,
+                updated_utc=now,
+            ),
+        )
 
     def _open_solver_diagnostics(self, parent: QWidget) -> None:
         """Open the solver-output ledger view for the current document.
