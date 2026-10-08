@@ -1211,6 +1211,112 @@ def _verb_records_list(ctx: _Ctx) -> _VerbOutcome:
         data={'kind': kind, 'count': len(items), 'records': items})
 
 
+def _verb_drill_list(ctx: _Ctx) -> _VerbOutcome:
+    from .cad_recovery_drill import (
+        RECOVERY_DRILL_MANIFEST_FORMAT,
+        builtin_drill_manifest,
+    )
+
+    manifest = builtin_drill_manifest()
+    return _VerbOutcome(
+        'succeeded', verdict='listed',
+        data={
+            'format': RECOVERY_DRILL_MANIFEST_FORMAT,
+            'manifest_sha256': manifest.manifest_sha256,
+            'count': len(manifest.drills),
+            'drills': [{
+                'drill_id': spec.drill_id,
+                'title': spec.title,
+                'issue_refs': list(spec.issue_refs),
+                'fault': spec.fault,
+                'expected_terminal': spec.expectation.expected_terminal,
+                'mutating': spec.mutating,
+            } for spec in manifest.drills],
+        })
+
+
+def _verb_drill_run(ctx: _Ctx) -> _VerbOutcome:
+    from .cad_recovery_drill import (
+        DrillContext,
+        builtin_drill_manifest,
+        run_drill_manifest,
+        select_drills,
+    )
+
+    args = ctx.args
+    manifest = builtin_drill_manifest()
+    try:
+        selected = select_drills(
+            manifest, tuple(args.drill_id or ()) or None)
+    except ValueError as exc:
+        raise HeadlessCliError(
+            'missing_evidence', f'{exc}', verdict='unknown_drill')
+    if args.dry_run:
+        return _VerbOutcome(
+            'succeeded', verdict='planned',
+            data={
+                'manifest_sha256': manifest.manifest_sha256,
+                'planned': [d.drill_id for d in selected],
+            })
+    if not args.arm:
+        return _VerbOutcome(
+            'unauthorized', verdict='arm_required',
+            reason='drill run requires --arm — drills inject faults and '
+                   'write sealed evidence into their sandbox')
+    work_root = (
+        Path(args.work_root)
+        if args.work_root
+        else ctx.repos.data_dir / 'recovery-drill')
+    if not ctx.document_id:
+        # A run record must always seal — default the document binding
+        # rather than let the record silently skip.
+        ctx.document_id = 'recovery-drill'
+    started = _utc_now()
+    mono = time.monotonic()
+    report = run_drill_manifest(
+        manifest,
+        DrillContext(
+            work_root=work_root, document_id=ctx.document_id),
+        drill_ids=tuple(args.drill_id or ()) or None,
+        started_at_utc=started,
+        finished_at_utc=_utc_now(),
+        elapsed_ms=int((time.monotonic() - mono) * 1000),
+    )
+    if args.out:
+        Path(args.out).write_text(
+            json.dumps(report.model_dump(mode='json'), indent=2,
+                       sort_keys=True),
+            encoding='utf-8')
+    refs = tuple(
+        ref for result in report.results for ref in result.records)
+    failing = [r.drill_id for r in report.results
+               if r.verdict != 'recovered_as_designed']
+    return _VerbOutcome(
+        'failed' if failing else 'succeeded',
+        verdict=report.overall_verdict,
+        reason=(
+            None if not failing
+            else 'failing drills: ' + ','.join(failing)),
+        refs=refs,
+        data={
+            'report_sha256': report.report_sha256,
+            'manifest_sha256': manifest.manifest_sha256,
+            'work_root': str(work_root),
+            'report_path': args.out,
+            'results': [{
+                'drill_id': r.drill_id,
+                'verdict': r.verdict,
+                'observed_terminal': r.observed_terminal,
+                'detail': r.detail,
+            } for r in report.results],
+        },
+        spec_payload={
+            'verb': 'drill.run',
+            'manifest_sha256': manifest.manifest_sha256,
+            'drill_ids': [d.drill_id for d in selected],
+        })
+
+
 def _verb_records_export(ctx: _Ctx) -> _VerbOutcome:
     args = ctx.args
     kind = args.kind
@@ -1352,6 +1458,16 @@ def _build_parser() -> argparse.ArgumentParser:
     re_.add_argument('--id', required=True)
     re_.add_argument('--out', default=None)
 
+    drill = families.add_parser('drill')
+    drill_verbs = drill.add_subparsers(dest='verb', required=True)
+    drill_verbs.add_parser('list')
+    drl = drill_verbs.add_parser('run')
+    drl.add_argument('--drill-id', action='append', default=None)
+    drl.add_argument('--all', action='store_true')
+    drl.add_argument('--arm', action='store_true')
+    drl.add_argument('--out', default=None)
+    drl.add_argument('--work-root', default=None)
+
     families.add_parser('status')
     return parser
 
@@ -1369,6 +1485,8 @@ _HANDLERS: dict[str, Callable[[_Ctx], _VerbOutcome]] = {
     'diagnostic.run': _verb_diagnostic_run,
     'records.list': _verb_records_list,
     'records.export': _verb_records_export,
+    'drill.list': _verb_drill_list,
+    'drill.run': _verb_drill_run,
     'status': _verb_status,
 }
 
@@ -1382,6 +1500,7 @@ _FAMILY_PREFIX = {
     'deploy': 'deployment',
     'diagnose': 'diagnostic',
     'records': 'records',
+    'drill': 'drill',
     'status': '',
 }
 

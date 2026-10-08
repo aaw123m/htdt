@@ -1,0 +1,259 @@
+{
+  "drills": [
+    {
+      "drill_id": "session-crash-mid-write",
+      "expectation": {
+        "expected_records": [
+          "session_recovery_journal",
+          "session_recovery_decision"
+        ],
+        "expected_terminal": "restored",
+        "forbidden_terminals": [
+          "recovered_silently",
+          "no_report"
+        ],
+        "required_checks": [
+          "ending_classified",
+          "items_recoverable",
+          "reconciliations_honest",
+          "draft_bytes_preserved",
+          "detection_recorded",
+          "restore_completed"
+        ]
+      },
+      "fault": "process_kill_mid_write",
+      "fault_summary": "A session journal records workspace state, a sealed scene draft, a pending import and annotation, an unmatched write intent, a sweep-acquisition stage and a device-apply operation — then the process dies without a clean close.",
+      "implementation": "session_crash_mid_write",
+      "issue_refs": [
+        "#883"
+      ],
+      "mutating": true,
+      "recovery_expectation": "Detection reports ending=forced_termination with all item kinds recoverable, uncertain external effects stay DEVICE_STATE_UNKNOWN / ACQUISITION_INCOMPLETE / WRITE_COMPLETION_UNKNOWN (never inferred), the sealed detection record exists, and apply_session_restore completes with the draft bytes provably intact.",
+      "title": "Session killed mid-write restores dirty state"
+    },
+    {
+      "drill_id": "session-journal-torn-tail",
+      "expectation": {
+        "expected_records": [
+          "session_recovery_journal"
+        ],
+        "expected_terminal": "report_emitted",
+        "forbidden_terminals": [
+          "intact_claimed"
+        ],
+        "required_checks": [
+          "tail_torn_honest",
+          "prefix_recovered",
+          "corrupt_rejected",
+          "detection_recorded"
+        ]
+      },
+      "fault": "journal_tail_truncation",
+      "fault_summary": "One journal ends mid-line (crash while writing); a sibling journal has a mid-file corrupt line.",
+      "implementation": "session_journal_torn_tail",
+      "issue_refs": [
+        "#883"
+      ],
+      "mutating": true,
+      "recovery_expectation": "The torn journal reports integrity=tail_torn with the intact prefix still recoverable (never claimed intact); the corrupt journal is rejected, not recovered — fail-closed evidence handling.",
+      "title": "Torn-tail journal recovers prefix, corrupt rejects"
+    },
+    {
+      "drill_id": "update-crash-mid-swap",
+      "expectation": {
+        "expected_records": [
+          "update_session",
+          "update_outcome"
+        ],
+        "expected_terminal": "rolled_back",
+        "forbidden_terminals": [
+          "committed",
+          "applied",
+          "staged"
+        ],
+        "required_checks": [
+          "partial_detected",
+          "rollback_verified",
+          "install_bytes_restored",
+          "never_committed"
+        ]
+      },
+      "fault": "kill_mid_swap",
+      "fault_summary": "After staging, the process dies between the two swap renames: previous-install holds the old tree, staged still holds the new payload — a partial swap.",
+      "implementation": "update_crash_mid_swap",
+      "issue_refs": [
+        "#889"
+      ],
+      "mutating": true,
+      "recovery_expectation": "resume() re-derives stage=staged, observes a partial install and rolls back: outcome rolled_back with rollback_verified, and the live install returns to the pre-update bytes. Never reports committed.",
+      "title": "Update killed between swap renames rolls back"
+    },
+    {
+      "drill_id": "update-crash-mid-rollback",
+      "expectation": {
+        "expected_records": [
+          "update_session",
+          "update_outcome"
+        ],
+        "expected_terminal": "rolled_back",
+        "forbidden_terminals": [
+          "committed",
+          "rollback_failed"
+        ],
+        "required_checks": [
+          "rollback_reentered",
+          "rollback_verified",
+          "install_bytes_restored",
+          "never_committed"
+        ]
+      },
+      "fault": "kill_mid_rollback",
+      "fault_summary": "A failed health check triggers rollback; the process dies inside restore_install after diverting the broken install.",
+      "implementation": "update_crash_mid_rollback",
+      "issue_refs": [
+        "#889"
+      ],
+      "mutating": true,
+      "recovery_expectation": "resume() re-enters rolling_back (bounded repeat) and completes the restore — outcome rolled_back with a verified install tree. rollback_attempts records the re-entry honestly.",
+      "title": "Update killed inside rollback resumes rollback"
+    },
+    {
+      "drill_id": "update-health-unverifiable",
+      "expectation": {
+        "expected_records": [
+          "update_outcome"
+        ],
+        "expected_terminal": "rolled_back",
+        "forbidden_terminals": [
+          "committed"
+        ],
+        "required_checks": [
+          "health_error_surfaced",
+          "rollback_verified",
+          "never_committed"
+        ]
+      },
+      "fault": "health_probe_unverifiable",
+      "fault_summary": "The swap completes, then the health probe raises (observation itself failed) instead of reporting.",
+      "implementation": "update_health_unverifiable",
+      "issue_refs": [
+        "#889"
+      ],
+      "mutating": true,
+      "recovery_expectation": "The service auto-rolls-back on unverifiable health and surfaces the failure — the session can never report committed without positive evidence.",
+      "title": "Unverifiable post-swap health never commits"
+    },
+    {
+      "drill_id": "diagnostics-bundle-collector-failure",
+      "expectation": {
+        "expected_records": [
+          "file:diagnostic_bundle"
+        ],
+        "expected_terminal": "bundle_built_with_recorded_errors",
+        "forbidden_terminals": [
+          "bundle_clean"
+        ],
+        "required_checks": [
+          "bundle_built",
+          "collection_errors_recorded",
+          "redactions_applied",
+          "no_secret_leak",
+          "integrity_verified"
+        ]
+      },
+      "fault": "context_collector_failure",
+      "fault_summary": "A context provider raises mid-collection while a log member carries a secret-looking token, an IP and a user path.",
+      "implementation": "diagnostics_bundle_collector_failure",
+      "issue_refs": [
+        "#884"
+      ],
+      "mutating": true,
+      "recovery_expectation": "The bundle still builds; manifest.json records the collector failure in collection_errors (never silently clean), redactions are applied and no secret material reaches the archive; member sha256s verify.",
+      "title": "Bundle export records crashed collector honestly"
+    },
+    {
+      "drill_id": "vault-locked-denies-material",
+      "expectation": {
+        "expected_records": [
+          "credential_reference",
+          "credential_lifecycle_event"
+        ],
+        "expected_terminal": "material_withheld_then_restored",
+        "forbidden_terminals": [
+          "material_returned"
+        ],
+        "required_checks": [
+          "baseline_retrieval",
+          "retrieval_denied",
+          "message_actionable",
+          "no_false_used_event",
+          "reference_preserved"
+        ]
+      },
+      "fault": "vault_locked",
+      "fault_summary": "A stored credential becomes unreachable when the platform vault locks mid-session.",
+      "implementation": "vault_locked_denies_material",
+      "issue_refs": [
+        "#890"
+      ],
+      "mutating": true,
+      "recovery_expectation": "retrieve() raises CredentialAuthRequiredError with an actionable message, appends no bogus used event, and the sealed reference survives — after unlock the same credential_id resolves again.",
+      "title": "Locked vault denies material, loses no reference"
+    },
+    {
+      "drill_id": "vault-unavailable-fails-closed",
+      "expectation": {
+        "expected_records": [],
+        "expected_terminal": "store_refused_no_dangling_ref",
+        "forbidden_terminals": [
+          "credential_stored"
+        ],
+        "required_checks": [
+          "store_refused",
+          "message_actionable",
+          "no_dangling_reference",
+          "no_stored_event"
+        ]
+      },
+      "fault": "vault_unavailable",
+      "fault_summary": "The platform vault is absent entirely — store must fail before any sealed reference is written.",
+      "implementation": "vault_unavailable_fails_closed",
+      "issue_refs": [
+        "#890"
+      ],
+      "mutating": true,
+      "recovery_expectation": "store_credential raises CredentialAuthRequiredError and leaves zero reference rows and no stored event — no dangling evidence claims a credential exists.",
+      "title": "Unavailable vault refuses store without dangling ref"
+    },
+    {
+      "drill_id": "error-boundary-authority-honesty",
+      "expectation": {
+        "expected_records": [],
+        "expected_terminal": "authority_failures_observable",
+        "forbidden_terminals": [
+          "silent_accept"
+        ],
+        "required_checks": [
+          "tamper_detected",
+          "classifies_authority",
+          "report_is_error",
+          "user_input_distinct",
+          "unexpected_distinct"
+        ]
+      },
+      "fault": "sealed_record_tamper",
+      "fault_summary": "A credential-reference row is mutated directly in sqlite, then the repository read surfaces it; the error boundary must classify it as an authority failure and report an error — never degrade to a fabricated success.",
+      "implementation": "error_boundary_authority_honesty",
+      "issue_refs": [
+        "#815",
+        "#890"
+      ],
+      "mutating": true,
+      "recovery_expectation": "The store read raises an integrity error, classify_boundary_error returns AUTHORITY, report_boundary_failure yields severity error with the detail, and contrasting user-input/unexpected faults classify correctly.",
+      "title": "Tampered sealed row classifies AUTHORITY, not success"
+    }
+  ],
+  "format": "htdt-recovery-drill-manifest-1",
+  "manifest_sha256": "f7cb71beb820f4bf17db3703e913d5d476f4c42d53a8573af5b734bb33e42da4",
+  "manifest_version": 1
+}

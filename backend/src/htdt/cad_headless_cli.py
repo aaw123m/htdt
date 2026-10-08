@@ -76,6 +76,7 @@ SEALED_VERBS: frozenset[str] = frozenset({
     'calibration.run',
     'deployment.run',
     'diagnostic.run',
+    'drill.run',
 })
 
 HeadlessOutcome = Literal[
