@@ -372,3 +372,11 @@ entries:
     description: 実機 DSP/AVR (CamillaDSP/AVR LAN/miniDSP/EAPO) での capability-negotiated デプロイ検証 — simulated/assisted 経路以外の machine-readback 強度は実デバイスで確認
   evidence_refs: [docs/issues/issue-878-deployment-paths.md]
   close_when_gates_clear: true
+- issue: 905
+  lifecycle: acceptance_remaining
+  landed: {prs: [913], commits: []}
+  remaining_gates:
+  - kind: manual
+    description: 許諾確認済みの実配布 .CF1/.CF2 fixture 取得 + メーカー合法 import 路線の ADR 比較 + preflight→admission→directivity の実ファイル end-to-end 検証 (取得不可なら BLOCKED/NO_FIXTURE 記録)
+  evidence_refs: [docs/issues/issue-905-clf-payload-families.md]
+  close_when_gates_clear: true
