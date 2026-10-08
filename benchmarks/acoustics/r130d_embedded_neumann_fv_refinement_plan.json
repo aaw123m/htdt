@@ -1,0 +1,77 @@
+{
+  "schema_version": "htdt.r130d.embedded-neumann-fv-refinement-plan-1",
+  "issue": 938,
+  "date": "2026-10-09",
+  "solver": "experimental conservative embedded-cut-cell finite-volume Neumann wave solver",
+  "production_pffdtd_replaced": false,
+  "physical_contract_changed_from_frozen_run25": true,
+  "exact_geometry": {
+    "x_extent_m": [
+      0,
+      4
+    ],
+    "y_extent_m": [
+      0,
+      4
+    ],
+    "z_lower_m": 0,
+    "roof": "z = 4 - y/4",
+    "volume_m3": 56,
+    "c_m_s": 343.2,
+    "density_kg_m3": 1.2
+  },
+  "source_xyz_m": [
+    1.5,
+    2,
+    2
+  ],
+  "receiver_xyz_m": [
+    2.5,
+    2,
+    2
+  ],
+  "q_smooth_gaussian": {
+    "center_s": 0.012,
+    "sigma_s": 0.003,
+    "amplitude_m3_s": 1
+  },
+  "time": {
+    "duration_s": 0.25,
+    "dt_s": 0.00025,
+    "analysis_kernel": "exp(+iωt), midpoint quadrature, P_T/Q_T"
+  },
+  "frequencies_hz": [
+    40,
+    80
+  ],
+  "baseline_record_sha256": "6ab61d30545ace0b1475e023942068c83b857d9891f69531101a323fadd61c1f",
+  "baseline_levels": [
+    12,
+    16,
+    20,
+    24
+  ],
+  "planned_followup_levels": [
+    28,
+    32
+  ],
+  "primary_metric": "normalized complex L2 of adjacent 40/80 Hz transfer; no frequency, amplitude, phase fitting",
+  "test_hypothesis": "20->24,24->28,28->32 adjacent complex-transfer error should decrease with cell-center refinement for the embedded plane Neumann finite-volume operator under the fixed Gaussian source",
+  "falsification": "Any increase in adjacent normalized L2 or phase error falsifies strictly monotonic convergence over preregistered follow-up. Failure does not change frozen run25 or the pinned PFFDTD/MFEM gate.",
+  "acceptance": {
+    "analytic_cell_volume_relative_error_max": 1e-11,
+    "energy_relative_drift_max": 1e-9,
+    "reference_eigenfrequency_first_positive_within_hz": 0.08,
+    "observed_transfer_convergence": "diagnostic_only",
+    "canonical_pffdtd_self_convergence": "SELF_CONVERGENCE_FAILED",
+    "independent_mfem_self_convergence": "SELF_CONVERGENCE_FAILED",
+    "cross_solver_eligible": false,
+    "production_ready": false
+  },
+  "resource_limit": {
+    "max_cells": 100000,
+    "latest_grid_n_max": 32,
+    "solver": "CPU, SciPy sparse factorization",
+    "max_wall_s_per_level": 300
+  }
+}
