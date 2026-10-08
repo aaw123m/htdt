@@ -190,6 +190,19 @@ def _avr_adapter(
     )
 
 
+class _StubAvrTransport:
+    """Canned-response transport — returns a fixed tuple for any query."""
+
+    def __init__(self, responses: tuple[str, ...]) -> None:
+        self._responses = responses
+
+    def send(self, command: str) -> None:
+        pass
+
+    def query(self, command: str) -> tuple[str, ...]:
+        return self._responses
+
+
 def _report(**kw) -> AdapterCapabilityReport:
     payload = dict(
         adapter_id='test-adapter',
@@ -573,6 +586,30 @@ class TestAvrAdapter:
         result = adapter.rollback_previous(binding)
         assert result.outcome == 'restored_verified'
         assert transport.state['FL'] == 50
+
+    def test_readback_rejects_prefix_collision(self) -> None:
+        # 'CVFLX 50' must never be read as the FL trim — a garbage
+        # response producing 'readback_matched' would fabricate
+        # machine-read-back evidence.
+        adapter = _avr_adapter(_StubAvrTransport(('CVFLX 50',)))
+        with pytest.raises(AdapterCapabilityError):
+            adapter.read_back(_avr_binding(), observed_at_utc=NOW)
+
+    def test_readback_rejects_out_of_range_value(self) -> None:
+        adapter = _avr_adapter(_StubAvrTransport(('CVFL 99',)))
+        with pytest.raises(AdapterCapabilityError):
+            adapter.read_back(_avr_binding(), observed_at_utc=NOW)
+
+    def test_readback_rejects_non_numeric_response(self) -> None:
+        adapter = _avr_adapter(_StubAvrTransport(('CVFL END',)))
+        with pytest.raises(AdapterCapabilityError):
+            adapter.read_back(_avr_binding(), observed_at_utc=NOW)
+
+    def test_readback_skips_malformed_before_valid(self) -> None:
+        adapter = _avr_adapter(
+            _StubAvrTransport(('CVFL?', 'noise', 'CVFL 52')))
+        observed = adapter.read_back(_avr_binding(), observed_at_utc=NOW)
+        assert observed[0].gain_db == 1.0
 
 
 def _fake_biquad():
