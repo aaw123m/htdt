@@ -1558,6 +1558,12 @@ class _RepositoryChain:
             )
 
             return CadHeadlessRunRepository(scene)
+        if name == 'lifecycle_gates':
+            from .cad_lifecycle_gates_repository import (
+                CadLifecycleGateRepository,
+            )
+
+            return CadLifecycleGateRepository(scene)
         if name == 'interop_corpus':
             from .cad_interop_corpus_repository import (
                 CadInteropCorpusRepository,
@@ -7732,6 +7738,20 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         'cad_headless_run_records',
         ('run_record_id',),
         _get('headless_cli', 'get_run'),
+    ),
+    # REV72: #1030 lifecycle-gate runner — sealed minimal-step operator
+    # plans and the sealed acceptance runs executed against them.
+    _ReplayProbe(
+        'gate_operator_plan',
+        'cad_gate_operator_plans',
+        ('plan_id',),
+        _get('lifecycle_gates', 'get_plan'),
+    ),
+    _ReplayProbe(
+        'gate_acceptance_run',
+        'cad_gate_acceptance_runs',
+        ('run_id',),
+        _get('lifecycle_gates', 'get_run'),
     ),
     # REV70: #892 interop corpus — sealed per-fixture verdicts and the
     # whole-corpus run record pinning the manifest they ran against.

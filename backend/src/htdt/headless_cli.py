@@ -37,6 +37,11 @@ Verb map::
     htdt diagnose run --spec FILE [--authorize OP]
     htdt records list --kind KIND [--document-id ID] [--verb VERB]
     htdt records export --kind KIND --id ID [--out FILE]
+    htdt gates plan [--spec FILE] [--manifest FILE] [--out FILE]
+    htdt gates run (--plan FILE | --plan-id ID) [--attest TEXT]
+                 [--operator ID] [--evidence FILE]... [--out FILE]
+    htdt gates import --run-file FILE
+    htdt gates list [--issue N]
     htdt status
 """
 
@@ -155,12 +160,26 @@ from .cad_headless_cli import (
     HeadlessChannelVerifyPlanSpec,
     HeadlessDeploymentSpec,
     HeadlessDiagnosticSpec,
+    HeadlessGatePlanSpec,
     HeadlessSweepSpec,
     build_run_record,
     canonical_spec_payload,
     spec_model_for,
 )
 from .cad_headless_cli_repository import CadHeadlessRunRepository
+from .cad_lifecycle_gates import (
+    DEFAULT_DOCUMENT_ID as GATE_DOCUMENT_ID,
+    DEFAULT_MANIFEST_PATH,
+    OPERATOR_GATE_KINDS,
+    GateEvidenceFile,
+    GateOperatorPlan,
+    LifecycleGateManifestError,
+    build_gate_plans,
+    export_run_envelope,
+    parse_run_envelope,
+    run_gate_plan,
+)
+from .cad_lifecycle_gates_repository import CadLifecycleGateRepository
 from .cad_reference_theater import (
     REFERENCE_THEATER_FIXTURE_VERSION,
     REFERENCE_THEATER_STEPS,
@@ -294,6 +313,11 @@ class _Repositories:
     def reference_theater(self) -> CadReferenceTheaterRepository:
         return self._get('reference_theater', lambda: (
             CadReferenceTheaterRepository(self.scene)))
+
+    @property
+    def lifecycle_gates(self) -> CadLifecycleGateRepository:
+        return self._get('lifecycle_gates', lambda: (
+            CadLifecycleGateRepository(self.scene)))
 
     def wizard_stores(self) -> WizardStores:
         return WizardStores(
@@ -1265,6 +1289,10 @@ _RECORD_KINDS: dict[str, tuple[str, str, str, str]] = {
                            'session_sha256'),
     'reference_theater_run': ('reference_theater', 'list_runs',
                               'run_id', 'run_sha256'),
+    'gate_plan': ('lifecycle_gates', 'list_plans', 'plan_id',
+                  'plan_sha256'),
+    'gate_acceptance_run': ('lifecycle_gates', 'list_runs', 'run_id',
+                            'run_sha256'),
 }
 
 _RECORD_GETTERS: dict[str, tuple[str, str]] = {
@@ -1276,6 +1304,8 @@ _RECORD_GETTERS: dict[str, tuple[str, str]] = {
     'campaign_run': ('campaign', 'get_run_record'),
     'diagnostic_session': ('diagnostic', 'get_session'),
     'reference_theater_run': ('reference_theater', 'get_run'),
+    'gate_plan': ('lifecycle_gates', 'get_plan'),
+    'gate_acceptance_run': ('lifecycle_gates', 'get_run'),
     'project': ('library', 'get_by_document_id'),
 }
 
@@ -1424,6 +1454,272 @@ def _verb_records_export(ctx: _Ctx) -> _VerbOutcome:
               'out': args.out})
 
 
+# ---------------------------------------------------------------------------
+# gates — lifecycle-gate operator plans + sealed acceptance runs (#1030)
+# ---------------------------------------------------------------------------
+
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+
+
+def _gate_manifest_path(args: argparse.Namespace) -> Path:
+    override = getattr(args, 'manifest', None)
+    if override:
+        return Path(override)
+    return _REPO_ROOT / DEFAULT_MANIFEST_PATH
+
+
+def _gate_summary(run: Any) -> dict[str, Any]:
+    return {
+        'run_id': run.run_id,
+        'issue': run.issue,
+        'gate_index': run.gate_index,
+        'gate_kind': run.gate_kind,
+        'verdict': run.verdict,
+        'run_sha256': run.run_sha256,
+    }
+
+
+def _verb_gates_plan(ctx: _Ctx) -> _VerbOutcome:
+    args = ctx.args
+    spec = getattr(args, 'resolved_spec', None)
+    manifest = _gate_manifest_path(args)
+    document_id = ctx.document_id or GATE_DOCUMENT_ID
+    issues = tuple(spec.issues) if spec and spec.issues else None
+    kinds = (
+        tuple(spec.kinds) if spec and spec.kinds else OPERATOR_GATE_KINDS)
+    try:
+        plans = build_gate_plans(
+            manifest,
+            issues=issues,
+            kinds=kinds,
+            document_id=document_id,
+        )
+    except LifecycleGateManifestError as exc:
+        raise HeadlessCliError(
+            'missing_evidence', str(exc)) from exc
+    if not plans:
+        return _VerbOutcome(
+            'blocked', verdict='no_gates',
+            reason='no physical/manual gates matched the selection')
+    if not args.dry_run:
+        for plan in plans:
+            if ctx.repos.lifecycle_gates.get_plan(plan.plan_id) is None:
+                ctx.repos.lifecycle_gates.save_plan(plan)
+    items = [{
+        'plan_id': plan.plan_id,
+        'plan_sha256': plan.plan_sha256,
+        'issue': plan.issue,
+        'gate_index': plan.gate_index,
+        'gate_kind': plan.gate_kind,
+        'steps': [s.model_dump(mode='json') for s in plan.steps],
+        'gate': plan.gate_description,
+    } for plan in plans]
+    if args.out:
+        _write_json_file(args.out, {
+            'format': 'htdt-gate-plan-export-1',
+            'plans': [p.model_dump(mode='json') for p in plans],
+        })
+    return _VerbOutcome(
+        'succeeded', verdict='planned',
+        data={
+            'plan_count': len(items),
+            'plans': items,
+            'manifest': str(manifest),
+            'persisted': not args.dry_run,
+            'out': args.out,
+        },
+        spec_payload={
+            'verb': 'gates.plan',
+            'issues': list(issues or ()),
+            'kinds': list(kinds),
+            'manifest': str(manifest),
+        })
+
+
+def _load_gate_plan(ctx: _Ctx) -> GateOperatorPlan:
+    args = ctx.args
+    if args.plan_id:
+        plan = ctx.repos.lifecycle_gates.get_plan(args.plan_id)
+        if plan is None:
+            raise HeadlessCliError(
+                'missing_evidence',
+                f'no gate operator plan {args.plan_id}')
+        return plan
+    raw = _read_json_file(args.plan)
+    candidates: list[Any]
+    if isinstance(raw, dict) and isinstance(raw.get('plans'), list):
+        candidates = raw['plans']
+        selector = getattr(args, 'gate', None)
+        if selector:
+            try:
+                issue_s, gate_s = selector.split(':', 1)
+                want = (int(issue_s), int(gate_s))
+            except ValueError as exc:
+                raise HeadlessCliError(
+                    'missing_evidence',
+                    f'--gate expects ISSUE:GATE_INDEX, got {selector!r}',
+                    verdict='usage') from exc
+            candidates = [
+                c for c in candidates
+                if isinstance(c, dict)
+                and (c.get('issue'), c.get('gate_index')) == want]
+            if not candidates:
+                raise HeadlessCliError(
+                    'missing_evidence',
+                    f'plan bundle has no gate {selector}')
+        if len(candidates) != 1:
+            raise HeadlessCliError(
+                'missing_evidence',
+                'plan bundle has '
+                f'{len(candidates)} plans — select one with '
+                '--gate ISSUE:GATE_INDEX',
+                verdict='usage')
+        raw = candidates[0]
+    try:
+        return GateOperatorPlan.model_validate(raw)
+    except Exception as exc:
+        raise HeadlessCliError(
+            'missing_evidence',
+            f'{args.plan} is not a sealed gate operator plan: {exc}') \
+            from exc
+
+
+def _hash_evidence_file(path_str: str) -> GateEvidenceFile:
+    path = Path(path_str)
+    try:
+        data = path.read_bytes()
+    except OSError as exc:
+        raise HeadlessCliError(
+            'missing_evidence',
+            f'cannot read evidence file {path}: {exc}') from exc
+    return GateEvidenceFile(
+        filename=path.name,
+        sha256=hashlib.sha256(data).hexdigest(),
+        size_bytes=len(data),
+        stored_path=str(path),
+    )
+
+
+def _verb_gates_run(ctx: _Ctx) -> _VerbOutcome:
+    args = ctx.args
+    plan = _load_gate_plan(ctx)
+    repo_root = _REPO_ROOT
+    evidence = tuple(
+        _hash_evidence_file(p) for p in (args.evidence or ()))
+    prior = ctx.repos.lifecycle_gates.list_runs(
+        plan.document_id, issue=plan.issue, gate_index=plan.gate_index)
+    prior_ids = tuple(r.run_id for r in prior)
+    build = get_build_info()
+    environment = {
+        'tool_version': build.display_version,
+        'tool_commit_sha': build.commit_sha,
+        'tool_commit_dirty': build.dirty,
+        'python_version': sys.version.split()[0],
+        'platform': _platform.system(),
+        'env_fingerprint': _env_fingerprint(),
+        'data_dir': str(ctx.repos.data_dir),
+    }
+    run = run_gate_plan(
+        plan,
+        environment=environment,
+        repo_root=repo_root,
+        operator_attestation=args.attest,
+        operator_id=args.operator,
+        evidence=evidence,
+        prior_run_ids=prior_ids,
+        started_at_utc=_utc_now(),
+        finished_at_utc=_utc_now(),
+    )
+    if not args.dry_run:
+        ctx.repos.lifecycle_gates.save_run(run)
+    if args.out:
+        _write_json_file(args.out, export_run_envelope(
+            run,
+            exported_at_utc=_utc_now(),
+            exporter=environment,
+        ))
+    outcome = {
+        'gate_satisfied': 'succeeded',
+        'awaiting_attestation': 'blocked',
+        'steps_failed': 'failed',
+    }[run.verdict]
+    reason = None
+    if run.verdict == 'awaiting_attestation':
+        reason = ('operator step pending — re-run with --attest '
+                  '"<what was done>" after performing the gate action')
+    elif run.verdict == 'steps_failed':
+        failed = [s.step_id for s in run.steps if s.status == 'failed']
+        reason = f'auto steps failed: {failed}'
+    return _VerbOutcome(
+        outcome, verdict=run.verdict, reason=reason,
+        refs=(run.run_ref(), plan.plan_ref()),
+        data={
+            'run': _gate_summary(run),
+            'steps': [s.model_dump(mode='json') for s in run.steps],
+            'evidence': [e.model_dump(mode='json') for e in evidence],
+            'operator_attestation_supplied': bool(args.attest),
+            'persisted': not args.dry_run,
+            'out': args.out,
+        },
+        spec_payload={
+            'verb': 'gates.run',
+            'plan_id': plan.plan_id,
+            'plan_sha256': plan.plan_sha256,
+            'attested': bool(args.attest),
+            'evidence_files': [e.filename for e in evidence],
+        })
+
+
+def _verb_gates_import(ctx: _Ctx) -> _VerbOutcome:
+    args = ctx.args
+    raw = _read_json_file(args.run_file)
+    try:
+        run = parse_run_envelope(raw)
+    except ValueError as exc:
+        raise HeadlessCliError(
+            'missing_evidence',
+            f'{args.run_file} is not a sealed gate-run export: {exc}') \
+            from exc
+    existing = ctx.repos.lifecycle_gates.get_run(run.run_id)
+    if existing is not None:
+        return _VerbOutcome(
+            'succeeded', verdict='already_imported',
+            refs=(run.run_ref(),),
+            data={'run': _gate_summary(run)})
+    if not args.dry_run:
+        ctx.repos.lifecycle_gates.save_run(run)
+    return _VerbOutcome(
+        'succeeded', verdict='imported',
+        refs=(run.run_ref(),),
+        data={'run': _gate_summary(run),
+              'persisted': not args.dry_run},
+        spec_payload={
+            'verb': 'gates.import',
+            'run_id': run.run_id,
+            'run_sha256': run.run_sha256,
+        })
+
+
+def _verb_gates_list(ctx: _Ctx) -> _VerbOutcome:
+    args = ctx.args
+    repo = ctx.repos.lifecycle_gates
+    document_id = ctx.document_id or GATE_DOCUMENT_ID
+    issue = getattr(args, 'issue', None)
+    plans = repo.list_plans(document_id, issue=issue)
+    runs = repo.list_runs(document_id, issue=issue)
+    return _VerbOutcome(
+        'succeeded', verdict='listed',
+        data={
+            'plans': [{
+                'plan_id': p.plan_id,
+                'issue': p.issue,
+                'gate_index': p.gate_index,
+                'gate_kind': p.gate_kind,
+            } for p in plans],
+            'runs': [_gate_summary(r) for r in runs],
+        })
+
+
 def _verb_status(ctx: _Ctx) -> _VerbOutcome:
     build = get_build_info()
     wasapi = WasapiAudioBackend()
@@ -1564,6 +1860,38 @@ def _build_parser() -> argparse.ArgumentParser:
     drl.add_argument('--out', default=None)
     drl.add_argument('--work-root', default=None)
 
+    gates = families.add_parser('gates')
+    g_verbs = gates.add_subparsers(dest='verb', required=True)
+    gp = g_verbs.add_parser('plan')
+    gp.add_argument('--spec', default=None,
+                    help='JSON spec: issues/kinds/document_id filters')
+    gp.add_argument('--manifest', default=None,
+                    help='lifecycle manifest path (default: repo)')
+    gp.add_argument('--out', default=None,
+                    help='write the plan bundle JSON to FILE')
+    grun = g_verbs.add_parser('run')
+    grsrc = grun.add_mutually_exclusive_group(required=True)
+    grsrc.add_argument('--plan', default=None,
+                       help='sealed plan JSON file or plan bundle')
+    grsrc.add_argument('--plan-id', default=None,
+                       help='plan id already in the store')
+    grun.add_argument('--gate', default=None,
+                      help='ISSUE:GATE_INDEX selector for plan bundles')
+    grun.add_argument('--attest', default=None,
+                      help='operator attestation for the human step')
+    grun.add_argument('--operator', default=None,
+                      help='operator identity recorded on the run')
+    grun.add_argument('--evidence', action='append', default=None,
+                      help='evidence file to hash-pin (repeatable)')
+    grun.add_argument('--out', default=None,
+                      help='write the exportable run envelope to FILE')
+    gi = g_verbs.add_parser('import')
+    gi.add_argument('--run-file', required=True,
+                    help='gate-run export envelope produced by '
+                    'gates run --out')
+    gl = g_verbs.add_parser('list')
+    gl.add_argument('--issue', type=int, default=None)
+
     families.add_parser('status')
     return parser
 
@@ -1584,6 +1912,10 @@ _HANDLERS: dict[str, Callable[[_Ctx], _VerbOutcome]] = {
     'records.export': _verb_records_export,
     'drill.list': _verb_drill_list,
     'drill.run': _verb_drill_run,
+    'gates.plan': _verb_gates_plan,
+    'gates.run': _verb_gates_run,
+    'gates.import': _verb_gates_import,
+    'gates.list': _verb_gates_list,
     'status': _verb_status,
 }
 
@@ -1599,6 +1931,7 @@ _FAMILY_PREFIX = {
     'selftest': 'selftest',
     'records': 'records',
     'drill': 'drill',
+    'gates': 'gates',
     'status': '',
 }
 
@@ -1727,6 +2060,11 @@ def main(argv: list[str] | None = None) -> int:
             document_id = args.document_id or args.project_id or ''
         elif verb == 'project.create':
             document_id = args.document_id or ''
+        elif verb.startswith('gates.'):
+            document_id = (
+                args.document_id
+                or (spec.document_id if spec is not None else None)
+                or GATE_DOCUMENT_ID)
         elif spec is not None:
             document_id = _resolve_document_id(
                 args.document_id, spec)

@@ -9266,6 +9266,38 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
         CREATE INDEX IF NOT EXISTS idx_revrun_queue ON cad_revalidation_queue_runs(queue_ref_id, seq ASC)
     """
     ,
+    """
+        -- REV72: #1030 lifecycle-gate runner — sealed minimal-step
+        -- operator plans derived from physical/manual lifecycle gates.
+        CREATE TABLE IF NOT EXISTS cad_gate_operator_plans ( seq INTEGER PRIMARY KEY AUTOINCREMENT, plan_id TEXT NOT NULL UNIQUE, plan_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, issue INTEGER NOT NULL, gate_index INTEGER NOT NULL, gate_kind TEXT NOT NULL, lifecycle TEXT NOT NULL, manifest_sha256 TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_gplan_doc ON cad_gate_operator_plans(document_id, seq ASC)
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_gplan_issue ON cad_gate_operator_plans(issue, gate_index, seq ASC)
+    """
+    ,
+    """
+        -- REV72: #1030 sealed per-execution gate acceptance runs —
+        -- operator attestation pinned to environment + plan.
+        CREATE TABLE IF NOT EXISTS cad_gate_acceptance_runs ( seq INTEGER PRIMARY KEY AUTOINCREMENT, run_id TEXT NOT NULL UNIQUE, run_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, issue INTEGER NOT NULL, gate_index INTEGER NOT NULL, gate_kind TEXT NOT NULL, plan_ref_id TEXT NOT NULL, verdict TEXT NOT NULL, started_at_utc TEXT NOT NULL, finished_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_garun_doc ON cad_gate_acceptance_runs(document_id, seq ASC)
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_garun_issue ON cad_gate_acceptance_runs(issue, gate_index, seq ASC)
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_garun_verdict ON cad_gate_acceptance_runs(verdict, seq ASC)
+    """
+    ,
 )
 
 
@@ -10468,4 +10500,7 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_change_diff_records',
     'cad_revalidation_queues',
     'cad_revalidation_queue_runs',
+    # REV72: #1030 lifecycle-gate operator plans + acceptance runs.
+    'cad_gate_operator_plans',
+    'cad_gate_acceptance_runs',
 )

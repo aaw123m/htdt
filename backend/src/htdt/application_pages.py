@@ -942,6 +942,8 @@ _LIFECYCLE_TABLE_LABELS = {
     "cad_change_diff_records": "変更差分レコード",
     "cad_revalidation_queues": "再検証キュー",
     "cad_revalidation_queue_runs": "再検証キュー実行レコード",
+    "cad_gate_operator_plans": "ゲートオペレータ計画",
+    "cad_gate_acceptance_runs": "ゲート受入実行レコード",
 }
 
 

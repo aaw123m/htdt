@@ -9764,6 +9764,38 @@ _ROW_BINDINGS: dict[str, tuple[str, tuple[RowBinding, ...], tuple[ExtraCheck, ..
         ),
         (),
     ),
+    # REV72: #1030 lifecycle-gate runner — sealed operator plans and
+    # sealed acceptance runs.
+    'cad_gate_operator_plans': (
+        'payload_json',
+        (
+            _b('plan_id', 'plan_id'),
+            _b('plan_sha256', 'plan_sha256'),
+            _b('document_id', 'document_id'),
+            _b('issue', 'issue'),
+            _b('gate_index', 'gate_index'),
+            _b('gate_kind', 'gate_kind'),
+            _b('lifecycle', 'lifecycle'),
+            _b('manifest_sha256', 'manifest_sha256'),
+        ),
+        (),
+    ),
+    'cad_gate_acceptance_runs': (
+        'payload_json',
+        (
+            _b('run_id', 'run_id'),
+            _b('run_sha256', 'run_sha256'),
+            _b('document_id', 'document_id'),
+            _b('issue', 'issue'),
+            _b('gate_index', 'gate_index'),
+            _b('gate_kind', 'gate_kind'),
+            _b('plan_ref_id', 'plan_ref', 'ref_id'),
+            _b('verdict', 'verdict'),
+            _b('started_at_utc', 'started_at_utc'),
+            _b('finished_at_utc', 'finished_at_utc'),
+        ),
+        (),
+    ),
     # REV66: #866 geometry intake readiness authority.
     'cad_geometry_intake_reports': (
         'payload_json',

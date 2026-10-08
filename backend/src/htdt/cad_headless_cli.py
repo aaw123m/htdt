@@ -78,6 +78,9 @@ SEALED_VERBS: frozenset[str] = frozenset({
     'diagnostic.run',
     'drill.run',
     'selftest.run',
+    'gates.plan',
+    'gates.run',
+    'gates.import',
 })
 
 HeadlessOutcome = Literal[
@@ -297,7 +300,25 @@ class HeadlessDiagnosticSpec(HeadlessBackendSpec):
     max_steps: int = 32
 
 
+class HeadlessGatePlanSpec(BaseModel):
+    """Optional spec for ``htdt gates plan`` — narrows the gate set.
+
+    With no spec the plan verb derives an operator plan for every
+    ``physical``/``manual`` gate in the lifecycle manifest.  ``issues``
+    restricts to specific issue numbers; ``kinds`` restricts the gate
+    kinds (default both operator kinds).  The spec can NEVER carry
+    authorization or an attestation — those are session flags.
+    """
+
+    model_config = ConfigDict(frozen=True, extra='forbid')
+
+    document_id: str | None = None
+    issues: tuple[int, ...] = ()
+    kinds: tuple[Literal['physical', 'manual'], ...] = ()
+
+
 _HEADLESS_SPEC_MODELS: dict[str, type[BaseModel]] = {
+    'gates.plan': HeadlessGatePlanSpec,
     'sweep.run': HeadlessSweepSpec,
     'campaign.plan': HeadlessCampaignPlanSpec,
     'channel_verify.plan': HeadlessChannelVerifyPlanSpec,
@@ -321,6 +342,10 @@ VERB_ALIASES: dict[str, str] = {
     'deployment.run': 'deployment.run',
     'diagnostic.run': 'diagnostic.run',
     'selftest.run': 'selftest.run',
+    'gates.plan': 'gates.plan',
+    'gates.run': 'gates.run',
+    'gates.import': 'gates.import',
+    'gates.list': 'gates.list',
     'records.list': 'records.list',
     'records.export': 'records.export',
     'status': 'status',
