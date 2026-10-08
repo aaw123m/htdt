@@ -364,3 +364,11 @@ entries:
   remaining_gates: []
   evidence_refs: [docs/issues/issue-899-lifecycle-drift.md]
   close_when_gates_clear: true
+- issue: 878
+  lifecycle: physical_evidence_remaining
+  landed: {prs: [910], commits: []}
+  remaining_gates:
+  - kind: physical
+    description: 実機 DSP/AVR (CamillaDSP/AVR LAN/miniDSP/EAPO) での capability-negotiated デプロイ検証 — simulated/assisted 経路以外の machine-readback 強度は実デバイスで確認
+  evidence_refs: [docs/issues/issue-878-deployment-paths.md]
+  close_when_gates_clear: true
