@@ -8692,6 +8692,71 @@ _ROW_BINDINGS: dict[str, tuple[str, tuple[RowBinding, ...], tuple[ExtraCheck, ..
         ),
         (),
     ),
+    # REV67: #878 capability-negotiated deployment pipeline.
+    'cad_deployment_pipeline_records': (
+        'payload_json',
+        (
+            _b('record_id', 'record_id'),
+            _b('record_sha256', 'record_sha256'),
+            _b('document_id', 'document_id'),
+            _b('pipeline_id', 'pipeline_id'),
+            _b('binding_sha256', 'binding_sha256'),
+            _b('adapter_id', 'adapter_id'),
+            _b('target_ref', 'target_ref'),
+            _b('stage', 'stage'),
+            _b('evidence_strength', 'evidence_strength'),
+            _b('readback_verdict', 'readback_verdict'),
+            _b('partial_write', 'partial_write'),
+        ),
+        (),
+    ),
+    'cad_deployment_operator_authorizations': (
+        'payload_json',
+        (
+            _b('authorization_id', 'authorization_id'),
+            _b('authorization_sha256', 'authorization_sha256'),
+            _b('document_id', 'document_id'),
+            _b('pipeline_id', 'pipeline_id'),
+            _b('scope', 'scope'),
+            _b('operator_id', 'operator_id'),
+            _b('consumed', 'consumed'),
+        ),
+        (),
+    ),
+    'cad_assisted_instruction_manifests': (
+        'payload_json',
+        (
+            _b('manifest_id', 'manifest_id'),
+            _b('manifest_sha256', 'manifest_sha256'),
+            _b('document_id', 'document_id'),
+            _b('target_ref', 'target_ref'),
+        ),
+        (),
+    ),
+    'cad_assisted_deployment_attestations': (
+        'payload_json',
+        (
+            _b('attestation_id', 'attestation_id'),
+            _b('attestation_sha256', 'attestation_sha256'),
+            _b('document_id', 'document_id'),
+            _b('manifest_ref_id', 'manifest_ref', 'ref_id'),
+            _b('pipeline_id', 'pipeline_id', optional=True),
+            _b('outcome', 'outcome'),
+        ),
+        (),
+    ),
+    'cad_apo_install_records': (
+        'payload_json',
+        (
+            _b('record_id', 'record_id'),
+            _b('record_sha256', 'record_sha256'),
+            _b('document_id', 'document_id'),
+            _b('target_path_repr', 'target_path_repr'),
+            _b('verification', 'verification'),
+            _b('evidence_strength', 'evidence_strength'),
+        ),
+        (),
+    ),
     # #790 playback-electronics / electrical audio-path authority.
     'cad_electronic_audio_path_profiles': (
         'payload_json',

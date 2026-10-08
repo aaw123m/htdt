@@ -897,6 +897,24 @@ class CamillaDSPCalibrationAdapter:
             supports_apply=True,
             supports_read_back=True,
             supports_materialization=True,
+            deploy_mechanism='machine_write',
+            readback_mechanism='machine_exact',
+            rollback_mechanism='previous_config',
+            runtime_observation='telemetry',
+            supported_features=(
+                'peq', 'gain', 'delay', 'polarity', 'fir', 'routing',
+            ),
+            limit_notes=(
+                'Device-side resource limits (available filter slots, '
+                'pipeline size) are surfaced as unsupported_items during '
+                'materialization.',
+            ),
+            auth_requirements=(
+                'operator_confirmation',
+                'approved_remote_endpoint',
+            ),
+            applicability='camilladsp documented WebSocket JSON API',
+            protocol_authority='open_source',
             notes=(
                 'Deploy: ValidateConfigJson-gated SetConfigJson over '
                 'the documented WebSocket API.',

@@ -67,6 +67,13 @@ from .cad_camilladsp_deploy import (
     config_sha256,
     _parse_config_document,
 )
+from .cad_deployment_pipeline import (
+    DeploymentPathCandidate,
+    DeploymentPathVerdict,
+    rank_deployment_paths,
+    select_strongest_deployment_path,
+    select_strongest_production_path,
+)
 from .cad_delegated_provider import (
     DelegatedCapability,
     DelegatedProviderManifest,
@@ -1394,6 +1401,31 @@ class CommissioningOrchestrator:
                              f'{capability_report.adapter_id} capable',
             succeeded=True,
             evidence_refs=(manifest_ref(manifest),)))
+
+    # -- #878 strongest-path evaluation ---------------------------------
+
+    def evaluate_deployment_paths(
+        self,
+        candidates: tuple[DeploymentPathCandidate, ...],
+    ) -> tuple[DeploymentPathVerdict, ...]:
+        """#878: rank deployment paths by evidence strength.
+
+        machine read-back > applied ack > file-verified > assisted
+        attestation; unknown capability fails closed to unavailable and
+        non-production control surfaces stay visibly ineligible.
+        """
+        return rank_deployment_paths(candidates)
+
+    def select_deployment_path(
+        self,
+        candidates: tuple[DeploymentPathCandidate, ...],
+        *,
+        production_only: bool = False,
+    ) -> DeploymentPathVerdict | None:
+        """#878: strongest path for this run — None when none exist."""
+        if production_only:
+            return select_strongest_production_path(candidates)
+        return select_strongest_deployment_path(candidates)
 
     # -- BASELINE_MEASUREMENT / POST_MEASUREMENT ------------------------
 

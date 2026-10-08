@@ -38,6 +38,13 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .cad_calibration import CadCalibrationExportSnapshot, CadExportedChannelSettings
 from .cad_calibration_workflow import AppliedSettingsDeviation
+from .cad_deployment_target import (
+    DSPDeployMechanism,
+    DSPFilterClass,
+    DSPReadbackMechanism,
+    DSPRollbackMechanism,
+    DSPRuntimeAttestation,
+)
 from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _hash
 
 
@@ -156,8 +163,26 @@ def build_device_binding(
     )
 
 
+#: #878 — authority class of the adapter's control surface. Only
+#: 'documented' (vendor-published protocol) and 'open_source' (published
+#: implementation) are production-eligible; 'simulated' marks fake/test
+#: transports, 'none' adapters with no device control surface at all, and
+#: 'unknown' stays fail-closed. Reverse-engineered/private protocols and
+#: GUI click automation are never claimed.
+AdapterProtocolAuthority = Literal[
+    'documented', 'open_source', 'simulated', 'none', 'unknown',
+]
+
+
 class AdapterCapabilityReport(BaseModel):
-    """What this adapter supports — the only way callers may decide."""
+    """What this adapter supports — the only way callers may decide.
+
+    #878 common capability manifest: every deployment target publishes
+    the same negotiation vocabulary so the strongest-path evaluator can
+    rank paths without adapter-specific knowledge. Mechanism fields
+    reuse the #838 ``DSPTargetProfile`` mechanism literals — no parallel
+    vocabulary.
+    """
 
     model_config = ConfigDict(frozen=True)
 
@@ -169,6 +194,19 @@ class AdapterCapabilityReport(BaseModel):
     supports_read_back: bool
     #: Whether the adapter can materialize a payload for operator handling.
     supports_materialization: bool = True
+    deploy_mechanism: DSPDeployMechanism = 'none'
+    readback_mechanism: DSPReadbackMechanism = 'none'
+    rollback_mechanism: DSPRollbackMechanism = 'none'
+    runtime_observation: DSPRuntimeAttestation = 'none'
+    #: Filter/routing capability classes the adapter can write on the
+    #: target — same vocabulary as ``supported_filter_classes``.
+    supported_features: tuple[DSPFilterClass, ...] = ()
+    #: Declared device/software limits (slot counts, ranges, formats).
+    limit_notes: tuple[str, ...] = ()
+    auth_requirements: tuple[str, ...] = ()
+    #: Firmware/software applicability pin this report is valid for.
+    applicability: str | None = None
+    protocol_authority: AdapterProtocolAuthority = 'unknown'
     notes: tuple[str, ...] = ()
 
 
@@ -247,6 +285,10 @@ class DeviceApplyAck(BaseModel):
     acked_at_utc: str = Field(min_length=1)
     state: Literal['acknowledged'] = 'acknowledged'
     device_note: str | None = None
+    #: Partial-write evidence — device write units that landed out of the
+    #: materialized total. None = the adapter does not expose counts.
+    applied_units: int | None = Field(default=None, ge=0)
+    total_units: int | None = Field(default=None, ge=0)
 
 
 class EffectiveAppliedSettingsSnapshot(BaseModel):
@@ -759,6 +801,7 @@ __all__ = [
     'AdapterCapabilityReport',
     'AdapterDeviceBinding',
     'AdapterKind',
+    'AdapterProtocolAuthority',
     'AdapterResultMismatchError',
     'CalibrationAdapterService',
     'CalibrationDeviceAdapter',

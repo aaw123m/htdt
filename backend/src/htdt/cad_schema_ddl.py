@@ -8096,6 +8096,61 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
     """
     ,
     """
+        CREATE TABLE IF NOT EXISTS cad_deployment_pipeline_records ( seq INTEGER PRIMARY KEY AUTOINCREMENT, record_id TEXT NOT NULL UNIQUE, record_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, pipeline_id TEXT NOT NULL, binding_sha256 TEXT NOT NULL, adapter_id TEXT NOT NULL, target_ref TEXT NOT NULL, stage TEXT NOT NULL, evidence_strength TEXT NOT NULL, readback_verdict TEXT NOT NULL, partial_write TEXT NOT NULL, payload_json TEXT NOT NULL )
+    
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_dplr_doc ON cad_deployment_pipeline_records(document_id, seq ASC)
+    
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_dplr_pipe ON cad_deployment_pipeline_records(pipeline_id, seq ASC)
+    
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_deployment_operator_authorizations ( seq INTEGER PRIMARY KEY AUTOINCREMENT, authorization_id TEXT NOT NULL UNIQUE, authorization_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, pipeline_id TEXT NOT NULL, scope TEXT NOT NULL, operator_id TEXT NOT NULL, consumed INTEGER NOT NULL DEFAULT 0, payload_json TEXT NOT NULL )
+    
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_doa_doc ON cad_deployment_operator_authorizations(document_id, seq ASC)
+    
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_assisted_instruction_manifests ( seq INTEGER PRIMARY KEY AUTOINCREMENT, manifest_id TEXT NOT NULL UNIQUE, manifest_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, target_ref TEXT NOT NULL, payload_json TEXT NOT NULL )
+    
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_aim_doc ON cad_assisted_instruction_manifests(document_id, seq ASC)
+    
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_assisted_deployment_attestations ( seq INTEGER PRIMARY KEY AUTOINCREMENT, attestation_id TEXT NOT NULL UNIQUE, attestation_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, manifest_ref_id TEXT NOT NULL, pipeline_id TEXT, outcome TEXT NOT NULL, payload_json TEXT NOT NULL )
+    
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_ada_doc ON cad_assisted_deployment_attestations(document_id, seq ASC)
+    
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_apo_install_records ( seq INTEGER PRIMARY KEY AUTOINCREMENT, record_id TEXT NOT NULL UNIQUE, record_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, target_path_repr TEXT NOT NULL, verification TEXT NOT NULL, evidence_strength TEXT NOT NULL, payload_json TEXT NOT NULL )
+    
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_eap_doc ON cad_apo_install_records(document_id, seq ASC)
+    
+    """
+    ,
+    """
         CREATE TABLE IF NOT EXISTS cad_benchmark_scene_mappings ( seq INTEGER PRIMARY KEY AUTOINCREMENT, mapping_id TEXT NOT NULL UNIQUE, mapping_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, asset_ref_id TEXT NOT NULL, corpus_scene_id TEXT NOT NULL, solver_path TEXT NOT NULL, phenomenon_id TEXT NOT NULL, curvature_class TEXT NOT NULL, payload_json TEXT NOT NULL )
     
     """
@@ -9966,4 +10021,10 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'session_recovery_journals',
     'session_recovery_decisions',
     'session_recovery_reconciliations',
+    # REV67: #878 capability-negotiated deployment pipeline authority.
+    'cad_deployment_pipeline_records',
+    'cad_deployment_operator_authorizations',
+    'cad_assisted_instruction_manifests',
+    'cad_assisted_deployment_attestations',
+    'cad_apo_install_records',
 )

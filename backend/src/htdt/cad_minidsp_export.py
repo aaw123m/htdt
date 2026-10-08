@@ -134,6 +134,20 @@ class MiniDSPBiquadExportAdapter:
             supports_apply=False,
             supports_read_back=False,
             supports_materialization=True,
+            deploy_mechanism='file_export',
+            readback_mechanism='none',
+            rollback_mechanism='operator_only',
+            runtime_observation='none',
+            supported_features=('peq',),
+            protocol_authority='none',
+            applicability=(
+                f'{self._profile.device_model}'
+                + (
+                    f'/{self._profile.profile_variant}'
+                    if self._profile.profile_variant else ''
+                )
+                + ' biquad text export format'
+            ),
             notes=(
                 f'Exact profile {self._profile.profile_id} '
                 f'({self._profile.device_model}'

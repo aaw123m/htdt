@@ -36,7 +36,10 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .cad_authority_resolver import AuthorityRef
-from .cad_device_adapter import MaterializedCalibrationSettings
+from .cad_device_adapter import (
+    AdapterCapabilityReport,
+    MaterializedCalibrationSettings,
+)
 from .canonical_json import canonical_sha256 as _hash, canonicalize_payload
 
 
@@ -154,6 +157,16 @@ class DeploymentCapabilityDeclaration(BaseModel):
     #: firmware constraints). Human/operator facing — enforced limits
     #: belong in the adapter itself.
     declared_limit_notes: tuple[str, ...] = ()
+    # #878 common manifest carry-through — the declaration pins the same
+    # mechanism/authority vocabulary the report publishes, so path
+    # evaluation on a frozen declaration stays exact.
+    deploy_mechanism: str = 'none'
+    readback_mechanism: str = 'none'
+    rollback_mechanism: str = 'none'
+    runtime_observation: str = 'none'
+    protocol_authority: str = 'unknown'
+    auth_requirements: tuple[str, ...] = ()
+    applicability: str | None = None
     declared_at_utc: str = Field(min_length=1)
 
     @model_validator(mode='after')
@@ -174,6 +187,36 @@ class DeploymentCapabilityDeclaration(BaseModel):
     def create(cls, **payload: Any) -> 'DeploymentCapabilityDeclaration':
         return _seal(
             cls, payload, 'declaration_id', 'declaration_sha256', 'dcd')
+
+
+def build_capability_declaration(
+    report: AdapterCapabilityReport,
+    *,
+    document_id: str,
+    declared_at_utc: str,
+) -> DeploymentCapabilityDeclaration:
+    """#878: seal the adapter's published capability manifest verbatim —
+    the declaration is the frozen, pinnable form of the report."""
+    return DeploymentCapabilityDeclaration.create(
+        document_id=document_id,
+        adapter_id=report.adapter_id,
+        adapter_version=report.adapter_version,
+        adapter_kind=report.adapter_kind,
+        device_family=report.device_family,
+        supports_apply=report.supports_apply,
+        supports_read_back=report.supports_read_back,
+        supports_materialization=report.supports_materialization,
+        supported_features=tuple(report.supported_features),
+        declared_limit_notes=tuple(report.limit_notes),
+        deploy_mechanism=report.deploy_mechanism,
+        readback_mechanism=report.readback_mechanism,
+        rollback_mechanism=report.rollback_mechanism,
+        runtime_observation=report.runtime_observation,
+        protocol_authority=report.protocol_authority,
+        auth_requirements=tuple(report.auth_requirements),
+        applicability=report.applicability,
+        declared_at_utc=declared_at_utc,
+    )
 
 
 class CalibrationDeployment(BaseModel):

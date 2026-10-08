@@ -64,6 +64,12 @@ class FileCalibrationAdapter:
             supports_apply=False,
             supports_read_back=True,
             supports_materialization=True,
+            deploy_mechanism='file_export',
+            readback_mechanism='operator_captured_file',
+            rollback_mechanism='none',
+            runtime_observation='none',
+            protocol_authority='none',
+            auth_requirements=('operator_placed_file',),
             notes=(
                 'Offline file transport; live mutation is not supported.',
                 'Read-back uses an operator-placed device capture file.',

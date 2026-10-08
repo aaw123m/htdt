@@ -1402,6 +1402,12 @@ class _RepositoryChain:
             )
 
             return CadDelegatedProviderRepository(scene)
+        if name == 'deployment_pipeline':
+            from .cad_deployment_pipeline_repository import (
+                CadDeploymentPipelineRepository,
+            )
+
+            return CadDeploymentPipelineRepository(scene)
         if name == 'playback_electronics':
             from .cad_playback_electronics_repository import (
                 CadPlaybackElectronicsRepository,
@@ -7149,6 +7155,37 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         'cad_camilladsp_rollback_evidence',
         ('evidence_id',),
         _get('camilladsp_deployment', 'get_rollback_evidence'),
+    ),
+    # REV67: #878 capability-negotiated deployment pipeline.
+    _ReplayProbe(
+        'deployment_pipeline_record',
+        'cad_deployment_pipeline_records',
+        ('record_id',),
+        _get('deployment_pipeline', 'get_pipeline_record'),
+    ),
+    _ReplayProbe(
+        'deployment_operator_authorization',
+        'cad_deployment_operator_authorizations',
+        ('authorization_id',),
+        _get('deployment_pipeline', 'get_operator_authorization'),
+    ),
+    _ReplayProbe(
+        'assisted_instruction_manifest',
+        'cad_assisted_instruction_manifests',
+        ('manifest_id',),
+        _get('deployment_pipeline', 'get_assisted_manifest'),
+    ),
+    _ReplayProbe(
+        'assisted_deployment_attestation',
+        'cad_assisted_deployment_attestations',
+        ('attestation_id',),
+        _get('deployment_pipeline', 'get_assisted_attestation'),
+    ),
+    _ReplayProbe(
+        'apo_install_record',
+        'cad_apo_install_records',
+        ('record_id',),
+        _get('deployment_pipeline', 'get_apo_install'),
     ),
     # #790 playback-electronics / electrical audio-path authority.
     _ReplayProbe(

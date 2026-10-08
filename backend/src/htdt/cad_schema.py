@@ -19,7 +19,7 @@ from .clock import utc_now_iso as _utc_now
 _LOGGER = logging.getLogger('htdt.native')
 
 
-NATIVE_SCHEMA_VERSION = 102
+NATIVE_SCHEMA_VERSION = 103
 
 _METADATA_TABLE = 'native_schema_metadata'
 _MIGRATION_TABLE = 'native_schema_migrations'
@@ -2087,6 +2087,15 @@ def _migrate_101_to_102(connection: sqlite3.Connection) -> None:
         connection.execute(statement)
 
 
+def _migrate_102_to_103(connection: sqlite3.Connection) -> None:
+    # REV67: #878 capability-negotiated deployment — staged pipeline
+    # records, scoped operator authorizations, assisted manifests and
+    # attestations, and APO install-identity evidence: new append-only
+    # authorities the idempotent baseline creates.
+    for statement in NATIVE_BASELINE_DDL:
+        connection.execute(statement)
+
+
 _MIGRATIONS = {
     1: _migrate_0_to_1,
     2: _migrate_1_to_2,
@@ -2190,6 +2199,7 @@ _MIGRATIONS = {
     100: _migrate_99_to_100,
     101: _migrate_100_to_101,
     102: _migrate_101_to_102,
+    103: _migrate_102_to_103,
 }
 
 
