@@ -3926,6 +3926,10 @@ class MeasurementPageWorkspace(QWidget):
             self._native_campaign_cancel)
         native_row.addWidget(self.campaign_native_cancel_button)
         native_row.addStretch(1)
+        # Enabled only while a drive exists — inert buttons are dishonest.
+        self.campaign_native_pause_button.setEnabled(False)
+        self.campaign_native_resume_button.setEnabled(False)
+        self.campaign_native_cancel_button.setEnabled(False)
         native_layout.addLayout(native_row)
         self.campaign_native_status_label = QLabel("", native_card)
         self.campaign_native_status_label.setWordWrap(True)
@@ -3943,6 +3947,7 @@ class MeasurementPageWorkspace(QWidget):
             "位置を確認して続行", native_card)
         self.campaign_native_confirm_button.clicked.connect(
             self._native_confirm_position)
+        self.campaign_native_confirm_button.setEnabled(False)
         position_row.addWidget(self.campaign_native_confirm_button)
         native_layout.addLayout(position_row)
         layout.addWidget(native_card)
@@ -4284,7 +4289,11 @@ class MeasurementPageWorkspace(QWidget):
             "実測定の合格証拠ではありません"
             if simulated else "")
 
-        awaiting = state.awaiting_position_id
+        terminal = state.outcome in (
+            'completed', 'completed_with_failures', 'failed', 'cancelled')
+        # A terminal campaign never asks for a mic move — the prompt is
+        # meaningful only while the runner can still advance.
+        awaiting = state.awaiting_position_id if not terminal else None
         if awaiting:
             names = self._campaign_target_names()
             label = names.get(awaiting, awaiting)
@@ -4303,8 +4312,6 @@ class MeasurementPageWorkspace(QWidget):
             self.campaign_native_position_label.setText("")
             self.campaign_native_confirm_button.setEnabled(False)
 
-        terminal = state.outcome in (
-            'completed', 'completed_with_failures', 'failed', 'cancelled')
         self.campaign_native_pause_button.setEnabled(
             not terminal and not state.paused)
         self.campaign_native_resume_button.setEnabled(
