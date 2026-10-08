@@ -1371,7 +1371,7 @@ class SessionRecoveryJournalRecord(BaseModel):
     """One sealed detection row per crashed journal — the durable
     tamper-evidence that survives file retention."""
 
-    model_config = ConfigDict(frozen=True)
+    model_config = ConfigDict(frozen=True, extra='forbid')
 
     journal_id: str = Field(min_length=1)
     journal_sha256: str = Field(pattern=_SHA256_PATTERN)
@@ -1407,7 +1407,7 @@ class SessionRecoveryJournalRecord(BaseModel):
 class SessionRecoveryDecision(BaseModel):
     """Append-only operator decision on a crashed session or one item."""
 
-    model_config = ConfigDict(frozen=True)
+    model_config = ConfigDict(frozen=True, extra='forbid')
 
     decision_id: str = Field(min_length=1)
     decision_sha256: str = Field(pattern=_SHA256_PATTERN)
@@ -1436,7 +1436,7 @@ class SessionRecoveryDecision(BaseModel):
 class SessionReconciliationRecord(BaseModel):
     """Sealed outcome for one uncertain external effect."""
 
-    model_config = ConfigDict(frozen=True)
+    model_config = ConfigDict(frozen=True, extra='forbid')
 
     reconciliation_id: str = Field(min_length=1)
     reconciliation_sha256: str = Field(pattern=_SHA256_PATTERN)
