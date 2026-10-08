@@ -26,7 +26,11 @@ MANIFEST = REPO_ROOT / 'scripts' / 'issue_lifecycle_manifest.yaml'
 
 #: Issues whose remaining work was verified on main to include
 #: unimplemented software (not merely acceptance/evidence gathering).
-STRUCTURAL_ISSUES = {868}
+#: Issues whose manifest entries MUST keep a ``structural`` remaining gate
+#: because unimplemented software is still tracked there. Empty once the
+#: last verified gap (#868 commissioning command path) landed via #1028 —
+#: re-add an issue id here when a new verified software gap appears.
+STRUCTURAL_ISSUES: set[int] = set()
 
 #: States that assert nothing but acceptance/physical work is left; they
 #: are dishonest when a ``structural`` gate is present.
