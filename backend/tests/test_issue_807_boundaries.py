@@ -89,7 +89,9 @@ def test_size_budget(report: dict) -> None:
     assert report['over_budget_unexempted'] == {}
     # Exempted giants must carry a decomposition note.
     for name in report['oversized']:
-        assert _audit.SIZE_EXEMPTIONS.get(name), (
+        # SIZE_EXEMPTIONS is keyed by stem so entries survive a module's
+        # move into a declared package (#954).
+        assert _audit.SIZE_EXEMPTIONS.get(name.split('.')[-1]), (
             f'{name} exceeds {report["size_budget_lines"]} lines without '
             'a recorded decomposition plan')
 
