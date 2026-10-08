@@ -825,3 +825,17 @@ entries:
   - backend/tests/test_issue_984_output_path.py
   - backend/src/htdt/output_target.py
   close_when_gates_clear: true
+
+- issue: 1022
+  lifecycle: acceptance_remaining
+  landed:
+    prs: [1046]
+    commits: [64bdd64b]
+  remaining_gates:
+  - kind: manual
+    description: 'オペレータ受入 — 全失敗=FAILED/部分=2行分離/失敗キュー UI (再試行・選択取込・サポート診断) の実機確認 (子が実GUI E2E で検証済)'
+  evidence_refs:
+  - docs/issues/issue-1022-capture-failure-queue.md
+  - backend/tests/test_issue_1022_capture_failure_queue.py
+  - backend/src/htdt/capture_watch_failures.py
+  close_when_gates_clear: true
