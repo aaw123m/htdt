@@ -135,6 +135,19 @@ def _clf_binary_cf1() -> bytes:
     return bytes(payload)
 
 
+def _clf_binary_cf2_v2() -> bytes:
+    # .CF2 v2-generation binary signature (#952): lead byte 0x41 then
+    # BD 0A 00 02, 'v2.0' marker at offset 20 — the signature the CLF
+    # viewer kit's own clf2_v2_* samples carry. Signature-only; payload
+    # stays opaque and unsupported BY DESIGN.
+    payload = bytearray(64)
+    payload[0] = 0x41
+    payload[1:5] = b'\xbd\x0a\x00\x02'
+    payload[20:24] = b'v2.0'
+    payload[24:] = b'\x00' * (len(payload) - 24)
+    return bytes(payload)
+
+
 def _ifc_step() -> bytes:
     # Minimal metric IFC4X3_ADD2 model: project + site/building/storey
     # chain + one IfcSpace with extruded-area-solid geometry (metres).
@@ -213,6 +226,7 @@ GENERATORS = {
     'equalizer_apo/corpus-config.txt': _equalizer_apo,
     'camilladsp/corpus-config.yaml': _camilladsp,
     'clf/vendor-binary.CF1': _clf_binary_cf1,
+    'clf/vendor-binary-v2.CF2': _clf_binary_cf2_v2,
     'ifc/corpus-room.ifc': _ifc_step,
     'project_bundle/corpus-scene.json': _project_bundle_spec,
 }
@@ -419,6 +433,38 @@ def _entries() -> tuple[InteropFixtureEntry, ...]:
                     path='verdict', expected='unsupported'),
                 InteropSemanticAssertion(
                     path='family', expected='binary_cf1'),
+            ),
+        ),
+        build_interop_fixture_entry(
+            format_family='clf',
+            format_version='cf2_v2',
+            relative_path='clf/vendor-binary-v2.CF2',
+            content_sha256=_sha(_clf_binary_cf2_v2()),
+            size_bytes=len(_clf_binary_cf2_v2()),
+            round_trip_mode='unsupported_assert',
+            provenance=_prov(
+                'clf-signature-synthesizer', 'corpus-1',
+                'Signature-only .CF2 v2-generation binary stub '
+                'synthesized in-repo; mirrors the viewer kit\'s real '
+                'clf2_v2_* signature (#952) — the family stays '
+                'unsupported by design and the corpus asserts exactly '
+                'that.',
+            ),
+            units_semantics='n/a (opaque binary)',
+            coordinate_semantics='n/a',
+            expected_supported_features=(
+                'binary_family_identification',
+            ),
+            expected_unsupported_features=(
+                'polar_balloon_parse',
+            ),
+            assertions=(
+                InteropSemanticAssertion(
+                    path='verdict', expected='unsupported'),
+                InteropSemanticAssertion(
+                    path='family', expected='binary_cf2'),
+                InteropSemanticAssertion(
+                    path='binary_variant', expected='cf2_v2'),
             ),
         ),
         build_interop_fixture_entry(

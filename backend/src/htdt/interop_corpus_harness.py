@@ -359,6 +359,7 @@ def _lane_clf(
         observed={
             'verdict': qualification.verdict,
             'family': qualification.family,
+            'binary_variant': qualification.binary_variant,
             'frequency_rows': qualification.frequency_rows,
             'declares_license': qualification.declares_license,
             'detected_version': qualification.detected_version,

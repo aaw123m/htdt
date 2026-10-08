@@ -26,12 +26,15 @@ from htdt.cad_loudspeaker_interchange import (
 def _cf(lead: int, version_digit: bytes = b'1') -> bytes:
     """Minimal signature-conforming .CF1/.CF2-shaped payload.
 
-    Layout per PRONOM: lead byte (0x40/0x41) + BD 0A 00 01, 15 arbitrary
-    bytes, ASCII ``v{1,2}.0`` at offset 20, then filler. Payload bytes
+    Layout per PRONOM: lead byte (0x40/0x41) + BD 0A 00 + generation
+    byte, 15 arbitrary bytes, ASCII ``v{1,2}.0`` at offset 20, then
+    filler. Every real file checked (#952: the whole CLF viewer-kit
+    sample set) agrees generation byte == marker digit, so the stub
+    derives the generation byte from the version digit. Payload bytes
     beyond the signature are intentionally meaningless — detection must
     never imply we decoded them.
     """
-    head = bytes([lead, 0xBD, 0x0A, 0x00, 0x01])
+    head = bytes([lead, 0xBD, 0x0A, 0x00, int(version_digit)])
     gap = bytes(15)
     marker = b'v' + version_digit + b'.0'
     tail = bytes(12) + bytes(16) + b'\xde\xad\xbe\xef' * 32
