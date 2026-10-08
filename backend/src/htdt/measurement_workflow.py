@@ -647,6 +647,7 @@ class MeasurementWorkflowController:
         self._variant_campaign_repository: (
             CadSystemVariantMeasurementCampaignRepository | None
         ) = None
+        self._campaign_execution_repository: Any = None
 
     @property
     def pending_import(self) -> PendingMeasurementImport | None:
@@ -2331,6 +2332,133 @@ class MeasurementWorkflowController:
 
     def runner_skip_cell(self, run_id: str, cell_index: int) -> None:
         self.runner_repository.skip_cell(run_id, cell_index)
+
+    # ------------------------------------------------------------------
+    # Native automated campaign execution (#956)
+    # ------------------------------------------------------------------
+
+    def _campaign_execution_repo(self):
+        if self._campaign_execution_repository is None:
+            from .cad_campaign_execution_repository import (
+                CadCampaignExecutionRepository,
+            )
+            from .cad_sweep_acquisition_repository import (
+                CadSweepAcquisitionRepository,
+            )
+
+            self._campaign_execution_repository = (
+                CadCampaignExecutionRepository(
+                    self.scene_repository,
+                    sweep_repository=CadSweepAcquisitionRepository(
+                        self.scene_repository,
+                    ),
+                )
+            )
+        return self._campaign_execution_repository
+
+    def materialize_native_campaign(
+        self,
+        plan_id: str,
+        *,
+        routings,
+        stimulus_template,
+        policy=None,
+    ):
+        """Convert + persist the canonical #875 plan for a runner plan.
+
+        The sealed plan hash is a pure function of its inputs — the same
+        runner plan + routing + stimulus always yields the same
+        ``mcplan-``, so re-saving is a no-op and any existing journal
+        stays attached (that IS resume). A non-canonical runner matrix
+        fails closed with a conversion error instead of inventing runs.
+        """
+        from .cad_campaign_native import (
+            NativePlanConversionError,
+            materialize_native_campaign_plan,
+        )
+
+        runner_plan = self.runner_repository.get_plan(plan_id)
+        if runner_plan is None:
+            raise MeasurementWorkflowError("対象の測定計画が見つかりません")
+        revision = self.scene_repository.get(runner_plan.scene_revision_id)
+        if revision is None or revision.document_id != self.document_id:
+            raise MeasurementWorkflowError(
+                "計画が参照するシーンリビジョンを確認できません"
+            )
+        created = self.runner_plan_created_at_utc().get(plan_id)
+        try:
+            materialization = materialize_native_campaign_plan(
+                runner_plan=runner_plan,
+                revision=revision,
+                routings=routings,
+                stimulus_template=stimulus_template,
+                policy=policy,
+                # Deterministic per runner plan — never the wall clock,
+                # or every materialization would mint a new plan id.
+                generated_at_utc=created or '1970-01-01T00:00:00+00:00',
+            )
+        except NativePlanConversionError as exc:
+            raise MeasurementWorkflowError(str(exc)) from exc
+        self._campaign_execution_repo().save_plan(materialization.plan)
+        return materialization
+
+    def native_campaign_for_runner_plan(self, plan_id: str):
+        """Latest sealed campaign plan materialized from a runner plan."""
+        plans = self._campaign_execution_repo().list_plans(self.document_id)
+        for plan in reversed(plans):
+            if plan.campaign_ref.ref_id == plan_id:
+                return plan
+        return None
+
+    def native_preflight(self, plan, *, backend, calibration_state='unknown'):
+        """Read-only pre-arm report — devices, routing, level, PRECHECK."""
+        from .cad_campaign_native import build_native_preflight
+
+        names: dict[str, str] = {}
+        if plan.scene_ref is not None:
+            revision = self.scene_repository.get(plan.scene_ref.ref_id)
+            if revision is not None:
+                names = {
+                    entity.entity_id: (entity.name or entity.entity_id)
+                    for entity in revision.document.entities
+                }
+        return build_native_preflight(
+            plan=plan,
+            backend=backend,
+            calibration_state=calibration_state,
+            position_names=names,
+        )
+
+    def native_campaign_drive(
+        self,
+        plan,
+        *,
+        engine_factory,
+        arm_confirmation_provider,
+        calibration_state_provider=None,
+    ):
+        """Open (or resume, via the sealed journal) a campaign runner."""
+        from .cad_campaign_native import NativeCampaignDrive
+
+        return NativeCampaignDrive(
+            campaign_repository=self._campaign_execution_repo(),
+            plan=plan,
+            engine_factory=engine_factory,
+            arm_confirmation_provider=arm_confirmation_provider,
+            calibration_state_provider=calibration_state_provider,
+        )
+
+    def native_campaign_status(self, plan, runner_plan):
+        """Derived state + exact cell binding + run records for the UI."""
+        from .cad_campaign_execution import derive_campaign_state
+        from .cad_campaign_native import resolve_cell_assignments
+
+        repo = self._campaign_execution_repo()
+        events = repo.list_events(plan.plan_id)
+        records = repo.list_run_records(plan.plan_id)
+        state = derive_campaign_state(plan, events, records)
+        assignments = resolve_cell_assignments(runner_plan, plan)
+        return state, assignments, records
 
     # ------------------------------------------------------------------
     # Batch campaign import (#446)

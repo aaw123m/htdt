@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
     QComboBox,
+    QDialog,
     QDoubleSpinBox,
     QFormLayout,
     QFrame,
@@ -536,6 +537,80 @@ def _page(title: str, subtitle: str) -> tuple[QScrollArea, QWidget, QVBoxLayout]
     layout.addWidget(lead)
     scroll.setWidget(host)
     return scroll, host, layout
+
+
+class _NativeCampaignPreflightDialog(QDialog):
+    """Read-only pre-arm report for the native campaign run (#956).
+
+    Every routing, level, position and policy the run will execute is
+    displayed before any audio output; the explicit "アーム承認" click is
+    the only path that arms the runner — spec or saved settings never
+    substitute for it. A failed PRECHECK disables arming (fail-closed).
+    """
+
+    def __init__(self, report, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("ネイティブ自動実行 — 事前確認")
+        self.setModal(True)
+        self.armed = False
+        self.report = report
+
+        layout = QVBoxLayout(self)
+        layout.setSpacing(10)
+        if report.simulated_backend:
+            banner = QLabel(
+                "SIMULATED バックエンド — 実行結果はテスト証跡であり、"
+                "実測定の合格証拠にはなりません。", self)
+            banner.setWordWrap(True)
+            set_semantic_state(banner, SemanticState.WARNING)
+            layout.addWidget(banner)
+
+        lines = [
+            f"実行計画: {report.plan_id}",
+            f"再生デバイス: {', '.join(report.playback_devices) or '（なし）'}",
+            f"録音デバイス: {', '.join(report.capture_devices) or '（なし）'}",
+            f"レベル: {report.level_dbfs:.1f} dBFS "
+            f"（ポリシー上限 {report.max_output_level_dbfs:.1f} dBFS）",
+            f"校正状態: {report.calibration_state}",
+            "",
+            "ルーティング:",
+            *(f"  {line}" for line in report.routing_lines),
+            "",
+            "測定位置（各位置への移動時に確認を求めます）:",
+            *(f"  {line}" for line in report.position_lines),
+        ]
+        body = QLabel("\n".join(lines), self)
+        body.setWordWrap(True)
+        layout.addWidget(body)
+
+        if report.blocked_reasons:
+            blocked = QLabel(
+                "事前チェックでブロックされています:\n"
+                + "\n".join(f"  {r}" for r in report.blocked_reasons),
+                self)
+            blocked.setWordWrap(True)
+            set_semantic_state(blocked, SemanticState.WARNING)
+            layout.addWidget(blocked)
+
+        buttons = QHBoxLayout()
+        buttons.addStretch(1)
+        cancel_button = QPushButton("キャンセル", self)
+        cancel_button.clicked.connect(self.reject)
+        buttons.addWidget(cancel_button)
+        self.arm_button = QPushButton(
+            "アーム承認 — この内容で出力を開始", self)
+        set_primary_action(self.arm_button)
+        self.arm_button.setEnabled(report.ok)
+        if not report.ok:
+            self.arm_button.setToolTip(
+                "事前チェックでブロックされているためアームできません")
+        self.arm_button.clicked.connect(self._arm)
+        buttons.addWidget(self.arm_button)
+        layout.addLayout(buttons)
+
+    def _arm(self) -> None:
+        self.armed = True
+        self.accept()
 
 
 class MeasurementPageWorkspace(QWidget):
@@ -3818,6 +3893,60 @@ class MeasurementPageWorkspace(QWidget):
         plan_layout.addLayout(action_row)
         layout.addWidget(plan_card)
 
+        native_card, native_layout = _card(
+            "HTDTネイティブ自動実行", host)
+        native_hint = QLabel(
+            "選択した計画を HTDT ネイティブ掃引エンジンで自動実行します。"
+            "出力前にルーティング・レベル・位置を確認してアーム承認し、"
+            "マイク位置の移動時のみ確認を求めます。",
+            native_card,
+        )
+        native_hint.setWordWrap(True)
+        set_typography_role(native_hint, TypographyRole.SECONDARY)
+        native_layout.addWidget(native_hint)
+        native_row = QHBoxLayout()
+        self.campaign_native_button = QPushButton(
+            "自動実行を準備…", native_card)
+        self.campaign_native_button.clicked.connect(
+            self._native_campaign_prepare)
+        native_row.addWidget(self.campaign_native_button)
+        self.campaign_native_pause_button = QPushButton(
+            "一時停止", native_card)
+        self.campaign_native_pause_button.clicked.connect(
+            self._native_campaign_pause)
+        native_row.addWidget(self.campaign_native_pause_button)
+        self.campaign_native_resume_button = QPushButton(
+            "再開", native_card)
+        self.campaign_native_resume_button.clicked.connect(
+            self._native_campaign_resume)
+        native_row.addWidget(self.campaign_native_resume_button)
+        self.campaign_native_cancel_button = QPushButton(
+            "中止", native_card)
+        self.campaign_native_cancel_button.clicked.connect(
+            self._native_campaign_cancel)
+        native_row.addWidget(self.campaign_native_cancel_button)
+        native_row.addStretch(1)
+        native_layout.addLayout(native_row)
+        self.campaign_native_status_label = QLabel("", native_card)
+        self.campaign_native_status_label.setWordWrap(True)
+        native_layout.addWidget(self.campaign_native_status_label)
+        self.campaign_native_simulated_label = QLabel("", native_card)
+        self.campaign_native_simulated_label.setWordWrap(True)
+        set_semantic_state(
+            self.campaign_native_simulated_label, SemanticState.WARNING)
+        native_layout.addWidget(self.campaign_native_simulated_label)
+        position_row = QHBoxLayout()
+        self.campaign_native_position_label = QLabel("", native_card)
+        self.campaign_native_position_label.setWordWrap(True)
+        position_row.addWidget(self.campaign_native_position_label, 1)
+        self.campaign_native_confirm_button = QPushButton(
+            "位置を確認して続行", native_card)
+        self.campaign_native_confirm_button.clicked.connect(
+            self._native_confirm_position)
+        position_row.addWidget(self.campaign_native_confirm_button)
+        native_layout.addLayout(position_row)
+        layout.addWidget(native_card)
+
         variant_card, variant_layout = _card("登録済みの詳細計画", host)
         variant_hint = QLabel(
             "システムバリアント/検証ワークフローが登録した測定計画を、"
@@ -3838,9 +3967,10 @@ class MeasurementPageWorkspace(QWidget):
         layout.addWidget(variant_card)
 
         matrix_card, matrix_layout = _card("計画セル", host)
-        self.campaign_table = QTableWidget(0, 5, matrix_card)
+        self.campaign_table = QTableWidget(0, 6, matrix_card)
         self.campaign_table.setHorizontalHeaderLabels(
-            ["入力役割", "測定位置", "リピート", "状態", "測定"]
+            ["入力役割", "測定位置", "リピート", "状態", "測定",
+             "ネイティブ実行"]
         )
         self.campaign_table.setSelectionBehavior(
             QAbstractItemView.SelectionBehavior.SelectRows
@@ -3897,6 +4027,297 @@ class MeasurementPageWorkspace(QWidget):
         self.pages.addWidget(page)
 
         self._campaign_run_id: str | None = None
+        self._native_drive = None
+        self._native_plan = None
+        self._native_runner_plan = None
+        self._native_assignments = None
+        self._native_labels: dict[int, str] = {}
+
+    # -- native automated campaign execution (#956) --------------------
+
+    _NATIVE_OUTCOME_LABELS = {
+        'in_progress': '実行中',
+        'awaiting_position': '位置確認待ち',
+        'paused': '一時停止中',
+        'blocked': 'ブロック',
+        'completed': '完了',
+        'completed_with_failures': '完了（失敗あり）',
+        'failed': '失敗',
+        'cancelled': '中止',
+    }
+
+    def _native_stimulus(self):
+        from .cad_sweep_acquisition import SweepStimulusSpec
+
+        return SweepStimulusSpec(
+            start_frequency_hz=self.acq_start_freq.value(),
+            end_frequency_hz=self.acq_end_freq.value(),
+            duration_s=self.acq_duration.value(),
+            level_dbfs=self.acq_level.value(),
+            sample_rate_hz=int(self.acq_sample_rate.currentData()),
+            repetitions=self.acq_repetitions.value(),
+        )
+
+    def _native_default_routings(self, runner_plan) -> dict:
+        """Per-binding default routing from the acquisition surface's
+        device selections — always displayed in preflight for explicit
+        arm approval, never silently applied."""
+        from .cad_campaign_native import channel_entity_id_for
+        from .cad_sweep_acquisition import ChannelRouting
+
+        try:
+            devices = tuple(self._acq_backend.enumerate_devices() or ())
+        except EXPECTED_OPERATION_ERRORS:
+            devices = ()
+        playback_dev = next(
+            (d for d in devices
+             if d.direction in ('playback', 'duplex')), None)
+        capture_dev = next(
+            (d for d in devices
+             if d.direction in ('capture', 'duplex')), None)
+        playback_id = str(
+            self.acq_playback_device.currentData()
+            or (playback_dev.device_id if playback_dev else ''))
+        capture_id = str(
+            self.acq_capture_device.currentData()
+            or (capture_dev.device_id if capture_dev else ''))
+        loopback = (
+            1 if capture_dev is not None
+            and capture_dev.max_input_channels > 1
+            else None
+        )
+        routings: dict = {}
+        for cell in runner_plan.cells:
+            channel_id = channel_entity_id_for(
+                cell.channel_role, cell.source_speaker_ids)
+            if channel_id in routings:
+                continue
+            # One logical channel per physical output — declared,
+            # displayed, and approved in preflight.
+            routings[channel_id] = ChannelRouting(
+                playback_device_id=playback_id,
+                playback_channel=len(routings),
+                capture_device_id=capture_id,
+                capture_channel=0,
+                loopback_input_channel=loopback,
+            )
+        return routings
+
+    def _native_arm_provider(self, approved_routings: dict,
+                           level_dbfs: float):
+        """Arm echoes exactly the routing + level the operator approved —
+        an engine presenting different parameters is refused."""
+        from .cad_sweep_acquisition import ArmConfirmation
+
+        def provider(entry, request):
+            expected = approved_routings.get(entry.channel_entity_id)
+            r = request.routing
+            if expected is None or (
+                r.playback_device_id != expected.playback_device_id
+                or r.playback_channel != expected.playback_channel
+                or r.capture_device_id != expected.capture_device_id
+                or r.capture_channel != expected.capture_channel
+                or r.loopback_input_channel
+                != expected.loopback_input_channel
+                or request.stimulus.level_dbfs != level_dbfs
+            ):
+                return None
+            return ArmConfirmation(
+                acknowledged_playback_device_id=r.playback_device_id,
+                acknowledged_playback_channel=r.playback_channel,
+                acknowledged_capture_device_id=r.capture_device_id,
+                acknowledged_capture_channel=r.capture_channel,
+                acknowledged_level_dbfs=request.stimulus.level_dbfs,
+            )
+
+        return provider
+
+    def _native_campaign_prepare(self) -> None:
+        from .cad_sweep_acquisition import MeasurementAcquisitionEngine
+
+        plan_id = self.campaign_plan_combo.currentData()
+        if not plan_id:
+            self._set_notice("先に実行する計画を選択してください",
+                             SemanticState.WARNING)
+            return
+        runner_plan = self.controller.runner_repository.get_plan(plan_id)
+        if runner_plan is None:
+            self._set_notice("計画が見つかりません", SemanticState.WARNING)
+            return
+        routings = self._native_default_routings(runner_plan)
+        stimulus = self._native_stimulus()
+        try:
+            materialization = self.controller.materialize_native_campaign(
+                plan_id, routings=routings,
+                stimulus_template=stimulus)
+        except MeasurementWorkflowError as exc:
+            self._operation_error_notice(
+                "自動実行の正準計画に変換できませんでした", exc)
+            return
+        plan = materialization.plan
+        report = self.controller.native_preflight(
+            plan, backend=self._acq_backend)
+        dialog = _NativeCampaignPreflightDialog(report, self)
+        if (dialog.exec() != QDialog.DialogCode.Accepted
+                or not dialog.armed):
+            self._set_notice(
+                "自動実行は開始されていません — アーム承認がありません",
+                SemanticState.WARNING)
+            return
+        self._native_runner_plan = runner_plan
+        self._native_plan = plan
+        self._native_assignments = materialization.assignments
+        self._native_drive = self.controller.native_campaign_drive(
+            plan,
+            engine_factory=lambda: MeasurementAcquisitionEngine(
+                self._acq_backend),
+            arm_confirmation_provider=self._native_arm_provider(
+                routings, stimulus.level_dbfs),
+        )
+        try:
+            run = self.controller.open_runner(plan_id)
+            self._campaign_run_id = run.run_id
+        except EXPECTED_OPERATION_ERRORS as exc:
+            self._operation_error_notice(
+                "セル表を開けませんでした", exc)
+        self._native_drive_run()
+
+    def _native_drive_run(self) -> None:
+        drive = self._native_drive
+        if drive is None:
+            return
+        try:
+            drive.advance()
+        except EXPECTED_OPERATION_ERRORS as exc:
+            # error-boundary: expected — journal/state failures surface
+            # honestly; the campaign stays recoverable via 再開.
+            self._operation_error_notice("自動実行に失敗しました", exc)
+        self._native_sync_ui()
+
+    def _native_confirm_position(self) -> None:
+        drive = self._native_drive
+        if drive is None:
+            return
+        try:
+            awaiting = drive.state().awaiting_position_id
+            if awaiting:
+                drive.confirm_position(awaiting)
+        except EXPECTED_OPERATION_ERRORS as exc:
+            self._operation_error_notice("位置を確認できませんでした", exc)
+            self._native_sync_ui()
+            return
+        self._native_drive_run()
+
+    def _native_campaign_pause(self) -> None:
+        drive = self._native_drive
+        if drive is None:
+            return
+        try:
+            drive.pause('operator pause')
+        except EXPECTED_OPERATION_ERRORS as exc:
+            self._operation_error_notice("一時停止できませんでした", exc)
+        self._native_sync_ui()
+
+    def _native_campaign_resume(self) -> None:
+        drive = self._native_drive
+        if drive is None:
+            return
+        try:
+            drive.resume()
+        except EXPECTED_OPERATION_ERRORS as exc:
+            self._operation_error_notice("再開できませんでした", exc)
+            self._native_sync_ui()
+            return
+        self._native_drive_run()
+
+    def _native_campaign_cancel(self) -> None:
+        drive = self._native_drive
+        if drive is None:
+            return
+        try:
+            drive.cancel('operator cancelled')
+        except EXPECTED_OPERATION_ERRORS as exc:
+            self._operation_error_notice("中止できませんでした", exc)
+        self._native_sync_ui()
+
+    def _native_sync_ui(self) -> None:
+        from .cad_campaign_native import cell_native_labels
+
+        plan = self._native_plan
+        drive = self._native_drive
+        if plan is None or drive is None:
+            self.campaign_native_status_label.setText("")
+            self.campaign_native_simulated_label.setText("")
+            self.campaign_native_position_label.setText("")
+            self.campaign_native_confirm_button.setEnabled(False)
+            self.campaign_native_pause_button.setEnabled(False)
+            self.campaign_native_resume_button.setEnabled(False)
+            self.campaign_native_cancel_button.setEnabled(False)
+            return
+        state, assignments, records = self.controller.native_campaign_status(
+            plan, self._native_runner_plan)
+        self._native_assignments = assignments
+        progress = state.progress
+        outcome = self._NATIVE_OUTCOME_LABELS.get(
+            state.outcome, state.outcome)
+        lines = [
+            f"{outcome} · 完了 {progress.completed}/{progress.total} · "
+            f"残り {progress.remaining} · 失敗 {progress.failed} · "
+            f"位置確認待ち {progress.awaiting_position} · "
+            f"ブロック {progress.blocked}"
+        ]
+        if state.blocked_reason:
+            lines.append(f"ブロック理由: {state.blocked_reason}")
+        missing = progress.total - progress.completed - progress.waived
+        if missing and state.outcome in (
+                'completed_with_failures', 'failed', 'cancelled'):
+            lines.append(
+                f"証跡のないセルが {missing} 件残っています — "
+                "「実行を開始 / 再開」でジャーナルから続行できます")
+        self.campaign_native_status_label.setText(" / ".join(lines))
+
+        simulated = (
+            getattr(self._acq_backend, 'backend_id', '') == 'fake-audio-io'
+            or any(r.backend_is_simulated for r in records))
+        self.campaign_native_simulated_label.setText(
+            "SIMULATED バックエンド — 記録はテスト証跡であり、"
+            "実測定の合格証拠ではありません"
+            if simulated else "")
+
+        awaiting = state.awaiting_position_id
+        if awaiting:
+            names = self._campaign_target_names()
+            label = names.get(awaiting, awaiting)
+            spec = plan.position(awaiting)
+            coords = (
+                f" ({spec.declared_position.x_m:.2f}, "
+                f"{spec.declared_position.y_m:.2f}, "
+                f"{spec.declared_position.z_m:.2f}) m"
+                if spec is not None and spec.declared_position is not None
+                else "")
+            self.campaign_native_position_label.setText(
+                f"マイクを「{label}」{coords} に移動してください。\n"
+                "位置を確認するまで実行は進みません。")
+            self.campaign_native_confirm_button.setEnabled(True)
+        else:
+            self.campaign_native_position_label.setText("")
+            self.campaign_native_confirm_button.setEnabled(False)
+
+        terminal = state.outcome in (
+            'completed', 'completed_with_failures', 'failed', 'cancelled')
+        self.campaign_native_pause_button.setEnabled(
+            not terminal and not state.paused)
+        self.campaign_native_resume_button.setEnabled(
+            not terminal and (state.paused or bool(state.blocked_reason)))
+        self.campaign_native_cancel_button.setEnabled(not terminal)
+
+        self._native_labels = cell_native_labels(
+            runner_plan=self._native_runner_plan,
+            assignments=assignments,
+            state=state,
+            run_records=records,
+        )
+        self._refresh_campaign()
 
     def _campaign_target_names(self) -> dict[str, str]:
         try:
@@ -4017,6 +4438,16 @@ class MeasurementPageWorkspace(QWidget):
                     else None
                 )
                 or "—",
+                (
+                    self._native_labels.get(cell.cell_index, '—')
+                    if self._native_runner_plan is not None
+                    and self._native_runner_plan.plan_id == plan.plan_id
+                    else '—'
+                ),
+            )
+            column_native = (
+                self._native_runner_plan is not None
+                and self._native_runner_plan.plan_id == plan.plan_id
             )
             cell_tooltips = (
                 None,
@@ -4024,6 +4455,11 @@ class MeasurementPageWorkspace(QWidget):
                 None,
                 status_explanation(state.status),
                 None,
+                (
+                    'HTDTネイティブ自動実行の最新の実行状態です'
+                    if column_native
+                    else None
+                ),
             )
             for column, value in enumerate(values):
                 item = QTableWidgetItem(value)
