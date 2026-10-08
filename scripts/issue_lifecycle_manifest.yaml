@@ -839,3 +839,16 @@ entries:
   - backend/tests/test_issue_1022_capture_failure_queue.py
   - backend/src/htdt/capture_watch_failures.py
   close_when_gates_clear: true
+
+- issue: 1024
+  lifecycle: acceptance_remaining
+  landed:
+    prs: [1047]
+    commits: [c33e6900]
+  remaining_gates:
+  - kind: manual
+    description: 'オペレータ受入 — 実機 DPI/解像度でのヘルプ閲覧・関連操作実行確認 (子が実GUI Mesa GL で DoD 全項検証済)'
+  evidence_refs:
+  - docs/issues/issue-1024-help-dialog.md
+  - backend/tests/test_issue_1024_help_dialog.py
+  close_when_gates_clear: true
