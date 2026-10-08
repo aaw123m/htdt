@@ -926,6 +926,14 @@ _LIFECYCLE_TABLE_LABELS = {
     "cad_headless_run_records": "ヘッドレス実行レコード",
     "cad_credential_references": "資格情報参照",
     "cad_credential_lifecycle_events": "資格情報ライフサイクルイベント",
+    "cad_update_packages": "アップデートパッケージ",
+    "cad_update_sessions": "アップデートセッション",
+    "cad_update_transitions": "アップデート遷移",
+    "cad_update_preflight_reports": "アップデート事前検証レポート",
+    "cad_update_restore_points": "アップデート復元ポイント",
+    "cad_update_health_reports": "アップデート健全性レポート",
+    "cad_update_authorizations": "アップデート操作承認",
+    "cad_update_outcomes": "アップデート結果",
 }
 
 
