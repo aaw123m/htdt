@@ -940,6 +940,49 @@ def test_source_level_gate_and_limiter() -> None:
     assert verdict2.level_gate == 'unknown'
 
 
+def test_strength_g_level_gate_precedes_omni_state() -> None:
+    # An engaged limiter is 'insufficient_source_level', not a wrong
+    # source class — and must not be laundered into
+    # 'eligible_with_source_limitation' by the band-restricted branch.
+    limited = _dodeca_profile(
+        level_capability=CadSourceLevelCapability(
+            limiter_state='engaged',
+            achieved_decay_range_db=25.0,
+        )
+    )
+    verdict = evaluate_source_qualification(
+        document_id=DOC,
+        profile=limited,
+        purposes=('strength_g_measurement',),
+        requested_band_low_hz=200.0,
+        requested_band_high_hz=1000.0,
+        evaluated_at_utc=T1,
+    )
+    assert dict(verdict.eligibilities)[
+        'strength_g_measurement'
+    ] == 'insufficient_source_level'
+    assert verdict.strength_g_gate == 'ineligible'
+
+    # Verified omni but no level evidence — the absolute reference is
+    # unconfirmable: unknown, never 'wrong_source_class'.
+    verified_no_level = _dodeca_profile(
+        omni_capabilities=(_omni_band(state='omni_profile_verified'),),
+        level_capability=None,
+    )
+    verdict2 = evaluate_source_qualification(
+        document_id=DOC,
+        profile=verified_no_level,
+        purposes=('strength_g_measurement',),
+        requested_band_low_hz=200.0,
+        requested_band_high_hz=1000.0,
+        evaluated_at_utc=T1,
+    )
+    assert dict(verdict2.eligibilities)[
+        'strength_g_measurement'
+    ] == 'source_state_unknown'
+    assert verdict2.strength_g_gate == 'unknown'
+
+
 def test_orientation_capture_aggregate_requires_transform() -> None:
     profile = _dodeca_profile()
     pose = CadSourcePose(azimuth_deg=45.0)
