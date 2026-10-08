@@ -9,6 +9,10 @@ on:
       - 'backend/tests/test_r130d_fv_mfem_same_drive.py'
       - 'backend/tests/test_r130d_candidate_same_source_qualification.py'
       - 'backend/tests/test_r130d_mfem_ref4_same_drive.py'
+      - 'backend/tests/test_r130d_mfem_ref4_same_source_result.py'
+      - 'benchmarks/acoustics/r130d_mfem_independent_sparse_systems/mfem-r4.json.gz'
+      - 'benchmarks/acoustics/r130d_mfem_ref4_same_drive_v2_evidence_2026-10-09.json'
+      - 'benchmarks/acoustics/r130d_candidate_same_source_numerical_pass_2026-10-09.json'
       - 'scripts/run_r130d_mfem_ref4_same_drive.py'
       - 'backend/src/htdt/r130d_candidate_same_source_qualification.py'
       - 'scripts/run_r130d_candidate_same_source_qualification.py'
@@ -52,8 +56,9 @@ jobs:
           Copy-Item backend/tests/test_r130d_fv_mfem_same_drive.py scratch/tests/
           Copy-Item backend/tests/test_r130d_candidate_same_source_qualification.py scratch/tests/
           Copy-Item backend/tests/test_r130d_mfem_ref4_same_drive.py scratch/tests/
+          Copy-Item backend/tests/test_r130d_mfem_ref4_same_source_result.py scratch/tests/
           $env:PYTHONPATH = Join-Path $pwd 'backend/src'
-          python -m pytest -q scratch/tests/test_r130d_embedded_neumann_fv.py scratch/tests/test_r130d_embedded_neumann_fv_evidence.py scratch/tests/test_r130d_fv_mfem_same_drive.py scratch/tests/test_r130d_candidate_same_source_qualification.py scratch/tests/test_r130d_mfem_ref4_same_drive.py --tb=short
+          python -m pytest -q scratch/tests/test_r130d_embedded_neumann_fv.py scratch/tests/test_r130d_embedded_neumann_fv_evidence.py scratch/tests/test_r130d_fv_mfem_same_drive.py scratch/tests/test_r130d_candidate_same_source_qualification.py scratch/tests/test_r130d_mfem_ref4_same_drive.py scratch/tests/test_r130d_mfem_ref4_same_source_result.py --tb=short
       - name: Recompute modal benchmark and compare frozen evidence
         shell: pwsh
         env:
@@ -119,4 +124,51 @@ jobs:
           assert r['gate']['cross_solver_state']=='CROSS_SOLVER_BLOCKED'
           assert r['production_ready'] is False
           print('PASS: FV candidate-only self-convergence / missing MFEM ref4 blocks adoption')
+          '@ | python -
+      - name: Reproduce independent MFEM r4 from immutable compressed original matrix
+        shell: pwsh
+        env:
+          PYTHONUTF8: '1'
+          PYTHONIOENCODING: utf-8
+        run: |
+          python scripts/run_r130d_mfem_ref4_same_drive.py `
+            --plan benchmarks/acoustics/r130d_mfem_ref4_same_drive_solver_v2_plan_2026-10-09.json `
+            --ref4-system benchmarks/acoustics/r130d_mfem_independent_sparse_systems/mfem-r4.json.gz `
+            --comparison-evidence benchmarks/acoustics/r130d_fv_mfem_same_drive_evidence_2026-10-09.json `
+            --output scratch/ci_r4_same_drive.json
+          @'
+          import json
+          from pathlib import Path
+          now=json.loads(Path('scratch/ci_r4_same_drive.json').read_text())
+          fixed=json.loads(Path('benchmarks/acoustics/r130d_mfem_ref4_same_drive_v2_evidence_2026-10-09.json').read_text())
+          assert now['mfem_dofs']==35937
+          assert now['mfem_sparse_export_sha256']==fixed['mfem_sparse_export_sha256']
+          assert now['actual_sparse_solver']['max_true_relative_linear_residual'] <= 1e-8
+          for a,b in zip(now['transfer_complex_40_80_hz'],fixed['transfer_complex_40_80_hz']):
+              assert abs(complex(*a)-complex(*b)) < 1e-6
+          assert now['gate']['production_ready'] is False
+          print('Independent MFEM r4 actual Gaussian drive replay PASS')
+          '@ | python -
+      - name: Verify both candidate solver self-gates PASS but legacy production NO_GO
+        shell: pwsh
+        env:
+          PYTHONUTF8: '1'
+        run: |
+          python scripts/run_r130d_candidate_same_source_qualification.py `
+            --candidate-plan benchmarks/acoustics/r130d_candidate_same_source_numerical_acceptance_plan_2026-10-09.json `
+            --parent-plan benchmarks/acoustics/r130d_general3d_validation_plan.json `
+            --fv-evidence benchmarks/acoustics/r130d_embedded_neumann_fv_driven_followup_2026-10-09.json `
+            --mfem-r123-evidence benchmarks/acoustics/r130d_fv_mfem_same_drive_evidence_2026-10-09.json `
+            --mfem-r4-evidence scratch/ci_r4_same_drive.json `
+            --output scratch/ci_r130d_candidate_gate.json
+          @'
+          import json
+          from pathlib import Path
+          gate=json.loads(Path('scratch/ci_r130d_candidate_gate.json').read_text())['gate']
+          assert gate['candidate_numerical_evidence_state']=='EXPERIMENTAL_CANDIDATE_NUMERICAL_PASS_ONLY'
+          assert gate['cross_solver_state']=='CROSS_SOLVER_PASS_CANDIDATE_ONLY'
+          assert gate['immutable_production_gate']['canonical_r130d_impulse']=='SELF_CONVERGENCE_FAILED'
+          assert gate['immutable_production_gate']['production_enabled'] is False
+          assert gate['immutable_production_gate']['physical_validation']=='NOT_VALIDATED'
+          print('PASS: experimental candidate numerical convergence; production remains forbidden')
           '@ | python -
