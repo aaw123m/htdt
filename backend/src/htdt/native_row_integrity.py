@@ -9579,6 +9579,40 @@ _ROW_BINDINGS: dict[str, tuple[str, tuple[RowBinding, ...], tuple[ExtraCheck, ..
         ),
         (),
     ),
+    # REV69: #890 credential vault — non-secret references + lifecycle
+    # events (secret material never lives in the schema).
+    'cad_credential_references': (
+        'payload_json',
+        (
+            _b('reference_id', 'reference_id'),
+            _b('reference_sha256', 'reference_sha256'),
+            _b('credential_id', 'credential_id'),
+            _b('document_id', 'document_id'),
+            _b('scope_kind', 'scope_kind'),
+            _b('scope_ref', 'scope_ref'),
+            _b('credential_type', 'credential_type'),
+            _b('vault_scope', 'vault_scope'),
+            _b('vault_key', 'vault_key'),
+            _b('state', 'state'),
+            _b('version', 'version'),
+            _b('identity_hint', 'identity_hint', optional=True),
+            _b('created_at_utc', 'created_at_utc'),
+        ),
+        (),
+    ),
+    'cad_credential_lifecycle_events': (
+        'payload_json',
+        (
+            _b('event_id', 'event_id'),
+            _b('event_sha256', 'event_sha256'),
+            _b('document_id', 'document_id'),
+            _b('credential_id', 'credential_id'),
+            _b('event_kind', 'event_kind'),
+            _b('actor', 'actor'),
+            _b('recorded_at_utc', 'recorded_at_utc'),
+        ),
+        (),
+    ),
     # REV66: #866 geometry intake readiness authority.
     'cad_geometry_intake_reports': (
         'payload_json',

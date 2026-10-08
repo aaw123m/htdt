@@ -19,7 +19,7 @@ from .clock import utc_now_iso as _utc_now
 _LOGGER = logging.getLogger('htdt.native')
 
 
-NATIVE_SCHEMA_VERSION = 106
+NATIVE_SCHEMA_VERSION = 107
 
 _METADATA_TABLE = 'native_schema_metadata'
 _MIGRATION_TABLE = 'native_schema_migrations'
@@ -2124,6 +2124,14 @@ def _migrate_105_to_106(connection: sqlite3.Connection) -> None:
         connection.execute(statement)
 
 
+def _migrate_106_to_107(connection: sqlite3.Connection) -> None:
+    # REV69: #890 credential vault — non-secret credential references
+    # and lifecycle events: new append-only authorities the idempotent
+    # baseline creates. Secret material never lives in this schema.
+    for statement in NATIVE_BASELINE_DDL:
+        connection.execute(statement)
+
+
 _MIGRATIONS = {
     1: _migrate_0_to_1,
     2: _migrate_1_to_2,
@@ -2231,6 +2239,7 @@ _MIGRATIONS = {
     104: _migrate_103_to_104,
     105: _migrate_104_to_105,
     106: _migrate_105_to_106,
+    107: _migrate_106_to_107,
 }
 
 

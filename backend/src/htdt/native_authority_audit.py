@@ -1534,6 +1534,12 @@ class _RepositoryChain:
             )
 
             return CadDiagnosticOrchestratorRepository(scene)
+        if name == 'credential_vault':
+            from .cad_credential_vault_repository import (
+                CadCredentialVaultRepository,
+            )
+
+            return CadCredentialVaultRepository(scene)
         raise KeyError(name)
 
 
@@ -7600,6 +7606,20 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         'cad_diagnostic_authorizations',
         ('authorization_id',),
         _get('diagnostic_orchestrator', 'get_authorization'),
+    ),
+    # REV69: #890 credential vault — non-secret references + lifecycle
+    # events (secret material never lives in the schema).
+    _ReplayProbe(
+        'credential_reference',
+        'cad_credential_references',
+        ('reference_id',),
+        _get('credential_vault', 'get_reference'),
+    ),
+    _ReplayProbe(
+        'credential_lifecycle_event',
+        'cad_credential_lifecycle_events',
+        ('event_id',),
+        _get('credential_vault', 'get_event'),
     ),
     # REV66: #866 geometry intake readiness authority.
     _ReplayProbe(

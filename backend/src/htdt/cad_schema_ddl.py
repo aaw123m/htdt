@@ -9023,6 +9023,33 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
         CREATE INDEX IF NOT EXISTS idx_dga_doc ON cad_diagnostic_authorizations(document_id, seq ASC)
     """
     ,
+    # REV69: #890 credential vault — non-secret references + lifecycle
+    # events only; secret material lives in the platform vault (DPAPI),
+    # never in this database.
+    """
+        CREATE TABLE IF NOT EXISTS cad_credential_references ( seq INTEGER PRIMARY KEY AUTOINCREMENT, reference_id TEXT NOT NULL UNIQUE, reference_sha256 TEXT NOT NULL UNIQUE, credential_id TEXT NOT NULL, document_id TEXT NOT NULL, scope_kind TEXT NOT NULL, scope_ref TEXT NOT NULL, credential_type TEXT NOT NULL, vault_scope TEXT NOT NULL, vault_key TEXT NOT NULL, state TEXT NOT NULL, version INTEGER NOT NULL, identity_hint TEXT, created_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_cref_doc ON cad_credential_references(document_id, seq ASC)
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_cref_cid ON cad_credential_references(credential_id, seq ASC)
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_credential_lifecycle_events ( seq INTEGER PRIMARY KEY AUTOINCREMENT, event_id TEXT NOT NULL UNIQUE, event_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, credential_id TEXT NOT NULL, event_kind TEXT NOT NULL, actor TEXT NOT NULL, recorded_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_clev_doc ON cad_credential_lifecycle_events(document_id, seq ASC)
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_clev_cid ON cad_credential_lifecycle_events(credential_id, seq ASC)
+    """
+    ,
 )
 
 
@@ -10197,4 +10224,7 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_diagnostic_evidence_updates',
     'cad_diagnostic_resolutions',
     'cad_diagnostic_authorizations',
+    # REV69: #890 credential vault authority.
+    'cad_credential_references',
+    'cad_credential_lifecycle_events',
 )
