@@ -17,9 +17,11 @@ REW 等の外部ツールを介さず、HTDT 自身が掃引信号の生成・�
   デバイス・レート・チャンネルフォールバックは存在しない:
   未束縛・非対応は `DeviceNotFoundError` / `UnsupportedConfigurationError` /
   `BackendUnavailableError` で fail closed。
-  - `WasapiAudioBackend` — スタブ。`available()=False`、列挙は空、
-    `open_stream` は `BackendUnavailableError`。本ビルドでは実デバイスI/Oは
-    未実装であり、それを正直に報告する。
+  - `WasapiAudioBackend` — 実働実装 (REV70)。COM/ctypes による
+    WASAPI 共有モード同時再生録音 (詳細は
+    `docs/issues/issue-869-wasapi-backend.md`)。エンドポイント非在・
+    非 Windows・ドライバ障害では `available()=False` + 正確な理由で
+    fail closed のまま。
   - `FakeAudioBackend` + `FakeBackendScenario` — 遅延 (電気/音響)、
     ドリフト、クリッピング、xrun、ノイズ、中断、デバイスロス、
     切り詰めを決定論的にシミュレート。**シミュレートされた完了は
@@ -95,7 +97,8 @@ missing/unknown/invalid が fail closed になる。校正未束縛のままの
   (`掃引測定` タブ): バックエンド状態・デバイス列挙・ルーティング・
   掃引パラメータ・ポリシー上限・ステージ + ブロック理由 +
   次の許可操作・品質 verdict・証跡アイデンティティ・証跡保存ボタン。
-  既定は WASAPI スタブ (列挙は正直に空)。テストは `acquisition_backend`
+  既定は WASAPI バックエンド (REV70 で実装済み — エンドポイント無しの
+  環境では列挙は正直に空)。テストは `acquisition_backend`
   注入でフェイクを使用。
 - REW 境界: 本エンジンは REW を置き換えるものではない。REW との相互運用
   (エクスポート/インポート) は従来通り委託証跡レイヤが担い、外部解析は
@@ -104,8 +107,9 @@ missing/unknown/invalid が fail closed になる。校正未束縛のままの
 
 ## デバイス専用に残るもの
 
-実 WASAPI キャプチャ (実機ドライバ経由の同時再生録音)、実機
-ループバック配線の検証、実デバイスの xrun/ドリフト観測。
+実エンドポイント上の実 WASAPI キャプチャ検証 — 実機ループバック
+配線、実 xrun/ドリフト観測。バックエンド本体は
+`docs/issues/issue-869-wasapi-backend.md` で実装済み。
 フェイクバックエンドのシミュレート完了はテスト証跡のみであり、
 実音響測定ではない。実バックエンド着工時は `run_acquisition` の
 実行をワーカープールに移す設計余地を UI 側に残した (現在は同期実行)。
