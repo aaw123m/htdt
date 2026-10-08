@@ -4,7 +4,7 @@
   "scope": "Experimental same-source independent MFEM spatial refinement r3→r4 using pinned MFEM P2 geometry, a sparse implicit-midpoint solver, and unchanged FV grid n32 authority",
   "mfem_git_source_pin": "d964264cdb9a13e94a201b6c236c7721e0c8765f",
   "mfem_compile_project": "benchmarks/acoustics/r130d_mfem_reference/CMakeLists.txt",
-  "mfem_compile_reference": "benchmarks/acoustics/r130d_mfem_reference/sloped_tet_system.cpp",
+  "mfem_compile_reference": "benchmarks/acoustics/r130d_mfem_reference/sloped_tet_system_r4.cpp",
   "previous_mfem_r3_comparison_evidence": "benchmarks/acoustics/r130d_fv_mfem_same_drive_evidence_2026-10-09.json",
   "baseline_mfem_r3_json_sha256": "6a43a624223fa512152059d103c4d841723fa1266ea8a22842322fb50db42511",
   "new_mfem_uniform_refinements": 4,
@@ -63,5 +63,6 @@
     "independent_cross_solver_qualified": false,
     "physical_validation": "NOT_VALIDATED",
     "production_ready": false
-  }
+  },
+  "r4_harness_change": "separate exact copy of frozen sloped_tet_system.cpp with only the <=3 to <=4 refinement ceiling widened; frozen r1/2/3 C++ unchanged"
 }
