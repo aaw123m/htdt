@@ -40,6 +40,17 @@ FILE_ADAPTER_VERSION = '1'
 FILE_READBACK_NAME = 'readback.json'
 
 
+def materialization_filename(materialization_id: str) -> str:
+    """Portable on-disk name for a materialization payload file.
+
+    The raw ``mat:<id>.json`` name is an NTFS ADS on Windows — the
+    operator could never find the file to transport — so the id keeps
+    its ':' flattened in the file name.
+    """
+
+    return materialization_id.replace(':', '_') + '.json'
+
+
 class _ReadbackFile(BaseModel):
     """The exact shape the device-side read-back file must carry."""
 
@@ -140,11 +151,10 @@ class FileCalibrationAdapter:
             materialization_sha256=_hash(provisional.semantic_payload()),
         )
         self._root.mkdir(parents=True, exist_ok=True)
-        # The mat:<id>.json name is an NTFS ADS on Windows — rename-atomic
-        # publishing cannot target a stream, so the write is verified by
-        # reading it back instead of silently trusting a torn file.
-        materialization_path = (
-            self._root / f'{materialization.materialization_id}.json'
+        # The write is verified by reading it back instead of silently
+        # trusting a torn file.
+        materialization_path = self._root / materialization_filename(
+            materialization.materialization_id
         )
         materialization_path.write_text(payload_text, encoding='utf-8')
         if materialization_path.read_text(encoding='utf-8') != payload_text:
@@ -199,4 +209,5 @@ __all__ = [
     'FILE_ADAPTER_VERSION',
     'FILE_READBACK_NAME',
     'FileCalibrationAdapter',
+    'materialization_filename',
 ]

@@ -44,7 +44,11 @@ from htdt.cad_device_adapter import (
     CalibrationAdapterService,
     build_device_binding,
 )
-from htdt.cad_device_adapter_file import FILE_ADAPTER_ID, FileCalibrationAdapter
+from htdt.cad_device_adapter_file import (
+    FILE_ADAPTER_ID,
+    FileCalibrationAdapter,
+    materialization_filename,
+)
 from htdt.cad_repository import SceneRepository
 from htdt.capture_receiver import CaptureReceiverService
 from htdt.capture_ingestion_transaction import CaptureIngestionRepository
@@ -174,7 +178,11 @@ def test_materialize_file_is_complete_parseable_json(tmp_path: Path) -> None:
     materialization = service.materialize_export(
         export, binding, created_at_utc=NOW
     )
-    written = tmp_path / 'out' / f'{materialization.materialization_id}.json'
+    written = tmp_path / 'out' / materialization_filename(
+        materialization.materialization_id
+    )
+    # The on-disk name is portable: no ':' (an NTFS ADS on Windows).
+    assert ':' not in written.name
     assert json.loads(written.read_text(encoding='utf-8')) == json.loads(
         materialization.payload_text
     )
