@@ -583,12 +583,12 @@
       "treatment_boundary_overlay_repository"
     ],
     [
-      "dirty_state_dialog",
-      "workflow_shell"
-    ],
-    [
       "project_bundle",
       "project_library_repository"
+    ],
+    [
+      "dirty_state_dialog",
+      "workflow_shell"
     ],
     [
       "cad_project_template",
@@ -602,17 +602,18 @@
     "cad_geometric_acoustics_adapter": 8222,
     "cad_schema_ddl": 10506,
     "measurement.domain.measurement_evidence_display": 5306,
-    "measurement.ui.measurement_page_workspace": 9580,
+    "measurement.ui.measurement_page_workspace": 9581,
     "native_authority_audit": 9700,
     "native_row_integrity": 10939,
     "room_workspace": 8176,
-    "workflow_application": 5263
+    "workflow_application": 5598
   },
   "violations": [
     "lower_layer_imports_ui|application_preferences|domain module imports user_facing_error (ui)",
     "lower_layer_imports_ui|cad_adapter_conformance|domain module imports user_facing_error (ui)",
     "lower_layer_imports_ui|cad_geometric_constraints|domain module imports room_viewport (ui)",
     "lower_layer_imports_ui|cad_review_package|domain module imports room_viewport (ui)",
+    "lower_layer_imports_ui|capture_watch_failures|domain module imports native_diagnostics (application)",
     "lower_layer_imports_ui|commissioning_operations|domain module imports user_facing_error (ui)",
     "lower_layer_imports_ui|error_boundary|domain module imports ui_theme (ui)",
     "lower_layer_imports_ui|error_boundary|domain module imports user_facing_error (ui)",
