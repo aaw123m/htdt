@@ -596,6 +596,9 @@ def test_recovered_ir_provenance_classes() -> None:
     )
     assert verdict.contamination_state == 'insufficient_evidence'
     assert dict(verdict.capabilities)['fr_valid'] == 'limited'
+    # A synchronized local clock cannot verify the imported IR's own
+    # phase provenance — absolute phase stays 'unknown', never 'valid'.
+    assert dict(verdict.capabilities)['absolute_phase_valid'] == 'unknown'
 
 
 def test_linear_ir_capability_contamination_and_gates() -> None:

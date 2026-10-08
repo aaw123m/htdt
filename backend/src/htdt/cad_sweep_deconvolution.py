@@ -999,7 +999,10 @@ def evaluate_linear_ir_capability(
         )
     elif clock_gate == 'synchronized':
         caps.setdefault('absolute_phase_valid', 'valid')
-        if caps.get('absolute_phase_valid', 'unknown') == 'unknown':
+        if (
+            caps.get('absolute_phase_valid', 'unknown') == 'unknown'
+            and ir.provenance_class != 'imported_final_only'
+        ):
             caps['absolute_phase_valid'] = 'valid'
     else:
         # unassessed / unknown — never an upgrade
