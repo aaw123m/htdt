@@ -436,3 +436,27 @@ entries:
     description: 実パッケージチャネルでの初回アップデート実行受入 (LocalDirectory/Filesystem の実 seam で commit/verified-rollback/改竄/途中断の E2E は 32/32 合格 — 署名済み実リリースパイプライン接続のみ残る)
   evidence_refs: [docs/issues/issue-889-application-update.md]
   close_when_gates_clear: true
+- issue: 903
+  lifecycle: acceptance_remaining
+  landed: {prs: [934], commits: []}
+  remaining_gates:
+  - kind: manual
+    description: オペレータによるドリルカタログの受入 (9 fault x recovery-expectation ドリルは fail-closed 評価器・封緘レポート付きで構造検証済み — 実障害シナリオでの運用確認のみ残る)
+  evidence_refs: [docs/issues/issue-903-recovery-drill.md]
+  close_when_gates_clear: true
+- issue: 892
+  lifecycle: physical_evidence_remaining
+  landed: {prs: [933], commits: []}
+  remaining_gates:
+  - kind: physical
+    description: 実ベンダー提供の異種フォーマットファイル (実メーカー EQ/SOFA/CLF) での corpus 実行 — in-repo フィクスチャ round-trip は verdict 付きで着地済み
+  evidence_refs: [docs/issues/issue-892-interop-corpus.md]
+  close_when_gates_clear: true
+- issue: 891
+  lifecycle: acceptance_remaining
+  landed: {prs: [940], commits: []}
+  remaining_gates:
+  - kind: manual
+    description: 新規ユーザ視点でのリファレンスシアター walkthrough 受入 (selftest lane は simulated deploy を正直に標記・未認可時 fail-closed で着地済み)
+  evidence_refs: [docs/issues/issue-891-reference-theater.md]
+  close_when_gates_clear: true
