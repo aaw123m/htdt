@@ -1,0 +1,23 @@
+{
+ "schema_version": "htdt.rev71.other-nonconvergence-diagnostic-summary-1",
+ "diagnostic_id": "rev71-other-nonconvergence-root-cause-2026-10-08",
+ "plan_sha256": "cf4ff3a795e34e714ed204a5683c88ba9d12e7b03f45b51e57634becea0d7447",
+ "axis_verdicts": {
+  "sloped_modal_run7_replica": "REPRODUCED_RUN7_REFERENCE_FAILURE_CLASS",
+  "sloped_modal_v2_schedule": "V2_SCHEDULE_STILL_FAILS",
+  "rectangular_modal_replica": "REPRODUCED_R100B_SPATIAL_VALUES_MATCH",
+  "lroom_modal_coupled_replica": "EXACT_EVOLUTION_STRICTLY_DECREASING",
+  "lroom_modal_h_refinement": "EXACT_EVOLUTION_NON_MONOTONE",
+  "pffdtd_run7_replica": "REPRODUCED_RUN7_PFFDTD_VALUES_MATCH",
+  "pole_localization": "MEASURED",
+  "mfem_transient_blocked_register": "UNRESOLVED_ENVIRONMENT_BLOCKED"
+ },
+ "hypothesis_verdicts": {
+  "pole_proximity_observable": "SUPPORTED: run7/v2 replica metrics fail at O(1) magnitude while nearest-pole detuning at scored bins is 0-4 Hz and pole positions shift measurably per level; rectangular replica reproduces committed FAIL bit-consistent with exact temporal evolution",
+  "voxel_staircase_geometry_drift": "SUPPORTED: PPW 6/8/10 voxel staircases realize three different sloped geometries; 80 Hz transfer flips sign across levels",
+  "temporal_integrator_dominates_r100b_concave": "SUPPORTED: the coupled p2..p5 x dt spatial sequence under exact modal evolution decreases strictly while the committed Newmark/GL2 chain was non-monotone; see lroom_modal_coupled_replica. NOTE: the p2 h-refinement axis lroom_modal_h_refinement is non-monotone under exact evolution as well \u2014 its committed FAIL is resolution-limited (pole proximity), not an integrator artifact; a wall-clock-retried h2 run would not have fixed concave_bounded.",
+  "non_coherent_window_contributes": "REJECTED_AS_PRIMARY: the coherent-window v2 schedule (T=0.25, refs 1/2/3) still fails self-convergence"
+ },
+ "runtime_wall_clock_s": 46.73379250000016,
+ "repository_head": "7f496dbd82cbee6048085795022bca7e8e0459c6"
+}

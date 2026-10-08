@@ -1,0 +1,154 @@
+{
+  "schema_version": "htdt.rev71.other-nonconvergence-diagnostic-plan-1",
+  "diagnostic_id": "rev71-other-nonconvergence-root-cause-2026-10-08",
+  "issue": 938,
+  "purpose": "Root-cause every non-converging computation beyond R130D run25/62/76: (A) r130d run7 where both PFFDTD and the MFEM modal/numpy reference fail medium-to-fine self-convergence; (B) the R100B MFEM family FAIL records (spatial_refinement, concave_bounded, gl2_four_substep, modal, production-adoption). Machinery: pure-Python P2 FEM modal reference (exact temporal evolution) plus a pinned PFFDTD replay; verdicts follow the #938 axis/classification discipline.",
+  "task_start_main_sha": "7f496dbd",
+  "frozen_constants": {
+    "sloped_fixture": {
+      "fixture_id": "r130d-polyhedral-candidate-wave-v1/sloped",
+      "vertices_m": [[0,0,0],[4,0,0],[4,4,0],[0,4,0],[0,0,4],[4,0,4],[4,4,3],[0,4,3]],
+      "base_tetrahedra": [[0,1,2,6],[0,2,3,6],[0,3,7,6],[0,7,4,6],[0,4,5,6],[0,5,1,6]],
+      "source_m": [1.5, 2.0, 2.0],
+      "receiver_m": [2.5, 2.0, 2.0],
+      "sound_speed_m_s": 343.2,
+      "density_kg_m3": 1.2,
+      "expected_dofs_per_refinement": [27, 125, 729, 4913],
+      "modal_sample_rate_hz": 12000,
+      "comparison_frequencies_hz": [40.0, 80.0],
+      "magnitude_mask_relative_db": -50.0,
+      "run7_executed": {
+        "uniform_refinements": [0, 1, 2],
+        "pffdtd_ppw": [6.0, 8.0, 10.0],
+        "duration_s": 0.06
+      },
+      "v2_frozen": {
+        "uniform_refinements": [1, 2, 3],
+        "pffdtd_ppw": [8.0, 10.0, 12.0],
+        "duration_s": 0.25
+      }
+    },
+    "rectangular_fixture": {
+      "fixture_id": "wave-rectangular-convergence-v1",
+      "room_m": [6.0, 4.0, 2.5],
+      "source_m": [1.0, 1.0, 1.0],
+      "receiver_m": [5.0, 3.0, 1.0],
+      "sound_speed_m_s": 343.0,
+      "density_kg_m3": 1.2,
+      "h1_order": 2,
+      "expected_dofs_per_refinement": [27, 125, 729],
+      "record_duration_s": 2.0,
+      "sample_rate_hz": 12000,
+      "frequency_grid_hz": {"start": 20.0, "stop": 300.0, "step": 1.0}
+    },
+    "lroom_fixture": {
+      "fixture_id": "wave-concave-l-room-v1",
+      "base_hex_cells_plan_xy": [[0,0],[1,0],[2,0],[0,1],[2,1]],
+      "cell_m": [2.0, 2.0, 2.5],
+      "source_m": [1.0, 1.0, 1.0],
+      "receiver_m": [5.0, 1.0, 1.0],
+      "sound_speed_m_s": 343.0,
+      "density_kg_m3": 1.2,
+      "expected_dofs": {"h0_p2": 99, "h1_p2": 525, "p3": 256, "p4": 525, "p5": 936},
+      "coupled_sequence": {"orders": [2, 3, 4, 5], "sample_rates_hz": [6000, 8000, 10000, 12000]},
+      "record_duration_s": 2.0,
+      "frequency_grid_hz": {"start": 20.0, "stop": 300.0, "step": 1.0}
+    }
+  },
+  "reproduction_targets": {
+    "run7_reference_medium_to_fine": {
+      "complex_rms_relative": 0.7958360401033702,
+      "magnitude_max_relative": 1.205274869586647,
+      "phase_max_deg": 51.9111731102351,
+      "status": "FAIL",
+      "match_rule": "pure-Python modal replica on the audited 6-tet mesh is NOT required to be bit-identical to MFEM (interior octahedron diagonal is a documented convention); verdict uses same-sign, same-order magnitude agreement with the committed FAIL"
+    },
+    "run7_pffdtd_medium_to_fine": {
+      "complex_rms_relative": 1.0100111028102499,
+      "magnitude_max_relative": 1.0634318020028137,
+      "magnitude_max_db": 38.48482909941208,
+      "phase_max_deg": 97.79037481710755,
+      "status": "FAIL",
+      "match_rule": "pinned pffdtd checkout aa319f6 replayed standalone; reproduced adjacent-pair metrics must equal committed values within 1e-9 relative tolerance for REPRODUCED_RUN7_PFFDTD_VALUES_MATCH"
+    },
+    "r100b_spatial_refinement_committed": {
+      "adjacent_complex_rms_relative": [1.1124181783263547, 1.0371906979821301],
+      "vs_finest_abs": [1997.3399296377147, 2051.501589723451],
+      "vs_finest_rel": [1.009807843243144, 1.0371906979821301],
+      "match_rule": "pure-Python P2 hex modal replica with exact temporal evolution must reproduce committed MFEM transient values within 5e-3 relative for REPRODUCED_R100B_SPATIAL_VALUES_MATCH; that equivalence isolates the FAIL to the discretization/observable, not the integrator"
+    },
+    "r100b_concave_coupled_committed": {
+      "adjacent_or_sequential_rel": [1.416, 1.055, 1.233],
+      "match_rule": "committed coupled p/dt sequence was non-monotone; the replica uses exact modal evolution to show the same spatial sequence is monotone decreasing, confirming the temporal integrator as the isolated cause"
+    }
+  },
+  "axes": [
+    {
+      "axis_id": "sloped_modal_run7_replica",
+      "evidence_kind": "python_independent_reference",
+      "moves": ["replay MFEM-leg math at refs 0/1/2 with duration_s=0.06"]
+    },
+    {
+      "axis_id": "sloped_modal_v2_schedule",
+      "evidence_kind": "python_independent_reference",
+      "moves": ["replay modal leg at refs 1/2/3 with duration_s=0.25 (the committed v2 schedule, never executed)"]
+    },
+    {
+      "axis_id": "rectangular_modal_replica",
+      "evidence_kind": "python_independent_reference",
+      "moves": ["reproduce R100B spatial_refinement committed metrics with exact-evolution modal at refs 0/1/2"]
+    },
+    {
+      "axis_id": "lroom_modal_coupled_replica",
+      "evidence_kind": "python_independent_reference",
+      "moves": ["reproduce the coupled p/dt observable chain with exact evolution: monotonicity isolates temporal integrator"]
+    },
+    {
+      "axis_id": "lroom_modal_h_refinement",
+      "evidence_kind": "python_independent_reference",
+      "moves": ["L-room p2 at h0/h1/h2 under exact evolution to classify the concave_bounded h2 wall-timeout record"]
+    },
+    {
+      "axis_id": "pffdtd_run7_replica",
+      "evidence_kind": "pinned_solver_replay",
+      "moves": ["standalone pffdtd aa319f6 voxelize+solve at PPW 6/8/10 on audited sloped triangles; compare adjacent pairs against committed metrics"]
+    },
+    {
+      "axis_id": "pole_localization",
+      "evidence_kind": "python_independent_reference",
+      "moves": ["per-scored-bin distance to nearest cavity pole per level for sloped and rectangular fixtures"]
+    },
+    {
+      "axis_id": "mfem_transient_blocked_register",
+      "evidence_kind": "environment_blocked",
+      "moves": ["MFEM rebuild-dependent re-executions (Newmark/GL2 variants, bit-identical CSR emission, concave h2 wall-clock attempt) recorded as UNRESOLVED_ENVIRONMENT_BLOCKED with exact environment requirements"]
+    }
+  ],
+  "hypotheses": [
+    {
+      "id": "pole_proximity_observable",
+      "statement": "The scored finite-record transfer at fixed frequency bins on rigid (lossless) rooms is dominated by the nearest discrete cavity poles; pole positions shift with discretization so adjacent-level differences stay O(1) while levels are pre-asymptotic.",
+      "tests": ["sloped_modal_run7_replica", "sloped_modal_v2_schedule", "rectangular_modal_replica", "pole_localization"]
+    },
+    {
+      "id": "voxel_staircase_geometry_drift",
+      "statement": "PFFDTD run7 self-convergence fails because the voxel-staircased sloped ceiling differs at every PPW, so each level solves a slightly different geometry; poles do not converge monotonically.",
+      "tests": ["pffdtd_run7_replica"]
+    },
+    {
+      "id": "temporal_integrator_dominates_r100b_concave",
+      "statement": "The R100B concave coupled p/dt non-monotonicity comes from the GL2/Newmark temporal track, not the spatial discretization: under exact modal evolution the same spatial sequence decreases strictly.",
+      "tests": ["lroom_modal_coupled_replica", "lroom_modal_h_refinement"]
+    },
+    {
+      "id": "non_coherent_window_contributes",
+      "statement": "run7's 0.06 s record (2.4 cycles at 40 Hz) adds spectral leakage relative to a coherent window but is not the primary cause (the v2 0.25 s schedule still fails).",
+      "tests": ["sloped_modal_run7_replica", "sloped_modal_v2_schedule"]
+    }
+  ],
+  "environment": {
+    "note": "This session runs without the pinned Python 3.12 + numpy 1.26.4 / scipy 1.14.1 venv and without a C++ MFEM toolchain. The pure-Python reference uses the interpreter's own numpy/scipy; evidence kind is 'python_independent_reference' and axis 8 records every MFEM-rebuild-dependent re-execution as UNRESOLVED_ENVIRONMENT_BLOCKED.",
+    "pffdtd_pin": "aa319f6c86517cb95aabfae8656277da62c3ead5",
+    "mfem_pin": "d964264cdb9a13e94a201b6c236c7721e0c8765f"
+  }
+}
