@@ -1,10 +1,8 @@
 name: R130D independent MFEM r4 same Gaussian source
+# Large 35,937-DOF FEM builds run only when explicitly requested.
+# The first preregistered CI execution is preserved by workflow run ID.
 on:
-  pull_request:
-    paths:
-      - '.github/workflows/r130d-mfem-r4-same-drive.yml'
-      - 'scripts/run_r130d_mfem_ref4_same_drive.py'
-      - 'benchmarks/acoustics/r130d_mfem_ref4_same_drive_plan_2026-10-09.json'
+  workflow_dispatch:
 permissions:
   contents: read
 
