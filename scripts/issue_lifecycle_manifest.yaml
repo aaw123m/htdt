@@ -811,3 +811,17 @@ entries:
   - docs/issues/issue-1014-capture-watch-isolation.md
   - backend/tests/test_issue_1014_capture_watch_isolation.py
   close_when_gates_clear: true
+
+- issue: 984
+  lifecycle: acceptance_remaining
+  landed:
+    prs: [1045]
+    commits: [da286ff3]
+  remaining_gates:
+  - kind: manual
+    description: '実 Windows の別ドライブ・共有フォルダでのオペレータ受入 (E:/F:/UNC/権限拒否/ネットワーク切断の実環境確認 — offscreen+E2E では icacls deny と localhost UNC で検証済)'
+  evidence_refs:
+  - docs/issues/issue-984-output-path-validation.md
+  - backend/tests/test_issue_984_output_path.py
+  - backend/src/htdt/output_target.py
+  close_when_gates_clear: true
