@@ -736,3 +736,15 @@ entries:
   - backend/src/htdt/cad_decision_brief_evidence.py
   - backend/tests/test_issue_950_decision_brief_evidence.py
   - docs/issues/issue-950-decision-brief-evidence.md
+- issue: 951
+  lifecycle: physical_evidence_remaining
+  landed:
+    prs: []
+    commits: [d8a8b81f7f92e0526f0f68355110e9b26dfa55ab]
+  remaining_gates:
+  - kind: physical
+    description: Windows DPAPI 実機アカウント切替テスト (user scope ↔ machine scope、別アカウントでの unreadable 挙動) は親 #890 の物理ゲートで管理 — VM では検証不能
+  evidence_refs:
+  - docs/issues/issue-951-credential-vault-ui.md
+  - backend/tests/test_issue_951_credential_vault_ui.py
+  close_when_gates_clear: true
