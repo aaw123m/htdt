@@ -1,0 +1,621 @@
+{
+  "schema_version": "htdt.r130d.exploratory-temporal-source-regularization-v1",
+  "experimental_role": "exploratory LTI superposition; not a separately driven solver run",
+  "physical_contract_changed": true,
+  "canonical_replay_checks": [
+    {
+      "ppw": 28,
+      "maximum_complex_replay_delta": 2.864289338439558e-14
+    },
+    {
+      "ppw": 32,
+      "maximum_complex_replay_delta": 2.842170943040401e-14
+    },
+    {
+      "ppw": 36,
+      "maximum_complex_replay_delta": 2.842170943040401e-14
+    },
+    {
+      "ppw": 40,
+      "maximum_complex_replay_delta": 1.4210854715202004e-14
+    },
+    {
+      "ppw": 44,
+      "maximum_complex_replay_delta": 2.842170943040401e-14
+    }
+  ],
+  "drive_center_s": 0.012,
+  "drive_sigma_s": [
+    0.002,
+    0.003,
+    0.004
+  ],
+  "frozen_comparison_frequency_hz": [
+    40,
+    80
+  ],
+  "results": [
+    {
+      "gaussian_sigma_s": 0.002,
+      "levels": [
+        {
+          "ppw": 28,
+          "transfer_complex": [
+            [
+              15.029941360417883,
+              48.960786604318635
+            ],
+            [
+              15.09649278939588,
+              -38.49817185351965
+            ]
+          ]
+        },
+        {
+          "ppw": 32,
+          "transfer_complex": [
+            [
+              16.10739007972631,
+              29.93267016260893
+            ],
+            [
+              31.579046921474653,
+              -189.05250961060034
+            ]
+          ]
+        },
+        {
+          "ppw": 36,
+          "transfer_complex": [
+            [
+              9.038138925263977,
+              36.9275484302123
+            ],
+            [
+              99.46742513080655,
+              -124.26617843145155
+            ]
+          ]
+        },
+        {
+          "ppw": 40,
+          "transfer_complex": [
+            [
+              10.035950758893303,
+              43.41632198138887
+            ],
+            [
+              84.02715319197704,
+              -63.23668810288039
+            ]
+          ]
+        },
+        {
+          "ppw": 44,
+          "transfer_complex": [
+            [
+              13.737636208188693,
+              32.50742467283637
+            ],
+            [
+              51.6212142260206,
+              -185.86261965245734
+            ]
+          ]
+        }
+      ],
+      "pairs": [
+        {
+          "coarse_ppw": 28,
+          "fine_ppw": 32,
+          "complex_rms_relative": 0.7841690573734322,
+          "magnitude_max_relative": 0.7842546344574668,
+          "magnitude_max_db": 13.321170493105303,
+          "phase_max_deg": 11.928850051723487,
+          "mask_floor": 0.606119522821488,
+          "compared_frequency_count": 2,
+          "frequency_metrics": [
+            {
+              "frequency_hz": 40.0,
+              "masked_in": true,
+              "magnitude_absolute": 17.224433027634433,
+              "magnitude_relative": 0.5067296957250973,
+              "magnitude_db": 3.5607069549282193,
+              "phase_deg": 11.220220205289593,
+              "complex_relative": 0.5606893956768884
+            },
+            {
+              "frequency_hz": 80.0,
+              "masked_in": true,
+              "magnitude_absolute": 150.31951520113813,
+              "magnitude_relative": 0.7842546344574668,
+              "magnitude_db": 13.321170493105303,
+              "phase_deg": 11.928850051723487,
+              "complex_relative": 0.7901729940068358
+            }
+          ]
+        },
+        {
+          "coarse_ppw": 32,
+          "fine_ppw": 36,
+          "complex_rms_relative": 0.5766365383321939,
+          "magnitude_max_relative": 0.20417752713398565,
+          "magnitude_max_db": 1.6138103592200732,
+          "phase_max_deg": 29.192072836003035,
+          "mask_floor": 0.5033473131358701,
+          "compared_frequency_count": 2,
+          "frequency_metrics": [
+            {
+              "frequency_hz": 40.0,
+              "masked_in": true,
+              "magnitude_absolute": 4.026156496854519,
+              "magnitude_relative": 0.10590266147528968,
+              "magnitude_db": 0.9723039577962771,
+              "phase_deg": 14.532650590046927,
+              "complex_relative": 0.2615894058311737
+            },
+            {
+              "frequency_hz": 80.0,
+              "masked_in": true,
+              "magnitude_absolute": 32.49942627749698,
+              "magnitude_relative": 0.20417752713398565,
+              "magnitude_db": 1.6138103592200732,
+              "phase_deg": 29.192072836003035,
+              "complex_relative": 0.589554646615817
+            }
+          ]
+        },
+        {
+          "coarse_ppw": 36,
+          "fine_ppw": 40,
+          "complex_rms_relative": 0.5541617836593958,
+          "magnitude_max_relative": 0.513565300939525,
+          "magnitude_max_db": 3.600023256111692,
+          "phase_max_deg": 14.36069362272616,
+          "mask_floor": 0.33255738145121594,
+          "compared_frequency_count": 2,
+          "frequency_metrics": [
+            {
+              "frequency_hz": 40.0,
+              "masked_in": true,
+              "magnitude_absolute": 6.543644339947718,
+              "magnitude_relative": 0.14684635178463618,
+              "magnitude_db": 1.3794549554771096,
+              "phase_deg": 0.7373007469327888,
+              "complex_relative": 0.14732659651589736
+            },
+            {
+              "frequency_hz": 80.0,
+              "masked_in": true,
+              "magnitude_absolute": 54.00851855480654,
+              "magnitude_relative": 0.513565300939525,
+              "magnitude_db": 3.600023256111692,
+              "phase_deg": 14.36069362272616,
+              "complex_relative": 0.5986120872759825
+            }
+          ]
+        },
+        {
+          "coarse_ppw": 40,
+          "fine_ppw": 44,
+          "complex_rms_relative": 0.6494533376991869,
+          "magnitude_max_relative": 0.4548214971100271,
+          "magnitude_max_db": 5.269225546120948,
+          "phase_max_deg": 37.513791573750666,
+          "mask_floor": 0.6099972388645929,
+          "compared_frequency_count": 2,
+          "frequency_metrics": [
+            {
+              "frequency_hz": 40.0,
+              "masked_in": true,
+              "magnitude_absolute": 9.270154956126149,
+              "magnitude_relative": 0.2626775275492057,
+              "magnitude_db": 2.025849023969632,
+              "phase_deg": 9.893253072012584,
+              "complex_relative": 0.32642397524003636
+            },
+            {
+              "frequency_hz": 80.0,
+              "masked_in": true,
+              "magnitude_absolute": 87.73418631386227,
+              "magnitude_relative": 0.4548214971100271,
+              "magnitude_db": 5.269225546120948,
+              "phase_deg": 37.513791573750666,
+              "complex_relative": 0.6575264456807528
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "gaussian_sigma_s": 0.003,
+      "levels": [
+        {
+          "ppw": 28,
+          "transfer_complex": [
+            [
+              9.308825602748078,
+              50.98701651292842
+            ],
+            [
+              26.513942444399245,
+              -46.08380701766134
+            ]
+          ]
+        },
+        {
+          "ppw": 32,
+          "transfer_complex": [
+            [
+              17.281944736364316,
+              30.237157664056298
+            ],
+            [
+              29.74118962222581,
+              -190.44110047095253
+            ]
+          ]
+        },
+        {
+          "ppw": 36,
+          "transfer_complex": [
+            [
+              13.285917918229567,
+              39.98516390373047
+            ],
+            [
+              94.02144971982155,
+              -135.09872330132598
+            ]
+          ]
+        },
+        {
+          "ppw": 40,
+          "transfer_complex": [
+            [
+              9.860079323103129,
+              47.34036129282625
+            ],
+            [
+              86.62241068397775,
+              -77.28899050472336
+            ]
+          ]
+        },
+        {
+          "ppw": 44,
+          "transfer_complex": [
+            [
+              16.628720663256246,
+              33.1264371197813
+            ],
+            [
+              46.88964860426542,
+              -188.3298953421373
+            ]
+          ]
+        }
+      ],
+      "pairs": [
+        {
+          "coarse_ppw": 28,
+          "fine_ppw": 32,
+          "complex_rms_relative": 0.7458718627823888,
+          "magnitude_max_relative": 0.7241663788300774,
+          "magnitude_max_db": 11.187055981575124,
+          "phase_max_deg": 21.03743362544401,
+          "mask_floor": 0.609527284940819,
+          "compared_frequency_count": 2,
+          "frequency_metrics": [
+            {
+              "frequency_hz": 40.0,
+              "masked_in": true,
+              "magnitude_absolute": 17.00236788080558,
+              "magnitude_relative": 0.48818870094248423,
+              "magnitude_db": 3.4531600567526626,
+              "phase_deg": 19.403303523702306,
+              "complex_relative": 0.6382601447814815
+            },
+            {
+              "frequency_hz": 80.0,
+              "masked_in": true,
+              "magnitude_absolute": 139.58267241789855,
+              "magnitude_relative": 0.7241663788300774,
+              "magnitude_db": 11.187055981575124,
+              "phase_deg": 21.03743362544401,
+              "complex_relative": 0.7491246373728649
+            }
+          ]
+        },
+        {
+          "coarse_ppw": 32,
+          "fine_ppw": 36,
+          "complex_rms_relative": 0.5030724726044663,
+          "magnitude_max_relative": 0.17342499568552988,
+          "magnitude_max_db": 1.6543546390206592,
+          "phase_max_deg": 25.959656517994006,
+          "mask_floor": 0.520496859213052,
+          "compared_frequency_count": 2,
+          "frequency_metrics": [
+            {
+              "frequency_hz": 40.0,
+              "masked_in": true,
+              "magnitude_absolute": 7.307201940458903,
+              "magnitude_relative": 0.17342499568552988,
+              "magnitude_db": 1.6543546390206592,
+              "phase_deg": 11.369818477233991,
+              "complex_relative": 0.25003807091440106
+            },
+            {
+              "frequency_hz": 80.0,
+              "masked_in": true,
+              "magnitude_absolute": 28.153892635419766,
+              "magnitude_relative": 0.17104892018440532,
+              "magnitude_db": 1.3715007592161323,
+              "phase_deg": 25.959656517994006,
+              "complex_relative": 0.5153344235569873
+            }
+          ]
+        },
+        {
+          "coarse_ppw": 36,
+          "fine_ppw": 40,
+          "complex_rms_relative": 0.4679055947417743,
+          "magnitude_max_relative": 0.4178197257745627,
+          "magnitude_max_db": 3.0324202857914004,
+          "phase_max_deg": 13.423166967447855,
+          "mask_floor": 0.3671107474038716,
+          "compared_frequency_count": 2,
+          "frequency_metrics": [
+            {
+              "frequency_hz": 40.0,
+              "masked_in": true,
+              "magnitude_absolute": 6.221639382842092,
+              "magnitude_relative": 0.12866245800423293,
+              "magnitude_db": 1.1962714755366275,
+              "phase_deg": 6.614766858526167,
+              "complex_relative": 0.16779399497561964
+            },
+            {
+              "frequency_hz": 80.0,
+              "masked_in": true,
+              "magnitude_absolute": 48.504947475426036,
+              "magnitude_relative": 0.4178197257745627,
+              "magnitude_db": 3.0324202857914004,
+              "phase_deg": 13.423166967447855,
+              "complex_relative": 0.5020329230889704
+            }
+          ]
+        },
+        {
+          "coarse_ppw": 40,
+          "fine_ppw": 44,
+          "complex_rms_relative": 0.60217298555284,
+          "magnitude_max_relative": 0.4018394024783028,
+          "magnitude_max_db": 4.463643970611036,
+          "phase_max_deg": 34.27799145869949,
+          "mask_floor": 0.6137327482366561,
+          "compared_frequency_count": 2,
+          "frequency_metrics": [
+            {
+              "frequency_hz": 40.0,
+              "masked_in": true,
+              "magnitude_absolute": 11.290469595565582,
+              "magnitude_relative": 0.3046059382203442,
+              "magnitude_db": 2.3095870196861212,
+              "phase_deg": 14.89022015767992,
+              "complex_relative": 0.42473783549119326
+            },
+            {
+              "frequency_hz": 80.0,
+              "masked_in": true,
+              "magnitude_absolute": 77.98872437395421,
+              "magnitude_relative": 0.4018394024783028,
+              "magnitude_db": 4.463643970611036,
+              "phase_deg": 34.27799145869949,
+              "complex_relative": 0.6076662865429261
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "gaussian_sigma_s": 0.004,
+      "levels": [
+        {
+          "ppw": 28,
+          "transfer_complex": [
+            [
+              8.525447732107509,
+              54.65597863808067
+            ],
+            [
+              32.81675754417928,
+              -70.53898661461605
+            ]
+          ]
+        },
+        {
+          "ppw": 32,
+          "transfer_complex": [
+            [
+              16.729690359225728,
+              32.249984466049966
+            ],
+            [
+              35.53831620503577,
+              -204.513340859938
+            ]
+          ]
+        },
+        {
+          "ppw": 36,
+          "transfer_complex": [
+            [
+              14.727949142195309,
+              42.95433292319649
+            ],
+            [
+              93.40674461875817,
+              -154.78851446274192
+            ]
+          ]
+        },
+        {
+          "ppw": 40,
+          "transfer_complex": [
+            [
+              10.944497505668894,
+              51.20506631958737
+            ],
+            [
+              87.39849623587175,
+              -102.62208792489558
+            ]
+          ]
+        },
+        {
+          "ppw": 44,
+          "transfer_complex": [
+            [
+              16.912221491054517,
+              35.1692179493365
+            ],
+            [
+              49.655328872434865,
+              -202.55382132393535
+            ]
+          ]
+        }
+      ],
+      "pairs": [
+        {
+          "coarse_ppw": 28,
+          "fine_ppw": 32,
+          "complex_rms_relative": 0.6458857246197551,
+          "magnitude_max_relative": 0.6252060568007191,
+          "magnitude_max_db": 8.52414872155416,
+          "phase_max_deg": 18.552271935786024,
+          "mask_floor": 0.6564196714631753,
+          "compared_frequency_count": 2,
+          "frequency_metrics": [
+            {
+              "frequency_hz": 40.0,
+              "masked_in": true,
+              "magnitude_absolute": 18.98586441885498,
+              "magnitude_relative": 0.5225797970743821,
+              "magnitude_db": 3.651601257900294,
+              "phase_deg": 18.552271935786024,
+              "complex_relative": 0.6567610552520987
+            },
+            {
+              "frequency_hz": 80.0,
+              "masked_in": true,
+              "magnitude_absolute": 129.7791018072914,
+              "magnitude_relative": 0.6252060568007191,
+              "magnitude_db": 8.52414872155416,
+              "phase_deg": 15.091337787535508,
+              "complex_relative": 0.6455496863091311
+            }
+          ]
+        },
+        {
+          "coarse_ppw": 32,
+          "fine_ppw": 36,
+          "complex_rms_relative": 0.41346186855463224,
+          "magnitude_max_relative": 0.1999174904739923,
+          "magnitude_max_db": 1.9373044705585794,
+          "phase_max_deg": 21.250916391952444,
+          "mask_floor": 0.5717018816643546,
+          "compared_frequency_count": 2,
+          "frequency_metrics": [
+            {
+              "frequency_hz": 40.0,
+              "masked_in": true,
+              "magnitude_absolute": 9.078075165772873,
+              "magnitude_relative": 0.1999174904739923,
+              "magnitude_db": 1.9373044705585794,
+              "phase_deg": 8.49250360722823,
+              "complex_relative": 0.23981764389453347
+            },
+            {
+              "frequency_hz": 80.0,
+              "masked_in": true,
+              "magnitude_absolute": 26.79011740996512,
+              "magnitude_relative": 0.14818525619014555,
+              "magnitude_db": 1.2002393161193254,
+              "phase_deg": 21.250916391952444,
+              "complex_relative": 0.422027613083174
+            }
+          ]
+        },
+        {
+          "coarse_ppw": 36,
+          "fine_ppw": 40,
+          "complex_rms_relative": 0.36851300150362687,
+          "magnitude_max_relative": 0.34120346506856875,
+          "magnitude_max_db": 2.549893335610073,
+          "phase_max_deg": 9.310727017076204,
+          "mask_floor": 0.42626036731505645,
+          "compared_frequency_count": 2,
+          "frequency_metrics": [
+            {
+              "frequency_hz": 40.0,
+              "masked_in": true,
+              "magnitude_absolute": 6.952525966269398,
+              "magnitude_relative": 0.13277900771529846,
+              "magnitude_db": 1.2374043595855202,
+              "phase_deg": 6.860757928801149,
+              "complex_relative": 0.17334914314799874
+            },
+            {
+              "frequency_hz": 80.0,
+              "masked_in": true,
+              "magnitude_absolute": 45.992645168784435,
+              "magnitude_relative": 0.34120346506856875,
+              "magnitude_db": 2.549893335610073,
+              "phase_deg": 9.310727017076204,
+              "complex_relative": 0.38956299440735637
+            }
+          ]
+        },
+        {
+          "coarse_ppw": 40,
+          "fine_ppw": 44,
+          "complex_rms_relative": 0.509887669486934,
+          "magnitude_max_relative": 0.35365890974356623,
+          "magnitude_max_db": 3.7907646703637274,
+          "phase_max_deg": 26.645293409050794,
+          "mask_floor": 0.6594975528260767,
+          "compared_frequency_count": 2,
+          "frequency_metrics": [
+            {
+              "frequency_hz": 40.0,
+              "masked_in": true,
+              "magnitude_absolute": 13.337320654862879,
+              "magnitude_relative": 0.34176950460273725,
+              "magnitude_db": 2.553558342341854,
+              "phase_deg": 13.617253189100182,
+              "complex_relative": 0.43845213538917027
+            },
+            {
+              "frequency_hz": 80.0,
+              "masked_in": true,
+              "magnitude_absolute": 73.75607412620474,
+              "magnitude_relative": 0.35365890974356623,
+              "magnitude_db": 3.7907646703637274,
+              "phase_deg": 26.645293409050794,
+              "complex_relative": 0.5122084321806926
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "decision": {
+    "canonical_solver_self_convergence": "SELF_CONVERGENCE_FAILED",
+    "independent_source_waveform_validated": false,
+    "cross_solver_eligible": false,
+    "production_ready": false
+  }
+}
