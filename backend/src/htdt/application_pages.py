@@ -921,6 +921,7 @@ _LIFECYCLE_TABLE_LABELS = {
     "cad_diagnostic_evidence_updates": "診断証拠更新",
     "cad_diagnostic_resolutions": "診断解決レコード",
     "cad_diagnostic_authorizations": "診断操作承認",
+    "cad_headless_run_records": "ヘッドレス実行レコード",
     "cad_credential_references": "資格情報参照",
     "cad_credential_lifecycle_events": "資格情報ライフサイクルイベント",
 }
