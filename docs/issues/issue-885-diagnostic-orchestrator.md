@@ -131,7 +131,7 @@ controlled-intervention 経路に限定される。
 test_plans / observations / evidence_updates / resolutions /
 authorizations)。列値と封緘ペイロードは読み出し時に整合検証
 され、不一致は `DeploymentIntegrityError` でフェイルする。
-スキーマは v104 (`cad_diagnostic_*` 8 テーブル)。
+スキーマは v106 (`cad_diagnostic_*` 8 テーブル)。
 
 ## オペレータ面
 
