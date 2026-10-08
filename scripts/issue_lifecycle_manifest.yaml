@@ -404,3 +404,11 @@ entries:
     description: 実機器・実測定経路での診断オーケストレータ walk-through (swrun-/cvvd- の実証跡を用いた仮説→識別テスト→解消の e2e) — 証跡ピンと one-shot 認可・安全制約は構造検証済み
   evidence_refs: [docs/issues/issue-885-diagnostic-orchestrator.md]
   close_when_gates_clear: true
+- issue: 890
+  lifecycle: acceptance_remaining
+  landed: {prs: [924], commits: []}
+  remaining_gates:
+  - kind: manual
+    description: 実 Windows マシンでのアカウント切替・再イメージ後の DPAPI 解読不可挙動確認 + オペレータの credential 管理 UI 経路の受入 (現状 API のみ — UI パネルは今後)
+  evidence_refs: [docs/issues/issue-890-credential-vault.md]
+  close_when_gates_clear: true
