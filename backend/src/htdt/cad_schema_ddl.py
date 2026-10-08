@@ -9050,6 +9050,99 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
         CREATE INDEX IF NOT EXISTS idx_clev_cid ON cad_credential_lifecycle_events(credential_id, seq ASC)
     """
     ,
+    # REV69: #889 safe application updater — sealed package descriptors,
+    # sessions, stage-transition log, preflight/health reports, restore
+    # points, one-shot authorizations and terminal outcomes; update
+    # state is re-derived from the sealed log so an interrupted update
+    # resumes or rolls back.
+    """
+        CREATE TABLE IF NOT EXISTS cad_update_packages ( seq INTEGER PRIMARY KEY AUTOINCREMENT, package_id TEXT NOT NULL UNIQUE, package_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, target_version TEXT NOT NULL, channel TEXT NOT NULL, signature_status TEXT NOT NULL, declared_by TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_upkg_doc ON cad_update_packages(document_id, seq ASC)
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_update_sessions ( seq INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL UNIQUE, session_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, package_ref_id TEXT NOT NULL, signature_policy TEXT NOT NULL, opened_by TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_upd_doc ON cad_update_sessions(document_id, seq ASC)
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_update_transitions ( seq INTEGER PRIMARY KEY AUTOINCREMENT, transition_id TEXT NOT NULL UNIQUE, transition_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, session_ref_id TEXT NOT NULL, seq_no INTEGER NOT NULL, event_kind TEXT NOT NULL, outcome TEXT NOT NULL, to_stage TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_utr_doc ON cad_update_transitions(document_id, seq ASC)
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_utr_session ON cad_update_transitions(session_ref_id, seq ASC)
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_update_preflight_reports ( seq INTEGER PRIMARY KEY AUTOINCREMENT, report_id TEXT NOT NULL UNIQUE, report_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, session_ref_id TEXT NOT NULL, package_ref_id TEXT NOT NULL, verdict TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_upre_doc ON cad_update_preflight_reports(document_id, seq ASC)
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_upre_session ON cad_update_preflight_reports(session_ref_id, seq ASC)
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_update_restore_points ( seq INTEGER PRIMARY KEY AUTOINCREMENT, restore_id TEXT NOT NULL UNIQUE, restore_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, session_ref_id TEXT NOT NULL, data_backup_kind TEXT NOT NULL, migration_boundary TEXT NOT NULL, rollback_scope_capable TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_urp_doc ON cad_update_restore_points(document_id, seq ASC)
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_urp_session ON cad_update_restore_points(session_ref_id, seq ASC)
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_update_health_reports ( seq INTEGER PRIMARY KEY AUTOINCREMENT, report_id TEXT NOT NULL UNIQUE, report_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, session_ref_id TEXT NOT NULL, verdict TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_uhc_doc ON cad_update_health_reports(document_id, seq ASC)
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_uhc_session ON cad_update_health_reports(session_ref_id, seq ASC)
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_update_authorizations ( seq INTEGER PRIMARY KEY AUTOINCREMENT, authorization_id TEXT NOT NULL UNIQUE, authorization_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, session_ref_id TEXT NOT NULL, scope TEXT NOT NULL, authorized_by TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_uauth_doc ON cad_update_authorizations(document_id, seq ASC)
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_uauth_session ON cad_update_authorizations(session_ref_id, seq ASC)
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_update_outcomes ( seq INTEGER PRIMARY KEY AUTOINCREMENT, outcome_id TEXT NOT NULL UNIQUE, outcome_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, session_ref_id TEXT NOT NULL, verdict TEXT NOT NULL, rollback_scope TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_uout_doc ON cad_update_outcomes(document_id, seq ASC)
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_uout_session ON cad_update_outcomes(session_ref_id, seq ASC)
+    """
+    ,
 )
 
 
@@ -10227,4 +10320,13 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     # REV69: #890 credential vault authority.
     'cad_credential_references',
     'cad_credential_lifecycle_events',
+    # REV69: #889 safe application updater.
+    'cad_update_packages',
+    'cad_update_sessions',
+    'cad_update_transitions',
+    'cad_update_preflight_reports',
+    'cad_update_restore_points',
+    'cad_update_health_reports',
+    'cad_update_authorizations',
+    'cad_update_outcomes',
 )

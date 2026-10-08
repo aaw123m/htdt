@@ -1540,6 +1540,12 @@ class _RepositoryChain:
             )
 
             return CadCredentialVaultRepository(scene)
+        if name == 'application_update':
+            from .cad_application_update_repository import (
+                CadApplicationUpdateRepository,
+            )
+
+            return CadApplicationUpdateRepository(scene)
         raise KeyError(name)
 
 
@@ -7620,6 +7626,55 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         'cad_credential_lifecycle_events',
         ('event_id',),
         _get('credential_vault', 'get_event'),
+    ),
+    # REV69: #889 safe application updater.
+    _ReplayProbe(
+        'update_package',
+        'cad_update_packages',
+        ('package_id',),
+        _get('application_update', 'get_package'),
+    ),
+    _ReplayProbe(
+        'update_session',
+        'cad_update_sessions',
+        ('session_id',),
+        _get('application_update', 'get_session'),
+    ),
+    _ReplayProbe(
+        'update_transition',
+        'cad_update_transitions',
+        ('transition_id',),
+        _get('application_update', 'get_transition'),
+    ),
+    _ReplayProbe(
+        'update_preflight_report',
+        'cad_update_preflight_reports',
+        ('report_id',),
+        _get('application_update', 'get_preflight_report'),
+    ),
+    _ReplayProbe(
+        'update_restore_point',
+        'cad_update_restore_points',
+        ('restore_id',),
+        _get('application_update', 'get_restore_point'),
+    ),
+    _ReplayProbe(
+        'update_health_report',
+        'cad_update_health_reports',
+        ('report_id',),
+        _get('application_update', 'get_health_report'),
+    ),
+    _ReplayProbe(
+        'update_authorization',
+        'cad_update_authorizations',
+        ('authorization_id',),
+        _get('application_update', 'get_authorization'),
+    ),
+    _ReplayProbe(
+        'update_outcome',
+        'cad_update_outcomes',
+        ('outcome_id',),
+        _get('application_update', 'get_outcome'),
     ),
     # REV66: #866 geometry intake readiness authority.
     _ReplayProbe(
