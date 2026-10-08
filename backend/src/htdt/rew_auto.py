@@ -169,6 +169,23 @@ def _normalize_label(value: str) -> str:
 _NAME_RUN_CHARS = frozenset('abcdefghijklmnopqrstuvwxyz0123456789_')
 
 
+def _name_token_spans(name: str, label: str) -> list[tuple[int, int]]:
+    """Every ``(start, end)`` span where ``name`` occurs in ``label`` as a
+    whole token under the run-character rule."""
+    spans: list[tuple[int, int]] = []
+    start = 0
+    while True:
+        index = label.find(name, start)
+        if index < 0:
+            return spans
+        before = label[index - 1] if index > 0 else ' '
+        after_index = index + len(name)
+        after = label[after_index] if after_index < len(label) else ' '
+        if before not in _NAME_RUN_CHARS and after not in _NAME_RUN_CHARS:
+            spans.append((index, after_index))
+        start = index + 1
+
+
 def _name_within_label(name: str, label: str) -> bool:
     """True when normalized ``name`` appears in normalized ``label`` as a
     whole token, not embedded inside a longer ASCII letter/digit run.
@@ -176,17 +193,7 @@ def _name_within_label(name: str, label: str) -> bool:
     ``seat1`` matches inside ``fl seat1 up`` but never inside ``seat10`` —
     the run-on would bind the measurement to a different seat.
     """
-    start = 0
-    while True:
-        index = label.find(name, start)
-        if index < 0:
-            return False
-        before = label[index - 1] if index > 0 else ' '
-        after_index = index + len(name)
-        after = label[after_index] if after_index < len(label) else ' '
-        if before not in _NAME_RUN_CHARS and after not in _NAME_RUN_CHARS:
-            return True
-        start = index + 1
+    return bool(_name_token_spans(name, label))
 
 
 def propose_assignment_target(
@@ -227,15 +234,31 @@ def propose_assignment_target(
         return None, ()
     if len(matched) == 1:
         return matched[0], (matched[0],)
-    # Nested-name collapse: drop every candidate whose name is a substring
-    # of another candidate's name — 'seat' loses to 'seat1' when the label
-    # actually said 'seat1'.
+    # Nested-name collapse: drop a candidate only when every whole-token
+    # occurrence of its name sits inside a longer matched name's span —
+    # 'seat' inside 'fl seat-1' resolves to 'seat-1'. A name the label
+    # also names as an independent token stays a competitor: 'seat1' and
+    # 'seat10' in one label are different seats, not a nested match.
+    spans_by_target = tuple(
+        _name_token_spans(name, normalized) for name in matched_names
+    )
     survivors = tuple(
         target
-        for target, name in zip(matched, matched_names)
+        for target, name, spans, index in zip(
+            matched, matched_names, spans_by_target,
+            range(len(matched)),
+        )
         if not any(
-            name != other_name and name in other_name
-            for other_name in matched_names
+            len(matched_names[j]) > len(name)
+            and all(
+                any(
+                    s_start >= o_start and s_end <= o_end
+                    for o_start, o_end in spans_by_target[j]
+                )
+                for s_start, s_end in spans
+            )
+            for j in range(len(matched))
+            if j != index
         )
     )
     if len(survivors) == 1:

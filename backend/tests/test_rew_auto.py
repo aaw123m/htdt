@@ -129,6 +129,30 @@ def test_propose_assignment_target_nested_names_pick_longest() -> None:
     assert chosen is targets[1]
 
 
+def test_propose_assignment_target_sibling_tokens_stay_ambiguous() -> None:
+    """'seat1' and 'seat10' are different seats — a label naming both as
+    independent tokens must stay ambiguous, never silently pick the
+    longer substring match."""
+    targets = (
+        _Target('e1', 'seat1'),
+        _Target('e10', 'seat10'),
+    )
+    chosen, candidates = propose_assignment_target(
+        'measurement seat1 seat10', targets
+    )
+    assert chosen is None
+    assert set(candidates) == {targets[0], targets[1]}
+
+    # A punctuation-compound name still collapses: 'seat' only occurs
+    # inside 'seat-1', so the longer name is the real referent.
+    targets2 = (
+        _Target('e1', 'seat'),
+        _Target('e2', 'seat-1'),
+    )
+    chosen, _ = propose_assignment_target('REW seat-1 position', targets2)
+    assert chosen is targets2[1]
+
+
 def test_propose_assignment_target_no_match_and_short_names() -> None:
     targets = (
         _Target('e1', 'LP'),
