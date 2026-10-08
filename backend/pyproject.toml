@@ -33,6 +33,7 @@ dependencies = [
 ]
 
 [project.scripts]
+htdt = "htdt.headless_cli:main"
 htdt-native = "htdt.native_cad:main"
 htdt-capture-import = "htdt.capture_import:main"
 
