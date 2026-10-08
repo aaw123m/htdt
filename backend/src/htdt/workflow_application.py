@@ -53,6 +53,7 @@ from .capture_inbox import CaptureInboxRepository
 from .capture_watch_failures import (
     WATCH_QUEUE_ARRIVAL_SOURCE,
     CaptureWatchFailureQueue,
+    WatchFailureClass,
     WatchRetryVerdict,
     verify_watch_retry,
     write_watch_failure_diagnostic,
@@ -1311,6 +1312,9 @@ class WorkflowApplicationComposition:
             self._capture_watch_runner.routes_exhausted.connect(
                 self._on_capture_watch_exhausted
             )
+            self._capture_watch_runner.entries_skipped.connect(
+                self._on_capture_watch_skipped
+            )
         try:
             self._capture_watch_runner.start()
         except EXPECTED_OPERATION_ERRORS:
@@ -1454,6 +1458,40 @@ class WorkflowApplicationComposition:
         self.shell.statusBar().showMessage(
             f'{count} 件を受信ボックスの失敗キューに記録しました — '
             'そこから再処理できます',
+            15000,
+        )
+        self._refresh_inbox_mount()
+
+    def _on_capture_watch_skipped(self, records: object) -> None:
+        """Dirents the scan refused — links, reparse points, specials.
+
+        #1019: a skipped entry is not a routable failure — it never
+        tried to import — but it still owes the operator a durable,
+        honest record, so each one lands in the same bounded failure
+        queue as exhausted routes with a ``unsupported`` class (the
+        retry gate refuses them: the fix is dropping a real file, not
+        re-routing a link). Emitted once per signature per entry; an
+        unchanged skip stays quiet.
+        """
+
+        count = 0
+        for record in records or ():
+            self._watch_failure_queue.record(
+                path=record.path,
+                error_kind=record.error_kind,
+                failure_class=WatchFailureClass.UNSUPPORTED,
+                detail=record.detail,
+                attempts=1,
+                mtime_ns=record.mtime_ns,
+                size=record.size,
+                watch_root=record.watch_root,
+            )
+            count += 1
+        if not count:
+            return
+        self.shell.statusBar().showMessage(
+            f'キャプチャ監視フォルダー: {count} 件をスキップしました'
+            '（リンク・特殊ファイルなど）— 失敗キューで理由を確認できます',
             15000,
         )
         self._refresh_inbox_mount()

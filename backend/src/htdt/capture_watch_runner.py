@@ -32,6 +32,17 @@ contract is mirrored deliberately:
   emits a :class:`~htdt.capture_watch_failures.WatchRouteExhaustion`
   record on ``routes_exhausted`` so the app can queue it for manual
   reprocessing (#1022).
+- Link/reparse defense (#1019): entries are classified by ``lstat``,
+  never by following them — symlinks, junctions and other reparse
+  points, non-regular dirents and unreadable entries are SKIPPED with
+  an explicit reason on ``entries_skipped`` instead of being delivered.
+  The watch identity is the *canonical* root (a spelled-through-link
+  root watches the directory it resolves to; a re-pointed root link is
+  a new epoch). Delivered drops are routed through
+  ``staged_capture_drop``: a verified, bounded copy into a private
+  temp dir whose descriptor is bound to the lstat'd dirent, so the
+  router never reads the watched path and the settle→route window
+  cannot redirect the import.
 
 The runner itself only surfaces outcomes; the inbox page refresh, the
 Activity Center entry and the statusbar line are the app's job.
@@ -50,7 +61,19 @@ from PySide6.QtCore import QObject, QTimer, Signal
 from .cad_repository import SceneRepository
 from .capture_watch_failures import (
     WatchRouteExhaustion,
+    WatchSkippedEntry,
     classify_route_failure,
+    classify_stage_failure,
+    describe_watch_skip,
+)
+from .capture_watch_guard import (
+    SKIP_REPORT_LIMIT,
+    WatchStageError,
+    _StageCancelled,
+    classify_watch_entry,
+    resolve_watch_root,
+    staged_capture_drop,
+    sweep_stale_staging,
 )
 from .launch_intents import build_launch_intent
 from .launch_router import route_capture_intent
@@ -122,12 +145,15 @@ class _WatchScanResult:
     route_failures: dict[str, int]
     results: list
     exhausted: list = field(default_factory=list)
+    skipped: list = field(default_factory=list)
 
 
 def scan_capture_watch_dir(
     directory: str | Path,
     seen: MutableMapping[str, tuple[int, int]],
     pending: MutableMapping[str, tuple[int, int]],
+    *,
+    skipped_out: list[tuple[str, str, tuple[int, int] | None]] | None = None,
 ) -> list[Path]:
     """Scan an opted-in folder for settled ``.htdtcapture`` drops.
 
@@ -147,13 +173,33 @@ def scan_capture_watch_dir(
     again after deletion is delivered again instead of matching its
     stale marker. An unreadable listing is no scan at all — nothing is
     claimed and the next call still owes a baseline. Returns the settled
-    paths ready for ``route_capture_intent``.
+    paths ready for verified staging + ``route_capture_intent``.
+
+    **Link/reparse defense (#1019).** ``directory`` is canonicalized
+    (strict resolve) before listing, and every ``.htdtcapture`` entry is
+    classified by ``lstat`` — never by following links — via
+    :func:`capture_watch_guard.classify_watch_entry`. Anything that is
+    not a plain regular file is a *skip*, not a candidate: symlinks
+    (external or internal), junctions and other reparse points,
+    non-regular dirents, broken links, and unreadable entries. A skipped
+    entry still takes a ``seen`` marker — its own lstat signature — so
+    an unchanged skip stays quiet, and the first scan's skipped entries
+    are baselined silently like every other pre-existing file. New or
+    changed skips are appended to ``skipped_out`` (when given) as
+    ``(path, reason, signature)``, capped at ``SKIP_REPORT_LIMIT`` so a
+    mass-link drop cannot flood the reporting path.
     """
 
     root = Path(directory)
-    sentinel = f'\x00scanned:{root}'
+    canonical = resolve_watch_root(root)
+    if canonical is None:
+        # Missing or unresolvable — no listing is possible, so no scan
+        # happened and nothing is claimed (same contract as an
+        # unreadable listing below).
+        return []
+    sentinel = f'\x00scanned:{canonical}'
     try:
-        entries = sorted(root.iterdir())
+        entries = sorted(canonical.iterdir())
     except OSError:
         # Nothing was listed, so nothing was scanned — claiming the
         # baseline here would let a transient failure stage every
@@ -164,18 +210,29 @@ def scan_capture_watch_dir(
     files: list[Path] = []
     observed: set[str] = set()
     for entry in entries:
-        if (
-            not entry.is_file()
-            or entry.suffix.lower() != _CAPTURE_SUFFIX
-        ):
+        if entry.suffix.lower() != _CAPTURE_SUFFIX:
             continue
-        try:
-            stat = entry.stat()
-        except OSError:
-            continue
+        signature, skip_reason = classify_watch_entry(entry, canonical)
         key = str(entry)
+        if skip_reason is not None:
+            observed.add(key)
+            # The marker is the dirent's own lstat signature — a link
+            # reports its link metadata, never its target's — so an
+            # unchanged skip is silent and a re-pointed one re-reports.
+            marker = signature if signature is not None else (0, 0)
+            if seen.get(key) == marker:
+                pending.pop(key, None)
+                continue
+            seen[key] = marker
+            pending.pop(key, None)
+            if (
+                not first_scan
+                and skipped_out is not None
+                and len(skipped_out) < SKIP_REPORT_LIMIT
+            ):
+                skipped_out.append((key, skip_reason, signature))
+            continue
         observed.add(key)
-        signature = (stat.st_mtime_ns, stat.st_size)
         if seen.get(key) == signature:
             pending.pop(key, None)
             continue
@@ -229,6 +286,13 @@ class CaptureWatchRunner(QObject):
     #: failed route — this signal is the dedicated hand-off into the
     #: persistent failure queue, emitted after ``scan_completed``.
     routes_exhausted = Signal(object)
+
+    #: (records) — one ``WatchSkippedEntry`` per dirent the scan refused
+    #: this poll (#1019): links, reparse points, non-regular files,
+    #: broken links. Reported once per signature — an unchanged skip is
+    #: silent — and capped per scan, so a folder of links cannot spam
+    #: the surface. Emitted after ``scan_completed``.
+    entries_skipped = Signal(object)
 
     def __init__(
         self,
@@ -307,11 +371,15 @@ class CaptureWatchRunner(QObject):
             # epoch, not a continuation of the last one.
             self._watched_root = None
             return
-        root = Path(watch_dir)
-        if not root.is_dir():
-            # A configured-but-missing directory is a transient gap, not
-            # a re-arm: keep the epoch so drops made during the outage
-            # still read as new on recovery.
+        spelled = Path(watch_dir)
+        root = resolve_watch_root(spelled)
+        if root is None:
+            # A configured-but-missing or unresolvable directory (a
+            # dangling root link, a share that dropped) is a transient
+            # gap, not a re-arm: keep the epoch so drops made during
+            # the outage still read as new on recovery. (#1019: the
+            # watch identity is the *canonical* root — a root spelled
+            # through a link watches the directory it resolves to.)
             return
         if root != self._watched_root:
             # A changed watch path starts a new watch epoch: everything
@@ -345,21 +413,58 @@ class CaptureWatchRunner(QObject):
         job_route_failures = dict(self._route_failures)
 
         def job(cancel) -> object:
-            delivered = scan_capture_watch_dir(root, job_seen, job_pending)
+            skipped_out: list = []
+            delivered = scan_capture_watch_dir(
+                root, job_seen, job_pending, skipped_out=skipped_out
+            )
+            skipped = [
+                WatchSkippedEntry(
+                    path=path_key,
+                    error_kind=reason,
+                    detail=describe_watch_skip(reason),
+                    mtime_ns=sig[0] if sig else None,
+                    size=sig[1] if sig else None,
+                    watch_root=watch_dir,
+                )
+                for path_key, reason, sig in skipped_out
+            ]
             results = []
             exhausted = []
+            if delivered:
+                # A crashed run can leave its temp stage behind — collect
+                # it lazily here (own prefix only, staleness-bounded).
+                sweep_stale_staging()
             for path in delivered:
                 if cancel.is_set():
                     break
                 key = str(path)
                 routed_result = None
+                stage_reason: str | None = None
                 try:
-                    intent = build_launch_intent(path)
-                    result = route_capture_intent(
-                        intent,
-                        repository=self.repository,
-                        arrival_source=WATCH_ARRIVAL_SOURCE,
+                    # TOCTOU discipline: the router never sees the
+                    # watched path — only a verified staged copy whose
+                    # descriptor identity was bound to the lstat'd
+                    # dirent before a byte moved (#1019).
+                    with staged_capture_drop(
+                        path, canonical_root=root, cancel=cancel
+                    ) as staged:
+                        intent = build_launch_intent(staged)
+                        result = route_capture_intent(
+                            intent,
+                            repository=self.repository,
+                            arrival_source=WATCH_ARRIVAL_SOURCE,
+                        )
+                except _StageCancelled:
+                    break
+                except WatchStageError as exc:
+                    _LOGGER.info(
+                        'capture watch staging refused %s: %s',
+                        path,
+                        exc.reason,
                     )
+                    results.append((path, None, exc.reason))
+                    succeeded = False
+                    stage_reason = exc.reason
                 except Exception as exc:  # never let one drop kill the lane
                     _LOGGER.exception(
                         'capture watch routing raised for %s', path
@@ -389,9 +494,14 @@ class CaptureWatchRunner(QObject):
                     # (#1022). The kept ``seen`` entry is the fingerprint
                     # of exactly the bytes that failed.
                     signature = job_seen.get(key)
-                    kind, failure_class, detail = classify_route_failure(
-                        routed_result
-                    )
+                    if stage_reason is not None:
+                        kind, failure_class, detail = classify_stage_failure(
+                            stage_reason
+                        )
+                    else:
+                        kind, failure_class, detail = (
+                            classify_route_failure(routed_result)
+                        )
                     exhausted.append(
                         WatchRouteExhaustion(
                             path=key,
@@ -403,7 +513,7 @@ class CaptureWatchRunner(QObject):
                                 signature[0] if signature else None
                             ),
                             size=signature[1] if signature else None,
-                            watch_root=str(root),
+                            watch_root=watch_dir,
                         )
                     )
             # A failure count for a vanished file is dead weight — a
@@ -420,6 +530,7 @@ class CaptureWatchRunner(QObject):
                 route_failures=job_route_failures,
                 results=results,
                 exhausted=exhausted,
+                skipped=skipped,
             )
 
         try:
@@ -436,7 +547,9 @@ class CaptureWatchRunner(QObject):
             self._in_flight_since = None
             raise
 
-    def _on_completed(self, _key: object, result: object, error: object) -> None:
+    def _on_completed(
+        self, _key: object, result: object, error: object
+    ) -> None:
         if self._closed:
             return
         if error == WORKER_CANCELLED:
@@ -464,6 +577,8 @@ class CaptureWatchRunner(QObject):
             self._route_failures.update(result.route_failures)
         if result.results:
             self.scan_completed.emit(result.results)
+        if result.skipped:
+            self.entries_skipped.emit(result.skipped)
         if result.exhausted:
             self.routes_exhausted.emit(result.exhausted)
 
