@@ -1,13 +1,20 @@
-"""Loudspeaker manufacturer-data interchange qualification (#1074).
+"""Loudspeaker manufacturer-data interchange qualification (#1074, #905).
 
 Two standards govern off-the-shelf loudspeaker data exchange:
 
-- **CLF (Common Loudspeaker Format)** — a free, plain-text interchange
-  published at clfdata.org (v1: frequency/magnitude/phase polar tables;
-  v2 adds structured sections). This module *qualifies* a CLF file —
-  detects its version, verifies mandatory sections, reports polar
-  coverage — before a downstream adapter binds it into
-  ``cad_directivity_import``;
+- **CLF (Common Loudspeaker Format)** — an interchange published by the
+  CLF consortium with two distinct payload families. The *authoring*
+  text format (v1: frequency/magnitude/phase polar tables; v2 adds
+  structured sections) is what this module *qualifies*. The form
+  manufacturers actually distribute to end users is the **binary
+  ``.CF1`` / ``.CF2``** (ODEON 19 manual §3.3, CATT directivity
+  support, PRONOM fmt/1944+fmt/1945): a secured binary carrying author
+  identity and modification protection. HTDT has no licensed binary
+  decoder and does not parse those payloads — they qualify
+  ``unsupported`` with the exact reason, and only manufacturer- or
+  user-legitimately-obtained tabular derivatives may proceed to
+  ``cad_directivity_import``. A text fixture PASS therefore never
+  implies distribution-binary compatibility;
 - **GLL (Generic Loudspeaker Library)** — EASE/AFMG proprietary binary
   container. HTDT never parses ``.gll``: the rights-safe boundary is
   ``user_import_candidate`` — only manufacturer-published derivatives
@@ -49,7 +56,8 @@ def _sha256_bytes(data: bytes) -> str:
 
 
 ClfVersion = Literal['clf1', 'clf2']
-ClfVerdict = Literal['qualified', 'unqualified', 'not_clf']
+ClfFamily = Literal['authoring_text', 'binary_cf1', 'binary_cf2', 'unknown']
+ClfVerdict = Literal['qualified', 'unqualified', 'unsupported', 'not_clf']
 GllParsePolicy = Literal['opaque', 'import_allowed']
 InterchangeAdmissionState = Literal[
     'ready_for_admission_review',
@@ -79,11 +87,12 @@ _CLF_KNOWN_SECTIONS = {
 
 
 class ClfQualification(BaseModel):
-    """Result of qualifying one CLF text file."""
+    """Result of qualifying one CLF payload (any family)."""
 
     model_config = ConfigDict(frozen=True)
 
     verdict: ClfVerdict
+    family: ClfFamily = 'unknown'
     source_sha256: str | None = None
     detected_version: ClfVersion | None = None
     sections: tuple[str, ...] = ()
@@ -97,22 +106,73 @@ class ClfQualification(BaseModel):
 _CLF_SECTION_RE = re.compile(r'^\s*\[([A-Za-z_][A-Za-z0-9_]*)\]\s*$')
 _CLF2_MARKER_RE = re.compile(r'^\s*CLF\s*format\s*version\s*[:=]\s*2', re.I)
 
+# Binary distribution signatures (PRONOM fmt/1944 / fmt/1945, corroborated
+# by the ODEON 19 manual §3.3 and CATT's CF1/CF2 support): byte 0 is 0x40
+# (.CF1) or 0x41 (.CF2), followed by ``BD 0A 00 01``; the ASCII marker
+# ``v{1,2}.0`` sits at offset 20 after a 15-byte gap. Signature-only
+# detection — the payload itself stays opaque.
+_CLF_BINARY_LEAD = re.compile(b'^[\x40\x41]\xbd\x0a\x00\x01')
+_CLF_BINARY_VERSION_OFFSET = 20
+_CLF_BINARY_VERSION_RE = re.compile(b'^v([12])\.0')
+
+
+def detect_clf_family(source: bytes) -> ClfFamily:
+    """Classify a payload into the CLF payload families.
+
+    ``binary_cf1``/``binary_cf2`` = recognized secured distribution
+    binary (signature match only — contents are never parsed).
+    ``authoring_text`` = decodes as UTF-8(-SIG) text, the only family
+    this module qualifies structurally. ``unknown`` = neither.
+    """
+    m = _CLF_BINARY_LEAD.match(source[:5])
+    if m:
+        v = _CLF_BINARY_VERSION_RE.match(
+            source[_CLF_BINARY_VERSION_OFFSET:_CLF_BINARY_VERSION_OFFSET + 4]
+        )
+        if v:
+            if source[0] == 0x40:
+                return 'binary_cf1'
+            return 'binary_cf2'
+    try:
+        source.decode('utf-8-sig', errors='strict')
+    except UnicodeDecodeError:
+        return 'unknown'
+    return 'authoring_text'
+
 
 def qualify_clf(source: bytes) -> ClfQualification:
-    """Structurally qualify a CLF text payload.
+    """Structurally qualify a CLF payload.
 
-    ``qualified`` = a CLF1/CLF2 file containing every mandatory section
-    for its version plus at least one numeric polar row; the file's
-    own declared version wins over heuristics.
+    ``qualified`` = a CLF1/CLF2 authoring-text file containing every
+    mandatory section for its version plus at least one numeric polar
+    row; the file's own declared version wins over heuristics.
+    ``unsupported`` = a recognized .CF1/.CF2 distribution binary — HTDT
+    holds no licensed decoder, so the payload is reported honestly
+    instead of failing as ``not_clf``. ``not_clf`` = no CLF signature
+    in either family.
     """
-    try:
-        # utf-8-sig: a leading BOM is tolerated on file ingress (the repo's
-        # convention); any other non-UTF-8 byte sequence still fails closed.
-        text = source.decode('utf-8-sig', errors='strict')
-    except UnicodeDecodeError:
+    family = detect_clf_family(source)
+    if family in ('binary_cf1', 'binary_cf2'):
         return ClfQualification(
-            verdict='not_clf', detail='CLF files are strict UTF-8 text'
+            verdict='unsupported',
+            family=family,
+            source_sha256=_sha256_bytes(source),
+            detail=(
+                'recognized CLF distribution binary (.%s) — secured '
+                'payload HTDT does not decode; import manufacturer- or '
+                'user-legitimately-obtained tabular derivatives instead'
+                % family.split('_')[1].upper()
+            ),
         )
+    if family == 'unknown':
+        return ClfQualification(
+            verdict='not_clf',
+            detail=(
+                'not CLF — no authoring-text sections decodable as '
+                'UTF-8 and no .CF1/.CF2 binary signature'
+            ),
+        )
+    text = source.decode('utf-8-sig', errors='strict')
     lines = text.splitlines()
     sections: list[str] = []
     freq_rows = 0
@@ -150,6 +210,7 @@ def qualify_clf(source: bytes) -> ClfQualification:
     if not sections:
         return ClfQualification(
             verdict='not_clf',
+            family='authoring_text',
             source_sha256=_sha256_bytes(source),
             detail='no CLF [SECTION] markers found',
         )
@@ -161,6 +222,7 @@ def qualify_clf(source: bytes) -> ClfQualification:
     qualified = not missing and freq_rows > 0
     return ClfQualification(
         verdict='qualified' if qualified else 'unqualified',
+        family='authoring_text',
         source_sha256=_sha256_bytes(source),
         detected_version=version,
         sections=tuple(dict.fromkeys(sections)),
@@ -230,16 +292,36 @@ INTERCHANGE_MATRIX: tuple[InterchangeQualification, ...] = (
         format_name='clf1',
         state='ready_for_admission_review',
         verdict_basis=(
-            'Free published text interchange (clfdata.org); '
-            'structural qualifier implemented in this module.'
+            'Authoring-text interchange (clfdata.org); structural '
+            'qualifier implemented in this module.'
         ),
     ),
     InterchangeQualification(
         format_name='clf2',
         state='ready_for_admission_review',
         verdict_basis=(
-            'CLF v2 adds structured sections + mandatory license '
-            'metadata; same qualifier covers it.'
+            'CLF v2 authoring text adds structured sections + mandatory '
+            'license metadata; same qualifier covers it.'
+        ),
+    ),
+    InterchangeQualification(
+        format_name='binary_cf1',
+        state='user_import_candidate',
+        verdict_basis=(
+            'Secured distribution binary (.CF1) — signature-detected '
+            'but never decoded (no licensed decoder); only '
+            'manufacturer/user tabular derivatives are import '
+            'candidates.'
+        ),
+    ),
+    InterchangeQualification(
+        format_name='binary_cf2',
+        state='user_import_candidate',
+        verdict_basis=(
+            'Secured distribution binary (.CF2) — signature-detected '
+            'but never decoded (no licensed decoder); only '
+            'manufacturer/user tabular derivatives are import '
+            'candidates.'
         ),
     ),
     InterchangeQualification(
@@ -291,9 +373,11 @@ VENDOR_DATABASE_POLICIES: tuple[VendorDatabasePolicy, ...] = (
 
 
 __all__ = [
+    'ClfFamily',
     'ClfQualification',
     'ClfVerdict',
     'ClfVersion',
+    'detect_clf_family',
     'GLL_BOUNDARY',
     'GllBoundaryPolicy',
     'GllParsePolicy',
