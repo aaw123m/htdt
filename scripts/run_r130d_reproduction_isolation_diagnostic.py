@@ -65,6 +65,7 @@ from run_r130d_polyhedral_candidate_wave_execution import (
     _restore_pinned_pffdtd_checkout,
     _sloped_same_bbox_fixture,
 )
+from htdt.pffdtd_boundary_halo import apply_boundary_halo_separation
 from run_r130d_general3d_validation import (
     ANALYSIS_KERNEL,
     PHASOR,
@@ -309,6 +310,7 @@ def _run_record_prefix_leg(
     )
     engine.load_h5_data()
     engine.setup_mask()
+    apply_boundary_halo_separation(engine)
     engine.allocate_mem()
     engine.set_coeffs()
     engine.checks()
@@ -382,6 +384,7 @@ def _run_cfl_variant_leg(
     )
     engine.load_h5_data()
     engine.setup_mask()
+    apply_boundary_halo_separation(engine)
     engine.allocate_mem()
     engine.set_coeffs()
     engine.checks()
@@ -1244,6 +1247,7 @@ def main(argv: list[str] | None = None) -> int:
             )
             engine.load_h5_data()
             engine.setup_mask()
+            apply_boundary_halo_separation(engine)
             engine.allocate_mem()
             engine.set_coeffs()
             engine.checks()
@@ -1380,6 +1384,7 @@ def main(argv: list[str] | None = None) -> int:
                 )
                 pengine.load_h5_data()
                 pengine.setup_mask()
+                apply_boundary_halo_separation(pengine)
                 pengine.allocate_mem()
                 pengine.set_coeffs()
                 pengine.checks()

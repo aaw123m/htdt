@@ -1,0 +1,188 @@
+{
+ "schema_version": "htdt.issue947.boundary-halo-regression-evidence-1",
+ "issue": 947,
+ "frozen_probe": {
+  "room_dimensions_m": {
+   "x": 2.4,
+   "y": 1.6,
+   "z": 1.4
+  },
+  "grid_spacing_m": 0.2,
+  "record_seconds": 0.1,
+  "source_xyz_m": [
+   0.7,
+   0.7,
+   0.65
+  ],
+  "receiver_xyz_m": [
+   1.9,
+   1.1,
+   0.9
+  ],
+  "courant_number": 0.5,
+  "speed_of_sound_m_s": 343.2,
+  "density_kg_m3": 1.2,
+  "tail_head_rms_ratio_min": 0.5,
+  "solver_threads": 1
+ },
+ "pffdtd_commit": "aa319f6c86517cb95aabfae8656277da62c3ead5",
+ "compatibility_patch": {
+  "patches": [
+   {
+    "patch_id": "numpy-removed-np-float-alias-v1",
+    "path": "python/common/myfuncs.py",
+    "before_sha256": "eea3fa1d86621f720a30e1068a4869f5e63bea845e2d27c3c9eb87109c9fab29",
+    "after_sha256": "3ecc6af22306e4af4491b13c03a186ed1434987f759cf92e275bf25cfb58a872"
+   },
+   {
+    "patch_id": "python312-shared-memory-exported-view-cleanup-v1",
+    "path": "python/voxelizer/vox_grid_base.py",
+    "before_sha256": "880e08fbffc59a0d7b9ab0b2c8194a01a251d0492ef705c4da140159b0924b57",
+    "after_sha256": "9c660889562da2cfd65803e4b01207d216442bfd5866fd17a0c46c44a506974f"
+   },
+   {
+    "patch_id": "python312-vox-scene-shared-memory-view-cleanup-v1",
+    "path": "python/voxelizer/vox_scene.py",
+    "before_sha256": "cc3274b9432cf8da92230ca292020cb921f9622261d819fc613c2dc9b383d81c",
+    "after_sha256": "1ecdb5b8f4532f9137b1390a795f77992bba1c25930c1cbf29a09dbdcc8e0fa1"
+   }
+  ],
+  "changed_files": [
+   "python/common/myfuncs.py",
+   "python/voxelizer/vox_grid_base.py",
+   "python/voxelizer/vox_scene.py"
+  ],
+  "diff_sha256": "da1efb7ca1724fafee03c2868b83d0722de2ce0722a991e4a8bd7c36319e9fd4"
+ },
+ "legs": {
+  "wall@1_untreated": {
+   "wall_offset_cells": 1,
+   "treatment_applied": false,
+   "assessment": {
+    "verdict": "halo_adjacent",
+    "boundary_node_count": 714,
+    "abc_ring_boundary_node_count": 714,
+    "rigid_ring_node_count": 714,
+    "lossy_ring_node_count": 0,
+    "axis_counts": {
+     "x": 220,
+     "y": 300,
+     "z": 330
+    },
+    "ring_linear_index_sha256": "3ded7872c365185b855add3e1d404ca8cdab31c763143e0ab3c813ba974c2cb3",
+    "grid_dimensions": [
+     17,
+     13,
+     12
+    ],
+    "convention_id": "pffdtd.abc_ring.index1_or_N_minus_2"
+   },
+   "treatment": null,
+   "pressure_trace_sha256": "0838dd3884791eff0d6accaf74c8d16dd781fe1d338cd0b76495f393cd6f2191",
+   "tail_head_rms_ratio": 0.009985730478577396,
+   "time_step_s": 0.0002913752913752914
+  },
+  "wall@1_treated": {
+   "wall_offset_cells": 1,
+   "treatment_applied": true,
+   "assessment": {
+    "verdict": "halo_adjacent",
+    "boundary_node_count": 714,
+    "abc_ring_boundary_node_count": 714,
+    "rigid_ring_node_count": 714,
+    "lossy_ring_node_count": 0,
+    "axis_counts": {
+     "x": 220,
+     "y": 300,
+     "z": 330
+    },
+    "ring_linear_index_sha256": "3ded7872c365185b855add3e1d404ca8cdab31c763143e0ab3c813ba974c2cb3",
+    "grid_dimensions": [
+     17,
+     13,
+     12
+    ],
+    "convention_id": "pffdtd.abc_ring.index1_or_N_minus_2"
+   },
+   "treatment": {
+    "convention_version": "halo-separation-exclusion-v1",
+    "excluded_node_count": 714,
+    "pre_treatment_abc_set_sha256": "e0fb757878b921d27f78052a7ecb06aefa0f840a732dc1ac2ba9b5172aede445",
+    "post_treatment_abc_set_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "abc_node_count_before": 714,
+    "abc_node_count_after": 0
+   },
+   "pressure_trace_sha256": "1632f3af32d592c1cd86c026e4efa681bcccd9d5d607e0466b267c5912be8259",
+   "tail_head_rms_ratio": 1.2950061390498475,
+   "time_step_s": 0.0002913752913752914
+  },
+  "wall@2_untreated": {
+   "wall_offset_cells": 2,
+   "treatment_applied": false,
+   "assessment": {
+    "verdict": "separated",
+    "boundary_node_count": 474,
+    "abc_ring_boundary_node_count": 0,
+    "rigid_ring_node_count": 0,
+    "lossy_ring_node_count": 0,
+    "axis_counts": {
+     "x": 0,
+     "y": 0,
+     "z": 0
+    },
+    "ring_linear_index_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "grid_dimensions": [
+     17,
+     13,
+     12
+    ],
+    "convention_id": "pffdtd.abc_ring.index1_or_N_minus_2"
+   },
+   "treatment": null,
+   "pressure_trace_sha256": "816b1b8a337f5c70f3e691f8bf0a77a7e26b65611b2c5c5b2afa9ac80dc5ce7f",
+   "tail_head_rms_ratio": 1.3275486804633687,
+   "time_step_s": 0.0002913752913752914
+  },
+  "wall@2_treated": {
+   "wall_offset_cells": 2,
+   "treatment_applied": true,
+   "assessment": {
+    "verdict": "separated",
+    "boundary_node_count": 474,
+    "abc_ring_boundary_node_count": 0,
+    "rigid_ring_node_count": 0,
+    "lossy_ring_node_count": 0,
+    "axis_counts": {
+     "x": 0,
+     "y": 0,
+     "z": 0
+    },
+    "ring_linear_index_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "grid_dimensions": [
+     17,
+     13,
+     12
+    ],
+    "convention_id": "pffdtd.abc_ring.index1_or_N_minus_2"
+   },
+   "treatment": {
+    "convention_version": "halo-separation-exclusion-v1",
+    "excluded_node_count": 0,
+    "pre_treatment_abc_set_sha256": "e0fb757878b921d27f78052a7ecb06aefa0f840a732dc1ac2ba9b5172aede445",
+    "post_treatment_abc_set_sha256": "e0fb757878b921d27f78052a7ecb06aefa0f840a732dc1ac2ba9b5172aede445",
+    "abc_node_count_before": 714,
+    "abc_node_count_after": 714
+   },
+   "pressure_trace_sha256": "816b1b8a337f5c70f3e691f8bf0a77a7e26b65611b2c5c5b2afa9ac80dc5ce7f",
+   "tail_head_rms_ratio": 1.3275486804633687,
+   "time_step_s": 0.0002913752913752914
+  }
+ },
+ "verdicts": {
+  "prefix_anomaly_reproduced": true,
+  "fix_removes_anomaly": true,
+  "treatment_inert_on_separated_mask": true,
+  "excluded_count_matches_assessment": true
+ },
+ "runtime_wall_clock_s": 12.08466419999968
+}

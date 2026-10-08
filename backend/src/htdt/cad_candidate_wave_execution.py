@@ -37,6 +37,7 @@ from .acoustic_pffdtd_adapter import (
     pffdtd_velocity_potential_to_pressure_trace,
     recombine_pffdtd_receiver_traces,
 )
+from .pffdtd_boundary_halo import apply_boundary_halo_separation
 from .acoustic_pffdtd_impedance_adapter import (
     PFFDTD_IMPEDANCE_MAPPING_ID,
     PFFDTD_IMPEDANCE_MAPPING_VERSION,
@@ -2610,6 +2611,18 @@ class PffdtdCandidateWaveExecutor:
             )
             engine.load_h5_data()
             engine.setup_mask()
+            # Issue #947: the pinned engine derives its absorbing (ABC)
+            # ring from grid dimensions alone, so boundary-mask nodes
+            # that sit at grid index 1/N-2 would receive the absorbing
+            # update after the boundary update and absorb instead of
+            # reflecting. Apply the wall-to-halo separation exclusion
+            # before allocate_mem so bna-sized buffers stay consistent;
+            # inert on masks that are already separated.
+            halo_treatment = apply_boundary_halo_separation(engine)
+            compatibility = dict(compatibility)
+            compatibility['boundary_halo_separation'] = (
+                halo_treatment.model_dump(mode='json')
+            )
             engine.allocate_mem()
             engine.set_coeffs()
             engine.checks()
