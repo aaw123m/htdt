@@ -8,8 +8,10 @@ hypothesis table, and the verdict state machine.  Refs #938.
 """
 from __future__ import annotations
 
+import cmath
 import copy
 import json
+import math
 from pathlib import Path
 
 import pytest
@@ -21,6 +23,7 @@ from htdt.r130d_general3d_validation import (
     classify_reproduction_isolation,
     load_reproduction_isolation_diagnostic_plan,
     reproduction_values_match,
+    wrapped_phase_separation_deg,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -105,6 +108,32 @@ def test_reproduction_values_match_tolerance() -> None:
     c = {'x': 1.0 + 2e-12, 'list': [1.0, 2.0], 'nested': {'y': 'tag'}}
     assert reproduction_values_match(a, b) is True
     assert reproduction_values_match(a, c) is False
+
+
+def test_wrapped_phase_difference_avoids_false_near_360_degree_jump() -> None:
+    # A true two-degree separation must never become 358 degrees because
+    # the principal branch changes sign at +/-pi.
+    a = cmath.rect(1.0, math.radians(179.0))
+    b = cmath.rect(2.0, math.radians(-179.0))
+    delta = wrapped_phase_separation_deg(a, b)
+    assert delta == pytest.approx(2.0)
+    assert classify_dense_bin_cause(
+        reference_magnitude=1.0, magnitude_floor=0.01,
+        phase_delta_deg=delta, is_local_magnitude_max=False,
+        phase_wrap_deg=150.0,
+    ) == 'UNCLASSIFIED'
+    assert wrapped_phase_separation_deg(b, a) == pytest.approx(2.0)
+    assert wrapped_phase_separation_deg(1 + 0j, -1 + 0j) == pytest.approx(180.0)
+    assert wrapped_phase_separation_deg(
+        cmath.rect(1.0, math.radians(100)),
+        cmath.rect(1.0, math.radians(-100)),
+    ) == pytest.approx(160.0)
+
+
+@pytest.mark.parametrize('invalid', [0j, complex(float('nan'), 1), complex(float('inf'), 0)])
+def test_wrapped_phase_difference_rejects_invalid_samples(invalid: complex) -> None:
+    with pytest.raises(ValueError, match='phase separation'):
+        wrapped_phase_separation_deg(1 + 0j, invalid)
 
 
 def test_classify_dense_bin_cause_labels() -> None:
