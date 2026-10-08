@@ -1,0 +1,67 @@
+{
+  "schema_version": "htdt.r130d.candidate-same-source-numerical-acceptance-plan-1",
+  "issue": 938,
+  "date": "2026-10-09",
+  "scope": "bounded sloped 56m3 polyhedron only, NEW actual Gaussian source and experimental planar cut-cell FV method",
+  "parent_frozen_reference_plan_sha256": "5c753073a88d6705ee2962aa387006d4c563f90f0249b722dcf309a8155f62ec",
+  "source_fixture": "source (1.5,2,2) receiver (2.5,2,2), exact rigid roof z=4-y/4",
+  "physical_medium": {
+    "sound_speed_m_s": 343.2,
+    "density_kg_m3": 1.2
+  },
+  "source_q": {
+    "center_s": 0.012,
+    "sigma_s": 0.003,
+    "actual_midpoint_injected": true
+  },
+  "time": {
+    "duration_s": 0.25,
+    "dt_s": 0.00025
+  },
+  "bins_hz": [
+    40,
+    80
+  ],
+  "fv_levels": [
+    20,
+    24,
+    28,
+    32
+  ],
+  "mfem_levels": [
+    2,
+    3,
+    4
+  ],
+  "require_monotone_3_metrics": true,
+  "strict_thresholds_unmodified_from_parent": {
+    "fv_self": {
+      "complex_rms_relative_max": 0.2,
+      "magnitude_max_relative": 0.25,
+      "phase_max_deg": 15
+    },
+    "mfem_self": {
+      "complex_rms_relative_max": 0.05,
+      "magnitude_max_relative": 0.08,
+      "phase_max_deg": 5
+    },
+    "fine_fine": {
+      "complex_rms_relative_max": 0.35,
+      "magnitude_max_relative": 0.4,
+      "magnitude_max_db": 3,
+      "phase_max_deg": 25
+    }
+  },
+  "frozen_transfer_alignment": "finite record actual P_T/Q_T with shared midpoint exp(+iωt) kernel; no source/receiver gain or phase fit",
+  "pass_logic": "Both FV n28->32 and MFEM r3->4 must meet all frozen limits and all three metric errors must strictly decrease from preceding adjacent pair. Only then compare FV n32 vs MFEM r4; fine-fine must also pass all thresholds. No omitted bins.",
+  "fail_closed": {
+    "if_mfem_r4_missing": "NUMERICAL_GATE_BLOCKED",
+    "if_fv_source_changed": "NUMERICAL_GATE_BLOCKED",
+    "if_any_self_failed": "CROSS_SOLVER_BLOCKED",
+    "if_all_pass": "EXPERIMENTAL_CANDIDATE_NUMERICAL_PASS_ONLY",
+    "canonical_r130d_impulse": "SELF_CONVERGENCE_FAILED",
+    "production_enabled": false,
+    "physical_validation": "NOT_VALIDATED"
+  },
+  "limitations": "This numeric candidate sign-off cannot close #938 by itself, replace original impulse source/solver authority, or supersede BRAS/owned-room gates; physical model changed and all general CAD/sliver robustness unknown."
+}
