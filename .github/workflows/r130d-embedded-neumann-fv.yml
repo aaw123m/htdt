@@ -1,0 +1,59 @@
+name: R130D experimental cut-cell Neumann solver
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/r130d-embedded-neumann-fv.yml'
+      - 'backend/src/htdt/r130d_embedded_neumann_fv.py'
+      - 'backend/tests/test_r130d_embedded_neumann_fv.py'
+      - 'backend/tests/test_r130d_embedded_neumann_fv_evidence.py'
+      - 'scripts/run_r130d_embedded_neumann_*.py'
+      - 'benchmarks/acoustics/r130d_embedded_neumann_fv_*.json'
+permissions:
+  contents: read
+
+jobs:
+  numerical-prototype:
+    runs-on: windows-2022
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup pinned Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install solver dependencies
+        shell: pwsh
+        run: |
+          python -m pip install numpy==1.26.4 scipy==1.14.1 pydantic==2.11.9 pytest==8.4.2
+          python -c "import numpy,scipy;assert numpy.__version__=='1.26.4' and scipy.__version__=='1.14.1'"
+      - name: Independent cut-cell operator unit and energy tests
+        shell: pwsh
+        env:
+          PYTHONUTF8: '1'
+        run: |
+          New-Item -ItemType Directory scratch/tests -Force | Out-Null
+          Copy-Item backend/tests/test_r130d_embedded_neumann_fv.py scratch/tests/
+          Copy-Item backend/tests/test_r130d_embedded_neumann_fv_evidence.py scratch/tests/
+          $env:PYTHONPATH = Join-Path $pwd 'backend/src'
+          python -m pytest -q scratch/tests/test_r130d_embedded_neumann_fv.py scratch/tests/test_r130d_embedded_neumann_fv_evidence.py --tb=short
+      - name: Recompute modal benchmark and compare frozen evidence
+        shell: pwsh
+        env:
+          PYTHONUTF8: '1'
+        run: |
+          python scripts/run_r130d_embedded_neumann_benchmark.py --output scratch/ci_modal.json
+          @'
+          import json
+          from pathlib import Path
+          a=json.loads(Path('scratch/ci_modal.json').read_text())
+          b=json.loads(Path('benchmarks/acoustics/r130d_embedded_neumann_fv_eigen_evidence_2026-10-09.json').read_text())
+          assert a['production_pffdtd_modified'] is False
+          assert a['cross_solver_eligible'] is False
+          for x,y in zip(a['levels'],b['levels']):
+              assert x['cells_per_axis']==y['cells_per_axis']
+              assert abs(x['integrated_fluid_volume_m3']-56)<1e-10
+              assert x['undriven_midpoint_energy']['max_relative_energy_drift']<1e-9
+              assert max(abs(p-q) for p,q in zip(x['first_positive_eigenfrequencies_hz'],y['first_positive_eigenfrequencies_hz']))<1e-5
+          print('PASS: numerical prototype evidence consistent; production NOT promoted')
+          '@ | python -
