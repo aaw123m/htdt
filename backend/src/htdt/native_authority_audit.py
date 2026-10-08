@@ -1528,6 +1528,12 @@ class _RepositoryChain:
             )
 
             return CadDeviceDiscoveryRepository(scene)
+        if name == 'diagnostic_orchestrator':
+            from .cad_diagnostic_orchestrator_repository import (
+                CadDiagnosticOrchestratorRepository,
+            )
+
+            return CadDiagnosticOrchestratorRepository(scene)
         raise KeyError(name)
 
 
@@ -7545,6 +7551,55 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         'cad_commissioning_orch_verdicts',
         ('verdict_id',),
         _get('commissioning_orchestrator', 'get_verdict'),
+    ),
+    # REV68: #885 guided troubleshooting orchestrator.
+    _ReplayProbe(
+        'diagnostic_session',
+        'cad_diagnostic_sessions',
+        ('session_id',),
+        _get('diagnostic_orchestrator', 'get_session'),
+    ),
+    _ReplayProbe(
+        'diagnostic_session_transition',
+        'cad_diagnostic_session_transitions',
+        ('transition_id',),
+        _get('diagnostic_orchestrator', 'get_transition'),
+    ),
+    _ReplayProbe(
+        'diagnostic_session_hypothesis',
+        'cad_diagnostic_session_hypotheses',
+        ('entry_id',),
+        _get('diagnostic_orchestrator', 'get_hypothesis_entry'),
+    ),
+    _ReplayProbe(
+        'diagnostic_test_plan',
+        'cad_diagnostic_test_plans',
+        ('plan_id',),
+        _get('diagnostic_orchestrator', 'get_test_plan'),
+    ),
+    _ReplayProbe(
+        'diagnostic_observation',
+        'cad_diagnostic_observations',
+        ('observation_id',),
+        _get('diagnostic_orchestrator', 'get_observation'),
+    ),
+    _ReplayProbe(
+        'diagnostic_evidence_update',
+        'cad_diagnostic_evidence_updates',
+        ('update_id',),
+        _get('diagnostic_orchestrator', 'get_evidence_update'),
+    ),
+    _ReplayProbe(
+        'diagnostic_resolution',
+        'cad_diagnostic_resolutions',
+        ('resolution_id',),
+        _get('diagnostic_orchestrator', 'get_resolution'),
+    ),
+    _ReplayProbe(
+        'diagnostic_operator_authorization',
+        'cad_diagnostic_authorizations',
+        ('authorization_id',),
+        _get('diagnostic_orchestrator', 'get_authorization'),
     ),
     # REV66: #866 geometry intake readiness authority.
     _ReplayProbe(

@@ -8935,6 +8935,94 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
         CREATE INDEX IF NOT EXISTS idx_crbd_doc ON cad_device_rebinding_decisions(document_id, seq ASC)
     """
     ,
+    # REV68: #885 guided troubleshooting orchestrator — sealed sessions,
+    # transition log, hypothesis entries, discriminating test plans,
+    # observations, evidence updates, resolutions and one-shot
+    # authorizations; ranking is re-derived from the sealed log.
+    """
+        CREATE TABLE IF NOT EXISTS cad_diagnostic_sessions ( seq INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL UNIQUE, session_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, fault_tree_id TEXT NOT NULL, case_ref_id TEXT NOT NULL, symptom_ref_id TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_dgs_doc ON cad_diagnostic_sessions(document_id, seq ASC)
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_diagnostic_session_transitions ( seq INTEGER PRIMARY KEY AUTOINCREMENT, transition_id TEXT NOT NULL UNIQUE, transition_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, session_ref_id TEXT NOT NULL, seq_no INTEGER NOT NULL, event_kind TEXT NOT NULL, outcome TEXT NOT NULL, to_stage TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_dgt_doc ON cad_diagnostic_session_transitions(document_id, seq ASC)
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_dgt_session ON cad_diagnostic_session_transitions(session_ref_id, seq ASC)
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_diagnostic_session_hypotheses ( seq INTEGER PRIMARY KEY AUTOINCREMENT, entry_id TEXT NOT NULL UNIQUE, entry_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, session_ref_id TEXT NOT NULL, hypothesis_key TEXT NOT NULL, hypothesis_ref_id TEXT NOT NULL, cause_family TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_dgh_doc ON cad_diagnostic_session_hypotheses(document_id, seq ASC)
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_dgh_session ON cad_diagnostic_session_hypotheses(session_ref_id, seq ASC)
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_diagnostic_test_plans ( seq INTEGER PRIMARY KEY AUTOINCREMENT, plan_id TEXT NOT NULL UNIQUE, plan_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, session_ref_id TEXT NOT NULL, template_id TEXT NOT NULL, plan_seq INTEGER NOT NULL, mechanism TEXT NOT NULL, safety_class TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_dgp_doc ON cad_diagnostic_test_plans(document_id, seq ASC)
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_dgp_session ON cad_diagnostic_test_plans(session_ref_id, seq ASC)
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_diagnostic_observations ( seq INTEGER PRIMARY KEY AUTOINCREMENT, observation_id TEXT NOT NULL UNIQUE, observation_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, session_ref_id TEXT NOT NULL, plan_ref_id TEXT NOT NULL, mechanism TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_dgo_doc ON cad_diagnostic_observations(document_id, seq ASC)
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_dgo_session ON cad_diagnostic_observations(session_ref_id, seq ASC)
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_diagnostic_evidence_updates ( seq INTEGER PRIMARY KEY AUTOINCREMENT, update_id TEXT NOT NULL UNIQUE, update_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, session_ref_id TEXT NOT NULL, observation_ref_id TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_dgu_doc ON cad_diagnostic_evidence_updates(document_id, seq ASC)
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_dgu_session ON cad_diagnostic_evidence_updates(session_ref_id, seq ASC)
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_diagnostic_resolutions ( seq INTEGER PRIMARY KEY AUTOINCREMENT, resolution_id TEXT NOT NULL UNIQUE, resolution_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, session_ref_id TEXT NOT NULL, verdict TEXT NOT NULL, verdict_ref_id TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_dgr_doc ON cad_diagnostic_resolutions(document_id, seq ASC)
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_diagnostic_authorizations ( seq INTEGER PRIMARY KEY AUTOINCREMENT, authorization_id TEXT NOT NULL UNIQUE, authorization_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, session_ref_id TEXT NOT NULL, plan_ref_id TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_dga_doc ON cad_diagnostic_authorizations(document_id, seq ASC)
+    """
+    ,
 )
 
 
@@ -10100,4 +10188,13 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_trusted_device_bindings',
     'cad_device_identity_drift_reports',
     'cad_device_rebinding_decisions',
+    # REV68: #885 guided troubleshooting orchestrator.
+    'cad_diagnostic_sessions',
+    'cad_diagnostic_session_transitions',
+    'cad_diagnostic_session_hypotheses',
+    'cad_diagnostic_test_plans',
+    'cad_diagnostic_observations',
+    'cad_diagnostic_evidence_updates',
+    'cad_diagnostic_resolutions',
+    'cad_diagnostic_authorizations',
 )

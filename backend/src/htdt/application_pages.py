@@ -913,6 +913,14 @@ _LIFECYCLE_TABLE_LABELS = {
     "cad_campaign_execution_plans": "測定キャンペーン実行計画",
     "cad_campaign_execution_events": "測定キャンペーン実行イベント",
     "cad_campaign_execution_runs": "測定キャンペーン実行レコード",
+    "cad_diagnostic_sessions": "診断セッション",
+    "cad_diagnostic_session_transitions": "診断セッション遷移",
+    "cad_diagnostic_session_hypotheses": "診断仮説エントリ",
+    "cad_diagnostic_test_plans": "診断試験計画",
+    "cad_diagnostic_observations": "診断観測レコード",
+    "cad_diagnostic_evidence_updates": "診断証拠更新",
+    "cad_diagnostic_resolutions": "診断解決レコード",
+    "cad_diagnostic_authorizations": "診断操作承認",
 }
 
 
