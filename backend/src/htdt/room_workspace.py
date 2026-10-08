@@ -211,6 +211,10 @@ from .cad_scene import (
     quaternion_from_euler_deg,
     quaternion_to_euler_deg,
 )
+from .cad_room_authoring import (
+    RoomAuthoringError,
+    validate_room_authoring_model,
+)
 from .mesh_import_authority import (
     MESH_IMPORT_AUTHORITY_VERSION,
     MeshImportCancelledError,
@@ -1899,6 +1903,27 @@ class RoomWorkspaceController:
         if self.recovery_candidate is not None:
             raise EditStateError("復旧データを処理してから壁・開口を編集してください")
         changed = self.working.replace_room_topology(room, topology)
+        if changed:
+            self._sync_recovery()
+        return changed
+
+    def replace_room_authoring(self, authoring) -> bool:
+        """Commit #976 semantic primitives (None clears them) as one undoable edit.
+
+        The candidate is fully validated here — RoomAuthoringError carries the
+        typed fail-closed findings the panel renders next to the offending row.
+        """
+        if self.recovery_candidate is not None:
+            raise EditStateError("復旧データを処理してから高度な形状を編集してください")
+        if authoring is not None:
+            issues = validate_room_authoring_model(
+                authoring,
+                wall_topology=self.committed_document.wall_topology,
+            )
+            errors = tuple(issue for issue in issues if issue.severity == 'error')
+            if errors:
+                raise RoomAuthoringError(errors)
+        changed = self.working.replace_room_authoring(authoring)
         if changed:
             self._sync_recovery()
         return changed

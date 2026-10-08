@@ -755,6 +755,155 @@ def make_polygon_room(
     )
 
 
+# ---------------------------------------------------------------------------
+# Issue #976 semantic room-authoring primitives.
+#
+# These specs are the persisted document-level authority for rich room
+# geometry (sloped ceilings, soffits, risers, partial-height walls, adjacent
+# regions). ``cad_room_authoring`` re-exports them and owns compilation into
+# the R120 polyhedral authority plus fail-closed topology validation; the
+# models live beside RoomPrism so ``SceneDocument.room_authoring`` can
+# reference them without an import cycle.
+# ---------------------------------------------------------------------------
+
+
+class SlopedCeilingSpec(BaseModel):
+    """Linear ceiling slope from ``low_height_m`` to ``high_height_m`` along
+    ``slope_direction`` across the room extent."""
+
+    model_config = ConfigDict(frozen=True)
+    slope_direction: Literal['x+', 'x-', 'y+', 'y-']
+    low_height_m: float = Field(gt=0)
+    high_height_m: float = Field(gt=0)
+
+    @model_validator(mode='after')
+    def non_degenerate(self) -> 'SlopedCeilingSpec':
+        if abs(self.high_height_m - self.low_height_m) < 1e-9:
+            raise ValueError('a flat ceiling is not a sloped ceiling')
+        return self
+
+
+class SoffitSpec(BaseModel):
+    """Rectangular box dropped below the ceiling plane."""
+
+    model_config = ConfigDict(frozen=True)
+    soffit_id: str = Field(min_length=1)
+    min_x_m: float
+    min_y_m: float
+    max_x_m: float
+    max_y_m: float
+    drop_m: float = Field(gt=0)  # depth below the local ceiling height
+
+    @model_validator(mode='after')
+    def non_degenerate(self) -> 'SoffitSpec':
+        if self.max_x_m <= self.min_x_m or self.max_y_m <= self.min_y_m:
+            raise ValueError('soffit footprint must have positive extent')
+        return self
+
+
+class RiserSpec(BaseModel):
+    """Raised floor platform: a box sitting on the floor."""
+
+    model_config = ConfigDict(frozen=True)
+    riser_id: str = Field(min_length=1)
+    min_x_m: float
+    min_y_m: float
+    max_x_m: float
+    max_y_m: float
+    height_m: float = Field(gt=0)
+
+    @model_validator(mode='after')
+    def non_degenerate(self) -> 'RiserSpec':
+        if self.max_x_m <= self.min_x_m or self.max_y_m <= self.min_y_m:
+            raise ValueError('riser footprint must have positive extent')
+        return self
+
+
+class PartialHeightWallSpec(BaseModel):
+    """Bounded wall prism standing on the floor, below ceiling height."""
+
+    model_config = ConfigDict(frozen=True)
+    wall_id: str = Field(min_length=1)
+    x1_m: float
+    y1_m: float
+    x2_m: float
+    y2_m: float
+    thickness_m: float = Field(gt=0)
+    height_m: float = Field(gt=0)
+    base_height_m: float = Field(default=0.0, ge=0)
+
+    @model_validator(mode='after')
+    def non_degenerate(self) -> 'PartialHeightWallSpec':
+        if abs(self.x2_m - self.x1_m) < 1e-9 and abs(self.y2_m - self.y1_m) < 1e-9:
+            raise ValueError('partial-height wall requires a non-zero span')
+        return self
+
+
+class AdjacentRegionSpec(BaseModel):
+    """A separate footprint volume connected through a wall opening.
+
+    ``shared_edge_index`` is the index into ``room_vertices(room)`` whose
+    edge (i → i+1) the region shares; the region footprint extrudes outward
+    along the edge normal by ``outward_depth_m`` for the full edge length.
+    ``opening`` = (offset_m along the edge, width_m, height_m).
+    """
+
+    model_config = ConfigDict(frozen=True)
+    region_id: str = Field(min_length=1)
+    shared_edge_index: int = Field(ge=0)
+    outward_depth_m: float = Field(gt=0)
+    opening: tuple[float, float, float]
+    ceiling_height_m: float | None = None
+
+    @model_validator(mode='after')
+    def non_degenerate(self) -> 'AdjacentRegionSpec':
+        offset, width, height = self.opening
+        if width <= 0 or height <= 0 or offset < 0:
+            raise ValueError('adjacent region opening must be positive')
+        return self
+
+
+MAIN_REGION_ID = 'main'
+
+
+class RoomAuthoringModel(BaseModel):
+    """Semantic room primitives over a base ``RoomPrism`` footprint."""
+
+    model_config = ConfigDict(frozen=True)
+    room: RoomPrism
+    ceiling: SlopedCeilingSpec | None = None
+    soffits: tuple[SoffitSpec, ...] = ()
+    risers: tuple[RiserSpec, ...] = ()
+    partial_walls: tuple[PartialHeightWallSpec, ...] = ()
+    adjacent_regions: tuple[AdjacentRegionSpec, ...] = ()
+
+    @model_validator(mode='after')
+    def unique_ids(self) -> 'RoomAuthoringModel':
+        ids = (
+            [item.soffit_id for item in self.soffits]
+            + [item.riser_id for item in self.risers]
+            + [item.wall_id for item in self.partial_walls]
+            + [item.region_id for item in self.adjacent_regions]
+        )
+        if len(ids) != len(set(ids)):
+            raise ValueError('room authoring primitive ids must be unique')
+        if MAIN_REGION_ID in {item.region_id for item in self.adjacent_regions}:
+            raise ValueError(f'{MAIN_REGION_ID!r} is reserved for the base room region')
+        for region in self.adjacent_regions:
+            if region.shared_edge_index >= len(room_vertices(self.room)):
+                raise ValueError('adjacent region references an unknown footprint edge')
+        for riser in self.risers:
+            if riser.height_m >= float(self.room.height_m):
+                raise ValueError('riser height must stay below the room ceiling')
+        for soffit in self.soffits:
+            if soffit.drop_m >= float(self.room.height_m):
+                raise ValueError('soffit drop must stay above the room floor')
+        for wall in self.partial_walls:
+            if wall.base_height_m + wall.height_m > float(self.room.height_m):
+                raise ValueError('partial-height wall top exceeds the room ceiling')
+        return self
+
+
 PhysicalEntityKind = Literal[
     'speaker',
     'seat',
@@ -1051,6 +1200,11 @@ class SceneDocument(BaseModel):
     room: RoomPrism | None
     wall_topology: WallTopology | None = None
     r120_semantic_geometry: SemanticAcousticGeometry | None = None
+    # Issue #976: semantic room-authoring primitives (sloped/dropped
+    # ceilings, risers, partial walls, adjacent regions). ``room`` stays the
+    # single footprint authority — the authoring model re-embeds it and is
+    # validated to match on every snapshot.
+    room_authoring: RoomAuthoringModel | None = None
     entities: tuple[SceneEntity, ...]
     # Issue #661: physical attachment graph (stands, mounts, racks).
     attachments: tuple[EntityAttachment, ...] | None = None
@@ -1072,6 +1226,13 @@ class SceneDocument(BaseModel):
             validate_wall_topology(self.room, self.wall_topology)
         if self.r120_semantic_geometry is not None and self.schema_version < 4:
             raise ValueError('R120 semantic geometry requires scene schema_version >= 4')
+        if self.room_authoring is not None:
+            if self.room is None:
+                raise ValueError('room authoring requires a room')
+            if self.schema_version < 6:
+                raise ValueError('room authoring requires scene schema_version >= 6')
+            if self.room_authoring.room != self.room:
+                raise ValueError('room authoring must reference the document room')
         if self.attachments is not None:
             if not self.attachments:
                 raise ValueError('attachments must be omitted when empty')
@@ -1153,6 +1314,9 @@ def canonical_scene_json(document: SceneDocument) -> str:
     # Preserve all pre-R120B hashes until semantic acoustic geometry is explicitly bound.
     if payload.get('r120_semantic_geometry') is None:
         payload.pop('r120_semantic_geometry', None)
+    # Issue #976: optional authoring record; omission preserves pre-v6 hashes.
+    if payload.get('room_authoring') is None:
+        payload.pop('room_authoring', None)
     # Issue #661/#657: optional document-level records; omission preserves
     # pre-v5 scene hashes.
     if payload.get('attachments') is None:

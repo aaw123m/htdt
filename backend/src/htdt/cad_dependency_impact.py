@@ -142,7 +142,10 @@ def diff_scene_documents(
 ) -> tuple[SceneChange, ...]:
     """Exact field-level change list between two committed documents."""
     changes: list[SceneChange] = []
-    if before.room != after.room:
+    # Issue #976: authoring is the room's semantic shape — any authoring diff
+    # is the same 'room_geometry' change class (one event even when a room
+    # rebind moved both fields at once).
+    if before.room != after.room or before.room_authoring != after.room_authoring:
         changes.append(
             SceneChange(
                 kind='room_geometry',

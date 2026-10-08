@@ -11,8 +11,11 @@ import pyvista as pv
 from PySide6.QtCore import QPointF, QRectF, Qt, Signal
 from PySide6.QtWidgets import QFrame, QRubberBand, QVBoxLayout, QWidget
 from pyvistaqt import QtInteractor
+from shapely.geometry import Polygon
+from shapely.ops import triangulate
 
 from .cad_prediction_models import CadPredictionResult
+from .cad_room_authoring import compile_room_authoring_to_r120
 from .prediction_interpretation import PredictionSpatialLink
 from .cad_view_state import (
     CUSTOM_VIEW,
@@ -199,9 +202,18 @@ def _room_wireframe(document: SceneDocument) -> pv.PolyData | None:
         return None
     vertices = room_vertices(room)
     count = len(vertices)
+    # Issue #976: a sloped ceiling tilts the shell's top ring; the flat
+    # rectangle outline would draw a ceiling that does not exist.
+    model = document.room_authoring
+    if model is not None and model.ceiling is not None:
+        from .cad_room_authoring import ceiling_height_at
+
+        ceiling_z = [ceiling_height_at(model, v.x_m, v.y_m) for v in vertices]
+    else:
+        ceiling_z = [float(room.height_m)] * count
     points = np.asarray(
         [(vertex.x_m, -vertex.y_m, 0.0) for vertex in vertices]
-        + [(vertex.x_m, -vertex.y_m, room.height_m) for vertex in vertices],
+        + [(vertex.x_m, -vertex.y_m, z) for vertex, z in zip(vertices, ceiling_z)],
         dtype=float,
     )
     lines: list[int] = []
@@ -213,6 +225,127 @@ def _room_wireframe(document: SceneDocument) -> pv.PolyData | None:
     mesh = pv.PolyData(points)
     mesh.lines = np.asarray(lines, dtype=np.int64)
     return mesh
+
+
+# Issue #976: committed semantic primitives render as translucent solids on
+# top of the base floor+shell, in the same muted palette as entity fills.
+_AUTHORING_SURFACE_COLORS = {
+    'ceiling': '#4A6FA5',
+    'wall': '#5D6B7A',
+    'opening': '#C98A3B',
+    'riser': '#8A6D3B',
+    'soffit': '#4A6FA5',
+    'partial-wall': '#5C7457',
+    'region': '#4D5D6C',
+}
+
+
+def _authoring_surface_kind(surface_key: str) -> str | None:
+    """Primitive overlay kind for a compiled surface key, or None when the
+    base floor/shell already covers it (plain floor and unsplit walls)."""
+
+    if surface_key == 'ceiling':
+        return 'ceiling'
+    head = surface_key.split(':', 1)[0]
+    if head == 'wall':
+        tail = surface_key.rsplit(':', 1)[-1]
+        if tail.isdigit():
+            return None  # unsplit boundary wall — the room shell draws it
+        return 'opening' if tail == 'opening' else 'wall'
+    if head in _AUTHORING_SURFACE_COLORS:
+        return head
+    return None
+
+
+def _newell_normal(points: np.ndarray) -> np.ndarray:
+    normal = np.zeros(3)
+    for index, point in enumerate(points):
+        nxt = points[(index + 1) % len(points)]
+        normal += np.asarray(
+            (
+                (point[1] - nxt[1]) * (point[2] + nxt[2]),
+                (point[2] - nxt[2]) * (point[0] + nxt[0]),
+                (point[0] - nxt[0]) * (point[1] + nxt[1]),
+            )
+        )
+    return normal
+
+
+def _planar_polygon_mesh(geometry, surface) -> pv.PolyData | None:
+    """Triangulated render mesh for one compiled planar surface.
+
+    Projects onto the dominant normal plane, triangulates with shapely (the
+    floor surface carries riser holes), then lifts back into render space.
+    """
+
+    ring = surface.outer_vertex_indices
+    outer = np.asarray([geometry.vertices[i].point() for i in ring], dtype=float)
+    if len(outer) < 3:
+        return None
+    drop = int(np.argmax(np.abs(_newell_normal(outer))))
+    keep = [axis for axis in range(3) if axis != drop]
+    holes2d = [
+        np.asarray([geometry.vertices[i].point() for i in hole])[:, keep]
+        for hole in surface.hole_vertex_indices
+    ]
+    poly2d = Polygon(outer[:, keep], holes=holes2d or None)
+    if not poly2d.is_valid or poly2d.area <= 1e-12:
+        return None
+    pool_index_by_2d = {
+        (round(geometry.vertices[i].point()[keep[0]], 9), round(geometry.vertices[i].point()[keep[1]], 9)): i
+        for i in (*ring, *sum(surface.hole_vertex_indices, ()))
+    }
+    vertex_ids = sorted({*ring, *sum(surface.hole_vertex_indices, ())})
+    remap = {old: new for new, old in enumerate(vertex_ids)}
+    points = np.asarray(
+        [geometry.vertices[i].point() for i in vertex_ids], dtype=float
+    )
+    points[:, 1] *= -1.0  # domain +Y rear → render -Y
+    faces: list[int] = []
+    for triangle in triangulate(poly2d):
+        if not poly2d.covers(triangle.representative_point()):
+            continue
+        ids = [
+            pool_index_by_2d.get((round(x, 9), round(y, 9)))
+            for x, y in triangle.exterior.coords[:-1]
+        ]
+        if len(ids) != 3 or any(idx is None for idx in ids):
+            continue
+        faces.extend((3, *(remap[idx] for idx in ids)))
+    if not faces:
+        return None
+    return pv.PolyData(points, np.asarray(faces, dtype=np.int64))
+
+
+def _room_authoring_surface_meshes(
+    document: SceneDocument,
+) -> tuple[tuple[str, str, pv.PolyData], ...]:
+    """Issue #976: compiled primitive surfaces of the committed authoring model.
+
+    Flat ceilings and unsplit boundary walls stay with the base floor/shell —
+    only shapes the base room cannot express render here. An uncompilable
+    committed model renders as the plain room (the doc validator blocks such
+    states; this is defensive, not a silent repair path).
+    """
+
+    model = document.room_authoring
+    if model is None:
+        return ()
+    try:
+        geometry = compile_room_authoring_to_r120(model)
+    except ValueError:
+        return ()
+    meshes: list[tuple[str, str, pv.PolyData]] = []
+    for surface in geometry.surfaces:
+        kind = _authoring_surface_kind(surface.surface_key)
+        if kind is None:
+            continue
+        if kind == 'ceiling' and model.ceiling is None:
+            continue
+        mesh = _planar_polygon_mesh(geometry, surface)
+        if mesh is not None:
+            meshes.append((surface.surface_key, kind, mesh))
+    return tuple(meshes)
 
 
 def _underlay_item_key(item: UnderlayRenderItem) -> tuple:
@@ -883,6 +1016,24 @@ class RoomViewport3D(QFrame):
                 opacity=0.78,
                 pickable=False,
                 name="room-shell",
+                render=False,
+            )
+
+        # Issue #976: committed semantic primitives as translucent solids,
+        # named per surface key so tests and overlays can address them.
+        for surface_key, kind, mesh in _room_authoring_surface_meshes(document):
+            mesh = self._apply_section(mesh)
+            if mesh is None:
+                continue
+            self.plotter.add_mesh(
+                mesh,
+                color=_AUTHORING_SURFACE_COLORS[kind],
+                opacity=0.40 if kind != 'opening' else 0.18,
+                show_edges=True,
+                edge_color=DARK_THEME.viewport.geometry_edge.hex,
+                line_width=1,
+                pickable=False,
+                name=f'authoring-surface-{surface_key}',
                 render=False,
             )
 

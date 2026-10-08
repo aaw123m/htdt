@@ -24,7 +24,19 @@ from .cad_display_units import (
     si_to_display,
 )
 from .cad_document import EditStateError
-from .cad_scene import room_vertices
+from .cad_room_authoring import (
+    AUTHORING_KIND_LABELS,
+    validate_room_authoring_model,
+)
+from .cad_scene import (
+    AdjacentRegionSpec,
+    PartialHeightWallSpec,
+    RiserSpec,
+    RoomAuthoringModel,
+    SlopedCeilingSpec,
+    SoffitSpec,
+    room_vertices,
+)
 from .cad_wall_models import WallConstraintBinding, WallOpening
 from .cad_walls import (
     WallTopologyError,
@@ -368,6 +380,91 @@ class RoomGeometryPanel(QFrame):
         opening_form.addRow("", opening_actions)
         root.addWidget(self.opening_host)
 
+        # Issue #976: 「高度な形状」 — progressive disclosure for semantic
+        # primitives that the flat RoomPrism cannot express. All edits route
+        # through RoomAuthoringModel → replace_room_authoring (history, undo).
+        self.authoring_toggle = QCheckBox("高度な形状を表示")
+        self.authoring_toggle.setToolTip(
+            "傾斜天井・下がり天井・段床・腰壁・隣接領域など、平たい直方体では表せない形状を編集します"
+        )
+        self.authoring_toggle.toggled.connect(self._authoring_toggled)
+        root.addWidget(self.authoring_toggle)
+
+        self.authoring_host = QWidget()
+        authoring_layout = QVBoxLayout(self.authoring_host)
+        authoring_layout.setContentsMargins(0, 0, 0, 0)
+        authoring_layout.setSpacing(8)
+
+        self.authoring_kind = QComboBox()
+        self.authoring_kind.setToolTip(
+            "編集する形状の種類 · 傾斜天井は1部屋につき1面、ほかは複数登録できます"
+        )
+        for kind in (
+            'ceiling',
+            'soffit',
+            'riser',
+            'partial_wall',
+            'adjacent_region',
+        ):
+            self.authoring_kind.addItem(AUTHORING_KIND_LABELS[kind], kind)
+        self.authoring_kind.currentIndexChanged.connect(self._authoring_kind_changed)
+        kind_form = QFormLayout()
+        kind_form.setContentsMargins(0, 0, 0, 0)
+        kind_form.addRow("種類", self.authoring_kind)
+        kind_label = kind_form.labelForField(self.authoring_kind)
+        if kind_label is not None:
+            kind_label.setToolTip(self.authoring_kind.toolTip())
+        authoring_layout.addLayout(kind_form)
+
+        self.authoring_selector = QComboBox()
+        self.authoring_selector.setToolTip(
+            "編集する形状を選択 ·「新規 / 未選択」では追加モードになります"
+        )
+        self.authoring_selector.currentIndexChanged.connect(self._authoring_item_selected)
+        item_form = QFormLayout()
+        item_form.setContentsMargins(0, 0, 0, 0)
+        item_form.addRow("対象", self.authoring_selector)
+        item_label = item_form.labelForField(self.authoring_selector)
+        if item_label is not None:
+            item_label.setToolTip(self.authoring_selector.toolTip())
+        authoring_layout.addLayout(item_form)
+
+        # Per-kind inspector hosts — only the active kind is visible.
+        self._auth_ceiling_host, self._auth_ceiling_fields = self._build_ceiling_form()
+        self._auth_soffit_host, self._auth_soffit_fields = self._build_rect_soffit_form()
+        self._auth_riser_host, self._auth_riser_fields = self._build_riser_form()
+        self._auth_wall_host, self._auth_wall_fields = self._build_partial_wall_form()
+        self._auth_region_host, self._auth_region_fields = self._build_region_form()
+        for host in (
+            self._auth_ceiling_host,
+            self._auth_soffit_host,
+            self._auth_riser_host,
+            self._auth_wall_host,
+            self._auth_region_host,
+        ):
+            authoring_layout.addWidget(host)
+
+        authoring_actions = QHBoxLayout()
+        self.add_authoring_button = QPushButton("追加")
+        self.add_authoring_button.setToolTip(
+            "入力した寸法で新しい形状を作成します（3Dに薄い色でプレビューされます）"
+        )
+        self.apply_authoring_button = QPushButton("適用")
+        self.apply_authoring_button.setToolTip(
+            "選択中の形状に入力値を反映します"
+        )
+        self.delete_authoring_button = QPushButton("削除")
+        self.delete_authoring_button.setToolTip("選択中の形状を削除します")
+        self.add_authoring_button.clicked.connect(self._add_authoring)
+        self.apply_authoring_button.clicked.connect(self._apply_authoring)
+        self.delete_authoring_button.clicked.connect(self._delete_authoring)
+        authoring_actions.addWidget(self.add_authoring_button)
+        authoring_actions.addWidget(self.apply_authoring_button)
+        authoring_actions.addWidget(self.delete_authoring_button)
+        authoring_layout.addLayout(authoring_actions)
+        self.authoring_host.hide()
+        root.addWidget(self.authoring_host)
+
         self.notice = QLabel()
         self.notice.setWordWrap(True)
         set_typography_role(self.notice, TypographyRole.SECONDARY)
@@ -392,7 +489,7 @@ class RoomGeometryPanel(QFrame):
         self.refresh()
 
     def _length_fields(self) -> tuple[MetricSpinBox, ...]:
-        return (
+        fields: list[MetricSpinBox] = [
             self.height,
             self.vertex_x,
             self.vertex_y,
@@ -404,7 +501,16 @@ class RoomGeometryPanel(QFrame):
             self.opening_width,
             self.opening_sill,
             self.opening_height,
-        )
+        ]
+        for field_set in (
+            self._auth_ceiling_fields,
+            self._auth_soffit_fields,
+            self._auth_riser_fields,
+            self._auth_wall_fields,
+            self._auth_region_fields,
+        ):
+            fields.extend(field_set.values())
+        return tuple(fields)
 
     def _format_m(self, value_m: float) -> str:
         return format_length_m(value_m, self._length_policy)
@@ -445,6 +551,8 @@ class RoomGeometryPanel(QFrame):
             self.opening_host.hide()
             self.wall_hint.hide()
             self.opening_hint.hide()
+            self.authoring_toggle.setEnabled(False)
+            self.authoring_host.hide()
             return
 
         min_x, min_y, max_x, max_y = room.bounds_m
@@ -453,6 +561,19 @@ class RoomGeometryPanel(QFrame):
             f"X {self._format_range_m(min_x, max_x)} · "
             f"Y {self._format_range_m(min_y, max_y)}"
         )
+        # Issue #976: 高度な形状 disclosure — enabled once a room exists.
+        self.authoring_toggle.setEnabled(editable)
+        self.authoring_host.setVisible(
+            self.authoring_toggle.isChecked() and room is not None
+        )
+        target = self.geometry.selected_authoring
+        if target is not None:
+            kind_index = self.authoring_kind.findData(target[0])
+            if kind_index >= 0:
+                with QSignalBlocker(self.authoring_kind):
+                    self.authoring_kind.setCurrentIndex(kind_index)
+        if self.authoring_host.isVisible():
+            self._populate_authoring_selector()
         with QSignalBlocker(self.height):
             self.height.set_value_m(room.height_m)
 
@@ -493,6 +614,13 @@ class RoomGeometryPanel(QFrame):
             self.split_offset.setEnabled(editable)
             self.insert_midpoint_button.setEnabled(editable)
             self.insert_at_offset_button.setEnabled(editable)
+        elif self.geometry.selected_authoring is not None:
+            kind, primitive_id = self.geometry.selected_authoring
+            self.selection_title.setText(
+                f"選択: {AUTHORING_KIND_LABELS.get(kind, kind)}「{primitive_id}」"
+            )
+            self.vertex_host.hide()
+            self.edge_host.hide()
         else:
             self.selection_title.setText("選択: なし")
             self.vertex_host.hide()
@@ -890,6 +1018,540 @@ class RoomGeometryPanel(QFrame):
             return self.controller.replace_room_topology(room, candidate)
 
         self._run(operation, "開口を削除しました")
+
+    # ---- Issue #976: 高度な形状 (semantic authoring primitives) ----
+
+    def _auth_form_host(self, rows, hints) -> tuple[QWidget, dict[str, MetricSpinBox]]:
+        """Build one per-kind inspector host; ``rows`` is [(key, label, min, max)]."""
+
+        host = QWidget()
+        form = QFormLayout(host)
+        form.setContentsMargins(0, 0, 0, 0)
+        fields: dict[str, MetricSpinBox] = {}
+        for key, label, minimum, maximum, hint in rows:
+            field = self._metric_field(minimum, maximum)
+            field.setToolTip(hint)
+            field.valueChanged.connect(self._authoring_fields_changed)
+            form.addRow(label, field)
+            field_label = form.labelForField(field)
+            if field_label is not None:
+                field_label.setToolTip(hint)
+            fields[key] = field
+        return host, fields
+
+    def _build_ceiling_form(self):
+        host = QWidget()
+        form = QFormLayout(host)
+        form.setContentsMargins(0, 0, 0, 0)
+        self._auth_ceiling_dir = QComboBox()
+        dir_hint = "天井が高くなる方向 · 部屋の平面図で+X=右、+Y=奥"
+        self._auth_ceiling_dir.setToolTip(dir_hint)
+        for value, label in (
+            ('x+', '+X（右側が高い）'),
+            ('x-', '-X（左側が高い）'),
+            ('y+', '+Y（奥側が高い）'),
+            ('y-', '-Y（手前側が高い）'),
+        ):
+            self._auth_ceiling_dir.addItem(label, value)
+        self._auth_ceiling_dir.currentIndexChanged.connect(self._authoring_fields_changed)
+        form.addRow('傾斜方向', self._auth_ceiling_dir)
+        dir_label = form.labelForField(self._auth_ceiling_dir)
+        if dir_label is not None:
+            dir_label.setToolTip(dir_hint)
+        fields: dict[str, MetricSpinBox] = {}
+        for key, label, minimum, maximum, hint in (
+            ('low', '最低点', 0.1, 20.0, "傾斜の低い側の天井高"),
+            ('high', '最高点', 0.1, 20.0, "傾斜の高い側の天井高 · 最低点以上が必要です"),
+        ):
+            field = self._metric_field(minimum, maximum)
+            field.setToolTip(hint)
+            field.valueChanged.connect(self._authoring_fields_changed)
+            form.addRow(label, field)
+            field_label = form.labelForField(field)
+            if field_label is not None:
+                field_label.setToolTip(hint)
+            fields[key] = field
+        return host, fields
+
+    def _build_rect_soffit_form(self):
+        rect_hint = "部屋座標での下がり天井の平面範囲（X1<X2、Y1<Y2）"
+        return self._auth_form_host(
+            (
+                ('x1', 'X1', -1000.0, 1000.0, rect_hint),
+                ('y1', 'Y1', -1000.0, 1000.0, rect_hint),
+                ('x2', 'X2', -1000.0, 1000.0, rect_hint),
+                ('y2', 'Y2', -1000.0, 1000.0, rect_hint),
+                ('drop', '下がり量', 0.001, 20.0, "天井面からの下がり深さ · 傾斜天井では最も低い点を基準にします"),
+            ),
+            {},
+        )
+
+    def _build_riser_form(self):
+        rect_hint = "部屋座標での段床の平面範囲（X1<X2、Y1<Y2）"
+        return self._auth_form_host(
+            (
+                ('x1', 'X1', -1000.0, 1000.0, rect_hint),
+                ('y1', 'Y1', -1000.0, 1000.0, rect_hint),
+                ('x2', 'X2', -1000.0, 1000.0, rect_hint),
+                ('y2', 'Y2', -1000.0, 1000.0, rect_hint),
+                ('height', '高さ', 0.001, 20.0, "床面からの段差の高さ"),
+            ),
+            {},
+        )
+
+    def _build_partial_wall_form(self):
+        line_hint = "腰壁の中心線の端点（部屋座標）"
+        return self._auth_form_host(
+            (
+                ('x1', '始点X', -1000.0, 1000.0, line_hint),
+                ('y1', '始点Y', -1000.0, 1000.0, line_hint),
+                ('x2', '終点X', -1000.0, 1000.0, line_hint),
+                ('y2', '終点Y', -1000.0, 1000.0, line_hint),
+                ('base', '下端', 0.0, 20.0, "床から腰壁下端までの高さ"),
+                ('height', '高さ', 0.001, 20.0, "下端からの壁の高さ"),
+                ('thickness', '厚み', 0.001, 5.0, "腰壁の厚み"),
+            ),
+            {},
+        )
+
+    def _build_region_form(self):
+        host = QWidget()
+        form = QFormLayout(host)
+        form.setContentsMargins(0, 0, 0, 0)
+        fields: dict[str, MetricSpinBox] = {}
+        self._auth_region_edge = QComboBox()
+        self._auth_region_edge.setToolTip(
+            "部屋の外周のどの辺と隣接領域が接するか · 辺の番号は3Dビューの頂点順です"
+        )
+        self._auth_region_edge.currentIndexChanged.connect(self._authoring_fields_changed)
+        form.addRow("共有辺", self._auth_region_edge)
+        edge_label = form.labelForField(self._auth_region_edge)
+        if edge_label is not None:
+            edge_label.setToolTip(self._auth_region_edge.toolTip())
+        for key, label, minimum, maximum, hint in (
+            ('depth', '奥行き', 0.001, 1000.0, "共有辺から外側への領域の深さ"),
+            ('height', '高さ', 0.001, 20.0, "隣接領域の天井高"),
+            ('open_offset', '開口位置', 0.0, 1000.0, "共有辺の始点から開口の開始端までの距離"),
+            ('open_width', '開口幅', 0.001, 1000.0, "共有辺に沿った接続開口の幅"),
+            ('open_height', '開口高さ', 0.001, 20.0, "床から測った接続開口の高さ"),
+        ):
+            field = self._metric_field(minimum, maximum)
+            field.setToolTip(hint)
+            field.valueChanged.connect(self._authoring_fields_changed)
+            form.addRow(label, field)
+            field_label = form.labelForField(field)
+            if field_label is not None:
+                field_label.setToolTip(hint)
+            fields[key] = field
+        return host, fields
+
+    def _current_authoring_kind(self) -> str:
+        return str(self.authoring_kind.currentData() or 'ceiling')
+
+    def _authoring_items(self, kind: str) -> tuple:
+        model = self.geometry.authoring
+        if model is None:
+            return ()
+        if kind == 'ceiling':
+            return (model.ceiling,) if model.ceiling is not None else ()
+        key = {
+            'soffit': 'soffits',
+            'riser': 'risers',
+            'partial_wall': 'partial_walls',
+            'adjacent_region': 'adjacent_regions',
+        }[kind]
+        return tuple(getattr(model, key))
+
+    @staticmethod
+    def _authoring_item_id(kind: str, item) -> str:
+        if kind == 'ceiling':
+            return 'ceiling'
+        return getattr(
+            item,
+            {
+                'soffit': 'soffit_id',
+                'riser': 'riser_id',
+                'partial_wall': 'wall_id',
+                'adjacent_region': 'region_id',
+            }[kind],
+        )
+
+    def _authoring_model_or_new(self) -> RoomAuthoringModel | None:
+        room = self.geometry.room
+        if room is None:
+            return None
+        model = self.geometry.authoring
+        if model is None:
+            return RoomAuthoringModel(room=room)
+        return model
+
+    def _authoring_candidate(
+        self, kind: str, spec, *, remove_id: str | None = None
+    ) -> RoomAuthoringModel | None:
+        """Spec-level add/replace/remove on a copy of the committed model."""
+
+        model = self._authoring_model_or_new()
+        if model is None:
+            return None
+        if kind == 'ceiling':
+            update = {'ceiling': spec}
+        else:
+            key = {
+                'soffit': 'soffits',
+                'riser': 'risers',
+                'partial_wall': 'partial_walls',
+                'adjacent_region': 'adjacent_regions',
+            }[kind]
+            items = list(getattr(model, key))
+            if remove_id is not None:
+                items = [
+                    item
+                    for item in items
+                    if self._authoring_item_id(kind, item) != remove_id
+                ]
+            elif spec is not None:
+                spec_id = self._authoring_item_id(kind, spec)
+                items = [
+                    spec if self._authoring_item_id(kind, item) == spec_id else item
+                    for item in items
+                ]
+                if all(self._authoring_item_id(kind, item) != spec_id for item in items):
+                    items.append(spec)
+            update = {key: tuple(items)}
+        return model.model_copy(update=update, deep=True)
+
+    def _authoring_spec_from_fields(self, kind: str, item_id: str):
+        if kind == 'ceiling':
+            f = self._auth_ceiling_fields
+            return SlopedCeilingSpec(
+                slope_direction=str(self._auth_ceiling_dir.currentData() or 'x+'),
+                low_height_m=f['low'].value_m(),
+                high_height_m=f['high'].value_m(),
+            )
+        if kind == 'soffit':
+            f = self._auth_soffit_fields
+            return SoffitSpec(
+                soffit_id=item_id,
+                min_x_m=min(f['x1'].value_m(), f['x2'].value_m()),
+                min_y_m=min(f['y1'].value_m(), f['y2'].value_m()),
+                max_x_m=max(f['x1'].value_m(), f['x2'].value_m()),
+                max_y_m=max(f['y1'].value_m(), f['y2'].value_m()),
+                drop_m=f['drop'].value_m(),
+            )
+        if kind == 'riser':
+            f = self._auth_riser_fields
+            return RiserSpec(
+                riser_id=item_id,
+                min_x_m=min(f['x1'].value_m(), f['x2'].value_m()),
+                min_y_m=min(f['y1'].value_m(), f['y2'].value_m()),
+                max_x_m=max(f['x1'].value_m(), f['x2'].value_m()),
+                max_y_m=max(f['y1'].value_m(), f['y2'].value_m()),
+                height_m=f['height'].value_m(),
+            )
+        if kind == 'partial_wall':
+            f = self._auth_wall_fields
+            return PartialHeightWallSpec(
+                wall_id=item_id,
+                x1_m=f['x1'].value_m(),
+                y1_m=f['y1'].value_m(),
+                x2_m=f['x2'].value_m(),
+                y2_m=f['y2'].value_m(),
+                thickness_m=f['thickness'].value_m(),
+                height_m=f['height'].value_m(),
+                base_height_m=f['base'].value_m(),
+            )
+        f = self._auth_region_fields
+        return AdjacentRegionSpec(
+            region_id=item_id,
+            shared_edge_index=int(self._auth_region_edge.currentData() or 0),
+            outward_depth_m=f['depth'].value_m(),
+            opening=(
+                f['open_offset'].value_m(),
+                f['open_width'].value_m(),
+                f['open_height'].value_m(),
+            ),
+            ceiling_height_m=f['height'].value_m(),
+        )
+
+    def _selected_authoring_ref(self) -> tuple[str, str] | None:
+        kind = self._current_authoring_kind()
+        item_id = self.authoring_selector.currentData()
+        if not isinstance(item_id, str):
+            return None
+        return (kind, item_id)
+
+    def _authoring_toggled(self, checked: bool) -> None:
+        self.authoring_host.setVisible(
+            checked and self.geometry.room is not None
+        )
+        if not checked:
+            self.geometry.set_authoring_preview(None)
+        self.refresh()
+
+    def _authoring_kind_changed(self) -> None:
+        self._populate_authoring_selector()
+
+    def _authoring_item_selected(self) -> None:
+        ref = self._selected_authoring_ref()
+        if (
+            ref is not None
+            and ref != self.geometry.selected_authoring
+            and self.geometry.authoring is not None
+        ):
+            try:
+                self.geometry.select_authoring_primitive(ref)
+            except KeyError:
+                pass
+        self._populate_authoring_fields()
+        self._authoring_fields_changed()
+
+    def _authoring_fields_changed(self) -> None:
+        """Ghost-preview the field state in 3D before any commit (#976)."""
+
+        if self.authoring_host.isHidden():
+            return
+        kind = self._current_authoring_kind()
+        ref = self._selected_authoring_ref()
+        spec = self._authoring_spec_from_fields(
+            kind, ref[1] if ref is not None else f'{kind}-preview'
+        )
+        candidate = self._authoring_candidate(kind, spec)
+        try:
+            self.geometry.set_authoring_preview(candidate)
+        except (RuntimeError, AttributeError):
+            pass
+
+    def _populate_authoring_selector(self) -> None:
+        kind = self._current_authoring_kind()
+        hosts = {
+            'ceiling': self._auth_ceiling_host,
+            'soffit': self._auth_soffit_host,
+            'riser': self._auth_riser_host,
+            'partial_wall': self._auth_wall_host,
+            'adjacent_region': self._auth_region_host,
+        }
+        for key, host in hosts.items():
+            host.setVisible(key == kind)
+        room = self.geometry.room
+        if kind == 'adjacent_region' and room is not None:
+            vertices = room_vertices(room)
+            previous_edge = self._auth_region_edge.currentData()
+            with QSignalBlocker(self._auth_region_edge):
+                self._auth_region_edge.clear()
+                for index, start in enumerate(vertices):
+                    end = vertices[(index + 1) % len(vertices)]
+                    self._auth_region_edge.addItem(
+                        f"辺 {index + 1}（{self._format_m(hypot(end.x_m - start.x_m, end.y_m - start.y_m))}）",
+                        index,
+                    )
+                if previous_edge is not None:
+                    index = self._auth_region_edge.findData(previous_edge)
+                    if index >= 0:
+                        self._auth_region_edge.setCurrentIndex(index)
+        previous = self.authoring_selector.currentData()
+        with QSignalBlocker(self.authoring_selector):
+            self.authoring_selector.clear()
+            self.authoring_selector.addItem("新規 / 未選択", None)
+            for item in self._authoring_items(kind):
+                self.authoring_selector.addItem(
+                    self._authoring_item_id(kind, item),
+                    self._authoring_item_id(kind, item),
+                )
+            target = self.geometry.selected_authoring
+            if target is not None and target[0] == kind:
+                index = self.authoring_selector.findData(target[1])
+                if index >= 0:
+                    self.authoring_selector.setCurrentIndex(index)
+            elif previous is not None:
+                index = self.authoring_selector.findData(previous)
+                if index >= 0:
+                    self.authoring_selector.setCurrentIndex(index)
+        self._populate_authoring_fields()
+
+    def _populate_authoring_fields(self) -> None:
+        kind = self._current_authoring_kind()
+        ref = self._selected_authoring_ref()
+        item = None
+        if ref is not None:
+            item = next(
+                (
+                    entry
+                    for entry in self._authoring_items(kind)
+                    if self._authoring_item_id(kind, entry) == ref[1]
+                ),
+                None,
+            )
+        enabled = item is not None
+        self.apply_authoring_button.setEnabled(enabled)
+        self.delete_authoring_button.setEnabled(enabled)
+        room = self.geometry.room
+        if room is None:
+            return
+        blockers: list[QSignalBlocker] = []
+
+        def _set(fields: dict[str, MetricSpinBox], values: dict[str, float]) -> None:
+            for key, field in fields.items():
+                blockers.append(QSignalBlocker(field))
+                if key in values:
+                    field.set_value_m(values[key])
+
+        room_min_x, room_min_y, room_max_x, room_max_y = (
+            room.bounds_m if room is not None else (0.0, 0.0, 4.0, 4.0)
+        )
+        try:
+            if kind == 'ceiling':
+                _set(
+                    self._auth_ceiling_fields,
+                    {
+                        'low': item.low_height_m if item is not None else room.height_m * 0.85,
+                        'high': item.high_height_m if item is not None else room.height_m,
+                    },
+                )
+                if item is not None:
+                    blockers.append(QSignalBlocker(self._auth_ceiling_dir))
+                    index = self._auth_ceiling_dir.findData(item.slope_direction)
+                    if index >= 0:
+                        self._auth_ceiling_dir.setCurrentIndex(index)
+            elif kind == 'soffit':
+                defaults = {
+                    'x1': room_min_x + (room_max_x - room_min_x) * 0.25,
+                    'y1': room_min_y + (room_max_y - room_min_y) * 0.25,
+                    'x2': room_min_x + (room_max_x - room_min_x) * 0.75,
+                    'y2': room_min_y + (room_max_y - room_min_y) * 0.75,
+                    'drop': 0.3,
+                }
+                _set(
+                    self._auth_soffit_fields,
+                    defaults
+                    if item is None
+                    else {
+                        'x1': item.min_x_m, 'y1': item.min_y_m,
+                        'x2': item.max_x_m, 'y2': item.max_y_m,
+                        'drop': item.drop_m,
+                    },
+                )
+            elif kind == 'riser':
+                defaults = {
+                    'x1': room_min_x + (room_max_x - room_min_x) * 0.25,
+                    'y1': room_min_y + (room_max_y - room_min_y) * 0.25,
+                    'x2': room_min_x + (room_max_x - room_min_x) * 0.75,
+                    'y2': room_min_y + (room_max_y - room_min_y) * 0.75,
+                    'height': 0.15,
+                }
+                _set(
+                    self._auth_riser_fields,
+                    defaults
+                    if item is None
+                    else {
+                        'x1': item.min_x_m, 'y1': item.min_y_m,
+                        'x2': item.max_x_m, 'y2': item.max_y_m,
+                        'height': item.height_m,
+                    },
+                )
+            elif kind == 'partial_wall':
+                mid_x = (room_min_x + room_max_x) * 0.5
+                defaults = {
+                    'x1': mid_x, 'y1': room_min_y + (room_max_y - room_min_y) * 0.25,
+                    'x2': mid_x, 'y2': room_min_y + (room_max_y - room_min_y) * 0.75,
+                    'base': 0.0, 'height': 1.0, 'thickness': 0.1,
+                }
+                _set(
+                    self._auth_wall_fields,
+                    defaults
+                    if item is None
+                    else {
+                        'x1': item.x1_m, 'y1': item.y1_m,
+                        'x2': item.x2_m, 'y2': item.y2_m,
+                        'base': item.base_height_m, 'height': item.height_m,
+                        'thickness': item.thickness_m,
+                    },
+                )
+            else:
+                _set(
+                    self._auth_region_fields,
+                    {
+                        'depth': item.outward_depth_m if item is not None else 3.0,
+                        'height': (item.ceiling_height_m if item is not None and item.ceiling_height_m is not None else room.height_m),
+                        'open_offset': item.opening[0] if item is not None else 0.0,
+                        'open_width': item.opening[1] if item is not None else 2.0,
+                        'open_height': item.opening[2] if item is not None else min(2.0, room.height_m),
+                    },
+                )
+                if item is not None:
+                    blockers.append(QSignalBlocker(self._auth_region_edge))
+                    index = self._auth_region_edge.findData(item.shared_edge_index)
+                    if index >= 0:
+                        self._auth_region_edge.setCurrentIndex(index)
+        finally:
+            del blockers
+
+    def _commit_authoring(self, candidate: RoomAuthoringModel | None, success: str) -> None:
+        if candidate is None:
+            return
+        self.geometry.set_authoring_preview(None)
+
+        committed_ok: list[bool] = []
+
+        def operation() -> bool:
+            changed = bool(self.controller.replace_room_authoring(candidate))
+            committed_ok.append(changed)
+            return changed
+
+        self._run(operation, success)
+        if committed_ok != [True]:
+            return  # rejected or no-change — keep _run's notice
+        issues = validate_room_authoring_model(
+            candidate, wall_topology=self.geometry.topology
+        )
+        warnings = [issue for issue in issues if issue.severity == 'warning']
+        if warnings:
+            self.notice.setText(
+                success + '（注意: ' + ' / '.join(w.message for w in warnings[:3]) + '）'
+            )
+            set_semantic_state(self.notice, SemanticState.WARNING)
+
+    def _add_authoring(self) -> None:
+        room = self.geometry.room
+        if room is None:
+            return
+        kind = self._current_authoring_kind()
+        item_id = 'ceiling' if kind == 'ceiling' else f'{kind}-{uuid4().hex[:8]}'
+        spec = self._authoring_spec_from_fields(kind, item_id)
+        candidate = self._authoring_candidate(kind, spec)
+        if candidate is None:
+            return
+        label = AUTHORING_KIND_LABELS[kind]
+        self._commit_authoring(candidate, f'{label}を追加しました')
+        index = self.authoring_selector.findData(item_id)
+        if index >= 0:
+            self.authoring_selector.setCurrentIndex(index)
+            self._authoring_item_selected()
+
+    def _apply_authoring(self) -> None:
+        ref = self._selected_authoring_ref()
+        if ref is None:
+            return
+        kind, item_id = ref
+        spec = self._authoring_spec_from_fields(kind, item_id)
+        candidate = self._authoring_candidate(kind, spec)
+        if candidate is None:
+            return
+        self._commit_authoring(candidate, f'{AUTHORING_KIND_LABELS[kind]}を更新しました')
+
+    def _delete_authoring(self) -> None:
+        ref = self._selected_authoring_ref()
+        if ref is None:
+            return
+        kind, item_id = ref
+        candidate = self._authoring_candidate(kind, None, remove_id=item_id)
+        if candidate is None:
+            return
+        if self.geometry.selected_authoring == ref:
+            try:
+                self.geometry.select_authoring_primitive(None)
+            except KeyError:
+                pass
+        self._commit_authoring(candidate, f'{AUTHORING_KIND_LABELS[kind]}を削除しました')
 
 
 __all__ = ["RoomGeometryPanel"]

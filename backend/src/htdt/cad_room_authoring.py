@@ -29,11 +29,23 @@ Geometry conventions:
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import ValidationError
+from shapely.geometry import Polygon, box
 
-from .cad_scene import RoomPrism, room_vertices
+from .cad_scene import (
+    MAIN_REGION_ID,
+    AdjacentRegionSpec,
+    PartialHeightWallSpec,
+    RiserSpec,
+    RoomAuthoringModel,
+    RoomPrism,
+    SlopedCeilingSpec,
+    SoffitSpec,
+    room_vertices,
+)
 from .r120_polyhedral_geometry import (
     PlanarPolygonSurfaceSpec,
     PolyhedralAirVolume,
@@ -46,141 +58,431 @@ from .r120_polyhedral_geometry import (
 ROOM_AUTHORING_ALGORITHM_ID = 'htdt.room_authoring'
 ROOM_AUTHORING_ALGORITHM_VERSION = '1'
 
-MAIN_REGION_ID = 'main'
+__all__ = [
+    'AdjacentRegionSpec',
+    'MAIN_REGION_ID',
+    'PartialHeightWallSpec',
+    'RiserSpec',
+    'RoomAuthoringError',
+    'RoomAuthoringIssue',
+    'RoomAuthoringModel',
+    'SlopedCeilingSpec',
+    'SoffitSpec',
+    'ceiling_height_at',
+    'compile_room_authoring_to_r120',
+    'rebind_room_authoring',
+    'validate_room_authoring_model',
+]
 
 
-class SlopedCeilingSpec(BaseModel):
-    """Linear ceiling slope from ``low_height_m`` to ``high_height_m`` along
-    ``slope_direction`` across the room extent."""
+# ---------------------------------------------------------------------------
+# Issue #976 fail-closed validation.
+#
+# ``RoomAuthoringModel`` validators only cover self-contained invariants.
+# Anything that needs the footprint polygon, the sloped-ceiling field, or the
+# wall-topology authority is checked here so UI commits and room/topology
+# edits reject dangerous shapes with a specific, fixable finding instead of a
+# compiler traceback or a silently clamped result.
+# ---------------------------------------------------------------------------
 
-    model_config = ConfigDict(frozen=True)
-    slope_direction: Literal['x+', 'x-', 'y+', 'y-']
-    low_height_m: float = Field(gt=0)
-    high_height_m: float = Field(gt=0)
-
-    @model_validator(mode='after')
-    def non_degenerate(self) -> 'SlopedCeilingSpec':
-        if abs(self.high_height_m - self.low_height_m) < 1e-9:
-            raise ValueError('a flat ceiling is not a sloped ceiling')
-        return self
-
-
-class SoffitSpec(BaseModel):
-    """Rectangular box dropped below the ceiling plane."""
-
-    model_config = ConfigDict(frozen=True)
-    soffit_id: str = Field(min_length=1)
-    min_x_m: float
-    min_y_m: float
-    max_x_m: float
-    max_y_m: float
-    drop_m: float = Field(gt=0)  # depth below the local ceiling height
-
-    @model_validator(mode='after')
-    def non_degenerate(self) -> 'SoffitSpec':
-        if self.max_x_m <= self.min_x_m or self.max_y_m <= self.min_y_m:
-            raise ValueError('soffit footprint must have positive extent')
-        return self
+AUTHORING_KIND_LABELS: dict[str, str] = {
+    'ceiling': '傾斜天井',
+    'soffit': '下がり天井',
+    'riser': '段床',
+    'partial_wall': '腰壁',
+    'adjacent_region': '隣接室',
+}
 
 
-class RiserSpec(BaseModel):
-    """Raised floor platform: a box sitting on the floor."""
+@dataclass(frozen=True)
+class RoomAuthoringIssue:
+    """One operator-facing finding about an authoring candidate.
 
-    model_config = ConfigDict(frozen=True)
-    riser_id: str = Field(min_length=1)
-    min_x_m: float
-    min_y_m: float
-    max_x_m: float
-    max_y_m: float
-    height_m: float = Field(gt=0)
-
-    @model_validator(mode='after')
-    def non_degenerate(self) -> 'RiserSpec':
-        if self.max_x_m <= self.min_x_m or self.max_y_m <= self.min_y_m:
-            raise ValueError('riser footprint must have positive extent')
-        return self
-
-
-class PartialHeightWallSpec(BaseModel):
-    """Bounded wall prism standing on the floor, below ceiling height."""
-
-    model_config = ConfigDict(frozen=True)
-    wall_id: str = Field(min_length=1)
-    x1_m: float
-    y1_m: float
-    x2_m: float
-    y2_m: float
-    thickness_m: float = Field(gt=0)
-    height_m: float = Field(gt=0)
-    base_height_m: float = Field(default=0.0, ge=0)
-
-    @model_validator(mode='after')
-    def non_degenerate(self) -> 'PartialHeightWallSpec':
-        if abs(self.x2_m - self.x1_m) < 1e-9 and abs(self.y2_m - self.y1_m) < 1e-9:
-            raise ValueError('partial-height wall requires a non-zero span')
-        return self
-
-
-class AdjacentRegionSpec(BaseModel):
-    """A separate footprint volume connected through a wall opening.
-
-    ``shared_edge_index`` is the index into ``room_vertices(room)`` whose
-    edge (i → i+1) the region shares; the region footprint extrudes outward
-    along the edge normal by ``outward_depth_m`` for the full edge length.
-    ``opening`` = (offset_m along the edge, width_m, height_m).
+    ``category`` is the honest-failure bucket from the issue contract:
+    ``geometry_invalid`` covers self-contradicting or unbuildable geometry,
+    ``unsupported`` covers shapes the current code/solver surface cannot
+    faithfully represent. ``target`` names the primitive id the fix applies
+    to, so the panel can point at the row that must change.
     """
 
-    model_config = ConfigDict(frozen=True)
-    region_id: str = Field(min_length=1)
-    shared_edge_index: int = Field(ge=0)
-    outward_depth_m: float = Field(gt=0)
-    opening: tuple[float, float, float]
-    ceiling_height_m: float | None = None
-
-    @model_validator(mode='after')
-    def non_degenerate(self) -> 'AdjacentRegionSpec':
-        offset, width, height = self.opening
-        if width <= 0 or height <= 0 or offset < 0:
-            raise ValueError('adjacent region opening must be positive')
-        return self
+    category: Literal['geometry_invalid', 'unsupported']
+    severity: Literal['error', 'warning']
+    code: str
+    message: str
+    target: str | None = None
 
 
-class RoomAuthoringModel(BaseModel):
-    """Semantic room primitives over a base ``RoomPrism`` footprint."""
+class RoomAuthoringError(ValueError):
+    """Fail-closed rejection carrying typed issues for operator display.
 
-    model_config = ConfigDict(frozen=True)
-    room: RoomPrism
-    ceiling: SlopedCeilingSpec | None = None
-    soffits: tuple[SoffitSpec, ...] = ()
-    risers: tuple[RiserSpec, ...] = ()
-    partial_walls: tuple[PartialHeightWallSpec, ...] = ()
-    adjacent_regions: tuple[AdjacentRegionSpec, ...] = ()
+    Messages are short single-line Japanese text so
+    ``operation_error_message`` preserves them verbatim.
+    """
 
-    @model_validator(mode='after')
-    def unique_ids(self) -> 'RoomAuthoringModel':
-        ids = (
-            [item.soffit_id for item in self.soffits]
-            + [item.riser_id for item in self.risers]
-            + [item.wall_id for item in self.partial_walls]
-            + [item.region_id for item in self.adjacent_regions]
+    def __init__(self, issues) -> None:
+        self.issues = tuple(issues)
+        super().__init__(' / '.join(issue.message for issue in self.issues))
+
+
+def _rect_polygon(min_x: float, min_y: float, max_x: float, max_y: float) -> Polygon:
+    return box(min_x, min_y, max_x, max_y)
+
+
+def _partial_wall_polygon(wall: PartialHeightWallSpec) -> Polygon:
+    dx = wall.x2_m - wall.x1_m
+    dy = wall.y2_m - wall.y1_m
+    length = (dx * dx + dy * dy) ** 0.5
+    nx = -dy / length * wall.thickness_m * 0.5
+    ny = dx / length * wall.thickness_m * 0.5
+    return Polygon(
+        [
+            (wall.x1_m + nx, wall.y1_m + ny),
+            (wall.x2_m + nx, wall.y2_m + ny),
+            (wall.x2_m - nx, wall.y2_m - ny),
+            (wall.x1_m - nx, wall.y1_m - ny),
+        ]
+    )
+
+
+def _region_footprint(
+    model: RoomAuthoringModel,
+    region: AdjacentRegionSpec,
+) -> Polygon | None:
+    """Plan footprint extruded outward from the shared edge; None if the edge
+    index no longer exists (reported separately)."""
+
+    vertices = room_vertices(model.room)
+    if region.shared_edge_index >= len(vertices):
+        return None
+    a = vertices[region.shared_edge_index]
+    b = vertices[(region.shared_edge_index + 1) % len(vertices)]
+    ax, ay = a.x_m, a.y_m
+    bx, by = b.x_m, b.y_m
+    edge_dx, edge_dy = bx - ax, by - ay
+    edge_len = (edge_dx * edge_dx + edge_dy * edge_dy) ** 0.5
+    if edge_len <= 1e-9:
+        return None
+    ring = [(vertex.x_m, vertex.y_m) for vertex in vertices]
+    centroid_x = sum(x for x, _ in ring) / len(ring)
+    centroid_y = sum(y for _, y in ring) / len(ring)
+    nx, ny = -edge_dy / edge_len, edge_dx / edge_len
+    mid_x, mid_y = (ax + bx) * 0.5, (ay + by) * 0.5
+    if (mid_x + nx - centroid_x) ** 2 + (mid_y + ny - centroid_y) ** 2 < (
+        (mid_x - nx - centroid_x) ** 2 + (mid_y - ny - centroid_y) ** 2
+    ):
+        nx, ny = -nx, -ny
+    d = region.outward_depth_m
+    return Polygon([(ax, ay), (bx, by), (bx + nx * d, by + ny * d), (ax + nx * d, ay + ny * d)])
+
+
+def validate_room_authoring_model(
+    model: RoomAuthoringModel,
+    *,
+    wall_topology=None,
+) -> tuple[RoomAuthoringIssue, ...]:
+    """Fail-closed validation of an authoring candidate against the room.
+
+    Returns every finding — callers block on ``severity == 'error'`` and may
+    surface warnings next to the offending row. ``wall_topology`` (optional)
+    enables the opening/topology conflict check so a shared-wall opening
+    never double-books a span already owned by a ``WallOpening``.
+    """
+
+    issues: list[RoomAuthoringIssue] = []
+
+    def error(code: str, message: str, target: str | None = None,
+              *, category: str = 'geometry_invalid') -> None:
+        issues.append(
+            RoomAuthoringIssue(
+                category=category, severity='error',
+                code=code, message=message, target=target,
+            )
         )
-        if len(ids) != len(set(ids)):
-            raise ValueError('room authoring primitive ids must be unique')
-        if MAIN_REGION_ID in {item.region_id for item in self.adjacent_regions}:
-            raise ValueError(f'{MAIN_REGION_ID!r} is reserved for the base room region')
-        for region in self.adjacent_regions:
-            if region.shared_edge_index >= len(room_vertices(self.room)):
-                raise ValueError('adjacent region references an unknown footprint edge')
-        for riser in self.risers:
-            if riser.height_m >= float(self.room.height_m):
-                raise ValueError('riser height must stay below the room ceiling')
-        for soffit in self.soffits:
-            if soffit.drop_m >= float(self.room.height_m):
-                raise ValueError('soffit drop must stay above the room floor')
-        for wall in self.partial_walls:
-            if wall.base_height_m + wall.height_m > float(self.room.height_m):
-                raise ValueError('partial-height wall top exceeds the room ceiling')
-        return self
+
+    def warning(code: str, message: str, target: str | None = None,
+                *, category: str = 'unsupported') -> None:
+        issues.append(
+            RoomAuthoringIssue(
+                category=category, severity='warning',
+                code=code, message=message, target=target,
+            )
+        )
+
+    room = model.room
+    vertices = room_vertices(room)
+    footprint = Polygon([(vertex.x_m, vertex.y_m) for vertex in vertices])
+    if not footprint.is_valid:
+        error('footprint_invalid', '部屋の外形が自己交差しています')
+        return tuple(issues)
+
+    # Model-level invariants re-checked here so a rebound candidate (room
+    # replaced by a footprint edit) still reports named targets instead of a
+    # bare pydantic error.
+    seen_edges: dict[int, str] = {}
+    for region in model.adjacent_regions:
+        label = f'隣接室「{region.region_id}」'
+        if region.shared_edge_index >= len(vertices):
+            error(
+                'region_edge_missing',
+                f'{label}: 共有する壁が外形上に存在しません（頂点編集で辺が消えました）',
+                region.region_id,
+            )
+            continue
+        if region.shared_edge_index in seen_edges:
+            error(
+                'shared_edge_conflict',
+                f'{label}: 隣接室「{seen_edges[region.shared_edge_index]}」と同じ壁を共有しています',
+                region.region_id,
+            )
+        else:
+            seen_edges[region.shared_edge_index] = region.region_id
+        a = vertices[region.shared_edge_index]
+        b = vertices[(region.shared_edge_index + 1) % len(vertices)]
+        edge_len = ((b.x_m - a.x_m) ** 2 + (b.y_m - a.y_m) ** 2) ** 0.5
+        offset_m, width_m, height_m = region.opening
+        if offset_m + width_m > edge_len + 1e-9:
+            error(
+                'opening_exceeds_edge',
+                f'{label}: 接続開口（{width_m:.3g} m）が共有壁の長さ（{edge_len:.3g} m）を超えています',
+                region.region_id,
+            )
+        else:
+            # Opening top must clear the local (possibly sloped) ceiling.
+            t0 = offset_m / edge_len if edge_len > 1e-9 else 0.0
+            t1 = (offset_m + width_m) / edge_len
+            top_z = min(
+                ceiling_height_at(model, a.x_m + (b.x_m - a.x_m) * t, a.y_m + (b.y_m - a.y_m) * t)
+                for t in (t0, t1)
+            )
+            if height_m >= top_z:
+                error(
+                    'opening_above_ceiling',
+                    f'{label}: 接続開口の上端が天井を超えています',
+                    region.region_id,
+                )
+        if region.ceiling_height_m is not None and region.ceiling_height_m <= height_m:
+            error(
+                'region_ceiling_below_opening',
+                f'{label}: 隣接室の天井高が接続開口の高さ以下です',
+                region.region_id,
+            )
+        region_poly = _region_footprint(model, region)
+        if region_poly is not None:
+            interior = footprint.intersection(region_poly)
+            if interior.area > 1e-9:
+                error(
+                    'region_overlaps_main',
+                    f'{label}: 外形が部屋本体と重なっています（共有壁の外側へ出してください）',
+                    region.region_id,
+                )
+            if wall_topology is not None:
+                # The shared edge's WallOpening spans double-book the portal.
+                wall = next(
+                    (
+                        item
+                        for item in wall_topology.walls
+                        if (item.from_vertex_id, item.to_vertex_id)
+                        == (a.vertex_id, b.vertex_id)
+                    ),
+                    None,
+                )
+                if wall is not None:
+                    for opening in wall_topology.openings:
+                        if opening.wall_id != wall.wall_id:
+                            continue
+                        if (
+                            opening.offset_m < offset_m + width_m
+                            and offset_m < opening.offset_m + opening.width_m
+                        ):
+                            error(
+                                'opening_topology_conflict',
+                                f'{label}: 接続開口が同じ壁の既存開口「{opening.opening_id}」と重なっています',
+                                region.region_id,
+                                category='unsupported',
+                            )
+
+    region_polys = {
+        region.region_id: poly
+        for region in model.adjacent_regions
+        if (poly := _region_footprint(model, region)) is not None
+    }
+    ids = list(region_polys)
+    for i, first in enumerate(ids):
+        for second in ids[i + 1:]:
+            if region_polys[first].intersection(region_polys[second]).area > 1e-9:
+                error(
+                    'region_overlap',
+                    f'隣接室「{first}」と「{second}」の外形が重なっています',
+                    second,
+                )
+
+    def _rect_contained(kind: str, item, poly: Polygon) -> bool:
+        if not footprint.covers(poly.buffer(-1e-9)):
+            error(
+                'primitive_outside_footprint',
+                f'{AUTHORING_KIND_LABELS[kind]}「{target_of(kind, item)}」: '
+                '平面形状が部屋の外形の外にはみ出しています',
+                target_of(kind, item),
+            )
+            return False
+        return True
+
+    def target_of(kind: str, item) -> str:
+        return getattr(
+            item,
+            {
+                'soffit': 'soffit_id',
+                'riser': 'riser_id',
+                'partial_wall': 'wall_id',
+                'adjacent_region': 'region_id',
+            }[kind],
+        )
+
+    riser_polys: dict[str, Polygon] = {}
+    for riser in model.risers:
+        poly = _rect_polygon(riser.min_x_m, riser.min_y_m, riser.max_x_m, riser.max_y_m)
+        riser_polys[riser.riser_id] = poly
+        label = f'段床「{riser.riser_id}」'
+        if not _rect_contained('riser', riser, poly):
+            continue
+        top_clearance = min(
+            ceiling_height_at(model, x, y)
+            for x in (riser.min_x_m, riser.max_x_m)
+            for y in (riser.min_y_m, riser.max_y_m)
+        )
+        if riser.height_m >= top_clearance - 1e-9:
+            error(
+                'riser_reaches_ceiling',
+                f'{label}: 天端がその位置の天井高（{top_clearance:.3g} m）に達しています',
+                riser.riser_id,
+            )
+        for other_id, other in riser_polys.items():
+            if other_id == riser.riser_id:
+                continue
+            if other.intersection(poly).area > 1e-9:
+                error(
+                    'riser_overlap',
+                    f'{label}: 段床「{other_id}」と平面が重なっています',
+                    riser.riser_id,
+                )
+
+    soffit_polys: dict[str, Polygon] = {}
+    for soffit in model.soffits:
+        poly = _rect_polygon(soffit.min_x_m, soffit.min_y_m, soffit.max_x_m, soffit.max_y_m)
+        soffit_polys[soffit.soffit_id] = poly
+        label = f'下がり天井「{soffit.soffit_id}」'
+        if not _rect_contained('soffit', soffit, poly):
+            continue
+        bottom_z = min(
+            ceiling_height_at(model, x, y)
+            for x in (soffit.min_x_m, soffit.max_x_m)
+            for y in (soffit.min_y_m, soffit.max_y_m)
+        ) - soffit.drop_m
+        if bottom_z <= 1e-9:
+            error(
+                'soffit_below_floor',
+                f'{label}: 下面が床面を下回ります（下がり量を減らしてください）',
+                soffit.soffit_id,
+            )
+        for other_id, other in soffit_polys.items():
+            if other_id == soffit.soffit_id:
+                continue
+            if other.intersection(poly).area > 1e-9:
+                error(
+                    'soffit_overlap',
+                    f'{label}: 下がり天井「{other_id}」と平面が重なっています',
+                    soffit.soffit_id,
+                )
+    for riser_id, riser_poly in riser_polys.items():
+        for soffit_id, soffit_poly in soffit_polys.items():
+            if riser_poly.intersection(soffit_poly).area > 1e-9:
+                error(
+                    'riser_soffit_overlap',
+                    f'段床「{riser_id}」と下がり天井「{soffit_id}」の平面が重なっています',
+                    soffit_id,
+                )
+
+    for wall in model.partial_walls:
+        poly = _partial_wall_polygon(wall)
+        label = f'腰壁「{wall.wall_id}」'
+        if not _rect_contained('partial_wall', wall, poly):
+            continue
+        top_m = wall.base_height_m + wall.height_m
+        ceiling_at = min(
+            ceiling_height_at(model, wall.x1_m, wall.y1_m),
+            ceiling_height_at(model, wall.x2_m, wall.y2_m),
+        )
+        if top_m > ceiling_at + 1e-9:
+            error(
+                'wall_above_ceiling',
+                f'{label}: 上端（{top_m:.3g} m）がその位置の天井高（{ceiling_at:.3g} m）を超えています',
+                wall.wall_id,
+            )
+        for riser_id, riser_poly in riser_polys.items():
+            riser = next(item for item in model.risers if item.riser_id == riser_id)
+            if (
+                poly.intersection(riser_poly).area > 1e-9
+                and wall.base_height_m < riser.height_m
+            ):
+                error(
+                    'wall_embedded_in_riser',
+                    f'{label}: 段床「{riser_id}」の内部を通っています',
+                    wall.wall_id,
+                )
+        for soffit_id, soffit_poly in soffit_polys.items():
+            if poly.intersection(soffit_poly).area > 1e-9:
+                error(
+                    'wall_under_soffit',
+                    f'{label}: 下がり天井「{soffit_id}」と平面が重なっています（分離してください）',
+                    wall.wall_id,
+                )
+
+    if (
+        model.ceiling is not None
+        or model.soffits
+        or model.risers
+        or model.partial_walls
+        or model.adjacent_regions
+    ):
+        warning(
+            'material_binding_unsupported',
+            '高度な形状の面は現行の材質権威（semantic-surface参照）に未対応です · 依存する解析・材質割り当ては再検証対象になります',
+        )
+    return tuple(issues)
+
+
+def rebind_room_authoring(
+    model: RoomAuthoringModel,
+    room: RoomPrism,
+    *,
+    wall_topology=None,
+) -> RoomAuthoringModel:
+    """Re-embed ``room`` into ``model`` after a footprint/height edit.
+
+    Fail-closed: raises ``RoomAuthoringError`` naming every primitive the
+    edit would break (dangling shared edges, ceilings crossed by riser tops,
+    …) so the caller rejects the room edit and the committed document stays
+    unchanged.
+    """
+
+    candidate = model.model_copy(update={'room': room})
+    issues = validate_room_authoring_model(candidate, wall_topology=wall_topology)
+    errors = tuple(issue for issue in issues if issue.severity == 'error')
+    if errors:
+        raise RoomAuthoringError(errors)
+    try:
+        return RoomAuthoringModel.model_validate(candidate.model_dump(mode='python'))
+    except ValidationError as exc:  # pragma: no cover - defensive; validator covers these
+        raise RoomAuthoringError(
+            (
+                RoomAuthoringIssue(
+                    category='geometry_invalid',
+                    severity='error',
+                    code='rebind_invalid',
+                    message='高度な形状が部屋の変更と整合しません',
+                ),
+            )
+        ) from exc
 
 
 class _VertexPool:
@@ -199,7 +501,7 @@ class _VertexPool:
         return index
 
 
-def _ceiling_height_at(model: RoomAuthoringModel, x_m: float, y_m: float) -> float:
+def ceiling_height_at(model: RoomAuthoringModel, x_m: float, y_m: float) -> float:
     """Ceiling height over a plan point under the (optional) sloped spec."""
 
     ceiling = model.ceiling
@@ -270,7 +572,7 @@ def compile_room_authoring_to_r120(
         region_boundaries.setdefault(region, []).append(surface_key)
         return surface_key
 
-    ceiling_z = [_ceiling_height_at(model, x, y) for (x, y) in floor_ring]
+    ceiling_z = [ceiling_height_at(model, x, y) for (x, y) in floor_ring]
     floor_indices = tuple(pool.add((x, y, 0.0)) for (x, y) in floor_ring)
     ceiling_indices = tuple(
         pool.add((x, y, z)) for (x, y), z in zip(floor_ring, ceiling_z)
@@ -324,8 +626,8 @@ def compile_room_authoring_to_r120(
 
         (ox1, oy1), (ox2, oy2) = _opening_segment((ax, ay), (bx, by), region.opening)
         opening_h = region.opening[2]
-        top_a = _ceiling_height_at(model, ox1, oy1)
-        top_b = _ceiling_height_at(model, ox2, oy2)
+        top_a = ceiling_height_at(model, ox1, oy1)
+        top_b = ceiling_height_at(model, ox2, oy2)
         if opening_h >= min(top_a, top_b):
             raise ValueError('adjacent region opening reaches above the ceiling')
         emit(f'{base}:flank-a', [
@@ -371,7 +673,7 @@ def compile_room_authoring_to_r120(
 
     for soffit in model.soffits:
         z0 = min(
-            _ceiling_height_at(model, x, y)
+            ceiling_height_at(model, x, y)
             for x in (soffit.min_x_m, soffit.max_x_m)
             for y in (soffit.min_y_m, soffit.max_y_m)
         ) - soffit.drop_m
@@ -391,8 +693,8 @@ def compile_room_authoring_to_r120(
                 f'soffit:{soffit.soffit_id}:side:{edge}',
                 [
                     (x1, y1, z0), (x2, y2, z0),
-                    (x2, y2, _ceiling_height_at(model, x2, y2)),
-                    (x1, y1, _ceiling_height_at(model, x1, y1)),
+                    (x2, y2, ceiling_height_at(model, x2, y2)),
+                    (x1, y1, ceiling_height_at(model, x1, y1)),
                 ],
             )
 
@@ -463,7 +765,7 @@ def _build_adjacent_region(
     outer_a = (ax + nx * d, ay + ny * d)
     outer_b = (bx + nx * d, by + ny * d)
     region_h = region.ceiling_height_m or min(
-        _ceiling_height_at(model, ax, ay), _ceiling_height_at(model, bx, by)
+        ceiling_height_at(model, ax, ay), ceiling_height_at(model, bx, by)
     )
 
     rid = region.region_id

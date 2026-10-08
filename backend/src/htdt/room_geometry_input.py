@@ -10,7 +10,14 @@ from PySide6.QtCore import QEvent, QObject, QPointF, Qt, Signal
 from PySide6.QtGui import QKeyEvent, QMouseEvent
 
 from .cad_document import EditStateError
-from .cad_scene import RoomPrism, RoomVertex, make_polygon_room, room_vertices
+from .cad_room_authoring import ceiling_height_at
+from .cad_scene import (
+    RoomAuthoringModel,
+    RoomPrism,
+    RoomVertex,
+    make_polygon_room,
+    room_vertices,
+)
 from .cad_wall_models import WallSegment, WallTopology
 from .cad_walls import (
     WallTopologyError,
@@ -57,6 +64,11 @@ class RoomGeometryInputController(QObject):
         self._wall_drag_preview_topology: WallTopology | None = None
         self.selected_vertex_id: str | None = None
         self.selected_edge_index: int | None = None
+        # Issue #976: (kind, primitive_id) of the selected semantic primitive.
+        self.selected_authoring: tuple[str, str] | None = None
+        self._authoring_preview: RoomAuthoringModel | None = None
+        self._authoring_hit_targets: list[tuple[str, str]] = []
+        self._authoring_actor_names: set[str] = set()
         self._opening_actor_names: set[str] = set()
         viewport.interactor.installEventFilter(self)
 
@@ -71,6 +83,10 @@ class RoomGeometryInputController(QObject):
     @property
     def topology(self) -> WallTopology | None:
         return self.workspace.controller.committed_document.wall_topology
+
+    @property
+    def authoring(self) -> RoomAuthoringModel | None:
+        return self.workspace.controller.committed_document.room_authoring
 
     @property
     def selected_vertex(self) -> RoomVertex | None:
@@ -158,9 +174,42 @@ class RoomGeometryInputController(QObject):
                 raise KeyError(vertex_id)
         self.selected_vertex_id = vertex_id
         self.selected_edge_index = None
+        if vertex_id is not None:
+            self.selected_authoring = None
         self.selectionChanged.emit()
         if self.mode == "edit":
             self._render_edit_handles()
+
+    def select_authoring_primitive(self, ref: tuple[str, str] | None) -> None:
+        """Select one #976 primitive as ``(kind, primitive_id)``.
+
+        The same (kind, id) pair names the panel row, the 3D outline and the
+        saved revision entry — selection never invents a second identity.
+        """
+
+        if ref is not None:
+            model = self.authoring
+            kinds = _authoring_primitive_ids(model) if model is not None else {}
+            if ref[1] not in kinds.get(ref[0], ()):
+                raise KeyError(ref)
+        self.selected_authoring = ref
+        if ref is not None:
+            self.selected_vertex_id = None
+            self.selected_edge_index = None
+        self.selectionChanged.emit()
+        if self.mode == "edit":
+            self._render_edit_handles()
+
+    def set_authoring_preview(self, candidate: RoomAuthoringModel | None) -> None:
+        """Ghost-render a candidate model before commit (preview→commit parity)."""
+
+        self._authoring_preview = candidate
+        if self.mode == "edit":
+            self._render_edit_handles()
+        else:
+            self._clear_overlays()
+            self._render_authoring_overlays()
+            self.viewport.plotter.render()
 
     def select_edge(self, edge_index: int | None) -> None:
         room = self.room
@@ -170,6 +219,8 @@ class RoomGeometryInputController(QObject):
             edge_index %= len(room_vertices(room))
         self.selected_edge_index = edge_index
         self.selected_vertex_id = None
+        if edge_index is not None:
+            self.selected_authoring = None
         self.selectionChanged.emit()
         if self.mode == "edit":
             self._render_edit_handles()
@@ -532,6 +583,15 @@ class RoomGeometryInputController(QObject):
             self._render_edit_handles()
             return False
         kind, index = hit
+        if kind == "authoring":
+            ref = self._authoring_hit_targets[index]
+            self.selected_vertex_id = None
+            self.selected_edge_index = None
+            self.selected_authoring = ref
+            self.selectionChanged.emit()
+            self._render_edit_handles()
+            event.accept()
+            return True
         room = self.room
         if room is None:
             return False
@@ -808,6 +868,7 @@ class RoomGeometryInputController(QObject):
     def _clear_selection(self) -> None:
         self.selected_vertex_id = None
         self.selected_edge_index = None
+        self.selected_authoring = None
 
     def _view_top(self) -> None:
         plotter = self.viewport.plotter
@@ -859,8 +920,13 @@ class RoomGeometryInputController(QObject):
         return (round(x_m / step) * step, round(y_m / step) * step)
 
     def _project(self, vertex: RoomVertex) -> QPointF:
+        return self._project_point3((vertex.x_m, vertex.y_m, 0.0))
+
+    def _project_point3(self, point: tuple[float, float, float]) -> QPointF:
+        """Domain-space (x, y, z) to display space; same DPR/flip as vertices."""
+
         renderer = self.viewport.plotter.renderer
-        renderer.SetWorldPoint(float(vertex.x_m), -float(vertex.y_m), 0.0, 1.0)
+        renderer.SetWorldPoint(float(point[0]), -float(point[1]), float(point[2]), 1.0)
         renderer.WorldToDisplay()
         x, y, _ = renderer.GetDisplayPoint()
         dpr = max(float(self.viewport.interactor.devicePixelRatioF()), 1.0)
@@ -898,6 +964,20 @@ class RoomGeometryInputController(QObject):
             return None
         vertices = tuple(room_vertices(room))
         hits: list[tuple[float, str, int]] = []
+        # Issue #976: primitive outlines are selectable wherever they project —
+        # top/front/section views all resolve through the same display-space hit.
+        self._authoring_hit_targets = []
+        for ref, segments in _authoring_outline_segments(self.authoring):
+            best: float | None = None
+            for start, end in segments:
+                start_point = self._project_point3(start)
+                end_point = self._project_point3(end)
+                distance = self._point_segment_distance(position, start_point, end_point)
+                if best is None or distance < best:
+                    best = distance
+            if best is not None and best <= 10.0:
+                self._authoring_hit_targets.append(ref)
+                hits.append((best, "authoring", len(self._authoring_hit_targets) - 1))
         for index, vertex in enumerate(vertices):
             point = self._project(vertex)
             distance = hypot(position.x() - point.x(), position.y() - point.y())
@@ -924,6 +1004,50 @@ class RoomGeometryInputController(QObject):
         _distance, kind, index = min(hits, key=lambda item: item[0])
         return kind, index
 
+    def _render_authoring_overlays(self) -> None:
+        """Issue #976: committed outlines + selection accent + ghost preview."""
+
+        counter = 0
+
+        def _emit(segments, *, color: str, width: float, opacity: float, tag: str) -> None:
+            nonlocal counter
+            for start, end in segments:
+                name = f"ux120-authoring-{tag}-{counter}"
+                counter += 1
+                self._authoring_actor_names.add(name)
+                self.viewport.plotter.add_mesh(
+                    pv.Line((start[0], -start[1], start[2]), (end[0], -end[1], end[2])),
+                    color=color,
+                    line_width=width,
+                    opacity=opacity,
+                    pickable=False,
+                    name=name,
+                    render=False,
+                )
+
+        muted = DARK_THEME.viewport.geometry_edge.hex
+        accent = DARK_THEME.viewport.selection_outline.hex
+        for (kind, primitive_id), segments in _authoring_outline_segments(self.authoring):
+            selected = self.selected_authoring == (kind, primitive_id)
+            _emit(
+                segments,
+                color=accent if selected else muted,
+                width=5.0 if selected else 2.5,
+                opacity=0.95 if selected else 0.7,
+                tag=f"{kind}-{primitive_id}",
+            )
+        if self._authoring_preview is not None:
+            for (kind, primitive_id), segments in _authoring_outline_segments(
+                self._authoring_preview
+            ):
+                _emit(
+                    segments,
+                    color="#C98A3B",
+                    width=2.0,
+                    opacity=0.55,
+                    tag=f"preview-{kind}-{primitive_id}",
+                )
+
     def _clear_overlays(self) -> None:
         for name in (
             "ux120-room-sketch-line",
@@ -939,6 +1063,9 @@ class RoomGeometryInputController(QObject):
         for name in tuple(self._opening_actor_names):
             self.viewport.plotter.remove_actor(name, reset_camera=False, render=False)
         self._opening_actor_names.clear()
+        for name in tuple(self._authoring_actor_names):
+            self.viewport.plotter.remove_actor(name, reset_camera=False, render=False)
+        self._authoring_actor_names.clear()
         self.viewport.plotter.render()
 
     def _render_sketch(self) -> None:
@@ -1011,6 +1138,8 @@ class RoomGeometryInputController(QObject):
             name="ux120-room-edit-points",
             render=False,
         )
+        self._render_authoring_overlays()
+
         midpoint_points = np.asarray(
             [
                 (
@@ -1145,6 +1274,157 @@ class RoomGeometryInputController(QObject):
                         render=False,
                     )
         self.viewport.plotter.render()
+
+
+def _authoring_primitive_ids(model: RoomAuthoringModel | None) -> dict[str, tuple[str, ...]]:
+    """(kind, primitive_id) inventory — the shared selection identity (#976)."""
+
+    if model is None:
+        return {}
+    kinds: dict[str, tuple[str, ...]] = {}
+    if model.ceiling is not None:
+        kinds['ceiling'] = ('ceiling',)
+    kinds['soffit'] = tuple(s.soffit_id for s in model.soffits)
+    kinds['riser'] = tuple(r.riser_id for r in model.risers)
+    kinds['partial_wall'] = tuple(w.wall_id for w in model.partial_walls)
+    kinds['adjacent_region'] = tuple(r.region_id for r in model.adjacent_regions)
+    return {kind: ids for kind, ids in kinds.items() if ids}
+
+
+def _rect_ring_segments(
+    corners: list[tuple[float, float]], z: float
+) -> list[tuple[tuple[float, float, float], tuple[float, float, float]]]:
+    pts = [(x, y, z) for x, y in corners]
+    return [(pts[i], pts[(i + 1) % len(pts)]) for i in range(len(pts))]
+
+
+def _vertical_segments(
+    corners: list[tuple[float, float]], z0: float, z1: float
+) -> list[tuple[tuple[float, float, float], tuple[float, float, float]]]:
+    return [((x, y, z0), (x, y, z1)) for x, y in corners]
+
+
+def _edge_outward_normal(
+    model: RoomAuthoringModel, a: RoomVertex, b: RoomVertex
+) -> tuple[float, float]:
+    """Outward plan normal of room edge ``a→b`` — same test the compiler uses."""
+
+    dx = b.x_m - a.x_m
+    dy = b.y_m - a.y_m
+    length = hypot(dx, dy)
+    if length <= 1e-9:
+        return 0.0, 0.0
+    nx, ny = dy / length, -dx / length
+    vertices = room_vertices(model.room)
+    cx = sum(v.x_m for v in vertices) / len(vertices)
+    cy = sum(v.y_m for v in vertices) / len(vertices)
+    mx = (a.x_m + b.x_m) * 0.5
+    my = (a.y_m + b.y_m) * 0.5
+    if nx * (mx - cx) + ny * (my - cy) < 0.0:
+        nx, ny = -nx, -ny
+    return nx, ny
+
+
+def _authoring_outline_segments(
+    model: RoomAuthoringModel | None,
+) -> list[tuple[tuple[str, str], list[tuple[tuple[float, float, float], tuple[float, float, float]]]]]:
+    """Selection/highlight outlines for every committed primitive (#976).
+
+    Same shapes the R120 compiler emits — the overlay is a sketch of the
+    committed geometry, never a second geometry format.
+    """
+
+    if model is None:
+        return []
+    out: list[tuple[tuple[str, str], list]] = []
+    room = model.room
+    vertices = room_vertices(room)
+    if model.ceiling is not None:
+        ring = [
+            (
+                (a.x_m, a.y_m, ceiling_height_at(model, a.x_m, a.y_m)),
+                (b.x_m, b.y_m, ceiling_height_at(model, b.x_m, b.y_m)),
+            )
+            for a, b in zip(vertices, (*vertices[1:], vertices[0]))
+        ]
+        out.append((('ceiling', 'ceiling'), ring))
+    for spec in model.soffits:
+        corners = [
+            (spec.min_x_m, spec.min_y_m),
+            (spec.max_x_m, spec.min_y_m),
+            (spec.max_x_m, spec.max_y_m),
+            (spec.min_x_m, spec.max_y_m),
+        ]
+        # Soffits hang below the local (possibly sloped) ceiling plane.
+        bottom = min(
+            ceiling_height_at(model, x, y) for x, y in corners
+        ) - spec.drop_m
+        segments = _rect_ring_segments(corners, bottom) + _vertical_segments(
+            corners,
+            bottom,
+            min(ceiling_height_at(model, x, y) for x, y in corners),
+        )
+        out.append((('soffit', spec.soffit_id), segments))
+    for spec in model.risers:
+        corners = [
+            (spec.min_x_m, spec.min_y_m),
+            (spec.max_x_m, spec.min_y_m),
+            (spec.max_x_m, spec.max_y_m),
+            (spec.min_x_m, spec.max_y_m),
+        ]
+        segments = _rect_ring_segments(corners, spec.height_m) + _vertical_segments(
+            corners, 0.0, spec.height_m
+        )
+        out.append((('riser', spec.riser_id), segments))
+    for spec in model.partial_walls:
+        dx = spec.x2_m - spec.x1_m
+        dy = spec.y2_m - spec.y1_m
+        length = hypot(dx, dy)
+        if length <= 1e-9:
+            continue
+        nx = -dy / length * (spec.thickness_m * 0.5)
+        ny = dx / length * (spec.thickness_m * 0.5)
+        corners = [
+            (spec.x1_m + nx, spec.y1_m + ny),
+            (spec.x2_m + nx, spec.y2_m + ny),
+            (spec.x2_m - nx, spec.y2_m - ny),
+            (spec.x1_m - nx, spec.y1_m - ny),
+        ]
+        top = spec.base_height_m + spec.height_m
+        segments = (
+            _rect_ring_segments(corners, spec.base_height_m)
+            + _rect_ring_segments(corners, top)
+            + _vertical_segments(corners, spec.base_height_m, top)
+        )
+        out.append((('partial_wall', spec.wall_id), segments))
+    for spec in model.adjacent_regions:
+        index = spec.shared_edge_index % len(vertices)
+        a = vertices[index]
+        b = vertices[(index + 1) % len(vertices)]
+        nx, ny = _edge_outward_normal(model, a, b)
+        o1 = (a.x_m + nx * spec.outward_depth_m, a.y_m + ny * spec.outward_depth_m)
+        o2 = (b.x_m + nx * spec.outward_depth_m, b.y_m + ny * spec.outward_depth_m)
+        corners = [(a.x_m, a.y_m), (b.x_m, b.y_m), o2, o1]
+        region_height = spec.ceiling_height_m or room.height_m
+        offset_m, width_m, opening_height_m = spec.opening
+        edge_length = hypot(b.x_m - a.x_m, b.y_m - a.y_m)
+        ux = (b.x_m - a.x_m) / edge_length if edge_length > 1e-9 else 0.0
+        uy = (b.y_m - a.y_m) / edge_length if edge_length > 1e-9 else 0.0
+        p0 = (a.x_m + ux * offset_m, a.y_m + uy * offset_m)
+        p1 = (a.x_m + ux * (offset_m + width_m), a.y_m + uy * (offset_m + width_m))
+        segments = (
+            _rect_ring_segments(corners, 0.0)
+            + _rect_ring_segments(corners, region_height)
+            + _vertical_segments(corners, 0.0, region_height)
+            # portal span on the shared edge — where room and region connect
+            + [
+                ((p0[0], p0[1], 0.0), (p0[0], p0[1], opening_height_m)),
+                ((p1[0], p1[1], 0.0), (p1[0], p1[1], opening_height_m)),
+                ((p0[0], p0[1], opening_height_m), (p1[0], p1[1], opening_height_m)),
+            ]
+        )
+        out.append((('adjacent_region', spec.region_id), segments))
+    return out
 
 
 __all__ = ["RoomGeometryInputController"]

@@ -5454,3 +5454,22 @@ issues:
       backend/fixtures/bras-rs8-01a/ の証跡と再実行手順で確認。
 
       '
+- issue: 976
+  title: 'P0 [3D CAD/機能] 傾斜天井・下がり天井・段床・腰壁・隣接室をRoom UIからセマンティック編集する'
+  notes: 'REV73: SceneDocument.room_authoring (schema>=6、canonical省略→既存hash不変)
+    + 部屋形状パネル「高度な形状」段階開示 (5種類×リスト+数値インスペクタ+
+    preview→commit) + (kind,primitive_id) の3D選択同期 + validate_room_authoring_model
+    fail-closed (geometry_invalid/unsupported) + replace_room系のrebind+
+    room_geometry差分で#964再検証フック。docs/issues/issue-976-semantic-room-authoring.md 参照。
+
+    '
+  checks:
+  - id: semantic-room-authoring
+    kind: pytest
+    tests:
+    - backend/tests/test_issue_976_room_authoring.py
+    - backend/tests/test_cad_room_authoring.py
+    - backend/tests/test_room_cadux.py
+    description: '5種類の追加・保存・再読込・数値修正・undo/redo、R120編成との
+      面/開口/region ID一致、fail-closed検査(原本不変+対象名表示)、
+      選択同期、viewport surface emit、平天井互換(hash不変)。'
