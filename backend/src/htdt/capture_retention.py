@@ -66,12 +66,22 @@ class CaptureStorageInventory:
 
 @dataclass(frozen=True)
 class CaptureRevisionListing:
-    """One persisted capture revision, for retention pickers."""
+    """One persisted capture revision, for retention pickers.
+
+    ``linked_evidence_count``/``linked_payload_bytes`` describe the
+    evidence rows this revision's runs link (shared rows counted once).
+    ``assigned_document_ids`` is the exact project assignment: documents
+    whose scene revisions consume this revision via persisted semantic
+    promotions — empty when no promotion exists (no guessing).
+    """
 
     capture_revision_id: str
     capture_series_id: str
     ingestion_run_count: int
     latest_recorded_at_utc: str
+    linked_evidence_count: int = 0
+    linked_payload_bytes: int = 0
+    assigned_document_ids: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -221,7 +231,14 @@ class CaptureRetentionService:
             )
 
     def list_capture_revisions(self) -> tuple[CaptureRevisionListing, ...]:
-        """Persisted capture revisions, most recent activity first."""
+        """Persisted capture revisions, most recent activity first.
+
+        Besides the run rollup each row carries its distinct linked
+        evidence count/bytes and the exact project assignment — documents
+        reachable through ``capture_semantic_promotions.scene_revision_id``
+        → ``scene_revisions.document_id``. Missing link/promotion tables
+        degrade to zero/empty rather than failing the listing.
+        """
 
         with closing(self._connect()) as connection:
             if not self._has_table(connection, 'capture_ingestion_runs'):
@@ -236,15 +253,103 @@ class CaptureRetentionService:
                 ORDER BY latest DESC, capture_revision_id ASC
                 '''
             ).fetchall()
+            evidence_stats = self._linked_evidence_stats(connection)
+            assignments = self._assigned_document_ids(connection)
         return tuple(
             CaptureRevisionListing(
                 capture_revision_id=str(row['capture_revision_id']),
                 capture_series_id=str(row['capture_series_id']),
                 ingestion_run_count=int(row['run_count']),
                 latest_recorded_at_utc=str(row['latest']),
+                linked_evidence_count=evidence_stats.get(
+                    str(row['capture_revision_id']), (0, 0)
+                )[0],
+                linked_payload_bytes=evidence_stats.get(
+                    str(row['capture_revision_id']), (0, 0)
+                )[1],
+                assigned_document_ids=assignments.get(
+                    str(row['capture_revision_id']), ()
+                ),
             )
             for row in rows
         )
+
+    def _linked_evidence_stats(
+        self, connection: sqlite3.Connection
+    ) -> dict[str, tuple[int, int]]:
+        """revision_id → (distinct linked evidence, summed payload bytes).
+
+        DISTINCT on (revision, evidence) prevents shared rows linked by
+        two runs of the same revision from being double-counted.
+        """
+        if not (
+            self._has_table(connection, 'capture_ingestion_source_links')
+            and self._has_table(connection, 'capture_source_evidence')
+        ):
+            return {}
+        rows = connection.execute(
+            '''
+            SELECT capture_revision_id,
+                   COUNT(*) AS evidence_count,
+                   COALESCE(SUM(byte_count), 0) AS payload_bytes
+            FROM (
+                SELECT DISTINCT r.capture_revision_id AS capture_revision_id,
+                       sl.source_evidence_id AS source_evidence_id,
+                       se.byte_count AS byte_count
+                FROM capture_ingestion_runs r
+                JOIN capture_ingestion_source_links sl
+                  ON sl.ingestion_run_id = r.ingestion_run_id
+                JOIN capture_source_evidence se
+                  ON se.source_evidence_id = sl.source_evidence_id
+            )
+            GROUP BY capture_revision_id
+            '''
+        ).fetchall()
+        return {
+            str(row['capture_revision_id']): (
+                int(row['evidence_count']),
+                int(row['payload_bytes']),
+            )
+            for row in rows
+        }
+
+    def _assigned_document_ids(
+        self, connection: sqlite3.Connection
+    ) -> dict[str, tuple[str, ...]]:
+        """revision_id → documents consuming it via persisted promotions.
+
+        ``capture_semantic_promotions.scene_revision_id`` is a hard
+        foreign key into ``scene_revisions``, so the joined
+        ``document_id`` is the exact project assignment — revisions with
+        no promotion simply have no entry (reported unassigned, never
+        guessed from naming or timestamps).
+        """
+        if not (
+            self._has_table(connection, 'capture_semantic_promotions')
+            and self._has_table(connection, 'scene_revisions')
+        ):
+            return {}
+        rows = connection.execute(
+            '''
+            SELECT DISTINCT r.capture_revision_id AS capture_revision_id,
+                   sr.document_id AS document_id
+            FROM capture_ingestion_runs r
+            JOIN capture_semantic_promotions p
+              ON p.ingestion_run_id = r.ingestion_run_id
+            JOIN scene_revisions sr
+              ON sr.revision_id = p.scene_revision_id
+            ORDER BY capture_revision_id ASC, document_id ASC
+            '''
+        ).fetchall()
+        assignments: dict[str, list[str]] = {}
+        for row in rows:
+            assignments.setdefault(
+                str(row['capture_revision_id']), []
+            ).append(str(row['document_id']))
+        return {
+            revision_id: tuple(document_ids)
+            for revision_id, document_ids in assignments.items()
+        }
 
     # ---- dry-run plan -----------------------------------------------------
 
