@@ -956,8 +956,18 @@ class CamillaDSPCalibrationAdapter:
         command: str,
         argument: Any = None,
     ) -> Any:
-        response = transport.request({command: argument})
-        ok, value = _result_value(response, command)
+        # Transport failures (connection loss, timeout, malformed
+        # envelope) are typed here so every caller — runtime observation
+        # limitations, rollback evidence, read-back — fails closed on
+        # the same contract instead of crashing past its own catch.
+        try:
+            response = transport.request({command: argument})
+            ok, value = _result_value(response, command)
+        except CamillaDSPError:
+            raise
+        except Exception as exc:
+            raise CamillaDSPError(
+                'transport_error', f'{command}: {exc}') from exc
         if not ok:
             raise CamillaDSPError(
                 'device_error', f'{command}: {value!r}')
