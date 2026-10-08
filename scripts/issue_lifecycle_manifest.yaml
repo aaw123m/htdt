@@ -380,3 +380,19 @@ entries:
     description: 許諾確認済みの実配布 .CF1/.CF2 fixture 取得 + メーカー合法 import 路線の ADR 比較 + preflight→admission→directivity の実ファイル end-to-end 検証 (取得不可なら BLOCKED/NO_FIXTURE 記録)
   evidence_refs: [docs/issues/issue-905-clf-payload-families.md]
   close_when_gates_clear: true
+- issue: 879
+  lifecycle: physical_evidence_remaining
+  landed: {prs: [920], commits: []}
+  remaining_gates:
+  - kind: physical
+    description: 実LAN上の実機器での発見→プローブ→バインド検証 — 実ディスカバリバックエンド (mDNS/SSDP) は現状 fail-closed スタブ、構成スキャンは承認スコープ内のみ。フェイクネットワーク全故障モードはソフト検証済み
+  evidence_refs: [docs/issues/issue-879-device-discovery.md]
+  close_when_gates_clear: true
+- issue: 880
+  lifecycle: physical_evidence_remaining
+  landed: {prs: [919], commits: []}
+  remaining_gates:
+  - kind: physical
+    description: owned-Windows での全 DPI マトリクス行の証跡収集 + 人間レビュー項目 (4件) の受入 — ランナーと bundle 権威は実GUI lane でも evidence_captured を確認済み
+  evidence_refs: [docs/issues/issue-880-ux-acceptance-evidence.md]
+  close_when_gates_clear: true
