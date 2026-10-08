@@ -250,10 +250,11 @@ entries:
 
 - issue: 808
   lifecycle: complete
-  landed: {prs: [], commits: []}
-  remaining_gates: []
   # Research synthesis issue — its evidence is the confidence-model
-  # authority stack the research produced (landed via #811/#814).
+  # authority stack the research produced (landed via #811→PR822,
+  # #814→PR830).
+  landed: {prs: [822, 830], commits: []}
+  remaining_gates: []
   evidence_refs: [docs/issues/issue-811-confidence-bound.md, docs/issues/issue-814-confidence-envelope.md]
   close_when_gates_clear: true
 
@@ -266,35 +267,43 @@ entries:
   evidence_refs: [docs/issues/issue-865-lifecycle-evidence.md]
   close_when_gates_clear: true
 - issue: 866
-  lifecycle: acceptance_remaining
+  lifecycle: structural_followup_remaining
   landed: {prs: [894], commits: []}
   remaining_gates:
+  - kind: structural
+    description: ソフトウェア残 — 実 IFC/GLB ソース取込による source_refs 生成、および GeometryIntakePanel の Room ワークスペースへの配線 (コントローラはリポジトリ+決定永続化を担う) が未実装
   - kind: manual
-    description: オペレータ受入 — ジオメトリ取込パネルの実運用確認
+    description: オペレータ受入 — ジオメトリ取込パネルの実運用確認 + VTK ハイライト描画の実機検証
   evidence_refs: [docs/issues/issue-866-geometry-intake.md]
   close_when_gates_clear: true
 - issue: 868
-  lifecycle: physical_evidence_remaining
+  lifecycle: structural_followup_remaining
   landed: {prs: [896], commits: []}
   remaining_gates:
+  - kind: structural
+    description: ソフトウェア残 — commissioning_panel は読み取り専用 (refresh のみ)。advance/authorize/deploy/readback/rollback を駆動するオペレータ承認付きユーザーコマンドパスが未配線 (パネル自体はデバイスを変更しない; #886/#878 が UI 部品を担い得る)
   - kind: physical
     description: 実機DSP (CamillaDSP等) での閉ループ調整エンドツーエンド検証
   evidence_refs: [docs/issues/issue-868-commissioning-orchestrator.md]
   close_when_gates_clear: true
 - issue: 869
-  lifecycle: physical_evidence_remaining
+  lifecycle: structural_followup_remaining
   landed: {prs: [895], commits: []}
   remaining_gates:
+  - kind: structural
+    description: ソフトウェア残 — WasapiAudioBackend が未実装スタブ (available()=False、open_stream が BackendUnavailableError)。実デバイス同時再生/録音ドライバはまだ存在しない
   - kind: physical
-    description: 実機オーディオ (WASAPI) でのスイープ測定検証 — 現状バックエンドは fail-closed スタブ
+    description: 実機オーディオ (WASAPI) でのスイープ測定検証 — バックエンド実装後に実施
   evidence_refs: [docs/issues/issue-869-native-sweep.md]
   close_when_gates_clear: true
 - issue: 876
-  lifecycle: physical_evidence_remaining
+  lifecycle: structural_followup_remaining
   landed: {prs: [898], commits: []}
   remaining_gates:
+  - kind: structural
+    description: ソフトウェア残 — WASAPI バックエンド未実装 (#869 と同一ブロッカー) のため実チャンネル励起は simulated/scripted のみ
   - kind: physical
-    description: 実機オーディオでチャンネル励起検証を実行 — WASAPI バックエンド非対応のため現状は simulated/scripted のみ
+    description: 実機オーディオでチャンネル励起検証を実行
   evidence_refs: [docs/issues/issue-876-channel-verification.md]
   close_when_gates_clear: true
 - issue: 867
@@ -306,33 +315,39 @@ entries:
   evidence_refs: [docs/issues/issue-867-performance-budget.md, scripts/perf_budgets.yaml]
   close_when_gates_clear: true
 - issue: 877
-  lifecycle: physical_evidence_remaining
+  lifecycle: structural_followup_remaining
   landed: {prs: [904], commits: []}
   remaining_gates:
+  - kind: structural
+    description: ソフトウェア残 — WASAPI バックエンド未実装 (#869 と同一ブロッカー) のため実校正器でのガイド実行は不可
   - kind: physical
-    description: 実機オーディオ (WASAPI) + 実校正器でのガイド実行検証 — 現状バックエンドは fail-closed スタブ
+    description: 実機オーディオ (WASAPI) + 実校正器でのガイド実行検証
   evidence_refs: [docs/issues/issue-877-guided-calibration.md]
   close_when_gates_clear: true
 - issue: 884
-  lifecycle: landed
+  lifecycle: complete
   landed: {prs: [907], commits: []}
   remaining_gates: []
   evidence_refs: [docs/issues/issue-884-support-bundle.md]
   close_when_gates_clear: true
 - issue: 886
-  lifecycle: landed
+  lifecycle: structural_followup_remaining
   landed: {prs: [909], commits: []}
   remaining_gates:
+  - kind: structural
+    description: ソフトウェア残 — readiness ステージの完了には実デバイスI/Oが必要。WASAPI バックエンド未実装 (#869 の structural ゲートと同一ブロッカー) のため現状 blocked 表示が正しい状態
   - kind: physical
-    description: 実機デバイスI/O(WASAPI実装後)で readiness ステージが完了に進むことを対面受入で確認 — 現ビルドは fail-closed スタブのため readiness は blocked 表示が正しい状態
+    description: 実機デバイスI/O(WASAPI実装後)で readiness ステージが完了に進むことを対面受入で確認
   evidence_refs: [docs/issues/issue-886-first-run-wizard.md]
   close_when_gates_clear: true
 - issue: 875
-  lifecycle: physical_evidence_remaining
+  lifecycle: structural_followup_remaining
   landed: {prs: [908], commits: []}
   remaining_gates:
+  - kind: structural
+    description: ソフトウェア残 — キャンペーン実行は実測定ポジション励起に実オーディオバックエンドを要する。WASAPI バックエンド未実装 (#869 と同一ブロッカー)
   - kind: physical
-    description: 実機オーディオ + 実測定ポジションでのキャンペーン実行検証 — #869 エンジン実機バックエンドと同一ゲート (現状 fail-closed スタブ)
+    description: 実機オーディオ + 実測定ポジションでのキャンペーン実行検証
   evidence_refs: [docs/issues/issue-875-campaign-execution.md]
   close_when_gates_clear: true
 - issue: 883
