@@ -494,8 +494,7 @@ entries:
     commits: []
   remaining_gates:
   - kind: physical
-    description: 実LAN上の実機器での発見→プローブ→バインド検証 — mDNS/SSDP 実バックエンドは #949 で実装済み
-      (#949 検証手順参照)、構成スキャンは承認スコープ内のみ。フェイクネットワーク全故障モードはソフト検証済み
+    description: 実LAN上の実機器での発見→プローブ→バインド検証 — mDNS/SSDP 実バックエンドは #949 で実装済み (#949 の検証手順を参照)、構成スキャンは承認スコープ内のみ。フェイクネットワーク全故障モードはソフト検証済み
   evidence_refs:
   - docs/issues/issue-879-device-discovery.md
   close_when_gates_clear: true
@@ -697,4 +696,16 @@ entries:
     - scripts/run_external_benchmark_fixture.py
     - docs/issues/issue-948-bras-external-measurement-harness.md
     - backend/fixtures/bras-rs8-01a/evidence.json
+  close_when_gates_clear: true
+- issue: 949
+  lifecycle: physical_evidence_remaining
+  landed:
+    prs: []
+    commits: [ef2f1370b4ed16ebd724916519fbcf048669678f]
+  remaining_gates:
+  - kind: physical
+    description: 実LAN検証手順は docs/issues/issue-949-lan-discovery.md に追加済み — 実機証跡 (実機器からの発見/プローブ/バインド、Windows firewall 挙動) は #879 の物理ゲートで管理
+  evidence_refs:
+  - docs/issues/issue-949-lan-discovery.md
+  - backend/tests/test_issue_949_lan_discovery.py
   close_when_gates_clear: true
