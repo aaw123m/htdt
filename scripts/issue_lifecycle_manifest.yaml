@@ -907,3 +907,29 @@ entries:
   - backend/tests/test_issue_1019_capture_watch_links.py
   - backend/src/htdt/staged_capture_drop.py
   close_when_gates_clear: true
+
+- issue: 1017
+  lifecycle: acceptance_remaining
+  landed:
+    prs: [1053]
+    commits: [b0813c75]
+  remaining_gates:
+  - kind: manual
+    description: 'オペレータ受入 — 任意期間・さらに読み込む cursor・出来事の詳細 inspector の実機確認 (子が実GUI 141イベント/61リビジョンで検証済、activity_focus の深堀りリンクは単体テストのみ)'
+  evidence_refs:
+  - docs/issues/issue-1017-activity-history.md
+  - backend/tests/test_issue_1017_activity_history.py
+  close_when_gates_clear: true
+
+- issue: 1025
+  lifecycle: acceptance_remaining
+  landed:
+    prs: [1054]
+    commits: [1011ad37]
+  remaining_gates:
+  - kind: manual
+    description: 'オペレータ受入 — 実データ規模での検索/グループ/選択ピン留めの実機確認 (子が実GUI 11/11・実 purge 含め検証済)'
+  evidence_refs:
+  - docs/issues/issue-1025-retention-search.md
+  - backend/tests/test_issue_1025_retention_search.py
+  close_when_gates_clear: true
