@@ -1,470 +1,628 @@
-# Issue #848 — canonical evidence-aware issue lifecycle metadata.
-#
-# GitHub open/closed is binary; HTDT's completion model is not. This
-# manifest records, per tracked issue: what has landed (exact PR/commit
-# refs), what gate kinds remain, and the canonical lifecycle state that
-# `scripts/issue_lifecycle.py` classifies and drift-checks.
-#
-# lifecycle values:
-#   planned                        — scoped, no implementation started
-#   in_progress                    — implementation underway
-#   software_landed                — implementation merged; no gate declared
-#   acceptance_remaining           — landed; automated/manual acceptance red
-#   physical_evidence_remaining    — landed; physical/owned-room evidence missing
-#   structural_followup_remaining  — landed; restructuring/follow-up issues remain
-#   complete                       — every declared gate cleared; safe to close
-#   withdrawn                      — closed as wontfix/duplicate
-#   superseded                     — replaced by a newer issue (record `superseded_by`)
-#
-# Rules enforced by the checker (never inferred from software tests):
-#   - landed states require at least one landed.prs/commits ref
-#   - `complete` requires remaining_gates == []
-#   - GitHub-closed issues must not carry an active lifecycle
-#   - entries in issue_verification_manifest.yaml without a lifecycle
-#     record are reported as `unclassified` — never silently assumed.
 version: 1
-
 entries:
 - issue: 789
   lifecycle: acceptance_remaining
-  landed: {prs: [827], commits: []}
+  landed:
+    prs:
+    - 827
+    commits: []
   remaining_gates:
   - kind: manual
     description: ドメイン受理 — サージ/雷過渡保護エビデンス権威の維持者レビュー
-  evidence_refs: [docs/issues/issue-789-transient-protection.md]
+  evidence_refs:
+  - docs/issues/issue-789-transient-protection.md
   close_when_gates_clear: true
-
 - issue: 790
   lifecycle: acceptance_remaining
-  landed: {prs: [816], commits: []}
+  landed:
+    prs:
+    - 816
+    commits: []
   remaining_gates:
   - kind: manual
     description: ドメイン受理 — 再生系電気伝送権威の維持者レビュー
-  evidence_refs: [docs/issues/issue-790-electronics.md]
+  evidence_refs:
+  - docs/issues/issue-790-electronics.md
   close_when_gates_clear: true
-
 - issue: 791
   lifecycle: acceptance_remaining
-  landed: {prs: [828], commits: []}
+  landed:
+    prs:
+    - 828
+    commits: []
   remaining_gates:
   - kind: manual
     description: ドメイン受理 — 運用エネルギー権威の維持者レビュー
-  evidence_refs: [docs/issues/issue-791-operational-energy.md]
+  evidence_refs:
+  - docs/issues/issue-791-operational-energy.md
   close_when_gates_clear: true
-
 - issue: 792
   lifecycle: acceptance_remaining
-  landed: {prs: [818], commits: []}
+  landed:
+    prs:
+    - 818
+    commits: []
   remaining_gates:
   - kind: manual
     description: ドメイン受理 — ライフサイクル/サポート性権威の維持者レビュー
-  evidence_refs: [docs/issues/issue-792-lifecycle.md]
+  evidence_refs:
+  - docs/issues/issue-792-lifecycle.md
   close_when_gates_clear: true
-
 - issue: 793
   lifecycle: acceptance_remaining
-  landed: {prs: [820], commits: []}
+  landed:
+    prs:
+    - 820
+    commits: []
   remaining_gates:
   - kind: manual
     description: ドメイン受理 — ライブ観測権威の維持者レビュー
-  evidence_refs: [docs/issues/issue-793-live-spectrum.md]
+  evidence_refs:
+  - docs/issues/issue-793-live-spectrum.md
   close_when_gates_clear: true
-
 - issue: 801
   lifecycle: physical_evidence_remaining
-  landed: {prs: [834], commits: []}
+  landed:
+    prs:
+    - 834
+    commits: []
   remaining_gates:
   - kind: physical
     description: 所有ルーム検証キャンペーン実測（#813 権威配線済み）
   - kind: manual
     description: 初回本番採用判定（verify_surface_decision のリプレイ証跡で判定）
-  evidence_refs: [docs/issues/issue-801-production-readiness.md]
+  evidence_refs:
+  - docs/issues/issue-801-production-readiness.md
   close_when_gates_clear: true
-
 - issue: 803
   lifecycle: complete
-  landed: {prs: [824], commits: []}
+  landed:
+    prs:
+    - 824
+    commits: []
   remaining_gates: []
-  evidence_refs: [docs/issues/issue-803-traceability.md]
+  evidence_refs:
+  - docs/issues/issue-803-traceability.md
   close_when_gates_clear: true
-
 - issue: 804
   lifecycle: acceptance_remaining
-  landed: {prs: [821, 846, 851], commits: []}
+  landed:
+    prs:
+    - 821
+    - 846
+    - 851
+    commits: []
   remaining_gates:
   - kind: manual
     description: UX160 実機受理行（実ポインタ/VTKジェスチャ + 日本語可読性の目視評価）
-  evidence_refs: [docs/issues/issue-804-golden-path.md]
+  evidence_refs:
+  - docs/issues/issue-804-golden-path.md
   close_when_gates_clear: true
-
 - issue: 805
   lifecycle: structural_followup_remaining
-  landed: {prs: [835], commits: []}
+  landed:
+    prs:
+    - 835
+    commits: []
   remaining_gates:
   - kind: structural
     description: 標準カバレッジ拡張の残件（#839 ソースマトリクスで追跡）
-  evidence_refs: [docs/issues/issue-805-standards-coverage.md]
+  evidence_refs:
+  - docs/issues/issue-805-standards-coverage.md
   close_when_gates_clear: true
-
 - issue: 806
   lifecycle: structural_followup_remaining
-  landed: {prs: [819], commits: []}
+  landed:
+    prs:
+    - 819
+    commits: []
   remaining_gates:
   - kind: structural
     description: プロバイダアダプタ実装（#838 REW/CamillaDSP/miniDSP で追跡）
-  evidence_refs: [docs/issues/issue-806-deployment.md]
+  evidence_refs:
+  - docs/issues/issue-806-deployment.md
   close_when_gates_clear: true
-
 - issue: 807
   lifecycle: structural_followup_remaining
-  landed: {prs: [825], commits: []}
+  landed:
+    prs:
+    - 825
+    commits: []
   remaining_gates:
   - kind: structural
     description: 監査済みパッケージ境界への実リファクタ（継続作業）
-  evidence_refs: [docs/issues/issue-807-package-boundaries.md]
+  evidence_refs:
+  - docs/issues/issue-807-package-boundaries.md
   close_when_gates_clear: true
-
 - issue: 809
   lifecycle: structural_followup_remaining
-  landed: {prs: [823], commits: []}
+  landed:
+    prs:
+    - 823
+    commits: []
   remaining_gates:
   - kind: structural
     description: BRAS v3/RS8 データセット取込 + 修飾実行（#836 Action 2–6 で追跡）
-  evidence_refs: [docs/issues/issue-809-benchmark-qualification.md]
+  evidence_refs:
+  - docs/issues/issue-809-benchmark-qualification.md
   close_when_gates_clear: true
-
 - issue: 810
   lifecycle: acceptance_remaining
-  landed: {prs: [826], commits: []}
+  landed:
+    prs:
+    - 826
+    commits: []
   remaining_gates:
   - kind: manual
     description: ドメイン受理 — 不確かさ対応検証権威の維持者レビュー
-  evidence_refs: [docs/issues/issue-810-uncertainty.md]
+  evidence_refs:
+  - docs/issues/issue-810-uncertainty.md
   close_when_gates_clear: true
-
 - issue: 811
   lifecycle: acceptance_remaining
-  landed: {prs: [822], commits: []}
+  landed:
+    prs:
+    - 822
+    commits: []
   remaining_gates:
   - kind: manual
     description: ドメイン受理 — 入力権威信頼度上限の維持者レビュー
-  evidence_refs: [docs/issues/issue-811-confidence-bound.md]
+  evidence_refs:
+  - docs/issues/issue-811-confidence-bound.md
   close_when_gates_clear: true
-
 - issue: 812
   lifecycle: acceptance_remaining
-  landed: {prs: [840], commits: []}
+  landed:
+    prs:
+    - 840
+    commits: []
   remaining_gates:
   - kind: manual
     description: ドメイン受理 — R160 ハイブリッド独立検証権威の維持者レビュー
-  evidence_refs: [docs/issues/issue-812-hybrid-composition.md]
+  evidence_refs:
+  - docs/issues/issue-812-hybrid-composition.md
   close_when_gates_clear: true
-
 - issue: 813
   lifecycle: physical_evidence_remaining
-  landed: {prs: [831], commits: []}
+  landed:
+    prs:
+    - 831
+    commits: []
   remaining_gates:
   - kind: physical
     description: 所有ルーム holdout キャンペーン実測（権威+評価ラダー着地済み、実測のみ残）
-  evidence_refs: [docs/issues/issue-813-owned-room-campaign.md]
+  evidence_refs:
+  - docs/issues/issue-813-owned-room-campaign.md
   close_when_gates_clear: true
-
 - issue: 814
   lifecycle: acceptance_remaining
-  landed: {prs: [830], commits: []}
+  landed:
+    prs:
+    - 830
+    commits: []
   remaining_gates:
   - kind: manual
     description: ドメイン受理 — 信頼度/適用性エンベロープ面の維持者レビュー
-  evidence_refs: [docs/issues/issue-814-confidence-envelope.md]
+  evidence_refs:
+  - docs/issues/issue-814-confidence-envelope.md
   close_when_gates_clear: true
-
 - issue: 815
   lifecycle: acceptance_remaining
-  landed: {prs: [829], commits: []}
+  landed:
+    prs:
+    - 829
+    commits: []
   remaining_gates:
   - kind: manual
     description: ドメイン受理 — 型付きエラー境界の維持者レビュー（残 broad-except 監査）
-  evidence_refs: [docs/issues/issue-815-error-boundaries.md]
+  evidence_refs:
+  - docs/issues/issue-815-error-boundaries.md
   close_when_gates_clear: true
-
 - issue: 832
   lifecycle: in_progress
-  landed: {prs: [], commits: []}
+  landed:
+    prs: []
+    commits: []
   remaining_gates:
   - kind: manual
     description: 収束ゲート運用 — 列挙ブロッカーのソフトウェア面は全着地、#804/#801 の手動ゲート残
   evidence_refs: []
   close_when_gates_clear: true
-
 - issue: 833
   lifecycle: complete
-  landed: {prs: [842], commits: []}
+  landed:
+    prs:
+    - 842
+    commits: []
   remaining_gates: []
-  evidence_refs: [docs/issues/issue-833-release-verification-gate.md]
+  evidence_refs:
+  - docs/issues/issue-833-release-verification-gate.md
   close_when_gates_clear: true
-
 - issue: 836
   lifecycle: structural_followup_remaining
-  landed: {prs: [843], commits: []}
+  landed:
+    prs:
+    - 843
+    commits: []
   remaining_gates:
   - kind: structural
     description: 'Action 2–6: BRAS importer・メトリクス・修飾実行（コーパス権威着地済み）'
-  evidence_refs: [docs/issues/issue-836-external-corpus-manifest.md]
+  evidence_refs:
+  - docs/issues/issue-836-external-corpus-manifest.md
   close_when_gates_clear: true
-
 - issue: 838
   lifecycle: acceptance_remaining
-  landed: {prs: [857, 858], commits: []}
+  landed:
+    prs:
+    - 857
+    - 858
+    commits: []
   remaining_gates:
   - kind: physical
     description: 実機受理 — 実 REW/CamillaDSP/Equalizer APO 機器でのプロバイダ導出・読み戻し・ロールバックの検証
-  evidence_refs: [docs/issues/issue-838-rew-provider.md, docs/issues/issue-838-camilladsp-minidsp.md]
+  evidence_refs:
+  - docs/issues/issue-838-rew-provider.md
+  - docs/issues/issue-838-camilladsp-minidsp.md
   close_when_gates_clear: true
-
 - issue: 839
   lifecycle: acceptance_remaining
-  landed: {prs: [854], commits: []}
+  landed:
+    prs:
+    - 854
+    commits: []
   remaining_gates:
   - kind: manual
     description: ドメイン受理 — ソースマトリクスの版/範囲・出所状態判断（DTS:X UNKNOWN、AVIXA A103 出所不一致保存等）の維持者レビュー
-  evidence_refs: [docs/issues/issue-839-source-matrix.md]
+  evidence_refs:
+  - docs/issues/issue-839-source-matrix.md
   close_when_gates_clear: true
-
 - issue: 848
   lifecycle: acceptance_remaining
-  landed: {prs: [851], commits: []}
+  landed:
+    prs:
+    - 851
+    commits: []
   remaining_gates:
   - kind: manual
     description: 継続運用 — 着地PR/ゲート解消に応じた本マニフェストの保守
-  evidence_refs: [docs/issues/issue-848-lifecycle.md]
+  evidence_refs:
+  - docs/issues/issue-848-lifecycle.md
   close_when_gates_clear: true
-
 - issue: 849
   lifecycle: acceptance_remaining
-  landed: {prs: [852], commits: []}
+  landed:
+    prs:
+    - 852
+    commits: []
   remaining_gates:
   - kind: manual
     description: HTDT_CODESIGN_* org secret 設定 + 実署名リリース実施
-  evidence_refs: [docs/issues/issue-849-release-signing.md]
+  evidence_refs:
+  - docs/issues/issue-849-release-signing.md
   close_when_gates_clear: true
-
 - issue: 808
   lifecycle: complete
-  # Research synthesis issue — its evidence is the confidence-model
-  # authority stack the research produced (landed via #811→PR822,
-  # #814→PR830).
-  landed: {prs: [822, 830], commits: []}
+  landed:
+    prs:
+    - 822
+    - 830
+    commits: []
   remaining_gates: []
-  evidence_refs: [docs/issues/issue-811-confidence-bound.md, docs/issues/issue-814-confidence-envelope.md]
+  evidence_refs:
+  - docs/issues/issue-811-confidence-bound.md
+  - docs/issues/issue-814-confidence-envelope.md
   close_when_gates_clear: true
-
 - issue: 865
   lifecycle: acceptance_remaining
-  landed: {prs: [881], commits: []}
+  landed:
+    prs:
+    - 881
+    commits: []
   remaining_gates:
   - kind: manual
     description: 継続運用 — evidence_ref 解決検査の保守（fail-closed、release ゲート統合済み）
-  evidence_refs: [docs/issues/issue-865-lifecycle-evidence.md]
+  evidence_refs:
+  - docs/issues/issue-865-lifecycle-evidence.md
   close_when_gates_clear: true
 - issue: 866
   lifecycle: structural_followup_remaining
-  landed: {prs: [894], commits: []}
+  landed:
+    prs:
+    - 894
+    commits: []
   remaining_gates:
   - kind: structural
-    description: ソフトウェア残 — 実 IFC/GLB ソース取込による source_refs 生成、および GeometryIntakePanel の Room ワークスペースへの配線 (コントローラはリポジトリ+決定永続化を担う) が未実装
+    description: ソフトウェア残 — 実 IFC/GLB ソース取込による source_refs 生成、および GeometryIntakePanel
+      の Room ワークスペースへの配線 (コントローラはリポジトリ+決定永続化を担う) が未実装
   - kind: manual
     description: オペレータ受入 — ジオメトリ取込パネルの実運用確認 + VTK ハイライト描画の実機検証
-  evidence_refs: [docs/issues/issue-866-geometry-intake.md]
+  evidence_refs:
+  - docs/issues/issue-866-geometry-intake.md
   close_when_gates_clear: true
 - issue: 868
   lifecycle: structural_followup_remaining
-  landed: {prs: [896], commits: []}
+  landed:
+    prs:
+    - 896
+    commits: []
   remaining_gates:
   - kind: structural
-    description: ソフトウェア残 — commissioning_panel は読み取り専用 (refresh のみ)。advance/authorize/deploy/readback/rollback を駆動するオペレータ承認付きユーザーコマンドパスが未配線 (パネル自体はデバイスを変更しない; #886/#878 が UI 部品を担い得る)
+    description: ソフトウェア残 — commissioning_panel は読み取り専用 (refresh のみ)。advance/authorize/deploy/readback/rollback
+      を駆動するオペレータ承認付きユーザーコマンドパスが未配線 (パネル自体はデバイスを変更しない;
   - kind: physical
     description: 実機DSP (CamillaDSP等) での閉ループ調整エンドツーエンド検証
-  evidence_refs: [docs/issues/issue-868-commissioning-orchestrator.md]
+  evidence_refs:
+  - docs/issues/issue-868-commissioning-orchestrator.md
   close_when_gates_clear: true
 - issue: 869
   lifecycle: structural_followup_remaining
-  landed: {prs: [895], commits: []}
-  remaining_gates:
-  - kind: structural
-    description: ソフトウェア残 — WasapiAudioBackend が未実装スタブ (available()=False、open_stream が BackendUnavailableError)。実デバイス同時再生/録音ドライバはまだ存在しない
-  - kind: physical
-    description: 実機オーディオ (WASAPI) でのスイープ測定検証 — バックエンド実装後に実施
-  evidence_refs: [docs/issues/issue-869-native-sweep.md]
+  landed:
+    prs:
+    - 895
+    - 943
+    commits: []
+  remaining_gates: []
+  evidence_refs:
+  - docs/issues/issue-869-native-sweep.md
+  - docs/issues/issue-869-wasapi-backend.md
   close_when_gates_clear: true
 - issue: 876
   lifecycle: structural_followup_remaining
-  landed: {prs: [898], commits: []}
+  landed:
+    prs:
+    - 898
+    commits: []
   remaining_gates:
-  - kind: structural
-    description: ソフトウェア残 — WASAPI バックエンド未実装 (#869 と同一ブロッカー) のため実チャンネル励起は simulated/scripted のみ
   - kind: physical
     description: 実機オーディオでチャンネル励起検証を実行
-  evidence_refs: [docs/issues/issue-876-channel-verification.md]
+  evidence_refs:
+  - docs/issues/issue-876-channel-verification.md
   close_when_gates_clear: true
 - issue: 867
   lifecycle: physical_evidence_remaining
-  landed: {prs: [901], commits: []}
+  landed:
+    prs:
+    - 901
+    commits: []
   remaining_gates:
   - kind: physical
-    description: 参照マシンでの viewport_3d_interaction owned-machine プロトコル実行 + 各所有マシンのベースライン採取 — 決定的ベンチマーク自体はゲート統合済み
-  evidence_refs: [docs/issues/issue-867-performance-budget.md, scripts/perf_budgets.yaml]
+    description: 参照マシンでの viewport_3d_interaction owned-machine プロトコル実行 + 各所有マシンのベースライン採取
+      — 決定的ベンチマーク自体はゲート統合済み
+  evidence_refs:
+  - docs/issues/issue-867-performance-budget.md
+  - scripts/perf_budgets.yaml
   close_when_gates_clear: true
 - issue: 877
   lifecycle: structural_followup_remaining
-  landed: {prs: [904], commits: []}
-  remaining_gates:
-  - kind: structural
-    description: ソフトウェア残 — WASAPI バックエンド未実装 (#869 と同一ブロッカー) のため実校正器でのガイド実行は不可
-  - kind: physical
-    description: 実機オーディオ (WASAPI) + 実校正器でのガイド実行検証
-  evidence_refs: [docs/issues/issue-877-guided-calibration.md]
+  landed:
+    prs:
+    - 904
+    commits: []
+  remaining_gates: []
+  evidence_refs:
+  - docs/issues/issue-877-guided-calibration.md
   close_when_gates_clear: true
 - issue: 884
   lifecycle: complete
-  landed: {prs: [907], commits: []}
+  landed:
+    prs:
+    - 907
+    commits: []
   remaining_gates: []
-  evidence_refs: [docs/issues/issue-884-support-bundle.md]
+  evidence_refs:
+  - docs/issues/issue-884-support-bundle.md
   close_when_gates_clear: true
 - issue: 886
   lifecycle: structural_followup_remaining
-  landed: {prs: [909], commits: []}
-  remaining_gates:
-  - kind: structural
-    description: ソフトウェア残 — readiness ステージの完了には実デバイスI/Oが必要。WASAPI バックエンド未実装 (#869 の structural ゲートと同一ブロッカー) のため現状 blocked 表示が正しい状態
-  - kind: physical
-    description: 実機デバイスI/O(WASAPI実装後)で readiness ステージが完了に進むことを対面受入で確認
-  evidence_refs: [docs/issues/issue-886-first-run-wizard.md]
+  landed:
+    prs:
+    - 909
+    commits: []
+  remaining_gates: []
+  evidence_refs:
+  - docs/issues/issue-886-first-run-wizard.md
   close_when_gates_clear: true
 - issue: 875
   lifecycle: structural_followup_remaining
-  landed: {prs: [908], commits: []}
+  landed:
+    prs:
+    - 908
+    commits: []
   remaining_gates:
-  - kind: structural
-    description: ソフトウェア残 — キャンペーン実行は実測定ポジション励起に実オーディオバックエンドを要する。WASAPI バックエンド未実装 (#869 と同一ブロッカー)
   - kind: physical
     description: 実機オーディオ + 実測定ポジションでのキャンペーン実行検証
-  evidence_refs: [docs/issues/issue-875-campaign-execution.md]
+  evidence_refs:
+  - docs/issues/issue-875-campaign-execution.md
   close_when_gates_clear: true
 - issue: 883
   lifecycle: acceptance_remaining
-  landed: {prs: [906], commits: []}
+  landed:
+    prs:
+    - 906
+    commits: []
   remaining_gates:
   - kind: manual
     description: 実機受入 — 実プロセス kill / OS 異常終了後の復旧ダイアログで未保存作業が復元できること
-  evidence_refs: [docs/issues/issue-883-session-recovery.md]
+  evidence_refs:
+  - docs/issues/issue-883-session-recovery.md
   close_when_gates_clear: true
 - issue: 899
   lifecycle: complete
-  landed: {prs: [911], commits: []}
+  landed:
+    prs:
+    - 911
+    commits: []
   remaining_gates: []
-  evidence_refs: [docs/issues/issue-899-lifecycle-drift.md]
+  evidence_refs:
+  - docs/issues/issue-899-lifecycle-drift.md
   close_when_gates_clear: true
 - issue: 878
   lifecycle: physical_evidence_remaining
-  landed: {prs: [910], commits: []}
+  landed:
+    prs:
+    - 910
+    commits: []
   remaining_gates:
   - kind: physical
-    description: 実機 DSP/AVR (CamillaDSP/AVR LAN/miniDSP/EAPO) での capability-negotiated デプロイ検証 — simulated/assisted 経路以外の machine-readback 強度は実デバイスで確認
-  evidence_refs: [docs/issues/issue-878-deployment-paths.md]
+    description: 実機 DSP/AVR (CamillaDSP/AVR LAN/miniDSP/EAPO) での capability-negotiated
+      デプロイ検証 — simulated/assisted 経路以外の machine-readback 強度は実デバイスで確認
+  evidence_refs:
+  - docs/issues/issue-878-deployment-paths.md
   close_when_gates_clear: true
 - issue: 905
   lifecycle: acceptance_remaining
-  landed: {prs: [913], commits: []}
+  landed:
+    prs:
+    - 913
+    commits: []
   remaining_gates:
   - kind: manual
-    description: 許諾確認済みの実配布 .CF1/.CF2 fixture 取得 + メーカー合法 import 路線の ADR 比較 + preflight→admission→directivity の実ファイル end-to-end 検証 (取得不可なら BLOCKED/NO_FIXTURE 記録)
-  evidence_refs: [docs/issues/issue-905-clf-payload-families.md]
+    description: 許諾確認済みの実配布 .CF1/.CF2 fixture 取得 + メーカー合法 import 路線の ADR 比較 + preflight→admission→directivity
+      の実ファイル end-to-end 検証 (取得不可なら BLOCKED/NO_FIXTURE 記録)
+  evidence_refs:
+  - docs/issues/issue-905-clf-payload-families.md
   close_when_gates_clear: true
 - issue: 879
   lifecycle: physical_evidence_remaining
-  landed: {prs: [920], commits: []}
+  landed:
+    prs:
+    - 920
+    commits: []
   remaining_gates:
   - kind: physical
-    description: 実LAN上の実機器での発見→プローブ→バインド検証 — 実ディスカバリバックエンド (mDNS/SSDP) は現状 fail-closed スタブ、構成スキャンは承認スコープ内のみ。フェイクネットワーク全故障モードはソフト検証済み
-  evidence_refs: [docs/issues/issue-879-device-discovery.md]
+    description: 実LAN上の実機器での発見→プローブ→バインド検証 — 実ディスカバリバックエンド (mDNS/SSDP) は現状 fail-closed
+      スタブ、構成スキャンは承認スコープ内のみ。フェイクネットワーク全故障モードはソフト検証済み
+  evidence_refs:
+  - docs/issues/issue-879-device-discovery.md
   close_when_gates_clear: true
 - issue: 880
   lifecycle: physical_evidence_remaining
-  landed: {prs: [919], commits: []}
+  landed:
+    prs:
+    - 919
+    commits: []
   remaining_gates:
   - kind: physical
-    description: owned-Windows での全 DPI マトリクス行の証跡収集 + 人間レビュー項目 (4件) の受入 — ランナーと bundle 権威は実GUI lane でも evidence_captured を確認済み
-  evidence_refs: [docs/issues/issue-880-ux-acceptance-evidence.md]
+    description: owned-Windows での全 DPI マトリクス行の証跡収集 + 人間レビュー項目 (4件) の受入 — ランナーと bundle
+      権威は実GUI lane でも evidence_captured を確認済み
+  evidence_refs:
+  - docs/issues/issue-880-ux-acceptance-evidence.md
   close_when_gates_clear: true
 - issue: 885
   lifecycle: physical_evidence_remaining
-  landed: {prs: [923], commits: []}
+  landed:
+    prs:
+    - 923
+    commits: []
   remaining_gates:
   - kind: physical
-    description: 実機器・実測定経路での診断オーケストレータ walk-through (swrun-/cvvd- の実証跡を用いた仮説→識別テスト→解消の e2e) — 証跡ピンと one-shot 認可・安全制約は構造検証済み
-  evidence_refs: [docs/issues/issue-885-diagnostic-orchestrator.md]
+    description: 実機器・実測定経路での診断オーケストレータ walk-through (swrun-/cvvd- の実証跡を用いた仮説→識別テスト→解消の
+      e2e) — 証跡ピンと one-shot 認可・安全制約は構造検証済み
+  evidence_refs:
+  - docs/issues/issue-885-diagnostic-orchestrator.md
   close_when_gates_clear: true
 - issue: 890
   lifecycle: acceptance_remaining
-  landed: {prs: [924], commits: []}
+  landed:
+    prs:
+    - 924
+    commits: []
   remaining_gates:
   - kind: manual
-    description: 実 Windows マシンでのアカウント切替・再イメージ後の DPAPI 解読不可挙動確認 + オペレータの credential 管理 UI 経路の受入 (現状 API のみ — UI パネルは今後)
-  evidence_refs: [docs/issues/issue-890-credential-vault.md]
+    description: 実 Windows マシンでのアカウント切替・再イメージ後の DPAPI 解読不可挙動確認 + オペレータの credential
+      管理 UI 経路の受入 (現状 API のみ — UI パネルは今後)
+  evidence_refs:
+  - docs/issues/issue-890-credential-vault.md
   close_when_gates_clear: true
 - issue: 888
   lifecycle: acceptance_remaining
-  landed: {prs: [927], commits: []}
+  landed:
+    prs:
+    - 927
+    commits: []
   remaining_gates:
   - kind: manual
-    description: 実測定経路での htdt CLI 動作受入 (wasapi バックエンドは fail-closed スタブ — fake バックエンド経路・exit lattice・封緘実行レコードは構造検証済み)
-  evidence_refs: [docs/issues/issue-888-headless-cli.md]
+    description: 実測定経路での htdt CLI 動作受入 (wasapi バックエンドは fail-closed スタブ — fake バックエンド経路・exit
+      lattice・封緘実行レコードは構造検証済み)
+  evidence_refs:
+  - docs/issues/issue-888-headless-cli.md
   close_when_gates_clear: true
 - issue: 887
   lifecycle: physical_evidence_remaining
-  landed: {prs: [926], commits: []}
+  landed:
+    prs:
+    - 926
+    commits: []
   remaining_gates:
   - kind: physical
-    description: 実プロバイダ (REW/CamillaDSP/miniDSP/AVR) に対する適合スイート実行 — in-repo sweep は全て conforming_with_limitations (simulated transport は protocol conformance を主張しない) で着地済み
-  evidence_refs: [docs/issues/issue-887-adapter-sdk.md]
+    description: 実プロバイダ (REW/CamillaDSP/miniDSP/AVR) に対する適合スイート実行 — in-repo sweep
+      は全て conforming_with_limitations (simulated transport は protocol conformance
+      を主張しない) で着地済み
+  evidence_refs:
+  - docs/issues/issue-887-adapter-sdk.md
   close_when_gates_clear: true
 - issue: 889
   lifecycle: acceptance_remaining
-  landed: {prs: [928], commits: []}
+  landed:
+    prs:
+    - 928
+    commits: []
   remaining_gates:
   - kind: manual
-    description: 実パッケージチャネルでの初回アップデート実行受入 (LocalDirectory/Filesystem の実 seam で commit/verified-rollback/改竄/途中断の E2E は 32/32 合格 — 署名済み実リリースパイプライン接続のみ残る)
-  evidence_refs: [docs/issues/issue-889-application-update.md]
+    description: 実パッケージチャネルでの初回アップデート実行受入 (LocalDirectory/Filesystem の実 seam で commit/verified-rollback/改竄/途中断の
+      E2E は 32/32 合格 — 署名済み実リリースパイプライン接続のみ残る)
+  evidence_refs:
+  - docs/issues/issue-889-application-update.md
   close_when_gates_clear: true
 - issue: 903
   lifecycle: acceptance_remaining
-  landed: {prs: [934], commits: []}
+  landed:
+    prs:
+    - 934
+    commits: []
   remaining_gates:
   - kind: manual
-    description: オペレータによるドリルカタログの受入 (9 fault x recovery-expectation ドリルは fail-closed 評価器・封緘レポート付きで構造検証済み — 実障害シナリオでの運用確認のみ残る)
-  evidence_refs: [docs/issues/issue-903-recovery-drill.md]
+    description: オペレータによるドリルカタログの受入 (9 fault x recovery-expectation ドリルは fail-closed
+      評価器・封緘レポート付きで構造検証済み — 実障害シナリオでの運用確認のみ残る)
+  evidence_refs:
+  - docs/issues/issue-903-recovery-drill.md
   close_when_gates_clear: true
 - issue: 892
   lifecycle: physical_evidence_remaining
-  landed: {prs: [933], commits: []}
+  landed:
+    prs:
+    - 933
+    commits: []
   remaining_gates:
   - kind: physical
-    description: 実ベンダー提供の異種フォーマットファイル (実メーカー EQ/SOFA/CLF) での corpus 実行 — in-repo フィクスチャ round-trip は verdict 付きで着地済み
-  evidence_refs: [docs/issues/issue-892-interop-corpus.md]
+    description: 実ベンダー提供の異種フォーマットファイル (実メーカー EQ/SOFA/CLF) での corpus 実行 — in-repo フィクスチャ
+      round-trip は verdict 付きで着地済み
+  evidence_refs:
+  - docs/issues/issue-892-interop-corpus.md
   close_when_gates_clear: true
 - issue: 891
   lifecycle: acceptance_remaining
-  landed: {prs: [940], commits: []}
+  landed:
+    prs:
+    - 940
+    commits: []
   remaining_gates:
   - kind: manual
-    description: 新規ユーザ視点でのリファレンスシアター walkthrough 受入 (selftest lane は simulated deploy を正直に標記・未認可時 fail-closed で着地済み)
-  evidence_refs: [docs/issues/issue-891-reference-theater.md]
+    description: 新規ユーザ視点でのリファレンスシアター walkthrough 受入 (selftest lane は simulated deploy
+      を正直に標記・未認可時 fail-closed で着地済み)
+  evidence_refs:
+  - docs/issues/issue-891-reference-theater.md
   close_when_gates_clear: true
 - issue: 937
   lifecycle: acceptance_remaining
-  landed: {prs: [941], commits: []}
+  landed:
+    prs:
+    - 941
+    commits: []
   remaining_gates:
   - kind: manual
-    description: ready ティア描画の受入 (実ゲート判定がピンとして配線されるまで到達不能 — declared-pins 設計のため compose/stale/empty 経路は実GUI検証済み、mount crash は修正済)
-  evidence_refs: [docs/issues/issue-937-decision-brief.md]
+    description: ready ティア描画の受入 (実ゲート判定がピンとして配線されるまで到達不能 — declared-pins 設計のため compose/stale/empty
+      経路は実GUI検証済み、mount crash は修正済)
+  evidence_refs:
+  - docs/issues/issue-937-decision-brief.md
   close_when_gates_clear: true
