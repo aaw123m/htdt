@@ -1223,3 +1223,16 @@ entries:
   - docs/issues/issue-991-prerun-estimate.md
   - backend/tests/test_issue_991_prerun_estimate.py
   close_when_gates_clear: true
+
+- issue: 1008
+  lifecycle: acceptance_remaining
+  landed:
+    prs: [1076]
+    commits: [d10a3039]
+  remaining_gates:
+  - kind: manual
+    description: 'オペレータ受入 — 製作プレビュー(断面/分解/3D)の実画面確認。非対応形状のフォールバックは設計上正直表示'
+  evidence_refs:
+  - docs/issues/issue-1008-fab-preview.md
+  - backend/tests/test_issue_1008_fab_preview.py
+  close_when_gates_clear: true
