@@ -1,0 +1,59 @@
+{
+  "schema_version": "htdt.r130d.original-q0-conforming-p1-ppw44-capacity-addendum-1",
+  "date_jst": "2026-10-09",
+  "issue": 938,
+  "pr": 1055,
+  "original_prospectively_pushed_plan": "benchmarks/acoustics/r130d_original_q0_conforming_roof_p1_fem_multigrid_plan_2026-10-09.json",
+  "original_precommitted_plan_head": "4950dc5bc33754fbb482700972aa01fc111893d2",
+  "prospective_scope": "PPW44 only; PPW28/32/36/40 signed complex results observed BEFORE this addendum; PPW44 actual FEM q0 signed score has NOT been computed because mesh size validation stopped before eigensolver. No grid or arm can be removed from comparison.",
+  "resource_only_original_and_new": {
+    "original_max_each_yz_vertices": 2200,
+    "new_ppw44_only_max_each_yz_vertices": 3000,
+    "max_true_3d_fem_dofs_unchanged": 180000,
+    "max_cases": 5,
+    "reason": "PPW44 physical-domain conforming P1 triangle mesh retains ALL original Cartesian source/receiver nodal points and every fixed exact roof-grid boundary intersection; vertex count >2200. Raising only the PPW44 numerical memory ceiling, not changing mesh physics or gates.",
+    "no_other_parameter_changed": true
+  },
+  "frozen_original": {
+    "ppw": [
+      28,
+      32,
+      36,
+      40,
+      44
+    ],
+    "source_xyz": [
+      1.5,
+      2,
+      2
+    ],
+    "receiver_xyz": [
+      2.5,
+      2,
+      2
+    ],
+    "original_eight_hdf5_source_receiver": true,
+    "original_q0_unchanged": true,
+    "full_250ms_40_80_unchanged": true,
+    "true_roof_volume_m3": 56,
+    "all_true_FEM_modes_no_drop": true,
+    "unchanged_solver_P1_geometry_integrator_mass": true,
+    "original_complex_gate": 0.2,
+    "original_magnitude_gate": 0.25,
+    "original_phase_deg_gate": 15,
+    "all_four_adjacent_pairs_required": true,
+    "no_metric_fitting_or_frequency_mask": true
+  },
+  "limits": {
+    "new_pffdtd_wave_runs": 0,
+    "new_github_actions_runs": 0,
+    "clean_scratch": false
+  },
+  "authority": {
+    "original_PFFDTD": "SELF_CONVERGENCE_FAILED",
+    "physical": "NOT_VALIDATED",
+    "product": "NO_GO",
+    "draft_pr": true,
+    "issue_open": true
+  }
+}
