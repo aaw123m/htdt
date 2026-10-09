@@ -1,0 +1,108 @@
+{
+  "schema_version": "htdt.r130d.convex-independent-mfem-plan-1",
+  "date": "2026-10-09",
+  "issue": 938,
+  "goal": "Actually drive independent pinned MFEM P2 tetra reference for predeclared new wedge and three-axis diagonal shapes under EXACT existing FV source/time contract, compare self and cross using UNMODIFIED existing numeric limits",
+  "geometry_cases": [
+    {
+      "name": "planar_wedge",
+      "planes": [
+        [
+          0,
+          0.25,
+          1,
+          4
+        ],
+        [
+          1,
+          1,
+          0,
+          6
+        ]
+      ],
+      "exact_volume_m3": 49.666666666666664
+    },
+    {
+      "name": "three_axis_diagonal",
+      "planes": [
+        [
+          1,
+          1,
+          1,
+          8
+        ]
+      ],
+      "exact_volume_m3": 53.333333333333336
+    }
+  ],
+  "independent_tet_mesher": "scipy.spatial HalfspaceIntersection (strict interior), ConvexHull, Delaunay; use independent closed tetra mesh source checked for exact volume, signed Jacobian, no uncovered hull facets; immutable committed mesh input",
+  "mfem_pin": "d964264cdb9a13e94a201b6c236c7721e0c8765f",
+  "mfem_order": 2,
+  "refinements": [
+    1,
+    2,
+    3,
+    4
+  ],
+  "physical": {
+    "L_m": 4,
+    "c_m_s": 343.2,
+    "rho_kg_m3": 1.2,
+    "source_xyz_m": [
+      1.5,
+      2,
+      2
+    ],
+    "receiver_xyz_m": [
+      2.5,
+      2,
+      2
+    ],
+    "rigid_neumann": true
+  },
+  "waveform": {
+    "q": "exp(-.5*((t-.012)/.003)^2) m3/s",
+    "dt_s": 0.00025,
+    "steps": 1000,
+    "duration_s": 0.25,
+    "bins_hz": [
+      40,
+      80
+    ],
+    "kernel": "midpoint exp(+i2πft) finite-record P_T/Q_T",
+    "actual_injected": true
+  },
+  "linear_solver": {
+    "rtol": 1e-11,
+    "atol": 0,
+    "maxiter": 350,
+    "preconditioner": "Jacobi diagonal A=M+dt^2/4K",
+    "true_residual_relative_max": 1e-8
+  },
+  "unchanged_self_limits": {
+    "complex_rms_relative_max": 0.05,
+    "magnitude_max_relative": 0.08,
+    "phase_max_deg": 5
+  },
+  "unchanged_cross_limits": {
+    "complex_rms_relative_max": 0.35,
+    "magnitude_max_relative": 0.4,
+    "magnitude_max_db": 3,
+    "phase_max_deg": 25
+  },
+  "refinement_pass_logic": "MFEM r2->r3 and r3->r4 all three relative/phase metrics must shrink, finest all thresholds pass, then FV new geometry n16->20 (not yet independently n28->32) must pass original candidate FV thresholds, and FV n20 vs MFEM r4 cross must pass all original cross criteria. Missing any evidence BLOCKED and never change product gate.",
+  "resource_limits": {
+    "max_tet_mesh_initial_elements": 64,
+    "max_dofs_ref4": 70000,
+    "max_nnz_per_matrix": 3000000,
+    "max_tet_export_json_bytes": 300000000,
+    "max_runtime_s": 1200
+  },
+  "frozen": {
+    "canonical_original_impulse": "SELF_CONVERGENCE_FAILED",
+    "new_sloped_candidate": "EXPERIMENTAL_CANDIDATE_NUMERICAL_PASS_ONLY",
+    "new_geometries": "CROSS_SOLVER_BLOCKED",
+    "production_enabled": false,
+    "physical_validation": "NOT_VALIDATED"
+  }
+}
