@@ -236,6 +236,9 @@ class PresentationExportRunner(QObject):
                     f'セッション「{session.label}」'
                 ),
                 document_ref=session.document_id,
+                # project_ref scopes the row to 「このプロジェクト」 —
+                # the ActivityPage matches it against document ids.
+                project_ref=session.document_id,
                 revision_ref=session.scene_revision_id,
                 input_authority_refs=(
                     f'presentation-session:{session.session_sha256}',

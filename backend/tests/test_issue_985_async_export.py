@@ -252,6 +252,10 @@ def test_review_export_runs_off_ui_thread_and_publishes(tmp_path: Path):
         assert op.operation_kind == 'presentation.export.review'
         assert op.state == OperationState.COMPLETED
         assert op.revision_ref == rev_a.revision_id
+        # project_ref scopes the row to 「このプロジェクト」 in the
+        # ActivityPage (matched against document ids).
+        assert op.project_ref == session.document_id
+        assert op.document_ref == session.document_id
         assert op.input_authority_refs
         assert 'フレーム' in (op.result_summary or '')
     finally:
