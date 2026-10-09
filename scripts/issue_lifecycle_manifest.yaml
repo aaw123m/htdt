@@ -1042,3 +1042,17 @@ entries:
   - backend/tests/test_issue_1005_installation_inspection.py
   - backend/src/htdt/installation_feasibility_viewmodel.py
   close_when_gates_clear: true
+
+- issue: 1006
+  lifecycle: acceptance_remaining
+  landed:
+    prs: [1062]
+    commits: [4b186dcb]
+  remaining_gates:
+  - kind: manual
+    description: 'オペレータ受入 — 実キャンペーン設計での測定点ロールグリフ・進捗リング・holdout 分離の実機確認 (子が実GUI Mesa GL で検証済、first-click バグ修正込み)'
+  evidence_refs:
+  - docs/issues/issue-1006-campaign-3d.md
+  - backend/tests/test_issue_1006_campaign_3d.py
+  - backend/src/htdt/room_campaign_overlay.py
+  close_when_gates_clear: true
