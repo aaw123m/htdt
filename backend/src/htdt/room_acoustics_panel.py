@@ -1075,6 +1075,28 @@ class RoomTreatmentPanel(QWidget):
             comparisons_header.setToolTip(0, '記録した比較セット')
             comparisons_header.setToolTip(1, 'セット内の候補数')
         layout.addWidget(self.comparisons)
+        # #1008: read-only 3D fabrication preview — issues a sealed
+        # TreatmentFabricationPackage and draws its parts in the
+        # viewport. fabrication_host is set by the workspace.
+        self.fabrication_host = None
+        fabrication_header = QLabel('製作プレビュー')
+        set_typography_role(
+            fabrication_header, TypographyRole.SECTION_TITLE
+        )
+        fabrication_header.setToolTip(
+            '発行済み製作パッケージの3D断面/分解プレビュー（読み取り専用）'
+        )
+        layout.addWidget(fabrication_header)
+        self.fabrication_button = QPushButton('製作プレビュー…')
+        self.fabrication_button.setAccessibleName('製作プレビューを開く')
+        self.fabrication_button.setToolTip(
+            '吸音パネル/QRD拡散体の製作パッケージを発行し、'
+            '断面・分解図・部材表を3Dで確認します'
+        )
+        self.fabrication_button.clicked.connect(
+            self._open_fabrication_preview
+        )
+        layout.addWidget(self.fabrication_button)
         self.status = QLabel('')
         self.status.setWordWrap(True)
         set_typography_role(self.status, TypographyRole.SECONDARY)
@@ -1083,6 +1105,26 @@ class RoomTreatmentPanel(QWidget):
 
     def _revision(self):
         return self.controller.repository.current_head(self.controller.document_id)
+
+    def _open_fabrication_preview(self) -> None:
+        """Open the #1008 fabrication preview dialog (non-modal)."""
+
+        from .room_fabrication_panel import FabricationPreviewDialog
+
+        dialog = getattr(self, '_fabrication_dialog', None)
+        if dialog is not None and not dialog.isHidden():
+            dialog.raise_()
+            dialog.activateWindow()
+            dialog.refresh_sources()
+            return
+        dialog = FabricationPreviewDialog(
+            self.controller,
+            host=self.fabrication_host,
+            parent=self.window(),
+        )
+        self._fabrication_dialog = dialog
+        dialog.refresh_sources()
+        dialog.show()
 
     def refresh(self) -> None:
         repository = self.controller.treatment_repository

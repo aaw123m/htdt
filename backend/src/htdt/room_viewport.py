@@ -1462,6 +1462,7 @@ class RoomViewport3D(QFrame):
         'lighting-',
         'opclear-',
         'treatment-overlay-',
+        'fabrication-',
         'quality-map-',
         'cable-route-',
         'abdiff-',
@@ -4351,6 +4352,247 @@ class RoomViewport3D(QFrame):
             for name in tuple(actors):
                 if isinstance(name, str) and name.startswith(
                     'treatment-overlay-'
+                ):
+                    self.plotter.remove_actor(name)
+
+    # -- #1008 fabrication package preview ----------------------------------
+
+    class _EnvelopeBox:
+        """Duck-typed stand-in carrying the clearance envelope's
+        center/dims for ``_fabrication_box_mesh``."""
+
+        __slots__ = ('center', 'dims_whs')
+
+        def __init__(self, center, dims) -> None:
+            self.center = center
+            self.dims_whs = dims
+
+    _FAB_PART_COLORS = {
+        'absorber_layer': DARK_THEME.accent.primary.hex,
+        'backing_panel': '#8d7b68',
+        'well_fin': DARK_THEME.semantic.success.hex,
+        'frame_member': '#b8a88f',
+        'facing': '#a8b6c2',
+        'spacer': '#7d8a96',
+    }
+    _FAB_DERIVED_COLOR = DARK_THEME.text.secondary.hex
+    _FAB_SELECTED_COLOR = DARK_THEME.semantic.warning.hex
+    _FAB_REFERENCE_COLOR = DARK_THEME.semantic.warning.hex
+
+    @staticmethod
+    def _fabrication_box_mesh(box, anchor) -> pv.PolyData:
+        """Oriented box for one resolved preview part.
+
+        Local cube X→width axis, Y→stack (depth) axis, Z→height axis, in
+        domain space; the matrix maps straight into VTK render space
+        (domain Y negated), exactly like ``domain_to_render``."""
+
+        width, height, depth = box.dims_whs
+        mesh = pv.Cube(
+            center=(0.0, 0.0, 0.0),
+            x_length=width,
+            y_length=depth,
+            z_length=height,
+        )
+        wa, sa, ha = (
+            anchor.width_axis,
+            anchor.stack_axis,
+            anchor.height_axis,
+        )
+        cx, cy, cz = box.center
+        matrix = np.asarray(
+            (
+                (wa[0], sa[0], ha[0], cx),
+                (-wa[1], -sa[1], -ha[1], -cy),
+                (wa[2], sa[2], ha[2], cz),
+                (0.0, 0.0, 0.0, 1.0),
+            ),
+            dtype=float,
+        )
+        mesh.transform(matrix, inplace=True)
+        return mesh
+
+    def render_fabrication_preview(self, scene) -> None:
+        """Draw one resolved FabricationPreviewScene (#1008).
+
+        Read-only: every actor is non-pickable and named under the
+        'fabrication-' prefix so a signature-skipped render or a
+        disarm/close sweeps the whole preview. Must run inside
+        ``deferred_render()`` from the compositor.
+        """
+
+        self.clear_fabrication_preview()
+        if not scene.supported:
+            self.plotter.add_text(
+                '\n'.join(scene.viewport_lines),
+                position='lower_left',
+                font_size=9,
+                color=DARK_THEME.text.secondary.hex,
+                name='fabrication-status',
+                render=False,
+            )
+            self._render()
+            return
+
+        anchor = scene.anchor
+        wa_render = (-anchor.width_axis[0], anchor.width_axis[1],
+                     -anchor.width_axis[2])
+        section_origin = (
+            None
+            if scene.section_position is None
+            else (
+                scene.section_position[0],
+                -scene.section_position[1],
+                scene.section_position[2],
+            )
+        )
+        label_points: list[tuple[float, float, float]] = []
+        label_texts: list[str] = []
+        seen_label_index: set[int] = set()
+        for box in scene.parts:
+            mesh = self._fabrication_box_mesh(box, anchor)
+            if scene.section_fraction is not None and section_origin is not None:
+                clipped = mesh.clip(
+                    normal=wa_render, origin=section_origin, invert=False
+                )
+                if clipped.n_points > 0:
+                    mesh = clipped
+                cross = mesh.slice(
+                    normal=(-wa_render[0], -wa_render[1], -wa_render[2]),
+                    origin=section_origin,
+                )
+                if cross.n_points > 0:
+                    self.plotter.add_mesh(
+                        cross,
+                        color=DARK_THEME.semantic.warning.hex,
+                        line_width=3,
+                        pickable=False,
+                        lighting=False,
+                        name=(
+                            f'fabrication-section-{box.index}-'
+                            f'{box.part_id.replace("@", "-")}'
+                        ),
+                        render=False,
+                    )
+            color = (
+                self._FAB_SELECTED_COLOR
+                if box.selected
+                else (
+                    self._FAB_DERIVED_COLOR
+                    if box.derived
+                    else self._FAB_PART_COLORS.get(
+                        box.part_kind, DARK_THEME.accent.primary.hex
+                    )
+                )
+            )
+            safe_id = ''.join(
+                ch if ch.isalnum() or ch in '-_' else '-'
+                for ch in box.part_id
+            )
+            actor = self.plotter.add_mesh(
+                mesh,
+                color=color,
+                opacity=0.35 if box.derived else (0.9 if box.selected else 0.7),
+                style='wireframe' if box.derived else 'surface',
+                pickable=False,
+                name=f'fabrication-part-{box.index}-{safe_id}',
+                render=False,
+            )
+            if box.selected:
+                edges = getattr(mesh, 'extract_all_edges', None)
+                edge_mesh = (
+                    edges() if callable(edges) else mesh.extract_edges()
+                )
+                self.plotter.add_mesh(
+                    edge_mesh,
+                    color=self._FAB_SELECTED_COLOR,
+                    line_width=4,
+                    pickable=False,
+                    lighting=False,
+                    name=f'fabrication-select-{box.index}-{safe_id}',
+                    render=False,
+                )
+            if box.index not in seen_label_index:
+                seen_label_index.add(box.index)
+                label_points.append(
+                    (box.center[0], -box.center[1], box.center[2])
+                )
+                label_texts.append(box.label)
+
+        for well in scene.well_labels:
+            label_points.append(
+                (well.position[0], -well.position[1], well.position[2])
+            )
+            label_texts.append(well.label)
+        if label_points:
+            self.plotter.add_point_labels(
+                label_points,
+                label_texts,
+                text_color=DARK_THEME.text.primary.hex,
+                shape_color=DARK_THEME.surfaces.overlay.hex,
+                shape_opacity=0.8,
+                font_size=8,
+                point_size=0,
+                always_visible=True,
+                name='fabrication-labels',
+                render=False,
+            )
+
+        reference = scene.reference
+        if reference is not None:
+            ring = np.asarray(
+                [(x, -y, z) for x, y, z in reference.mount_ring],
+                dtype=float,
+            )
+            if len(ring) >= 3:
+                self.plotter.add_mesh(
+                    pv.lines_from_points(ring, close=True),
+                    color=self._FAB_REFERENCE_COLOR,
+                    line_width=2,
+                    pickable=False,
+                    lighting=False,
+                    name=(
+                        f'fabrication-ref-mount-'
+                        f'{reference.placement_instance_id}'
+                    ),
+                    render=False,
+                )
+            envelope = self._EnvelopeBox(
+                center=reference.clearance_center,
+                dims=reference.clearance_dims,
+            )
+            envelope_mesh = self._fabrication_box_mesh(envelope, anchor)
+            self.plotter.add_mesh(
+                envelope_mesh,
+                color=self._FAB_REFERENCE_COLOR,
+                opacity=0.12,
+                pickable=False,
+                lighting=False,
+                name=(
+                    f'fabrication-ref-clearance-'
+                    f'{reference.placement_instance_id}'
+                ),
+                render=False,
+            )
+        self.plotter.add_text(
+            '\n'.join(scene.viewport_lines),
+            position='lower_left',
+            font_size=9,
+            color=DARK_THEME.text.secondary.hex,
+            name='fabrication-status',
+            render=False,
+        )
+        self._render()
+
+    def clear_fabrication_preview(self) -> None:
+        """Remove every fabrication-preview actor and its status text."""
+
+        renderer = getattr(self.plotter, 'renderer', None)
+        actors = getattr(renderer, 'actors', None)
+        if actors:
+            for name in tuple(actors):
+                if isinstance(name, str) and name.startswith(
+                    'fabrication-'
                 ):
                     self.plotter.remove_actor(name)
 

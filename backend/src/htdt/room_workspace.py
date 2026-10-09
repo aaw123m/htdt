@@ -295,6 +295,7 @@ from .room_survey_overlay import (
     RoomSurveyOverlayController,
 )
 from .room_treatment_overlay import RoomTreatmentOverlayController
+from .fabrication_preview import FabricationPreviewController
 from .room_screen_quality_map import ScreenQualityMapController
 from .room_coverage_overlay import (
     CoverageOverlayRequest,
@@ -4251,6 +4252,14 @@ class RoomWorkspace(QWidget):
             self.controller.treatment_repository,
             document_id,
         )
+        # #1008 fabrication preview: armed only by an issued
+        # TreatmentFabricationPackage; same current-head resolve discipline
+        # — a package revision swap or close never leaves stale actors.
+        self.fabrication_preview = FabricationPreviewController(
+            repository,
+            self.controller.treatment_repository,
+            document_id,
+        )
         # #1006 campaign spatial overlay: armed ONLY through the
         # measurement-page deep link (read/select surface) — the same
         # current_head staleness discipline as #999/#1009 lapses a design
@@ -6496,6 +6505,49 @@ class RoomWorkspace(QWidget):
         self.field3DProbeDisarmed.emit()
         self._render()
 
+    # -- fabrication package preview (#1008) ---------------------------------
+
+    def show_fabrication_preview(
+        self, package, *, placement_instance_id: str | None = None
+    ) -> None:
+        """Arm the read-only preview on an ISSUED sealed package."""
+
+        self.fabrication_preview.arm(
+            package, placement_instance_id=placement_instance_id
+        )
+        if self.current_context != 'acoustics':
+            self.set_context('acoustics')
+        elif not self.overlay_controls.acoustics.isChecked():
+            self.overlay_controls.acoustics.setChecked(True)
+        self._render()
+
+    def clear_fabrication_preview(self) -> None:
+        self.fabrication_preview.disarm()
+        clear_fab = getattr(self.viewport, 'clear_fabrication_preview', None)
+        if callable(clear_fab):
+            clear_fab()
+        self._render()
+
+    def update_fabrication_preview_view(
+        self,
+        *,
+        section_fraction: float | None,
+        exploded_fraction: float,
+    ) -> None:
+        if not self.fabrication_preview.armed:
+            return
+        self.fabrication_preview.set_view(
+            section_fraction=section_fraction,
+            exploded_fraction=exploded_fraction,
+        )
+        self._render()
+
+    def select_fabrication_part(self, selection_key: str | None) -> None:
+        if not self.fabrication_preview.armed:
+            return
+        self.fabrication_preview.select(selection_key)
+        self._render()
+
     # -- seat coverage overlay (#1001) ----------------------------------------
 
     def _seat_coverage_changed(self) -> None:
@@ -8554,6 +8606,26 @@ class RoomWorkspace(QWidget):
                         render_treatment(overlay)
                 else:
                     self.viewport.clear_treatment_overlay()
+            # #1008: fabrication preview — armed sealed package only,
+            # resolved against the CURRENT head every render; a package
+            # revision swap re-arms with a new sha and never replays the
+            # previous package's actors.
+            render_fab = getattr(
+                self.viewport, 'render_fabrication_preview', None
+            )
+            if callable(render_fab):
+                if (
+                    self.current_context == 'acoustics'
+                    and overlays.acoustics
+                    and self.fabrication_preview.armed
+                ):
+                    fab_scene = self.fabrication_preview.resolve()
+                    if fab_scene is None:
+                        self.viewport.clear_fabrication_preview()
+                    else:
+                        render_fab(fab_scene)
+                else:
+                    self.viewport.clear_fabrication_preview()
             # #1006: campaign spatial markers — acoustics context + overlay
             # ON + armed request + CURRENT head; the resolve runs per render
             # so a superseded revision lapses immediately.

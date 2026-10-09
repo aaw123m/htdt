@@ -4308,6 +4308,9 @@ class WorkflowApplicationComposition:
         # #1009: the 被覆 section renders the resolved overlay scene —
         # the same authority the viewport draws from.
         treatment_panel.coverage_provider = workspace.treatment_overlay.resolve
+        # #1008: the 製作プレビュー dialog arms/clears the read-only
+        # fabrication overlay through the workspace facade.
+        treatment_panel.fabrication_host = workspace
         # #876/REV36: persisted R150 path artifacts replay into ranked
         # reflection guidance — a read-only dock tab next to prediction.
         guidance_panel = _self.ReflectionGuidancePanel(workspace.controller)
