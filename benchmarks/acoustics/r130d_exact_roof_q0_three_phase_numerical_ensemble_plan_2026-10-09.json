@@ -1,0 +1,80 @@
+{
+  "schema_version": "htdt.r130d.exact-roof-physical-point-q0-grid-phase-ensemble-plan-1",
+  "date_jst": "2026-10-09",
+  "issue": 938,
+  "pr": 1055,
+  "purpose": "Prospective deterministic three-phase Cartesian x-grid quadrature as a numerical discretization remedy candidate without changing mathematical source, point receiver, source temporal q0, physical room, frequency, or original time window. Evaluate previously run actual full waves, not a fake new PFFDTD solver run.",
+  "frozen_inputs": {
+    "exact_roof_native_grid_unshifted_original": "benchmarks/acoustics/r130d_native_grid_exact_roof_mass_fv_q0_evidence_2026-10-09.json",
+    "actual_x_grid_shifted_full_native_wave": "benchmarks/acoustics/r130d_exact_roof_original_point_q0_x_grid_phase_evidence_2026-10-09.json",
+    "original_PFFDTD_SHA": "aa319f6c86517cb95aabfae8656277da62c3ead5",
+    "PPW": [
+      40,
+      44
+    ],
+    "x_shift_fraction_of_own_native_h": [
+      -0.25,
+      0,
+      0.25
+    ],
+    "physical_source_xyz_m": [
+      1.5,
+      2,
+      2
+    ],
+    "physical_receiver_xyz_m": [
+      2.5,
+      2,
+      2
+    ],
+    "continuous_physical_sloped_roof_m3": 56,
+    "discrete_temporal_q0": "native original q[0]=1 and all n>0 zero",
+    "native_original_Ts_Nt_per_grid": true,
+    "record_s": 0.25,
+    "frequencies_hz": [
+      40,
+      80
+    ],
+    "source_receiver_trilinear_weights_shifted_with_physical_point_fixed": true
+  },
+  "estimator": {
+    "rule": "equal arithmetic mean of three SIGNED complex full-wave P_T/Q_T at EACH original 40,80 Hz; original q0 denominator same in all phase runs; do not average magnitude or phase",
+    "weights": [
+      0.3333333333333333,
+      0.3333333333333333,
+      0.3333333333333333
+    ],
+    "constituent_full_real_waves_already_executed": true,
+    "no_frequency_selective_weights": true,
+    "no_parameter_fitting_after_data": true,
+    "interpolation_at_same_fixed_physical_point": true,
+    "no_source_smoothing_or_temporal_taper": true,
+    "no_mode_cut_or_damping": true,
+    "all_three_constituents_within_each_PPW_must_have_original_Ts_Nt": true
+  },
+  "evaluation": {
+    "compare_PP40_to_PP44_signed_complex_relative": true,
+    "report_original_unshifted_control_and_all_two_shift_controls": true,
+    "report_new_ensemble_magnitude_and_phase_max": true,
+    "report_complex_signed_residual_and_case_confidence_limits_no_inferred_continuum": true,
+    "compare_frozen_original_threshold_complex": 0.2,
+    "compare_frozen_original_threshold_magnitude": 0.25,
+    "compare_frozen_original_threshold_phase_deg": 15,
+    "do_not_call_one_pair_converged_even_if_passes": true,
+    "held_out_grid_refinement_needed_for_any_canonical_qualification": true,
+    "failures_retained": true
+  },
+  "limits": {
+    "max_ppw_cases": 2,
+    "max_phase_count": 3,
+    "max_new_wave_runs": 0,
+    "no_github_actions_runs": true
+  },
+  "authority": {
+    "original_q0_fullband": "SELF_CONVERGENCE_FAILED",
+    "physical_validation": "NOT_VALIDATED",
+    "product": "NO_GO",
+    "issue_open": true,
+    "pr_draft": true
+  }
+}
