@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Protocol
 
+from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -14,12 +15,14 @@ from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
+    QMenu,
     QMessageBox,
     QProgressBar,
     QPushButton,
     QScrollArea,
     QSizePolicy,
     QSpinBox,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -364,6 +367,149 @@ class BackupMetadataView(QFrame):
             )
 
 
+class _GenerationsRow(QWidget):
+    """Saved-backup picker row that folds its secondary action into 操作 ▾.
+
+    Same adaptive pattern as CaptureInboxPage._sync_action_layout: the
+    fold trigger is the row's required width vs the width it is actually
+    given (high-DPI shrinks logical width — exactly the crowded case).
+    Hidden secondary widgets stop counting toward minimumSizeHint, so a
+    seeded fold keeps the page inside narrow windows; the overflow menu
+    runs the exact same slots the folded buttons do.
+    """
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._collapsed_actions: bool | None = None
+        self._secondary_widgets: list[QWidget] = []
+        self.actions_menu = QMenu(self)
+        self.actions_overflow = QToolButton(self)
+        self.actions_overflow.setText("操作 ▾")
+        self.actions_overflow.setToolTip(
+            "幅が狭いときのバックアップ世代操作の一覧です"
+        )
+        self.actions_overflow.setAccessibleName(
+            "保存済みバックアップのその他の操作"
+        )
+        self.actions_overflow.setPopupMode(
+            QToolButton.ToolButtonPopupMode.InstantPopup
+        )
+        self.actions_overflow.setMenu(self.actions_menu)
+        self.actions_overflow.setVisible(False)
+        self.row_layout = QHBoxLayout(self)
+        self.row_layout.setContentsMargins(0, 0, 0, 0)
+        self.row_layout.setSpacing(10)
+
+    def add_secondary_action(
+        self,
+        widget: QWidget,
+        label: str,
+        slot,
+    ) -> QAction:
+        """Register a foldable widget plus its overflow-menu mirror.
+
+        The menu action runs the exact same slot, so folded actions stay
+        reachable — mis-taps and dead ends cannot happen on narrow rows.
+        """
+        self._secondary_widgets.append(widget)
+        action = self.actions_menu.addAction(label)
+        action.triggered.connect(slot)
+        return action
+
+    def finish_actions(self) -> None:
+        """Append 操作 ▾ and seed the fold state.
+
+        Hidden secondary widgets don't count toward minimumSizeHint, so
+        seeding keeps the page's minimum width inside the scroll viewport
+        until the first real resizeEvent recomputes and unfolds when it
+        fits.
+        """
+        self.row_layout.addWidget(self.actions_overflow)
+        self._sync_action_layout()
+
+    def resizeEvent(self, event) -> None:  # noqa: N802
+        super().resizeEvent(event)
+        self._sync_action_layout()
+
+    def _actions_required_width(self) -> int:
+        """Width the row needs to show every control unclipped.
+
+        Computed from child size hints so it stays correct whether the
+        row is currently folded or not (hidden widgets keep their hints);
+        the stretch-factor generations combo contributes only its
+        minimum — folding guards the fixed controls, not its slack.
+        """
+        total = 0
+        visible = 0
+        for index in range(self.row_layout.count()):
+            item = self.row_layout.itemAt(index)
+            widget = item.widget()
+            if widget is self.actions_overflow:
+                continue  # replaces the secondary set, never coexists
+            if widget is not None and self.row_layout.stretch(index) > 0:
+                total += widget.minimumSizeHint().width()
+                visible += 1
+            elif widget is not None:
+                total += widget.sizeHint().width()
+                visible += 1
+            else:
+                total += item.sizeHint().width()
+        if visible > 1:
+            total += self.row_layout.spacing() * (visible - 1)
+        return total
+
+    def _available_width(self) -> int:
+        """Width the scroll viewport can actually grant this row.
+
+        The row's own width() is granted from its minimumSizeHint, so a
+        too-wide row never sees the shortage — the real constraint is the
+        enclosing QScrollArea's viewport minus the fixed chrome stacked
+        between the viewport and this row (content/card margins).
+        """
+        margins = self.row_layout.contentsMargins()
+        chrome = margins.left() + margins.right()
+        scroll_area: QScrollArea | None = None
+        node = self.parentWidget()
+        while node is not None:
+            if isinstance(node, QScrollArea):
+                scroll_area = node
+                break
+            node = node.parentWidget()
+        if scroll_area is None:
+            return self.width() - chrome
+        viewport_widget = scroll_area.viewport()
+        node = self.parentWidget()
+        while node is not None and node is not viewport_widget:
+            layout = node.layout()
+            if layout is not None:
+                edge = layout.contentsMargins()
+                chrome += edge.left() + edge.right()
+            node = node.parentWidget()
+        return scroll_area.viewport().width() - chrome
+
+    def _sync_action_layout(self) -> None:
+        """Fold secondary actions into 操作 ▾ when the row cannot fit.
+
+        Trigger = required row width vs the width the row is given — a
+        fixed pixel threshold can sit below the row's own minimum and
+        never fire. The primary restore action never collapses, the
+        same rule CaptureInboxPage applies to its primary triage ops.
+        """
+        available = self._available_width()
+        required = self._actions_required_width()
+        if self._collapsed_actions is True:
+            # Small hysteresis so a borderline resize doesn't flap open.
+            collapse = required > available - 24
+        else:
+            collapse = required > available
+        if self._collapsed_actions == collapse:
+            return
+        self._collapsed_actions = collapse
+        for widget in self._secondary_widgets:
+            widget.setVisible(not collapse)
+        self.actions_overflow.setVisible(collapse)
+
+
 class DataManagementWidget(QWidget):
     """Mountable Settings > Data Management surface.
 
@@ -588,16 +734,22 @@ class DataManagementWidget(QWidget):
         # remembering where a backup file lived. List every restorable
         # archive the app knows about (automatic generations + pre-upgrade
         # recovery copies) so the user can pick one directly.
-        self.generations_row = QWidget(operations_card)
-        generations_layout = QHBoxLayout(self.generations_row)
-        generations_layout.setContentsMargins(0, 0, 0, 0)
-        generations_layout.setSpacing(10)
+        self.generations_row = _GenerationsRow(operations_card)
+        generations_layout = self.generations_row.row_layout
         generations_label = QLabel(
             "保存済みバックアップ:", self.generations_row
         )
         generations_layout.addWidget(generations_label)
         self.generations_combo = QComboBox(self.generations_row)
         self.generations_combo.setObjectName("dataManagementGenerationsCombo")
+        # Auto-backup names run ~55 chars — AdjustToContents would pin the
+        # row's minimum width to the longest archive name and defeat the
+        # scroll viewport. The popup list still shows full names; the
+        # closed combo just clips the selected text when it must shrink.
+        self.generations_combo.setMinimumContentsLength(12)
+        self.generations_combo.setSizeAdjustPolicy(
+            QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+        )
         generations_layout.addWidget(self.generations_combo, 1)
         self.generation_restore_button = QPushButton(
             "このバックアップを検証して復元…", self.generations_row
@@ -624,6 +776,15 @@ class DataManagementWidget(QWidget):
         set_control_size(self.drill_button, ControlSize.STANDARD)
         self.drill_button.clicked.connect(self._run_restore_drill)
         generations_layout.addWidget(self.drill_button)
+        # #992: the drill action is secondary — it folds into 操作 ▾ when
+        # the row cannot fit, while the primary restore action never
+        # collapses. The menu action mirrors the same slot.
+        self._drill_menu_action = self.generations_row.add_secondary_action(
+            self.drill_button,
+            "このバックアップを復元テスト…",
+            self._run_restore_drill,
+        )
+        self.generations_row.finish_actions()
         operations_layout.addWidget(self.generations_row)
 
         self.last_drill_label = QLabel(operations_card)
@@ -1024,6 +1185,9 @@ class DataManagementWidget(QWidget):
         for path in generations:
             self.generations_combo.addItem(path.name, str(path))
         self.generations_row.setVisible(bool(generations))
+        # Longest-name content changed — the fold trigger depends on the
+        # row's required width, so resync while the viewport keeps its size.
+        self.generations_row._sync_action_layout()
         self._refresh_actions()
 
     def _preview_selected_generation(self) -> None:
@@ -1521,6 +1685,7 @@ class DataManagementWidget(QWidget):
         self.generations_combo.setEnabled(available)
         self.generation_restore_button.setEnabled(available)
         self.drill_button.setEnabled(available)
+        self._drill_menu_action.setEnabled(available)
         for control in (
             self.backup_policy_enabled,
             self.backup_interval_spin,
