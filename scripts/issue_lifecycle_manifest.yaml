@@ -1084,3 +1084,17 @@ entries:
   - backend/tests/test_issue_1004_survey_overlay.py
   - backend/src/htdt/room_survey_overlay.py
   close_when_gates_clear: true
+
+- issue: 1001
+  lifecycle: acceptance_remaining
+  landed:
+    prs: [1067]
+    commits: [7852dd69]
+  remaining_gates:
+  - kind: manual
+    description: 'オペレータ受入 — 封緘カバレッジ評価を持つ実設計での座席別マーカー・フォーカス連動・失効表示の実機確認 (子が実GUI Mesa GL で検証済)'
+  evidence_refs:
+  - docs/issues/issue-1001-seat-coverage.md
+  - backend/tests/test_issue_1001_seat_coverage.py
+  - backend/src/htdt/room_seat_coverage_overlay.py
+  close_when_gates_clear: true
