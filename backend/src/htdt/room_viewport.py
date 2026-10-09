@@ -54,6 +54,11 @@ from .room_operational_clearance import (
     OPERATIONAL_ZONE_KIND_VOCAB,
     OperationalClearancePreview,
 )
+from .design_ab_overlay import (
+    AB_OVERLAY_CATEGORY_VOCAB,
+    AB_OVERLAY_CONTEXT_COLOR,
+    DesignAbOverlayPreview,
+)
 from .ui_theme import DARK_THEME, SurfaceRole, set_surface_role
 
 if TYPE_CHECKING:
@@ -1390,6 +1395,7 @@ class RoomViewport3D(QFrame):
         'opclear-',
         'treatment-overlay-',
         'cable-route-',
+        'abdiff-',
     )
 
     def _remove_overlay_actors(self) -> None:
@@ -2342,6 +2348,265 @@ class RoomViewport3D(QFrame):
                 )
             finally:
                 self.plotter.suppress_rendering = False
+        self._render()
+
+    # -- A/B design-alternative diff overlay (issue #1007) ------------------
+    #
+    # Read-only explanation layer for saved design alternatives: every
+    # verdict comes from ``diff_alternatives`` via DesignAbOverlayPreview —
+    # the viewport draws categorized ghosts, it never compares meshes.
+    # All actors are non-pickable and use the ``abdiff-`` prefix so the
+    # sweep removes them on toggle-off / scene rebuild.
+
+    def clear_design_ab_overlay(self) -> None:
+        """Drop every ``abdiff-*`` actor (toggle off / refresh)."""
+        renderer = getattr(self.plotter, 'renderer', None)
+        actors = getattr(renderer, 'actors', None)
+        if not actors:
+            return
+        removed = False
+        for name in tuple(actors):
+            if isinstance(name, str) and name.startswith('abdiff-'):
+                self.plotter.remove_actor(name)
+                removed = True
+        if removed:
+            self._render()
+
+    def _abdiff_ghost(
+        self,
+        entity: SceneEntity,
+        *,
+        name: str,
+        color: str,
+        opacity: float,
+        line_width: float,
+    ) -> None:
+        """One bounded wireframe ghost of a pinned entity."""
+        mesh, _glyphs, _env = entity_render_meshes(entity)
+        if mesh is None:
+            return
+        self.plotter.add_mesh(
+            mesh,
+            color=color,
+            style='wireframe',
+            line_width=line_width,
+            opacity=opacity,
+            pickable=False,
+            name=name,
+            render=False,
+        )
+
+    def render_design_ab_overlay(
+        self,
+        preview: DesignAbOverlayPreview | None,
+        *,
+        show_context: bool = True,
+        highlight_entity_id: str | None = None,
+    ) -> None:
+        """Draw the A/B alternative-diff layer (#1007).
+
+        ``None`` clears the overlay. A preview in state 'impossible'
+        renders only its honest reason text — no guessed geometry.
+        ``show_context=False`` is the 差分のみ mode: unchanged entities
+        and the unchanged room shell are not drawn.
+        """
+        self.clear_design_ab_overlay()
+        if preview is None:
+            return
+
+        if preview.state == 'impossible':
+            self.plotter.add_text(
+                '比較不可\n' + '\n'.join(preview.impossible_reasons),
+                name='abdiff-blocked',
+                position='upper_right',
+                font_size=9,
+                color=OPERATIONAL_CONFLICT_COLOR,
+                render=False,
+            )
+            self.plotter.add_text(
+                preview.disclaimer,
+                name='abdiff-disclaimer',
+                position='left_edge',
+                font_size=8,
+                color=DARK_THEME.text.secondary.hex,
+                render=False,
+            )
+            self.plotter.add_axes(
+                color=DARK_THEME.text.muted.hex,
+                line_width=1,
+                labels_off=True,
+            )
+            self._render()
+            return
+
+        # Frame context: the shared room shell in a neutral color, or the
+        # A/B shells in their category colors when the room itself moved.
+        if preview.before_document is not None and (
+            preview.context_changed
+            and any('部屋' in line for line in preview.context_changed)
+        ):
+            before_shell = _room_wireframe(preview.before_document)
+            if before_shell is not None:
+                self.plotter.add_mesh(
+                    before_shell,
+                    color=AB_OVERLAY_CATEGORY_VOCAB['removed'][1],
+                    style='wireframe',
+                    line_width=2,
+                    opacity=0.5,
+                    pickable=False,
+                    name='abdiff-room-a',
+                    render=False,
+                )
+            after_shell = (
+                _room_wireframe(preview.after_document)
+                if preview.after_document is not None
+                else None
+            )
+            if after_shell is not None:
+                self.plotter.add_mesh(
+                    after_shell,
+                    color=AB_OVERLAY_CATEGORY_VOCAB['added'][1],
+                    style='wireframe',
+                    line_width=2,
+                    opacity=0.5,
+                    pickable=False,
+                    name='abdiff-room-b',
+                    render=False,
+                )
+        elif preview.after_document is not None:
+            shell = _room_wireframe(preview.after_document)
+            if shell is not None:
+                self.plotter.add_mesh(
+                    shell,
+                    color=AB_OVERLAY_CONTEXT_COLOR,
+                    style='wireframe',
+                    line_width=1,
+                    opacity=0.3,
+                    pickable=False,
+                    name='abdiff-room',
+                    render=False,
+                )
+
+        if show_context:
+            for entity in preview.unchanged_entities:
+                self._abdiff_ghost(
+                    entity,
+                    name=f'abdiff-context-{entity.entity_id}',
+                    color=AB_OVERLAY_CONTEXT_COLOR,
+                    opacity=0.14,
+                    line_width=1,
+                )
+
+        for item in preview.items:
+            color = AB_OVERLAY_CATEGORY_VOCAB[item.category][1]
+            highlighted = item.entity_id == highlight_entity_id
+            width = 4 if highlighted else 2
+            if item.category == 'removed' and item.before_entity is not None:
+                self._abdiff_ghost(
+                    item.before_entity,
+                    name=f'abdiff-removed-{item.entity_id}',
+                    color=color,
+                    opacity=0.65 if highlighted else 0.5,
+                    line_width=width,
+                )
+            elif item.category == 'added' and item.after_entity is not None:
+                self._abdiff_ghost(
+                    item.after_entity,
+                    name=f'abdiff-added-{item.entity_id}',
+                    color=color,
+                    opacity=0.85 if highlighted else 0.65,
+                    line_width=width,
+                )
+            elif item.category in ('moved', 'position_unverified'):
+                # Both persisted positions — origin outline dim, destination
+                # outline bright; an authoritative arrow only in 'moved'
+                # (shared frame, both positions evidenced).
+                if item.before_entity is not None:
+                    self._abdiff_ghost(
+                        item.before_entity,
+                        name=f'abdiff-movedfrom-{item.entity_id}',
+                        color=color,
+                        opacity=0.4,
+                        line_width=width,
+                    )
+                if item.after_entity is not None:
+                    self._abdiff_ghost(
+                        item.after_entity,
+                        name=f'abdiff-movedto-{item.entity_id}',
+                        color=color,
+                        opacity=0.85 if highlighted else 0.7,
+                        line_width=width + (1 if highlighted else 0),
+                    )
+                if item.category == 'moved' and (
+                    item.before_entity is not None
+                    and item.after_entity is not None
+                ):
+                    start = domain_to_render(item.before_entity.position)
+                    end = domain_to_render(item.after_entity.position)
+                    delta = tuple(e - s for s, e in zip(start, end))
+                    if sum(d * d for d in delta) > 1e-12:
+                        self.plotter.add_mesh(
+                            pv.Arrow(
+                                start=start,
+                                direction=delta,
+                                tip_length=0.2,
+                                tip_radius=0.05,
+                                shaft_radius=0.018,
+                                scale='auto',
+                            ),
+                            color=color,
+                            opacity=0.95,
+                            pickable=False,
+                            name=f'abdiff-arrow-{item.entity_id}',
+                            render=False,
+                        )
+            elif item.category == 'attribute_only':
+                outline_source = item.after_entity or item.before_entity
+                if outline_source is not None:
+                    self._abdiff_ghost(
+                        outline_source,
+                        name=f'abdiff-attr-{item.entity_id}',
+                        color=color,
+                        opacity=0.9 if highlighted else 0.7,
+                        line_width=width + 1,
+                    )
+
+        self.plotter.add_text(
+            preview.summary,
+            name='abdiff-summary',
+            position='upper_right',
+            font_size=9,
+            color=DARK_THEME.text.secondary.hex,
+            render=False,
+        )
+        self.plotter.add_text(
+            preview.disclaimer,
+            name='abdiff-disclaimer',
+            position='left_edge',
+            font_size=8,
+            color=DARK_THEME.text.secondary.hex,
+            render=False,
+        )
+        if preview.legend:
+            self.plotter.suppress_rendering = True
+            try:
+                self.plotter.add_legend(
+                    labels=list(preview.legend),
+                    loc='lower left',
+                    face='rectangle',
+                    size=(0.2, 0.035 * len(preview.legend) + 0.02),
+                    bcolor=DARK_THEME.text.secondary.hex,
+                    border=False,
+                    background_opacity=0.55,
+                    name='abdiff-legend',
+                )
+            finally:
+                self.plotter.suppress_rendering = False
+        self.plotter.add_axes(
+            color=DARK_THEME.text.muted.hex,
+            line_width=1,
+            labels_off=True,
+        )
         self._render()
 
     def _render_labels(self, document: SceneDocument, selected_id: str | None) -> None:

@@ -66,6 +66,12 @@ from .cad_review_package import (
     derived_yaw_steps,
     verify_review_package,
 )
+from .cad_scene_history import ENTITY_FIELD_LABELS
+from .design_ab_overlay import (
+    AB_OVERLAY_CATEGORY_VOCAB,
+    DesignAbOverlayPreview,
+    build_ab_overlay_preview,
+)
 from .cad_system_variant_repository import CadSystemVariantRepository
 from .clock import utc_now_iso as _utc_now
 from .output_target import OutputTargetError, validate_output_target
@@ -99,9 +105,10 @@ class PresentationWorkspace(QWidget):
         self.note_repository = ReviewNoteRepository(repository.path)
 
         self._session: PresentationSession | None = None
-        # The document the pinned session resolves to — replay applies
-        # per-viewpoint hidden/section/focus state against this, not the
-        # live head.
+        # #1007: last loaded A/B pair + preview for the overlay view —
+        # pinned scene revisions, never the live head.
+        self._ab_preview: DesignAbOverlayPreview | None = None
+        self._ab_diff_only: bool = False
         self._session_document = None
         self._pending_viewpoints: list[PresentationViewpoint] = []
         self._step_index = 0
@@ -479,6 +486,22 @@ class PresentationWorkspace(QWidget):
         self.lockstep_check = QCheckBox('カメラ同期')
         self.lockstep_check.setChecked(True)
         controls.addWidget(self.lockstep_check)
+        controls.addWidget(QLabel('表示:'))
+        # #1007: 横並び / 単一画面重畳 / 差分のみ の切替 — the same pinned
+        # pair drives all three; 重畳/差分のみ draw the color-coded
+        # authority-driven diff ghosts.
+        self.view_mode_combo = QComboBox()
+        self.view_mode_combo.setAccessibleName('比較表示モード')
+        for _label, _mode in (
+            ('横並び', 'side'),
+            ('重畳（単一画面）', 'overlay'),
+            ('差分のみ', 'diff_only'),
+        ):
+            self.view_mode_combo.addItem(_label, _mode)
+        self.view_mode_combo.currentIndexChanged.connect(
+            self._on_compare_view_mode
+        )
+        controls.addWidget(self.view_mode_combo)
         compare_button = QPushButton('読み込み')
         compare_button.setAccessibleName('比較を読み込み')
         compare_button.clicked.connect(self._load_comparison)
@@ -507,7 +530,44 @@ class PresentationWorkspace(QWidget):
         self.right_viewport = self._viewport()
         right_layout.addWidget(self.right_viewport)
         splitter.addWidget(right_host)
-        layout.addWidget(splitter, 1)
+
+        self.compare_stack = QStackedWidget()
+        self.compare_stack.addWidget(splitter)
+        # 重畳/差分のみ page: one read-only viewport drawing the diff
+        # actors, plus the 差分理由カード column.
+        overlay_page = QWidget()
+        overlay_layout = QHBoxLayout(overlay_page)
+        overlay_layout.setContentsMargins(0, 0, 0, 0)
+        overlay_splitter = QSplitter(Qt.Horizontal)
+        overlay_canvas = QWidget()
+        overlay_canvas_layout = QVBoxLayout(overlay_canvas)
+        overlay_canvas_layout.setContentsMargins(0, 0, 0, 0)
+        self.overlay_label = QLabel('')
+        overlay_canvas_layout.addWidget(self.overlay_label)
+        self.overlay_viewport = self._viewport()
+        overlay_canvas_layout.addWidget(self.overlay_viewport)
+        overlay_splitter.addWidget(overlay_canvas)
+        card_host = QWidget()
+        card_layout = QVBoxLayout(card_host)
+        card_layout.setContentsMargins(8, 0, 0, 0)
+        card_layout.setSpacing(4)
+        card_heading = QLabel('差分理由カード')
+        card_heading.setAccessibleName('差分理由カード見出し')
+        card_layout.addWidget(card_heading)
+        self.diff_summary_label = QLabel('')
+        self.diff_summary_label.setWordWrap(True)
+        self.diff_summary_label.setAccessibleName('比較サマリ')
+        card_layout.addWidget(self.diff_summary_label)
+        self.diff_card = QListWidget()
+        self.diff_card.setAccessibleName('差分理由カード')
+        self.diff_card.itemClicked.connect(self._on_diff_card_row)
+        card_layout.addWidget(self.diff_card, 1)
+        overlay_splitter.addWidget(card_host)
+        overlay_splitter.setStretchFactor(0, 1)
+        overlay_splitter.setStretchFactor(1, 0)
+        overlay_layout.addWidget(overlay_splitter)
+        self.compare_stack.addWidget(overlay_page)
+        layout.addWidget(self.compare_stack, 1)
         self.pages['compare'] = page
         self.stack.addWidget(page)
 
@@ -556,25 +616,91 @@ class PresentationWorkspace(QWidget):
             combo.blockSignals(False)
         if comparison_set is not None and len(comparison_set.alternatives) > 1:
             self.right_combo.setCurrentIndex(1)
+        # Set/alternative pin changed (or project switched): drop any loaded
+        # overlay so stale ghosts never linger next to a new selection.
+        self._ab_preview = None
+        if getattr(self, 'overlay_viewport', None) is not None:
+            self.overlay_viewport.clear_design_ab_overlay()
+        if getattr(self, 'diff_card', None) is not None:
+            self.diff_card.clear()
+            self.diff_summary_label.setText('')
+            self.overlay_label.setText('')
 
     def _load_comparison(self) -> None:
+        pair = self._selected_alternative_pair(show_dialogs=True)
+        if pair is None:
+            return
+        comparison_set, left_alt, right_alt = pair
+        self._dispatch_comparison_load(comparison_set, left_alt, right_alt)
+
+    def _selected_alternative_pair(
+        self, *, show_dialogs: bool
+    ) -> tuple[DesignComparisonSet, object, object] | None:
         comparison_set = self._current_set()
         if comparison_set is None:
-            QMessageBox.warning(
-                self, 'A/B比較', '比較セットを選択してください'
-            )
-            return
+            if show_dialogs:
+                QMessageBox.warning(
+                    self, 'A/B比較', '比較セットを選択してください'
+                )
+            return None
         left_pin = self.left_combo.currentData()
         right_pin = self.right_combo.currentData()
         if left_pin is None or right_pin is None:
-            return
+            return None
         if left_pin[2] == right_pin[2]:
-            QMessageBox.warning(
-                self, 'A/B比較', '左右に異なる案を選んでください'
-            )
-            return
+            if show_dialogs:
+                QMessageBox.warning(
+                    self, 'A/B比較', '左右に異なる案を選んでください'
+                )
+            return None
         left_alt = comparison_set.alternative(left_pin[2])
         right_alt = comparison_set.alternative(right_pin[2])
+        if left_alt is None or right_alt is None:
+            return None
+        return comparison_set, left_alt, right_alt
+
+    def _dispatch_comparison_load(
+        self, comparison_set, left_alt, right_alt
+    ) -> None:
+        mode = self.view_mode_combo.currentData()
+        if mode == 'side':
+            self.compare_stack.setCurrentIndex(0)
+            self._load_side_comparison(comparison_set, left_alt, right_alt)
+            # Side-by-side is the active view — the overlay layer holds
+            # nothing visible; drop its actors so no stale diff lingers.
+            self.overlay_viewport.clear_design_ab_overlay()
+            self.diff_card.clear()
+            self.diff_summary_label.setText('')
+            self._ab_preview = None
+            return
+        self.compare_stack.setCurrentIndex(1)
+        self._load_overlay_comparison(
+            comparison_set, left_alt, right_alt, diff_only=(mode == 'diff_only')
+        )
+
+    def _on_compare_view_mode(self, *_args) -> None:
+        # Fires once during page construction (first addItem) before the
+        # compare stack exists — no-op then.
+        if getattr(self, 'compare_stack', None) is None:
+            return
+        mode = self.view_mode_combo.currentData()
+        self.compare_stack.setCurrentIndex(0 if mode == 'side' else 1)
+        # A mode switch re-dispatches the loaded pair silently — the pins
+        # are re-verified on every load, so a stale pin degrades to the
+        # honest '比較不可' state rather than painting guessed ghosts.
+        pair = self._selected_alternative_pair(show_dialogs=False)
+        if pair is not None:
+            comparison_set, left_alt, right_alt = pair
+            self._dispatch_comparison_load(comparison_set, left_alt, right_alt)
+        elif mode != 'side':
+            self.overlay_viewport.clear_design_ab_overlay()
+            self.diff_card.clear()
+            self.diff_summary_label.setText('')
+            self._ab_preview = None
+
+    def _load_side_comparison(
+        self, comparison_set, left_alt, right_alt
+    ) -> None:
         try:
             left_doc = self.presentation_repository.alternative_document(
                 left_alt
@@ -597,6 +723,99 @@ class PresentationWorkspace(QWidget):
             self.right_viewport.apply_camera_state(state)
         else:
             self.right_viewport.fit_scene()
+
+    def _load_overlay_comparison(
+        self, comparison_set, left_alt, right_alt, *, diff_only: bool
+    ) -> None:
+        """Single-view A/B overlay — authority-driven diff ghosts (#1007).
+
+        Resolution re-runs ``alternative_document`` so stale pins or hash
+        drift degrade to the preview's 'impossible' state instead of an
+        invented overlay.
+        """
+        head = None
+        try:
+            head = self.repository.current_head(comparison_set.document_id)
+        except Exception:
+            head = None
+        preview = build_ab_overlay_preview(
+            comparison_set,
+            left_alt,
+            right_alt,
+            resolve_document=self.presentation_repository.alternative_document,
+            evidence_resolver=self.comparison_repository.ref_resolver,
+            head_revision_id=(
+                head.revision_id if head is not None else None
+            ),
+        )
+        self._ab_preview = preview
+        self._ab_diff_only = diff_only
+        self.overlay_viewport.render_design_ab_overlay(
+            preview, show_context=not diff_only
+        )
+        self.overlay_label.setText(
+            f'案A「{left_alt.label}」 / 案B「{right_alt.label}」'
+            ' — 差分ゴースト（読み取り専用）'
+        )
+        self._fill_diff_card(preview)
+        self.overlay_viewport.fit_scene()
+
+    def _fill_diff_card(self, preview: DesignAbOverlayPreview) -> None:
+        self.diff_card.clear()
+        self.diff_summary_label.setText(preview.summary)
+
+        def _row(text: str, entity_id: str | None = None) -> None:
+            item = QListWidgetItem(text)
+            if entity_id is not None:
+                item.setData(Qt.ItemDataRole.UserRole, entity_id)
+            self.diff_card.addItem(item)
+
+        if preview.state == 'impossible':
+            _row('比較不可')
+            for reason in preview.impossible_reasons:
+                _row(f'・{reason}')
+            _row(preview.disclaimer)
+        else:
+            if preview.staleness_note:
+                _row(preview.staleness_note)
+            for line in preview.context_changed:
+                _row(line)
+            if not preview.items and not preview.context_changed:
+                _row('変更なし（同一内容）')
+            for item in preview.items:
+                label, _color = AB_OVERLAY_CATEGORY_VOCAB[item.category]
+                fields = '、'.join(
+                    ENTITY_FIELD_LABELS.get(field, field)
+                    for field in item.changed_fields
+                )
+                text = f'{item.name}（{item.kind}）— {label}'
+                if fields:
+                    text += f': {fields}'
+                text += f' / 理由: {item.reason}'
+                _row(text, entity_id=item.entity_id)
+            if preview.evidence_rows:
+                _row('— 証跡の利用可否 —')
+                for row in preview.evidence_rows:
+                    _row(
+                        f'{row.alternative_label} · '
+                        f'{row.kind}:{row.ref_id} — {row.state_label}'
+                        f'（{row.reason}）'
+                    )
+            _row(preview.disclaimer)
+
+    def _on_diff_card_row(self, item) -> None:
+        """Diff-row → overlay deep link: re-render with the row's entity
+        highlighted. The row names a pinned entity id only — no selection
+        or edit is implied."""
+        preview = self._ab_preview
+        if preview is None or preview.state != 'ready':
+            return
+        entity_id = item.data(Qt.ItemDataRole.UserRole)
+        self.overlay_viewport.render_design_ab_overlay(
+            preview,
+            show_context=not getattr(self, '_ab_diff_only', False),
+            highlight_entity_id=entity_id,
+        )
 
     def _save_binding(self) -> None:
         comparison_set = self._current_set()
