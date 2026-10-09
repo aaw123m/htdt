@@ -1,0 +1,1842 @@
+{
+  "schema_version": "htdt.r130d.original-q0-oblique-normal-fixed-theoretical-half-Q1-full-evidence-1",
+  "frozen_plan_sha256_lf": "d4e8a1c0710158a9dfeb6c0fa5692671a1f9546d6e9f9251ae55755f709a9fb6",
+  "precommitted_plan": {
+    "schema_version": "htdt.r130d.original-q0-true-roof-normal-and-theory-blended-Q1-plan-1",
+    "date_jst": "2026-10-09",
+    "issue": 938,
+    "pr": 1055,
+    "objective": "First diagnose exact oblique roof Neumann normal vs original Cartesian stair-step graph pseudo-normals on every original real native PPW. Independently build a fixed, mathematically derived dispersion-cancelling half-consistent/half-positive-row-lumped Q1 mass, with true physical roof Q1 weak form, every native original 8node q0 and whole 250ms full signed q0 40/80 plus fixed causal roof echo. Compare original native PFFDTD and preobserved pure consistent and pure positive lump Q1; no parameter tuned to observed 5grid.",
+    "frozen_original": {
+      "original_pffdtd_sha": "aa319f6c86517cb95aabfae8656277da62c3ead5",
+      "native_ppw": [
+        28,
+        32,
+        36,
+        40,
+        44
+      ],
+      "raw_native_HDF5_evidence": "benchmarks/acoustics/r130d_original_point_quadratic_pffdtd_evidence_2026-10-09.json",
+      "true_Q1_consistent_5grid_evidence": "benchmarks/acoustics/r130d_original_q0_exact_roof_cut_Q1_variational_evidence_2026-10-09.json",
+      "true_Q1_lumped_5grid_evidence": "benchmarks/acoustics/r130d_original_q0_exact_roof_Q1_lumped_mass_evidence_2026-10-09.json",
+      "true_first_roof_original_raw_evidence": "benchmarks/acoustics/r130d_original_q0_first_roof_echo_causal_weak_evidence_2026-10-09.json",
+      "source_position_m": [
+        1.5,
+        2,
+        2
+      ],
+      "receiver_position_m": [
+        2.5,
+        2,
+        2
+      ],
+      "actual_source_input_eight_native_flat_ixyz_and_strength_per_node_sha": true,
+      "actual_receiver_eight_native_flat_ixyz_and_original_out_alpha_sha": true,
+      "original_impulse": "q[0]=1 q[n>0]=0, original native source strength (c*dt/h)^2/h",
+      "all_native_h_Ts_Nt_exact": true,
+      "c_m_s": 343.2,
+      "rho_kg_m3": 1.2,
+      "full_unmodified_record_s": 0.25,
+      "signed_frequencies_hz": [
+        40,
+        80
+      ],
+      "original_pressure_native_1sided_centered_same": true,
+      "complex_rms_gate": 0.2,
+      "magnitude_max_gate": 0.25,
+      "phase_max_deg_gate": 15,
+      "all_three_gates_all_four_pairs_and_monotone_required": true,
+      "no_mode_truncation_source_smoothing_taper_frequency_fit_or_grid_shift": true
+    },
+    "normal_diagnostic": {
+      "exact_sloped_roof_plane": "z=4-.25*y",
+      "roof_true_unit_normal_yz": "(.25,1)/sqrt(1+.25^2)",
+      "roof_tangential_affine_function": "u(y,z)=y-.25*z, exact normal derivative 0 at roof",
+      "original_staircase_cartesian_boundary": "original raw HDF5 native occupied y-z graph; each occupied-to-unoccupied y or z neighbor across sloping physical roof is a coordinate-axis pseudo-normal; count y-cut vs z-cut roof faces on each grid, excluding physical y=0/4 z=0 walls and including only physical roof transitions",
+      "staircase_normal_flux_error_for_exact_roof_tangential_field": "abs(\u2202y u)=1 on stair y interface, abs(\u2202z u)=.25 on stair z interface, even though true n\u22c5\u2207u=0; weighted RMS and face counts per original PPW",
+      "physical_Q1_normal_flux": "exact Q1 interpolation of affine u=y-.25z; \u2207u=(1,-.25) and true roof unit normal, so exact zero flux on every genuine cut polygon roof segment",
+      "no_claim_stair_flux_error_alone_equals_original_full_wave_error": true
+    },
+    "theory_predetermined_new_solver": {
+      "parameter_free_midpoint_consistent_lump_mass": "Mx_half =.5*Mx_consistent + .5*diag(Mx_consistent*1); Myz_half=.5*Myz_Q1_consistent + .5*diag(Myz_Q1_consistent*1); NO gain chosen after seeing any new score",
+      "theoretical_uniform_1D_dispersion": "K symbol 4c\u00b2sin\u00b2(xi/2)/h ; consistent mass symbol h(2/3+cos(xi)/3); lump mass symbol h; exact 50:50 blend m/h=5/6+cos(xi)/6, leading xi\u00b2 spatial phase error cancels analytically so lambda/(c\u00b2 k\u00b2)=1+O((kh)^4) on UNIFORM infinite grid. Does not imply 4th order on sloping roof or solve full point Green automatically.",
+      "fixed_tensor_operator": "M=Mx_half \u2297 Myz_half; K=Kx \u2297 Myz_half + Mx_half \u2297 Kyz_true_cut_Q1; true roof weak flux and stiffness still physically integrated, both tensor mass factors change; room true56m3 and true affine energy 112c\u00b2.",
+      "source_receiver": "all original HDF5 source and receiver eight Cartesian Q1 nodes and exact original 8-point weights unchanged",
+      "native_time": "original dt,Nt with implicit beta=.25 Newmark; original unmodified full 250ms pressure P/Q, all true physical modes including high frequencies, no modal cutoff, no damping or fitted numerical parameter",
+      "fixed_independent_first_echo": "true roof image center 0.0089668767033651 s, support radius .0011s, widths [.00035,.0006,.00085] s, original 64source/receiver first image analytic, roof witness diagnostic only",
+      "whole_room_gate_not_weak_causal_gate": true
+    },
+    "checks": {
+      "mathematical_1D_phase_small_wavenumber_O_kh4_without_fit": true,
+      "all_positivity_of_M_Gram_mass_modes": true,
+      "exact_positive_sliver_support_kept": true,
+      "exact_true_physical_neumann_rigid_mode_K1": true,
+      "true_roof_affine_3D_weak_gradient_energy_112c2": true,
+      "true_physical_3D_volume_56m3": true,
+      "actual_SHA_native_source_receiver_fullwaves_all_five": true,
+      "all_full_3D_generalized_physical_eigenmodes_including_high": true,
+      "native_Newmark_causal_weak_vs_independent_synthetic_trace": true,
+      "real_original_full_250ms_signed_frozen_40_80_three_gate_all4": true,
+      "independent_original_roof_native_weak_all3widths_without_posthoc_window": true,
+      "never_replace_canonical_original_PFFDTD_or_external_physics_authority": true
+    },
+    "limits": {
+      "max_ppw_cases": 5,
+      "max_physical_3D_modes": 180000,
+      "max_native_cut_yz_modes": 3300,
+      "no_new_upstream_native_PFFDTD_waves": 0,
+      "no_GitHub_Actions_runs": 0,
+      "preserve_scratch": true
+    },
+    "authority": {
+      "original_pffdtd_q0": "SELF_CONVERGENCE_FAILED",
+      "external_physical": "NOT_VALIDATED",
+      "product": "NO_GO",
+      "pr_draft": true,
+      "issue_open": true
+    }
+  },
+  "unchanged_original_PFFDTD_self_convergence": "SELF_CONVERGENCE_FAILED",
+  "independent_physical_validation": "NOT_VALIDATED",
+  "product": "NO_GO",
+  "new_original_native_PFFDTD_runs": 0,
+  "new_GitHub_Actions_runs": 0,
+  "actual_all_five_original_native_q0_theory_half_cut_Q1_cases": [
+    {
+      "ppw": 28,
+      "original_SHA256_comms": "4404a9818a8f0c673c97e8ede8665367100aecb3d2f2f8481bc532bc45fd6b6c",
+      "original_SHA256_voxel": "9d8b598fc1e2077840ba5a51e8f2db72c30ad4b6991ae88d3174bac72acf9fc8",
+      "original_SHA256_full_native_real_wave": "6e8a94d695fe77e992d8bd66bbb9b63ed9eaf27abd86f5be94f7554d2ba97d6b",
+      "native_original_h_m": 0.12257142857142857,
+      "native_original_Ts_s": 0.00020599032818587005,
+      "native_original_Nt": 1214,
+      "native_original_all_8_input_sum": 2.7140664335664337,
+      "true_original_cut_Q1_physical_full_3D_nodes_all_modes": 37835,
+      "true_original_cut_Q1_2D_nodes": 1081,
+      "physical_exact_3D_volume_m3": 56.0,
+      "original_real_native_staircase_oblique_roof_flux_audit": {
+        "original_true_native_raw_boundary_node_count": 11592,
+        "original_staircase_roof_positive_y_axis_missing_face_count": 231,
+        "original_staircase_roof_positive_z_axis_missing_face_count": 1023,
+        "actual_original_stair_boundary_axis_flux_affine_u_y_minus_quarter_z_rms": 0.4849715129995293,
+        "physical_sloped_roof_exact_affine_u_y_minus_quarter_z_normal_flux": 0.0,
+        "physical_true_roof_unit_normal_yz": [
+          0.24253562503633297,
+          0.9701425001453319
+        ],
+        "physical_tangential_affine_gradient_yz": [
+          1.0,
+          -0.25
+        ],
+        "true_tangent_is_in_Q1_bilinear_space": true,
+        "original_native_6neighbor_graph_roof_missing_flux_is_cartesian_axis": true,
+        "rms_is_per_missing_cartesian_face_not_3d_physical_flux_integral": true,
+        "not_a_canonical_fullwave_nonconvergence_causality_proof": true
+      },
+      "positive_yz_cut_Q1_lump_min_mass_m2": 6.667221678795476e-11,
+      "original_true_positive_outside_support_ghost_nodes_retained": 136,
+      "Q1_new_half_true_3D_M_all_nonzero_count": 959239,
+      "Q1_new_true_lumped_3D_K_nnz": 959215,
+      "Neumann_constant_rel_residual": 6.217885703140168e-16,
+      "exact_affine_x_plus_z_physical_Q1_gradient_stiffness_rel_error": 4.4853010194856324e-14,
+      "exact_affine_x_plus_z_half_consistent_lumped_mass_value": 926.8057980084368,
+      "prior_true_consistent_mass_affine_value": 926.6666666666666,
+      "x_all_modes_generalized_eigencheck": {
+        "all_physical_consistent_mass_generalized_modes_retained": true,
+        "exact_rigid_neumann_constant_mode": true,
+        "first_unmodified_numeric_zero_eigenvalue": 5.474813166925391e-08,
+        "strict_max_all_eigenpair_residual": 1.1641532182693481e-10,
+        "strict_max_M_orthogonality_residual": 7.729498464892348e-13,
+        "first_nonzero_physical_frequency_hz": 42.899478112206545
+      },
+      "yz_all_modes_generalized_eigencheck": {
+        "full_original_native_Q1_Galerkin_modes_retained_no_cut": true,
+        "analytic_exact_neumann_rigid_zero": true,
+        "raw_lapack_first_eigenvalue_roundoff_1_s2": 4.782548577776528e-09,
+        "raw_neumann_zero_to_full_spectrum_ratio": 1.4194073480827004e-17,
+        "strict_all_original_Q1_modes_generalized_residual": 2.9565993334879717e-10,
+        "strict_M_orthonormality_Gram_maxerror": 1.6800449920140181e-13,
+        "physical_first_nonzero_original_Q1_frequency_hz": 41.959234503790796,
+        "highest_true_original_Q1_eigenvalue_1_s2": 336939820.99195653
+      },
+      "num_true_high_modes_above_native_nyquist_retained": 1281,
+      "unchanged_original_native_original_8src_rec_HDF5_factorization_error": [
+        5.551115123125783e-17,
+        1.1102230246251565e-16
+      ],
+      "new_true_roof_Q1_half_theory_mass_allmode_full_250ms_original_signed_40_80": [
+        [
+          34.789794452383944,
+          -3.695478996120271
+        ],
+        [
+          63.43115890775951,
+          -224.0907359708074
+        ]
+      ],
+      "preobserved_full_positive_lump_Q1_original_signed_40_80": [
+        [
+          -12.837887970872856,
+          9.78199376754505
+        ],
+        [
+          36.906639983064935,
+          -186.96880346547908
+        ]
+      ],
+      "preobserved_consistent_Q1_true_roof_allmode_full_250ms_signed_40_80": [
+        [
+          345.9641313636179,
+          -4.577794323999935
+        ],
+        [
+          356.7821806215057,
+          -228.02385998299792
+        ]
+      ],
+      "original_full250ms_native_real_PFFDTD_q0_signed_40_80": [
+        [
+          101.0987693066617,
+          42.7956809667478
+        ],
+        [
+          150.77953891006572,
+          -21.729992606786517
+        ]
+      ],
+      "new_original_q0_Q1_lumped_first_roof_echo_causal_weak_all_widths": [
+        {
+          "physical_width_s": 0.00035,
+          "NEW_half_true_roof_original_native_allmode_window": {
+            "width_s": 0.00035,
+            "original_native_q0_same_record_allmode_weak_p_over_Q": -160.61410480115586,
+            "all_original_native_3D_modes_retained": 37835,
+            "original_native_pressure_window_sample_count": 10,
+            "analytical_causal_Newmark_modal_pressure_not_fitted": true
+          },
+          "unchanged_true_64node_physical_roof_image_analytic": {
+            "original_64pair_finite_roof_single_bounce_signed_weak_analytic": -54.673452339804584,
+            "true_physical_point_roof_single_bounce_signed_weak_analytic": -88.65737335558683,
+            "all_64_native_direct_wave_analytic_contribution_within_roof_window": -0.0,
+            "physical_reflection_sign": 1,
+            "true_finite_roof_valid_original_native_64_pair_count": 64,
+            "earliest_actual_original_8node_roof_single_echo_s": 0.008689176935985083,
+            "latest_actual_original_8node_roof_single_echo_s": 0.009733978343982734,
+            "earliest_actual_original_nonroof_single_bounce_s": 0.011071428571428572,
+            "earliest_actual_original_nonroof_single_bounce_wall": "x0",
+            "roof_echo_only_analytic_causality_NOT_native_pulse_decomposition": true,
+            "pre_registered_physical_witness_center_s": 0.0089668767033651,
+            "pre_registered_physical_witness_sigma_s": 0.00035,
+            "pre_registered_physical_witness_upper_support_s": 0.0100668767033651,
+            "original_source_receiver_8node_weights_unmodified": true
+          },
+          "new_native_Q1_half_weak_roof_vs_original_roof_image_signed_ratio": 2.9376982416056796,
+          "new_native_Q1_half_weak_roof_vs_image_relative": 1.9376982416056796,
+          "preobserved_original_true_PFFDTD_native_roof_weak": {
+            "native_window_to_true_roof_image_signed_ratio": 0.3810678840218946
+          }
+        },
+        {
+          "physical_width_s": 0.0006,
+          "NEW_half_true_roof_original_native_allmode_window": {
+            "width_s": 0.0006,
+            "original_native_q0_same_record_allmode_weak_p_over_Q": -34.13382729295699,
+            "all_original_native_3D_modes_retained": 37835,
+            "original_native_pressure_window_sample_count": 10,
+            "analytical_causal_Newmark_modal_pressure_not_fitted": true
+          },
+          "unchanged_true_64node_physical_roof_image_analytic": {
+            "original_64pair_finite_roof_single_bounce_signed_weak_analytic": -40.6070836036602,
+            "true_physical_point_roof_single_bounce_signed_weak_analytic": -51.71680112409231,
+            "all_64_native_direct_wave_analytic_contribution_within_roof_window": -0.0,
+            "physical_reflection_sign": 1,
+            "true_finite_roof_valid_original_native_64_pair_count": 64,
+            "earliest_actual_original_8node_roof_single_echo_s": 0.008689176935985083,
+            "latest_actual_original_8node_roof_single_echo_s": 0.009733978343982734,
+            "earliest_actual_original_nonroof_single_bounce_s": 0.011071428571428572,
+            "earliest_actual_original_nonroof_single_bounce_wall": "x0",
+            "roof_echo_only_analytic_causality_NOT_native_pulse_decomposition": true,
+            "pre_registered_physical_witness_center_s": 0.0089668767033651,
+            "pre_registered_physical_witness_sigma_s": 0.0006,
+            "pre_registered_physical_witness_upper_support_s": 0.0100668767033651,
+            "original_source_receiver_8node_weights_unmodified": true
+          },
+          "new_native_Q1_half_weak_roof_vs_original_roof_image_signed_ratio": 0.8405880024804407,
+          "new_native_Q1_half_weak_roof_vs_image_relative": 0.15941199751955926,
+          "preobserved_original_true_PFFDTD_native_roof_weak": {
+            "native_window_to_true_roof_image_signed_ratio": 0.3018681535038548
+          }
+        },
+        {
+          "physical_width_s": 0.00085,
+          "NEW_half_true_roof_original_native_allmode_window": {
+            "width_s": 0.00085,
+            "original_native_q0_same_record_allmode_weak_p_over_Q": 3.7478406711300325,
+            "all_original_native_3D_modes_retained": 37835,
+            "original_native_pressure_window_sample_count": 10,
+            "analytical_causal_Newmark_modal_pressure_not_fitted": true
+          },
+          "unchanged_true_64node_physical_roof_image_analytic": {
+            "original_64pair_finite_roof_single_bounce_signed_weak_analytic": -30.629754487265473,
+            "true_physical_point_roof_single_bounce_signed_weak_analytic": -36.50597726406516,
+            "all_64_native_direct_wave_analytic_contribution_within_roof_window": -0.0,
+            "physical_reflection_sign": 1,
+            "true_finite_roof_valid_original_native_64_pair_count": 64,
+            "earliest_actual_original_8node_roof_single_echo_s": 0.008689176935985083,
+            "latest_actual_original_8node_roof_single_echo_s": 0.009733978343982734,
+            "earliest_actual_original_nonroof_single_bounce_s": 0.011071428571428572,
+            "earliest_actual_original_nonroof_single_bounce_wall": "x0",
+            "roof_echo_only_analytic_causality_NOT_native_pulse_decomposition": true,
+            "pre_registered_physical_witness_center_s": 0.0089668767033651,
+            "pre_registered_physical_witness_sigma_s": 0.00085,
+            "pre_registered_physical_witness_upper_support_s": 0.0100668767033651,
+            "original_source_receiver_8node_weights_unmodified": true
+          },
+          "new_native_Q1_half_weak_roof_vs_original_roof_image_signed_ratio": -0.12235947476132146,
+          "new_native_Q1_half_weak_roof_vs_image_relative": 1.1223594747613215,
+          "preobserved_original_true_PFFDTD_native_roof_weak": {
+            "native_window_to_true_roof_image_signed_ratio": 0.2650116796988275
+          }
+        }
+      ],
+      "native_impulse_full250ms_source_receiver_unmodified": true,
+      "wall_seconds": 0.587382199941203
+    },
+    {
+      "ppw": 32,
+      "original_SHA256_comms": "716199c1cb8f9d982cdafe7deaccdf630073a2b0d8cdec17fcaf3dff52f4b60b",
+      "original_SHA256_voxel": "8f3ebd62703c40793d68fdf703e098bbecc568cc9beb227cfa126b8042954e3b",
+      "original_SHA256_full_native_real_wave": "773601d4be74cef568739d8957082c9561912ccfd4fa860c415585409a1d84b7",
+      "native_original_h_m": 0.10725,
+      "native_original_Ts_s": 0.0001802415371626363,
+      "native_original_Nt": 1388,
+      "native_original_all_8_input_sum": 3.10179020979021,
+      "true_original_cut_Q1_physical_full_3D_nodes_all_modes": 53001,
+      "true_original_cut_Q1_2D_nodes": 1359,
+      "physical_exact_3D_volume_m3": 56.0,
+      "original_real_native_staircase_oblique_roof_flux_audit": {
+        "original_true_native_raw_boundary_node_count": 14696,
+        "original_staircase_roof_positive_y_axis_missing_face_count": 333,
+        "original_staircase_roof_positive_z_axis_missing_face_count": 1295,
+        "actual_original_stair_boundary_axis_flux_affine_u_y_minus_quarter_z_rms": 0.5042433575530407,
+        "physical_sloped_roof_exact_affine_u_y_minus_quarter_z_normal_flux": 0.0,
+        "physical_true_roof_unit_normal_yz": [
+          0.24253562503633297,
+          0.9701425001453319
+        ],
+        "physical_tangential_affine_gradient_yz": [
+          1.0,
+          -0.25
+        ],
+        "true_tangent_is_in_Q1_bilinear_space": true,
+        "original_native_6neighbor_graph_roof_missing_flux_is_cartesian_axis": true,
+        "rms_is_per_missing_cartesian_face_not_3d_physical_flux_integral": true,
+        "not_a_canonical_fullwave_nonconvergence_causality_proof": true
+      },
+      "positive_yz_cut_Q1_lump_min_mass_m2": 6.562459420719826e-06,
+      "original_true_positive_outside_support_ghost_nodes_retained": 152,
+      "Q1_new_half_true_3D_M_all_nonzero_count": 1353205,
+      "Q1_new_true_lumped_3D_K_nnz": 1353189,
+      "Neumann_constant_rel_residual": 4.601482905487436e-16,
+      "exact_affine_x_plus_z_physical_Q1_gradient_stiffness_rel_error": 2.6978419498391304e-14,
+      "exact_affine_x_plus_z_half_consistent_lumped_mass_value": 926.7730676487765,
+      "prior_true_consistent_mass_affine_value": 926.6666666666666,
+      "x_all_modes_generalized_eigencheck": {
+        "all_physical_consistent_mass_generalized_modes_retained": true,
+        "exact_rigid_neumann_constant_mode": true,
+        "first_unmodified_numeric_zero_eigenvalue": -3.054294204082149e-09,
+        "strict_max_all_eigenpair_residual": 5.206251464550825e-10,
+        "strict_max_M_orthogonality_residual": 3.749257848628673e-14,
+        "first_nonzero_physical_frequency_hz": 42.89954269041566
+      },
+      "yz_all_modes_generalized_eigencheck": {
+        "full_original_native_Q1_Galerkin_modes_retained_no_cut": true,
+        "analytic_exact_neumann_rigid_zero": true,
+        "raw_lapack_first_eigenvalue_roundoff_1_s2": -8.502251951208931e-11,
+        "raw_neumann_zero_to_full_spectrum_ratio": 4.178869539940951e-19,
+        "strict_all_original_Q1_modes_generalized_residual": 3.6236328408531126e-10,
+        "strict_M_orthonormality_Gram_maxerror": 5.2860493759965266e-14,
+        "physical_first_nonzero_original_Q1_frequency_hz": 41.959368591943736,
+        "highest_true_original_Q1_eigenvalue_1_s2": 203458180.97324646
+      },
+      "num_true_high_modes_above_native_nyquist_retained": 9,
+      "unchanged_original_native_original_8src_rec_HDF5_factorization_error": [
+        1.3877787807814457e-17,
+        3.469446951953614e-18
+      ],
+      "new_true_roof_Q1_half_theory_mass_allmode_full_250ms_original_signed_40_80": [
+        [
+          168.59494158022042,
+          3.5580743767048313
+        ],
+        [
+          194.65166725827584,
+          -210.19078702957245
+        ]
+      ],
+      "preobserved_full_positive_lump_Q1_original_signed_40_80": [
+        [
+          95.39616004196873,
+          -3.739102914386317
+        ],
+        [
+          140.5204832437466,
+          -220.38022254919247
+        ]
+      ],
+      "preobserved_consistent_Q1_true_roof_allmode_full_250ms_signed_40_80": [
+        [
+          -90.92607329723612,
+          -1.033634411559782
+        ],
+        [
+          -78.36397400822513,
+          -221.3386058340267
+        ]
+      ],
+      "original_full250ms_native_real_PFFDTD_q0_signed_40_80": [
+        [
+          16.56628166594011,
+          -21.00233450877161
+        ],
+        [
+          -21.520688403756687,
+          -230.6577420888628
+        ]
+      ],
+      "new_original_q0_Q1_lumped_first_roof_echo_causal_weak_all_widths": [
+        {
+          "physical_width_s": 0.00035,
+          "NEW_half_true_roof_original_native_allmode_window": {
+            "width_s": 0.00035,
+            "original_native_q0_same_record_allmode_weak_p_over_Q": -117.59495650438896,
+            "all_original_native_3D_modes_retained": 53001,
+            "original_native_pressure_window_sample_count": 12,
+            "analytical_causal_Newmark_modal_pressure_not_fitted": true
+          },
+          "unchanged_true_64node_physical_roof_image_analytic": {
+            "original_64pair_finite_roof_single_bounce_signed_weak_analytic": -63.00402022588567,
+            "true_physical_point_roof_single_bounce_signed_weak_analytic": -88.65737335558683,
+            "all_64_native_direct_wave_analytic_contribution_within_roof_window": -0.0,
+            "physical_reflection_sign": 1,
+            "true_finite_roof_valid_original_native_64_pair_count": 64,
+            "earliest_actual_original_8node_roof_single_echo_s": 0.008223737271334509,
+            "latest_actual_original_8node_roof_single_echo_s": 0.009143078345636177,
+            "earliest_actual_original_nonroof_single_bounce_s": 0.01125,
+            "earliest_actual_original_nonroof_single_bounce_wall": "x0",
+            "roof_echo_only_analytic_causality_NOT_native_pulse_decomposition": true,
+            "pre_registered_physical_witness_center_s": 0.0089668767033651,
+            "pre_registered_physical_witness_sigma_s": 0.00035,
+            "pre_registered_physical_witness_upper_support_s": 0.0100668767033651,
+            "original_source_receiver_8node_weights_unmodified": true
+          },
+          "new_native_Q1_half_weak_roof_vs_original_roof_image_signed_ratio": 1.8664675060858134,
+          "new_native_Q1_half_weak_roof_vs_image_relative": 0.8664675060858134,
+          "preobserved_original_true_PFFDTD_native_roof_weak": {
+            "native_window_to_true_roof_image_signed_ratio": 0.29203907545627356
+          }
+        },
+        {
+          "physical_width_s": 0.0006,
+          "NEW_half_true_roof_original_native_allmode_window": {
+            "width_s": 0.0006,
+            "original_native_q0_same_record_allmode_weak_p_over_Q": 8.592766873869904,
+            "all_original_native_3D_modes_retained": 53001,
+            "original_native_pressure_window_sample_count": 12,
+            "analytical_causal_Newmark_modal_pressure_not_fitted": true
+          },
+          "unchanged_true_64node_physical_roof_image_analytic": {
+            "original_64pair_finite_roof_single_bounce_signed_weak_analytic": -43.65219013430588,
+            "true_physical_point_roof_single_bounce_signed_weak_analytic": -51.71680112409231,
+            "all_64_native_direct_wave_analytic_contribution_within_roof_window": -0.0,
+            "physical_reflection_sign": 1,
+            "true_finite_roof_valid_original_native_64_pair_count": 64,
+            "earliest_actual_original_8node_roof_single_echo_s": 0.008223737271334509,
+            "latest_actual_original_8node_roof_single_echo_s": 0.009143078345636177,
+            "earliest_actual_original_nonroof_single_bounce_s": 0.01125,
+            "earliest_actual_original_nonroof_single_bounce_wall": "x0",
+            "roof_echo_only_analytic_causality_NOT_native_pulse_decomposition": true,
+            "pre_registered_physical_witness_center_s": 0.0089668767033651,
+            "pre_registered_physical_witness_sigma_s": 0.0006,
+            "pre_registered_physical_witness_upper_support_s": 0.0100668767033651,
+            "original_source_receiver_8node_weights_unmodified": true
+          },
+          "new_native_Q1_half_weak_roof_vs_original_roof_image_signed_ratio": -0.196846179938104,
+          "new_native_Q1_half_weak_roof_vs_image_relative": 1.196846179938104,
+          "preobserved_original_true_PFFDTD_native_roof_weak": {
+            "native_window_to_true_roof_image_signed_ratio": 0.3881484202875705
+          }
+        },
+        {
+          "physical_width_s": 0.00085,
+          "NEW_half_true_roof_original_native_allmode_window": {
+            "width_s": 0.00085,
+            "original_native_q0_same_record_allmode_weak_p_over_Q": 34.536544814253254,
+            "all_original_native_3D_modes_retained": 53001,
+            "original_native_pressure_window_sample_count": 12,
+            "analytical_causal_Newmark_modal_pressure_not_fitted": true
+          },
+          "unchanged_true_64node_physical_roof_image_analytic": {
+            "original_64pair_finite_roof_single_bounce_signed_weak_analytic": -32.32177873819361,
+            "true_physical_point_roof_single_bounce_signed_weak_analytic": -36.50597726406516,
+            "all_64_native_direct_wave_analytic_contribution_within_roof_window": -0.0,
+            "physical_reflection_sign": 1,
+            "true_finite_roof_valid_original_native_64_pair_count": 64,
+            "earliest_actual_original_8node_roof_single_echo_s": 0.008223737271334509,
+            "latest_actual_original_8node_roof_single_echo_s": 0.009143078345636177,
+            "earliest_actual_original_nonroof_single_bounce_s": 0.01125,
+            "earliest_actual_original_nonroof_single_bounce_wall": "x0",
+            "roof_echo_only_analytic_causality_NOT_native_pulse_decomposition": true,
+            "pre_registered_physical_witness_center_s": 0.0089668767033651,
+            "pre_registered_physical_witness_sigma_s": 0.00085,
+            "pre_registered_physical_witness_upper_support_s": 0.0100668767033651,
+            "original_source_receiver_8node_weights_unmodified": true
+          },
+          "new_native_Q1_half_weak_roof_vs_original_roof_image_signed_ratio": -1.0685224069504111,
+          "new_native_Q1_half_weak_roof_vs_image_relative": 2.068522406950411,
+          "preobserved_original_true_PFFDTD_native_roof_weak": {
+            "native_window_to_true_roof_image_signed_ratio": 0.4238043254978396
+          }
+        }
+      ],
+      "native_impulse_full250ms_source_receiver_unmodified": true,
+      "wall_seconds": 0.853972400072962
+    },
+    {
+      "ppw": 36,
+      "original_SHA256_comms": "3cd05bcee5f8fed08da3dc94ff2ac90b92969b293daf2db77b4bac8d0c51a2f9",
+      "original_SHA256_voxel": "433c1d334419006b1185a4ef275545d329244d0808b2a3c12a3200e7af4e3d50",
+      "original_SHA256_full_native_real_wave": "8fad2511eee77d463b43a1aa5d6f7ae13047ed8bf5d27e0cb0b76ffb7b3bd486",
+      "native_original_h_m": 0.09533333333333333,
+      "native_original_Ts_s": 0.00016021469970012116,
+      "native_original_Nt": 1561,
+      "native_original_all_8_input_sum": 3.4895139860139857,
+      "true_original_cut_Q1_physical_full_3D_nodes_all_modes": 75504,
+      "true_original_cut_Q1_2D_nodes": 1716,
+      "physical_exact_3D_volume_m3": 56.0,
+      "original_real_native_staircase_oblique_roof_flux_audit": {
+        "original_true_native_raw_boundary_node_count": 18972,
+        "original_staircase_roof_positive_y_axis_missing_face_count": 420,
+        "original_staircase_roof_positive_z_axis_missing_face_count": 1680,
+        "actual_original_stair_boundary_axis_flux_affine_u_y_minus_quarter_z_rms": 0.5,
+        "physical_sloped_roof_exact_affine_u_y_minus_quarter_z_normal_flux": 0.0,
+        "physical_true_roof_unit_normal_yz": [
+          0.24253562503633297,
+          0.9701425001453319
+        ],
+        "physical_tangential_affine_gradient_yz": [
+          1.0,
+          -0.25
+        ],
+        "true_tangent_is_in_Q1_bilinear_space": true,
+        "original_native_6neighbor_graph_roof_missing_flux_is_cartesian_axis": true,
+        "rms_is_per_missing_cartesian_face_not_3d_physical_flux_integral": true,
+        "not_a_canonical_fullwave_nonconvergence_causality_proof": true
+      },
+      "positive_yz_cut_Q1_lump_min_mass_m2": 2.8813009411530283e-07,
+      "original_true_positive_outside_support_ghost_nodes_retained": 172,
+      "Q1_new_half_true_3D_M_all_nonzero_count": 1939600,
+      "Q1_new_true_lumped_3D_K_nnz": 1939516,
+      "Neumann_constant_rel_residual": 4.55970875363987e-16,
+      "exact_affine_x_plus_z_physical_Q1_gradient_stiffness_rel_error": 1.7541523789077473e-14,
+      "exact_affine_x_plus_z_half_consistent_lumped_mass_value": 926.7507438760534,
+      "prior_true_consistent_mass_affine_value": 926.6666666666666,
+      "x_all_modes_generalized_eigencheck": {
+        "all_physical_consistent_mass_generalized_modes_retained": true,
+        "exact_rigid_neumann_constant_mode": true,
+        "first_unmodified_numeric_zero_eigenvalue": 1.9094841746237217e-08,
+        "strict_max_all_eigenpair_residual": 1.1641532182693481e-10,
+        "strict_max_M_orthogonality_residual": 1.3332808491999096e-13,
+        "first_nonzero_physical_frequency_hz": 42.89964527969189
+      },
+      "yz_all_modes_generalized_eigencheck": {
+        "full_original_native_Q1_Galerkin_modes_retained_no_cut": true,
+        "analytic_exact_neumann_rigid_zero": true,
+        "raw_lapack_first_eigenvalue_roundoff_1_s2": 1.8449913070157676e-08,
+        "raw_neumann_zero_to_full_spectrum_ratio": 6.706592803838832e-17,
+        "strict_all_original_Q1_modes_generalized_residual": 3.820490367431898e-10,
+        "strict_M_orthonormality_Gram_maxerror": 1.1338152638984411e-13,
+        "physical_first_nonzero_original_Q1_frequency_hz": 41.959512611407796,
+        "highest_true_original_Q1_eigenvalue_1_s2": 275101137.1914067
+      },
+      "num_true_high_modes_above_native_nyquist_retained": 23,
+      "unchanged_original_native_original_8src_rec_HDF5_factorization_error": [
+        2.7755575615628914e-17,
+        2.7755575615628914e-17
+      ],
+      "new_true_roof_Q1_half_theory_mass_allmode_full_250ms_original_signed_40_80": [
+        [
+          90.36572468452484,
+          9.025810248936779
+        ],
+        [
+          113.87254443963059,
+          -198.92656861642732
+        ]
+      ],
+      "preobserved_full_positive_lump_Q1_original_signed_40_80": [
+        [
+          -14.8487109789518,
+          -3.2220096768474145
+        ],
+        [
+          21.566767668821164,
+          -221.43392453394557
+        ]
+      ],
+      "preobserved_consistent_Q1_true_roof_allmode_full_250ms_signed_40_80": [
+        [
+          68.84840184328662,
+          5.945619303275491
+        ],
+        [
+          83.24717996296873,
+          -207.14535536259496
+        ]
+      ],
+      "original_full250ms_native_real_PFFDTD_q0_signed_40_80": [
+        [
+          57.86557590696418,
+          12.212530552108216
+        ],
+        [
+          119.43681400077243,
+          -167.8458584505424
+        ]
+      ],
+      "new_original_q0_Q1_lumped_first_roof_echo_causal_weak_all_widths": [
+        {
+          "physical_width_s": 0.00035,
+          "NEW_half_true_roof_original_native_allmode_window": {
+            "width_s": 0.00035,
+            "original_native_q0_same_record_allmode_weak_p_over_Q": -20.20805370488887,
+            "all_original_native_3D_modes_retained": 75504,
+            "original_native_pressure_window_sample_count": 13,
+            "analytical_causal_Newmark_modal_pressure_not_fitted": true
+          },
+          "unchanged_true_64node_physical_roof_image_analytic": {
+            "original_64pair_finite_roof_single_bounce_signed_weak_analytic": -52.69609946506689,
+            "true_physical_point_roof_single_bounce_signed_weak_analytic": -88.65737335558683,
+            "all_64_native_direct_wave_analytic_contribution_within_roof_window": -0.0,
+            "physical_reflection_sign": 1,
+            "true_finite_roof_valid_original_native_64_pair_count": 64,
+            "earliest_actual_original_8node_roof_single_echo_s": 0.008505007789776281,
+            "latest_actual_original_8node_roof_single_echo_s": 0.009318208794358912,
+            "earliest_actual_original_nonroof_single_bounce_s": 0.011365578865578865,
+            "earliest_actual_original_nonroof_single_bounce_wall": "x4",
+            "roof_echo_only_analytic_causality_NOT_native_pulse_decomposition": true,
+            "pre_registered_physical_witness_center_s": 0.0089668767033651,
+            "pre_registered_physical_witness_sigma_s": 0.00035,
+            "pre_registered_physical_witness_upper_support_s": 0.0100668767033651,
+            "original_source_receiver_8node_weights_unmodified": true
+          },
+          "new_native_Q1_half_weak_roof_vs_original_roof_image_signed_ratio": 0.38348291258796335,
+          "new_native_Q1_half_weak_roof_vs_image_relative": 0.6165170874120367,
+          "preobserved_original_true_PFFDTD_native_roof_weak": {
+            "native_window_to_true_roof_image_signed_ratio": 0.34872981189465707
+          }
+        },
+        {
+          "physical_width_s": 0.0006,
+          "NEW_half_true_roof_original_native_allmode_window": {
+            "width_s": 0.0006,
+            "original_native_q0_same_record_allmode_weak_p_over_Q": -9.497391387981601,
+            "all_original_native_3D_modes_retained": 75504,
+            "original_native_pressure_window_sample_count": 13,
+            "analytical_causal_Newmark_modal_pressure_not_fitted": true
+          },
+          "unchanged_true_64node_physical_roof_image_analytic": {
+            "original_64pair_finite_roof_single_bounce_signed_weak_analytic": -40.19699182956294,
+            "true_physical_point_roof_single_bounce_signed_weak_analytic": -51.71680112409231,
+            "all_64_native_direct_wave_analytic_contribution_within_roof_window": -0.0,
+            "physical_reflection_sign": 1,
+            "true_finite_roof_valid_original_native_64_pair_count": 64,
+            "earliest_actual_original_8node_roof_single_echo_s": 0.008505007789776281,
+            "latest_actual_original_8node_roof_single_echo_s": 0.009318208794358912,
+            "earliest_actual_original_nonroof_single_bounce_s": 0.011365578865578865,
+            "earliest_actual_original_nonroof_single_bounce_wall": "x4",
+            "roof_echo_only_analytic_causality_NOT_native_pulse_decomposition": true,
+            "pre_registered_physical_witness_center_s": 0.0089668767033651,
+            "pre_registered_physical_witness_sigma_s": 0.0006,
+            "pre_registered_physical_witness_upper_support_s": 0.0100668767033651,
+            "original_source_receiver_8node_weights_unmodified": true
+          },
+          "new_native_Q1_half_weak_roof_vs_original_roof_image_signed_ratio": 0.23627119731374352,
+          "new_native_Q1_half_weak_roof_vs_image_relative": 0.7637288026862565,
+          "preobserved_original_true_PFFDTD_native_roof_weak": {
+            "native_window_to_true_roof_image_signed_ratio": 0.44934652922801216
+          }
+        },
+        {
+          "physical_width_s": 0.00085,
+          "NEW_half_true_roof_original_native_allmode_window": {
+            "width_s": 0.00085,
+            "original_native_q0_same_record_allmode_weak_p_over_Q": -6.17818701550862,
+            "all_original_native_3D_modes_retained": 75504,
+            "original_native_pressure_window_sample_count": 13,
+            "analytical_causal_Newmark_modal_pressure_not_fitted": true
+          },
+          "unchanged_true_64node_physical_roof_image_analytic": {
+            "original_64pair_finite_roof_single_bounce_signed_weak_analytic": -30.543351374360743,
+            "true_physical_point_roof_single_bounce_signed_weak_analytic": -36.50597726406516,
+            "all_64_native_direct_wave_analytic_contribution_within_roof_window": -0.0,
+            "physical_reflection_sign": 1,
+            "true_finite_roof_valid_original_native_64_pair_count": 64,
+            "earliest_actual_original_8node_roof_single_echo_s": 0.008505007789776281,
+            "latest_actual_original_8node_roof_single_echo_s": 0.009318208794358912,
+            "earliest_actual_original_nonroof_single_bounce_s": 0.011365578865578865,
+            "earliest_actual_original_nonroof_single_bounce_wall": "x4",
+            "roof_echo_only_analytic_causality_NOT_native_pulse_decomposition": true,
+            "pre_registered_physical_witness_center_s": 0.0089668767033651,
+            "pre_registered_physical_witness_sigma_s": 0.00085,
+            "pre_registered_physical_witness_upper_support_s": 0.0100668767033651,
+            "original_source_receiver_8node_weights_unmodified": true
+          },
+          "new_native_Q1_half_weak_roof_vs_original_roof_image_signed_ratio": 0.20227600238704735,
+          "new_native_Q1_half_weak_roof_vs_image_relative": 0.7977239976129527,
+          "preobserved_original_true_PFFDTD_native_roof_weak": {
+            "native_window_to_true_roof_image_signed_ratio": 0.5029773627550759
+          }
+        }
+      ],
+      "native_impulse_full250ms_source_receiver_unmodified": true,
+      "wall_seconds": 1.4815362999215722
+    },
+    {
+      "ppw": 40,
+      "original_SHA256_comms": "64a4f45cf19b92bb7a8a1ffd24af05e10877c99000e29bf985637b18e287763a",
+      "original_SHA256_voxel": "c7c1894826c4774393987855e533081f615b22d510ec6042aacda12acbe0daaf",
+      "original_SHA256_full_native_real_wave": "79763a63cedf667e98cbcf5867b848675d634a861e63fc3e1cf94ed9982596fa",
+      "native_original_h_m": 0.0858,
+      "native_original_Ts_s": 0.00014419322973010905,
+      "native_original_Nt": 1734,
+      "native_original_all_8_input_sum": 3.877237762237762,
+      "true_original_cut_Q1_physical_full_3D_nodes_all_modes": 102949,
+      "true_original_cut_Q1_2D_nodes": 2101,
+      "physical_exact_3D_volume_m3": 56.0,
+      "original_real_native_staircase_oblique_roof_flux_audit": {
+        "original_true_native_raw_boundary_node_count": 23603,
+        "original_staircase_roof_positive_y_axis_missing_face_count": 517,
+        "original_staircase_roof_positive_z_axis_missing_face_count": 2115,
+        "actual_original_stair_boundary_axis_flux_affine_u_y_minus_quarter_z_rms": 0.4966404994704779,
+        "physical_sloped_roof_exact_affine_u_y_minus_quarter_z_normal_flux": 0.0,
+        "physical_true_roof_unit_normal_yz": [
+          0.24253562503633297,
+          0.9701425001453319
+        ],
+        "physical_tangential_affine_gradient_yz": [
+          1.0,
+          -0.25
+        ],
+        "true_tangent_is_in_Q1_bilinear_space": true,
+        "original_native_6neighbor_graph_roof_missing_flux_is_cartesian_axis": true,
+        "rms_is_per_missing_cartesian_face_not_3d_physical_flux_integral": true,
+        "not_a_canonical_fullwave_nonconvergence_causality_proof": true
+      },
+      "positive_yz_cut_Q1_lump_min_mass_m2": 3.2259931392110094e-06,
+      "original_true_positive_outside_support_ghost_nodes_retained": 192,
+      "Q1_new_half_true_3D_M_all_nonzero_count": 2657125,
+      "Q1_new_true_lumped_3D_K_nnz": 2657067,
+      "Neumann_constant_rel_residual": 6.538613221666917e-16,
+      "exact_affine_x_plus_z_physical_Q1_gradient_stiffness_rel_error": 2.9976021664879227e-14,
+      "exact_affine_x_plus_z_half_consistent_lumped_mass_value": 926.7350136144637,
+      "prior_true_consistent_mass_affine_value": 926.6666666666666,
+      "x_all_modes_generalized_eigencheck": {
+        "all_physical_consistent_mass_generalized_modes_retained": true,
+        "exact_rigid_neumann_constant_mode": true,
+        "first_unmodified_numeric_zero_eigenvalue": 3.216521442712688e-08,
+        "strict_max_all_eigenpair_residual": 1.0347220135521596e-09,
+        "strict_max_M_orthogonality_residual": 2.2086498030622822e-13,
+        "first_nonzero_physical_frequency_hz": 42.899826394641735
+      },
+      "yz_all_modes_generalized_eigencheck": {
+        "full_original_native_Q1_Galerkin_modes_retained_no_cut": true,
+        "analytic_exact_neumann_rigid_zero": true,
+        "raw_lapack_first_eigenvalue_roundoff_1_s2": 4.8644224900054616e-08,
+        "raw_neumann_zero_to_full_spectrum_ratio": 6.338570526570158e-17,
+        "strict_all_original_Q1_modes_generalized_residual": 4.466407533953144e-10,
+        "strict_M_orthonormality_Gram_maxerror": 3.507610868425104e-13,
+        "physical_first_nonzero_original_Q1_frequency_hz": 41.95970129112206,
+        "highest_true_original_Q1_eigenvalue_1_s2": 767432099.9687027
+      },
+      "num_true_high_modes_above_native_nyquist_retained": 2738,
+      "unchanged_original_native_original_8src_rec_HDF5_factorization_error": [
+        1.1102230246251565e-16,
+        5.551115123125783e-17
+      ],
+      "new_true_roof_Q1_half_theory_mass_allmode_full_250ms_original_signed_40_80": [
+        [
+          194.73230147302934,
+          0.6850140141629758
+        ],
+        [
+          216.63973318540346,
+          -216.59451540915234
+        ]
+      ],
+      "preobserved_full_positive_lump_Q1_original_signed_40_80": [
+        [
+          -68.52629688737345,
+          -1.3694568972984826
+        ],
+        [
+          -37.74738645942091,
+          -219.50694621882366
+        ]
+      ],
+      "preobserved_consistent_Q1_true_roof_allmode_full_250ms_signed_40_80": [
+        [
+          206.5128043783358,
+          0.9977326586207177
+        ],
+        [
+          221.32230221635126,
+          -217.61830079753702
+        ]
+      ],
+      "original_full250ms_native_real_PFFDTD_q0_signed_40_80": [
+        [
+          23.081760574920366,
+          18.909536564347828
+        ],
+        [
+          109.07263342140902,
+          -119.86161783862582
+        ]
+      ],
+      "new_original_q0_Q1_lumped_first_roof_echo_causal_weak_all_widths": [
+        {
+          "physical_width_s": 0.00035,
+          "NEW_half_true_roof_original_native_allmode_window": {
+            "width_s": 0.00035,
+            "original_native_q0_same_record_allmode_weak_p_over_Q": -27.497053006158854,
+            "all_original_native_3D_modes_retained": 102949,
+            "original_native_pressure_window_sample_count": 15,
+            "analytical_causal_Newmark_modal_pressure_not_fitted": true
+          },
+          "unchanged_true_64node_physical_roof_image_analytic": {
+            "original_64pair_finite_roof_single_bounce_signed_weak_analytic": -68.73916110437304,
+            "true_physical_point_roof_single_bounce_signed_weak_analytic": -88.65737335558683,
+            "all_64_native_direct_wave_analytic_contribution_within_roof_window": -0.0,
+            "physical_reflection_sign": 1,
+            "true_finite_roof_valid_original_native_64_pair_count": 64,
+            "earliest_actual_original_8node_roof_single_echo_s": 0.00880550974477419,
+            "latest_actual_original_8node_roof_single_echo_s": 0.009541949171670977,
+            "earliest_actual_original_nonroof_single_bounce_s": 0.01125,
+            "earliest_actual_original_nonroof_single_bounce_wall": "x0",
+            "roof_echo_only_analytic_causality_NOT_native_pulse_decomposition": true,
+            "pre_registered_physical_witness_center_s": 0.0089668767033651,
+            "pre_registered_physical_witness_sigma_s": 0.00035,
+            "pre_registered_physical_witness_upper_support_s": 0.0100668767033651,
+            "original_source_receiver_8node_weights_unmodified": true
+          },
+          "new_native_Q1_half_weak_roof_vs_original_roof_image_signed_ratio": 0.40002020048524495,
+          "new_native_Q1_half_weak_roof_vs_image_relative": 0.5999797995147551,
+          "preobserved_original_true_PFFDTD_native_roof_weak": {
+            "native_window_to_true_roof_image_signed_ratio": 0.3289127501466544
+          }
+        },
+        {
+          "physical_width_s": 0.0006,
+          "NEW_half_true_roof_original_native_allmode_window": {
+            "width_s": 0.0006,
+            "original_native_q0_same_record_allmode_weak_p_over_Q": -0.47034912145125446,
+            "all_original_native_3D_modes_retained": 102949,
+            "original_native_pressure_window_sample_count": 15,
+            "analytical_causal_Newmark_modal_pressure_not_fitted": true
+          },
+          "unchanged_true_64node_physical_roof_image_analytic": {
+            "original_64pair_finite_roof_single_bounce_signed_weak_analytic": -45.768502319550706,
+            "true_physical_point_roof_single_bounce_signed_weak_analytic": -51.71680112409231,
+            "all_64_native_direct_wave_analytic_contribution_within_roof_window": -0.0,
+            "physical_reflection_sign": 1,
+            "true_finite_roof_valid_original_native_64_pair_count": 64,
+            "earliest_actual_original_8node_roof_single_echo_s": 0.00880550974477419,
+            "latest_actual_original_8node_roof_single_echo_s": 0.009541949171670977,
+            "earliest_actual_original_nonroof_single_bounce_s": 0.01125,
+            "earliest_actual_original_nonroof_single_bounce_wall": "x0",
+            "roof_echo_only_analytic_causality_NOT_native_pulse_decomposition": true,
+            "pre_registered_physical_witness_center_s": 0.0089668767033651,
+            "pre_registered_physical_witness_sigma_s": 0.0006,
+            "pre_registered_physical_witness_upper_support_s": 0.0100668767033651,
+            "original_source_receiver_8node_weights_unmodified": true
+          },
+          "new_native_Q1_half_weak_roof_vs_original_roof_image_signed_ratio": 0.010276698987599114,
+          "new_native_Q1_half_weak_roof_vs_image_relative": 0.9897233010124009,
+          "preobserved_original_true_PFFDTD_native_roof_weak": {
+            "native_window_to_true_roof_image_signed_ratio": 0.8112908489921488
+          }
+        },
+        {
+          "physical_width_s": 0.00085,
+          "NEW_half_true_roof_original_native_allmode_window": {
+            "width_s": 0.00085,
+            "original_native_q0_same_record_allmode_weak_p_over_Q": -4.139635176896292,
+            "all_original_native_3D_modes_retained": 102949,
+            "original_native_pressure_window_sample_count": 15,
+            "analytical_causal_Newmark_modal_pressure_not_fitted": true
+          },
+          "unchanged_true_64node_physical_roof_image_analytic": {
+            "original_64pair_finite_roof_single_bounce_signed_weak_analytic": -33.4919873398251,
+            "true_physical_point_roof_single_bounce_signed_weak_analytic": -36.50597726406516,
+            "all_64_native_direct_wave_analytic_contribution_within_roof_window": -0.0,
+            "physical_reflection_sign": 1,
+            "true_finite_roof_valid_original_native_64_pair_count": 64,
+            "earliest_actual_original_8node_roof_single_echo_s": 0.00880550974477419,
+            "latest_actual_original_8node_roof_single_echo_s": 0.009541949171670977,
+            "earliest_actual_original_nonroof_single_bounce_s": 0.01125,
+            "earliest_actual_original_nonroof_single_bounce_wall": "x0",
+            "roof_echo_only_analytic_causality_NOT_native_pulse_decomposition": true,
+            "pre_registered_physical_witness_center_s": 0.0089668767033651,
+            "pre_registered_physical_witness_sigma_s": 0.00085,
+            "pre_registered_physical_witness_upper_support_s": 0.0100668767033651,
+            "original_source_receiver_8node_weights_unmodified": true
+          },
+          "new_native_Q1_half_weak_roof_vs_original_roof_image_signed_ratio": 0.12360076262103081,
+          "new_native_Q1_half_weak_roof_vs_image_relative": 0.8763992373789692,
+          "preobserved_original_true_PFFDTD_native_roof_weak": {
+            "native_window_to_true_roof_image_signed_ratio": 0.9852845231180312
+          }
+        }
+      ],
+      "native_impulse_full250ms_source_receiver_unmodified": true,
+      "wall_seconds": 2.6826825998723507
+    },
+    {
+      "ppw": 44,
+      "original_SHA256_comms": "41c537b663ef11aa7404a248862f89398dec80fd3b6c794f4ecce4a0a8577ee4",
+      "original_SHA256_voxel": "4a7cb6c30c013adc31d5b1910d50cef003cacbdd37a271ac3efa7a39956e505b",
+      "original_SHA256_full_native_real_wave": "a5603179fa00ef7a82e5e5e486d864b1b2f08e3f432692d80631fcf406c0ce89",
+      "native_original_h_m": 0.078,
+      "native_original_Ts_s": 0.00013108475430009911,
+      "native_original_Nt": 1908,
+      "native_original_all_8_input_sum": 4.264961538461538,
+      "true_original_cut_Q1_physical_full_3D_nodes_all_modes": 132341,
+      "true_original_cut_Q1_2D_nodes": 2497,
+      "physical_exact_3D_volume_m3": 56.0,
+      "original_real_native_staircase_oblique_roof_flux_audit": {
+        "original_true_native_raw_boundary_node_count": 28160,
+        "original_staircase_roof_positive_y_axis_missing_face_count": 612,
+        "original_staircase_roof_positive_z_axis_missing_face_count": 2499,
+        "actual_original_stair_boundary_axis_flux_affine_u_y_minus_quarter_z_rms": 0.49691672291058664,
+        "physical_sloped_roof_exact_affine_u_y_minus_quarter_z_normal_flux": 0.0,
+        "physical_true_roof_unit_normal_yz": [
+          0.24253562503633297,
+          0.9701425001453319
+        ],
+        "physical_tangential_affine_gradient_yz": [
+          1.0,
+          -0.25
+        ],
+        "true_tangent_is_in_Q1_bilinear_space": true,
+        "original_native_6neighbor_graph_roof_missing_flux_is_cartesian_axis": true,
+        "rms_is_per_missing_cartesian_face_not_3d_physical_flux_integral": true,
+        "not_a_canonical_fullwave_nonconvergence_causality_proof": true
+      },
+      "positive_yz_cut_Q1_lump_min_mass_m2": 2.467538232112507e-06,
+      "original_true_positive_outside_support_ghost_nodes_retained": 208,
+      "Q1_new_half_true_3D_M_all_nonzero_count": 3429037,
+      "Q1_new_true_lumped_3D_K_nnz": 3428983,
+      "Neumann_constant_rel_residual": 4.664577218285875e-16,
+      "exact_affine_x_plus_z_physical_Q1_gradient_stiffness_rel_error": 1.270095140171179e-13,
+      "exact_affine_x_plus_z_half_consistent_lumped_mass_value": 926.7230742001735,
+      "prior_true_consistent_mass_affine_value": 926.6666666666666,
+      "x_all_modes_generalized_eigencheck": {
+        "all_physical_consistent_mass_generalized_modes_retained": true,
+        "exact_rigid_neumann_constant_mode": true,
+        "first_unmodified_numeric_zero_eigenvalue": 5.871382943350025e-09,
+        "strict_max_all_eigenpair_residual": 6.68755109251713e-10,
+        "strict_max_M_orthogonality_residual": 3.48471251854221e-14,
+        "first_nonzero_physical_frequency_hz": 42.89982127811324
+      },
+      "yz_all_modes_generalized_eigencheck": {
+        "full_original_native_Q1_Galerkin_modes_retained_no_cut": true,
+        "analytic_exact_neumann_rigid_zero": true,
+        "raw_lapack_first_eigenvalue_roundoff_1_s2": 2.2333378053823303e-08,
+        "raw_neumann_zero_to_full_spectrum_ratio": 5.722634903028154e-17,
+        "strict_all_original_Q1_modes_generalized_residual": 4.876493862791657e-10,
+        "strict_M_orthonormality_Gram_maxerror": 2.496614026625821e-13,
+        "physical_first_nonzero_original_Q1_frequency_hz": 41.95972583752794,
+        "highest_true_original_Q1_eigenvalue_1_s2": 390263898.22641855
+      },
+      "num_true_high_modes_above_native_nyquist_retained": 13,
+      "unchanged_original_native_original_8src_rec_HDF5_factorization_error": [
+        6.938893903907228e-18,
+        1.734723475976807e-18
+      ],
+      "new_true_roof_Q1_half_theory_mass_allmode_full_250ms_original_signed_40_80": [
+        [
+          -2.8644897962352402,
+          -1.345623854107706
+        ],
+        [
+          19.971691367198485,
+          -221.1430412504082
+        ]
+      ],
+      "preobserved_full_positive_lump_Q1_original_signed_40_80": [
+        [
+          -100.27099418436728,
+          -2.7535818765520657
+        ],
+        [
+          -72.91185709902823,
+          -222.8596204759207
+        ]
+      ],
+      "preobserved_consistent_Q1_true_roof_allmode_full_250ms_signed_40_80": [
+        [
+          14.251350750954984,
+          7.939345266340001
+        ],
+        [
+          30.113539322730645,
+          -203.8068030035842
+        ]
+      ],
+      "original_full250ms_native_real_PFFDTD_q0_signed_40_80": [
+        [
+          -64.44884936510273,
+          -11.312555997628882
+        ],
+        [
+          -83.61305811577175,
+          -224.3177326070579
+        ]
+      ],
+      "new_original_q0_Q1_lumped_first_roof_echo_causal_weak_all_widths": [
+        {
+          "physical_width_s": 0.00035,
+          "NEW_half_true_roof_original_native_allmode_window": {
+            "width_s": 0.00035,
+            "original_native_q0_same_record_allmode_weak_p_over_Q": -21.435428487099077,
+            "all_original_native_3D_modes_retained": 132341,
+            "original_native_pressure_window_sample_count": 16,
+            "analytical_causal_Newmark_modal_pressure_not_fitted": true
+          },
+          "unchanged_true_64node_physical_roof_image_analytic": {
+            "original_64pair_finite_roof_single_bounce_signed_weak_analytic": -73.55952911342028,
+            "true_physical_point_roof_single_bounce_signed_weak_analytic": -88.65737335558683,
+            "all_64_native_direct_wave_analytic_contribution_within_roof_window": -0.0,
+            "physical_reflection_sign": 1,
+            "true_finite_roof_valid_original_native_64_pair_count": 64,
+            "earliest_actual_original_8node_roof_single_echo_s": 0.008458523717680008,
+            "latest_actual_original_8node_roof_single_echo_s": 0.009130354417908961,
+            "earliest_actual_original_nonroof_single_bounce_s": 0.011363636363636364,
+            "earliest_actual_original_nonroof_single_bounce_wall": "x0",
+            "roof_echo_only_analytic_causality_NOT_native_pulse_decomposition": true,
+            "pre_registered_physical_witness_center_s": 0.0089668767033651,
+            "pre_registered_physical_witness_sigma_s": 0.00035,
+            "pre_registered_physical_witness_upper_support_s": 0.0100668767033651,
+            "original_source_receiver_8node_weights_unmodified": true
+          },
+          "new_native_Q1_half_weak_roof_vs_original_roof_image_signed_ratio": 0.2914024701551328,
+          "new_native_Q1_half_weak_roof_vs_image_relative": 0.7085975298448672,
+          "preobserved_original_true_PFFDTD_native_roof_weak": {
+            "native_window_to_true_roof_image_signed_ratio": 0.3541439759685363
+          }
+        },
+        {
+          "physical_width_s": 0.0006,
+          "NEW_half_true_roof_original_native_allmode_window": {
+            "width_s": 0.0006,
+            "original_native_q0_same_record_allmode_weak_p_over_Q": -16.334883285961745,
+            "all_original_native_3D_modes_retained": 132341,
+            "original_native_pressure_window_sample_count": 16,
+            "analytical_causal_Newmark_modal_pressure_not_fitted": true
+          },
+          "unchanged_true_64node_physical_roof_image_analytic": {
+            "original_64pair_finite_roof_single_bounce_signed_weak_analytic": -47.287176401166036,
+            "true_physical_point_roof_single_bounce_signed_weak_analytic": -51.71680112409231,
+            "all_64_native_direct_wave_analytic_contribution_within_roof_window": -0.0,
+            "physical_reflection_sign": 1,
+            "true_finite_roof_valid_original_native_64_pair_count": 64,
+            "earliest_actual_original_8node_roof_single_echo_s": 0.008458523717680008,
+            "latest_actual_original_8node_roof_single_echo_s": 0.009130354417908961,
+            "earliest_actual_original_nonroof_single_bounce_s": 0.011363636363636364,
+            "earliest_actual_original_nonroof_single_bounce_wall": "x0",
+            "roof_echo_only_analytic_causality_NOT_native_pulse_decomposition": true,
+            "pre_registered_physical_witness_center_s": 0.0089668767033651,
+            "pre_registered_physical_witness_sigma_s": 0.0006,
+            "pre_registered_physical_witness_upper_support_s": 0.0100668767033651,
+            "original_source_receiver_8node_weights_unmodified": true
+          },
+          "new_native_Q1_half_weak_roof_vs_original_roof_image_signed_ratio": 0.34544002262649265,
+          "new_native_Q1_half_weak_roof_vs_image_relative": 0.6545599773735074,
+          "preobserved_original_true_PFFDTD_native_roof_weak": {
+            "native_window_to_true_roof_image_signed_ratio": 0.7124164744511817
+          }
+        },
+        {
+          "physical_width_s": 0.00085,
+          "NEW_half_true_roof_original_native_allmode_window": {
+            "width_s": 0.00085,
+            "original_native_q0_same_record_allmode_weak_p_over_Q": -24.041451332414237,
+            "all_original_native_3D_modes_retained": 132341,
+            "original_native_pressure_window_sample_count": 16,
+            "analytical_causal_Newmark_modal_pressure_not_fitted": true
+          },
+          "unchanged_true_64node_physical_roof_image_analytic": {
+            "original_64pair_finite_roof_single_bounce_signed_weak_analytic": -34.2774218200162,
+            "true_physical_point_roof_single_bounce_signed_weak_analytic": -36.50597726406516,
+            "all_64_native_direct_wave_analytic_contribution_within_roof_window": -0.0,
+            "physical_reflection_sign": 1,
+            "true_finite_roof_valid_original_native_64_pair_count": 64,
+            "earliest_actual_original_8node_roof_single_echo_s": 0.008458523717680008,
+            "latest_actual_original_8node_roof_single_echo_s": 0.009130354417908961,
+            "earliest_actual_original_nonroof_single_bounce_s": 0.011363636363636364,
+            "earliest_actual_original_nonroof_single_bounce_wall": "x0",
+            "roof_echo_only_analytic_causality_NOT_native_pulse_decomposition": true,
+            "pre_registered_physical_witness_center_s": 0.0089668767033651,
+            "pre_registered_physical_witness_sigma_s": 0.00085,
+            "pre_registered_physical_witness_upper_support_s": 0.0100668767033651,
+            "original_source_receiver_8node_weights_unmodified": true
+          },
+          "new_native_Q1_half_weak_roof_vs_original_roof_image_signed_ratio": 0.7013786351450535,
+          "new_native_Q1_half_weak_roof_vs_image_relative": 0.2986213648549465,
+          "preobserved_original_true_PFFDTD_native_roof_weak": {
+            "native_window_to_true_roof_image_signed_ratio": 0.8491373482275826
+          }
+        }
+      ],
+      "native_impulse_full250ms_source_receiver_unmodified": true,
+      "wall_seconds": 3.9926109998486936
+    }
+  ],
+  "complete_original_signed_4adjacent_3gates_vs_all_preobserved_cut_Q1_and_original_control": [
+    {
+      "coarse_ppw": 28,
+      "fine_ppw": 32,
+      "arms": {
+        "new_theory_fixed_half_consistent_half_lump_Q1": {
+          "unchanged_original_full_250ms_40_80_signed_scores": {
+            "complex_rms_relative": 0.5657368444808505,
+            "magnitude_max_relative": 0.7925339417627263,
+            "magnitude_max_db": 13.661058887567354,
+            "phase_max_deg": 26.9971836182375,
+            "mask_floor": 0.9059218427576278,
+            "compared_frequency_count": 2,
+            "frequency_metrics": [
+              {
+                "frequency_hz": 40.0,
+                "masked_in": true,
+                "magnitude_absolute": 133.64696621910036,
+                "magnitude_relative": 0.7925339417627263,
+                "magnitude_db": 13.661058887567354,
+                "phase_deg": 7.272403595578254,
+                "complex_relative": 0.7946369980395608
+              },
+              {
+                "frequency_hz": 80.0,
+                "masked_in": true,
+                "magnitude_absolute": 53.58244978432518,
+                "magnitude_relative": 0.18703885471431164,
+                "magnitude_db": 1.7986042121349413,
+                "phase_deg": 26.9971836182375,
+                "complex_relative": 0.46061065201364243
+              }
+            ]
+          },
+          "all_original_three_frozen_gates_PASS": false,
+          "original_signed_coarse_minus_fine": [
+            [
+              -133.80514712783648,
+              -7.2535533728251025
+            ],
+            [
+              -131.22050835051633,
+              -13.899948941234953
+            ]
+          ]
+        },
+        "preobserved_positive_row_sum_lumped_cut_Q1": {
+          "unchanged_original_full_250ms_40_80_signed_scores": {
+            "complex_rms_relative": 0.5538336679370429,
+            "magnitude_max_relative": 0.8309408816959296,
+            "magnitude_max_db": 15.439228006707584,
+            "phase_max_deg": 144.9385352012572,
+            "mask_floor": 0.8265195018987009,
+            "compared_frequency_count": 2,
+            "frequency_metrics": [
+              {
+                "frequency_hz": 40.0,
+                "masked_in": true,
+                "magnitude_absolute": 79.32943570128192,
+                "magnitude_relative": 0.8309408816959296,
+                "magnitude_db": 15.439228006707584,
+                "phase_deg": 144.9385352012572,
+                "complex_relative": 1.142516093012001
+              },
+              {
+                "frequency_hz": 80.0,
+                "masked_in": true,
+                "magnitude_absolute": 70.79183381914604,
+                "magnitude_relative": 0.27085075923117746,
+                "magnitude_db": 2.7436714416273773,
+                "phase_deg": 21.35637706211324,
+                "complex_relative": 0.41652923692929905
+              }
+            ]
+          },
+          "all_original_three_frozen_gates_PASS": false,
+          "original_signed_coarse_minus_fine": [
+            [
+              -108.23404801284158,
+              13.521096681931366
+            ],
+            [
+              -103.61384326068168,
+              33.41141908371338
+            ]
+          ]
+        },
+        "preobserved_consistent_mass_cut_Q1": {
+          "unchanged_original_full_250ms_40_80_signed_scores": {
+            "complex_rms_relative": 2.4491053562990266,
+            "magnitude_max_relative": 2.8049818959581496,
+            "magnitude_max_db": 11.607051894908809,
+            "phase_max_deg": 178.59060493861068,
+            "mask_floor": 0.742507177439467,
+            "compared_frequency_count": 2,
+            "frequency_metrics": [
+              {
+                "frequency_hz": 40.0,
+                "masked_in": true,
+                "magnitude_absolute": 255.06246849456494,
+                "magnitude_relative": 2.8049818959581496,
+                "magnitude_db": 11.607051894908809,
+                "phase_deg": 178.59060493861068,
+                "complex_relative": 4.804742321785375
+              },
+              {
+                "frequency_hz": 80.0,
+                "masked_in": true,
+                "magnitude_absolute": 188.62322966767698,
+                "magnitude_relative": 0.8033309892354978,
+                "magnitude_db": 5.121508917208565,
+                "phase_deg": 76.91314406823875,
+                "complex_relative": 1.8534707679558877
+              }
+            ]
+          },
+          "all_original_three_frozen_gates_PASS": false,
+          "original_signed_coarse_minus_fine": [
+            [
+              436.890204660854,
+              -3.5441599124401533
+            ],
+            [
+              435.1461546297308,
+              -6.685254148971211
+            ]
+          ]
+        },
+        "original_unmodified_PFFDTD_q0": {
+          "unchanged_original_full_250ms_40_80_signed_scores": {
+            "complex_rms_relative": 1.246927070042666,
+            "magnitude_max_relative": 3.104123821253262,
+            "magnitude_max_db": 12.264409098974966,
+            "phase_max_deg": 87.12947751814937,
+            "mask_floor": 0.732571730378015,
+            "compared_frequency_count": 2,
+            "frequency_metrics": [
+              {
+                "frequency_hz": 40.0,
+                "masked_in": true,
+                "magnitude_absolute": 83.033991827103,
+                "magnitude_relative": 3.104123821253262,
+                "magnitude_db": 12.264409098974966,
+                "phase_deg": 74.67744374757285,
+                "complex_relative": 3.9591388290813776
+              },
+              {
+                "frequency_hz": 80.0,
+                "masked_in": true,
+                "magnitude_absolute": 79.32219233173205,
+                "magnitude_relative": 0.34240851286573704,
+                "magnitude_db": 3.6408763520166003,
+                "phase_deg": 87.12947751814937,
+                "complex_relative": 1.1690010127441177
+              }
+            ]
+          },
+          "all_original_three_frozen_gates_PASS": false,
+          "original_signed_coarse_minus_fine": [
+            [
+              84.53248764072158,
+              63.79801547551941
+            ],
+            [
+              172.3002273138224,
+              208.92774948207628
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "coarse_ppw": 32,
+      "fine_ppw": 36,
+      "arms": {
+        "new_theory_fixed_half_consistent_half_lump_Q1": {
+          "unchanged_original_full_250ms_40_80_signed_scores": {
+            "complex_rms_relative": 0.45891694254373183,
+            "magnitude_max_relative": 0.8568718371673726,
+            "magnitude_max_db": 5.375638588184786,
+            "phase_max_deg": 13.013552415958458,
+            "mask_floor": 0.7248360923592438,
+            "compared_frequency_count": 2,
+            "frequency_metrics": [
+              {
+                "frequency_hz": 40.0,
+                "masked_in": true,
+                "magnitude_absolute": 77.81712359478257,
+                "magnitude_relative": 0.8568718371673726,
+                "magnitude_db": 5.375638588184786,
+                "phase_deg": 4.49483036700326,
+                "complex_relative": 0.8635110321503686
+              },
+              {
+                "frequency_hz": 80.0,
+                "masked_in": true,
+                "magnitude_absolute": 57.26434230596368,
+                "magnitude_relative": 0.24982993025219571,
+                "magnitude_db": 1.9370184141126408,
+                "phase_deg": 13.013552415958458,
+                "complex_relative": 0.35582887173048255
+              }
+            ]
+          },
+          "all_original_three_frozen_gates_PASS": false,
+          "original_signed_coarse_minus_fine": [
+            [
+              78.22921689569559,
+              -5.467735872231947
+            ],
+            [
+              80.77912281864525,
+              -11.26421841314513
+            ]
+          ]
+        },
+        "preobserved_positive_row_sum_lumped_cut_Q1": {
+          "unchanged_original_full_250ms_40_80_signed_scores": {
+            "complex_rms_relative": 0.7273054547267216,
+            "magnitude_max_relative": 5.283254621421131,
+            "magnitude_max_db": 15.963693186798702,
+            "phase_max_deg": 165.51263882553656,
+            "mask_floor": 0.703548920844784,
+            "compared_frequency_count": 2,
+            "frequency_metrics": [
+              {
+                "frequency_hz": 40.0,
+                "masked_in": true,
+                "magnitude_absolute": 80.27514908368839,
+                "magnitude_relative": 5.283254621421131,
+                "magnitude_db": 15.963693186798702,
+                "phase_deg": 165.51263882553656,
+                "complex_relative": 7.25577140454658
+              },
+              {
+                "frequency_hz": 80.0,
+                "masked_in": true,
+                "magnitude_absolute": 38.88671213247264,
+                "magnitude_relative": 0.17478611282106776,
+                "magnitude_db": 1.3991760814819467,
+                "phase_deg": 26.959871651006125,
+                "complex_relative": 0.5346883833155919
+              }
+            ]
+          },
+          "all_original_three_frozen_gates_PASS": false,
+          "original_signed_coarse_minus_fine": [
+            [
+              110.24487102092053,
+              -0.5170932375389024
+            ],
+            [
+              118.95371557492544,
+              1.0537019847531042
+            ]
+          ]
+        },
+        "preobserved_consistent_mass_cut_Q1": {
+          "unchanged_original_full_250ms_40_80_signed_scores": {
+            "complex_rms_relative": 0.9747940159906618,
+            "magnitude_max_relative": 0.31585857908505965,
+            "magnitude_max_db": 2.38418432623791,
+            "phase_max_deg": 175.71559104638288,
+            "mask_floor": 0.7059694839019789,
+            "compared_frequency_count": 2,
+            "frequency_metrics": [
+              {
+                "frequency_hz": 40.0,
+                "masked_in": true,
+                "magnitude_absolute": 21.82729695402763,
+                "magnitude_relative": 0.31585857908505965,
+                "magnitude_db": 2.38418432623791,
+                "phase_deg": 175.71559104638288,
+                "complex_relative": 2.314270213970985
+              },
+              {
+                "frequency_hz": 80.0,
+                "masked_in": true,
+                "magnitude_absolute": 11.554233202767733,
+                "magnitude_relative": 0.05175534406323044,
+                "magnitude_db": 0.4382945476770525,
+                "phase_deg": 41.39040186327745,
+                "complex_relative": 0.726697765083432
+              }
+            ]
+          },
+          "all_original_three_frozen_gates_PASS": false,
+          "original_signed_coarse_minus_fine": [
+            [
+              -159.77447514052272,
+              -6.979253714835273
+            ],
+            [
+              -161.61115397119386,
+              -14.193250471431753
+            ]
+          ]
+        },
+        "original_unmodified_PFFDTD_q0": {
+          "unchanged_original_full_250ms_40_80_signed_scores": {
+            "complex_rms_relative": 0.7613047721569608,
+            "magnitude_max_relative": 0.5476926714692758,
+            "magnitude_max_db": 6.891327510406872,
+            "phase_max_deg": 63.65161559834691,
+            "mask_floor": 0.6514398263666002,
+            "compared_frequency_count": 2,
+            "frequency_metrics": [
+              {
+                "frequency_hz": 40.0,
+                "masked_in": true,
+                "magnitude_absolute": 32.39068895717154,
+                "magnitude_relative": 0.5476926714692758,
+                "magnitude_db": 6.891327510406872,
+                "phase_deg": 63.65161559834691,
+                "complex_relative": 0.8961520672161258
+              },
+              {
+                "frequency_hz": 80.0,
+                "masked_in": true,
+                "magnitude_absolute": 25.656160758222256,
+                "magnitude_relative": 0.12454243773201162,
+                "magnitude_db": 1.0195169877864259,
+                "phase_deg": 40.7654783516125,
+                "complex_relative": 0.7491090813120052
+              }
+            ]
+          },
+          "all_original_three_frozen_gates_PASS": false,
+          "original_signed_coarse_minus_fine": [
+            [
+              -41.29929424102407,
+              -33.21486506087983
+            ],
+            [
+              -140.95750240452912,
+              -62.81188363832038
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "coarse_ppw": 36,
+      "fine_ppw": 40,
+      "arms": {
+        "new_theory_fixed_half_consistent_half_lump_Q1": {
+          "unchanged_original_full_250ms_40_80_signed_scores": {
+            "complex_rms_relative": 0.4070756502244599,
+            "magnitude_max_relative": 0.5336428701002923,
+            "magnitude_max_db": 6.625627582807391,
+            "phase_max_deg": 15.217644724071988,
+            "mask_floor": 0.9687412353150264,
+            "compared_frequency_count": 2,
+            "frequency_metrics": [
+              {
+                "frequency_hz": 40.0,
+                "masked_in": true,
+                "magnitude_absolute": 103.918147213874,
+                "magnitude_relative": 0.5336428701002923,
+                "magnitude_db": 6.625627582807391,
+                "phase_deg": 5.5022871393276205,
+                "complex_relative": 0.5376544555086077
+              },
+              {
+                "frequency_hz": 80.0,
+                "masked_in": true,
+                "magnitude_absolute": 77.12957847692465,
+                "magnitude_relative": 0.25177532870939134,
+                "magnitude_db": 2.519359517283837,
+                "phase_deg": 15.217644724071988,
+                "complex_relative": 0.34038618783687086
+              }
+            ]
+          },
+          "all_original_three_frozen_gates_PASS": false,
+          "original_signed_coarse_minus_fine": [
+            [
+              -104.3665767885045,
+              8.340796234773803
+            ],
+            [
+              -102.76718874577287,
+              17.66794679272502
+            ]
+          ]
+        },
+        "preobserved_positive_row_sum_lumped_cut_Q1": {
+          "unchanged_original_full_250ms_40_80_signed_scores": {
+            "complex_rms_relative": 0.3434711245472371,
+            "magnitude_max_relative": 0.7783153566066584,
+            "magnitude_max_db": 13.085287808483866,
+            "phase_max_deg": 15.32023328647054,
+            "mask_floor": 0.7043306370081485,
+            "compared_frequency_count": 2,
+            "frequency_metrics": [
+              {
+                "frequency_hz": 40.0,
+                "masked_in": true,
+                "magnitude_absolute": 53.345718514983,
+                "magnitude_relative": 0.7783153566066584,
+                "magnitude_db": 13.085287808483866,
+                "phase_deg": 11.097902432773566,
+                "complex_relative": 0.7836235881614108
+              },
+              {
+                "frequency_hz": 80.0,
+                "masked_in": true,
+                "magnitude_absolute": 0.24720035600000756,
+                "magnitude_relative": 0.0011098710212081272,
+                "magnitude_db": 0.009645570863170595,
+                "phase_deg": 15.32023328647054,
+                "complex_relative": 0.2664469961107834
+              }
+            ]
+          },
+          "all_original_three_frozen_gates_PASS": false,
+          "original_signed_coarse_minus_fine": [
+            [
+              53.67758590842165,
+              -1.8525527795489318
+            ],
+            [
+              59.31415412824207,
+              -1.9269783151219144
+            ]
+          ]
+        },
+        "preobserved_consistent_mass_cut_Q1": {
+          "unchanged_original_full_250ms_40_80_signed_scores": {
+            "complex_rms_relative": 0.5239115848865256,
+            "magnitude_max_relative": 0.6653774328183278,
+            "magnitude_max_db": 9.50889546520241,
+            "phase_max_deg": 23.589365356313635,
+            "mask_floor": 0.9815359713242974,
+            "compared_frequency_count": 2,
+            "frequency_metrics": [
+              {
+                "frequency_hz": 40.0,
+                "masked_in": true,
+                "magnitude_absolute": 137.410563298476,
+                "magnitude_relative": 0.6653774328183278,
+                "magnitude_db": 9.50889546520241,
+                "phase_deg": 4.658898025143259,
+                "complex_relative": 0.6670370110751088
+              },
+              {
+                "frequency_hz": 80.0,
+                "masked_in": true,
+                "magnitude_absolute": 87.14177470666684,
+                "magnitude_relative": 0.28075026842930845,
+                "magnitude_db": 2.8624058303902435,
+                "phase_deg": 23.589365356313635,
+                "complex_relative": 0.4461233144193128
+              }
+            ]
+          },
+          "all_original_three_frozen_gates_PASS": false,
+          "original_signed_coarse_minus_fine": [
+            [
+              -137.6644025350492,
+              4.947886644654773
+            ],
+            [
+              -138.07512225338252,
+              10.472945434942062
+            ]
+          ]
+        },
+        "original_unmodified_PFFDTD_q0": {
+          "unchanged_original_full_250ms_40_80_signed_scores": {
+            "complex_rms_relative": 0.3673672932507214,
+            "magnitude_max_relative": 0.9820095441521739,
+            "magnitude_max_db": 5.942114829046117,
+            "phase_max_deg": 27.408370449371034,
+            "mask_floor": 0.5124807000500005,
+            "compared_frequency_count": 2,
+            "frequency_metrics": [
+              {
+                "frequency_hz": 40.0,
+                "masked_in": true,
+                "magnitude_absolute": 29.301727360852865,
+                "magnitude_relative": 0.9820095441521739,
+                "magnitude_db": 5.942114829046117,
+                "phase_deg": 27.408370449371034,
+                "complex_relative": 1.1871441546381585
+              },
+              {
+                "frequency_hz": 80.0,
+                "masked_in": true,
+                "magnitude_absolute": 43.94273408274992,
+                "magnitude_relative": 0.2711499697511383,
+                "magnitude_db": 2.0839358292257857,
+                "phase_deg": 6.8666843639229,
+                "complex_relative": 0.30291607398380554
+              }
+            ]
+          },
+          "all_original_three_frozen_gates_PASS": false,
+          "original_signed_coarse_minus_fine": [
+            [
+              34.783815332043815,
+              -6.697006012239612
+            ],
+            [
+              10.364180579363406,
+              -47.98424061191659
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "coarse_ppw": 40,
+      "fine_ppw": 44,
+      "arms": {
+        "new_theory_fixed_half_consistent_half_lump_Q1": {
+          "unchanged_original_full_250ms_40_80_signed_scores": {
+            "complex_rms_relative": 1.255631724018429,
+            "magnitude_max_relative": 60.53092016343078,
+            "magnitude_max_db": 35.781868195767515,
+            "phase_max_deg": 155.03927080119928,
+            "mask_floor": 0.7021617559333916,
+            "compared_frequency_count": 2,
+            "frequency_metrics": [
+              {
+                "frequency_hz": 40.0,
+                "masked_in": true,
+                "magnitude_absolute": 191.5686989972559,
+                "magnitude_relative": 60.53092016343078,
+                "magnitude_db": 35.781868195767515,
+                "phase_deg": 155.03927080119928,
+                "complex_relative": 62.438943463108146
+              },
+              {
+                "frequency_hz": 80.0,
+                "masked_in": true,
+                "magnitude_absolute": 84.29983323078608,
+                "magnitude_relative": 0.37965536734091654,
+                "magnitude_db": 2.7954122968026596,
+                "phase_deg": 39.84552939129787,
+                "complex_relative": 0.8859572032813918
+              }
+            ]
+          },
+          "all_original_three_frozen_gates_PASS": false,
+          "original_signed_coarse_minus_fine": [
+            [
+              197.59679126926457,
+              2.0306378682706816
+            ],
+            [
+              196.66804181820498,
+              4.5485258412558665
+            ]
+          ]
+        },
+        "preobserved_positive_row_sum_lumped_cut_Q1": {
+          "unchanged_original_full_250ms_40_80_signed_scores": {
+            "complex_rms_relative": 0.18629509078355186,
+            "magnitude_max_relative": 0.31671017527887,
+            "magnitude_max_db": 3.307900931378787,
+            "phase_max_deg": 8.35888072889935,
+            "mask_floor": 0.7415021870790439,
+            "compared_frequency_count": 2,
+            "frequency_metrics": [
+              {
+                "frequency_hz": 40.0,
+                "masked_in": true,
+                "magnitude_absolute": 31.76881625724748,
+                "magnitude_relative": 0.31671017527887,
+                "magnitude_db": 3.307900931378787,
+                "phase_deg": 0.4281576198644643,
+                "complex_relative": 0.3167704078933566
+              },
+              {
+                "frequency_hz": 80.0,
+                "masked_in": true,
+                "magnitude_absolute": 11.754676238302295,
+                "magnitude_relative": 0.05013006127105726,
+                "magnitude_db": 0.4467171312600917,
+                "phase_deg": 8.35888072889935,
+                "complex_relative": 0.15064566778697305
+              }
+            ]
+          },
+          "all_original_three_frozen_gates_PASS": false,
+          "original_signed_coarse_minus_fine": [
+            [
+              31.744697296993834,
+              1.384124979253583
+            ],
+            [
+              35.164470639607316,
+              3.35267425709705
+            ]
+          ]
+        },
+        "preobserved_consistent_mass_cut_Q1": {
+          "unchanged_original_full_250ms_40_80_signed_scores": {
+            "complex_rms_relative": 1.3141869766229202,
+            "magnitude_max_relative": 11.659067270815328,
+            "magnitude_max_db": 22.048034154604753,
+            "phase_max_deg": 37.078535375093225,
+            "mask_floor": 0.6514908917328271,
+            "compared_frequency_count": 2,
+            "frequency_metrics": [
+              {
+                "frequency_hz": 40.0,
+                "masked_in": true,
+                "magnitude_absolute": 190.20159443291644,
+                "magnitude_relative": 11.659067270815328,
+                "magnitude_db": 22.048034154604753,
+                "phase_deg": 28.84511429167418,
+                "complex_relative": 11.793012529982805
+              },
+              {
+                "frequency_hz": 80.0,
+                "masked_in": true,
+                "magnitude_absolute": 104.36941820406017,
+                "magnitude_relative": 0.5065996835560058,
+                "magnitude_db": 3.559957437559956,
+                "phase_deg": 37.078535375093225,
+                "complex_relative": 0.930528057788409
+              }
+            ]
+          },
+          "all_original_three_frozen_gates_PASS": false,
+          "original_signed_coarse_minus_fine": [
+            [
+              192.26145362738083,
+              -6.941612607719283
+            ],
+            [
+              191.20876289362062,
+              -13.81149779395281
+            ]
+          ]
+        },
+        "original_unmodified_PFFDTD_q0": {
+          "unchanged_original_full_250ms_40_80_signed_scores": {
+            "complex_rms_relative": 0.9587423413785209,
+            "magnitude_max_relative": 0.5439913897220687,
+            "magnitude_max_db": 6.820539139654738,
+            "phase_max_deg": 150.62981979481725,
+            "mask_floor": 0.7570309679890443,
+            "compared_frequency_count": 2,
+            "frequency_metrics": [
+              {
+                "frequency_hz": 40.0,
+                "masked_in": true,
+                "magnitude_absolute": 35.5956146986766,
+                "magnitude_relative": 0.5439913897220687,
+                "magnitude_db": 6.820539139654738,
+                "phase_deg": 150.62981979481725,
+                "complex_relative": 1.4151815280125104
+              },
+              {
+                "frequency_hz": 80.0,
+                "masked_in": true,
+                "magnitude_absolute": 77.33358490918297,
+                "magnitude_relative": 0.32303865796753367,
+                "magnitude_db": 3.3887226210191153,
+                "phase_deg": 62.7444492819896,
+                "complex_relative": 0.9155512944726406
+              }
+            ]
+          },
+          "all_original_three_frozen_gates_PASS": false,
+          "original_signed_coarse_minus_fine": [
+            [
+              87.5306099400231,
+              30.22209256197671
+            ],
+            [
+              192.6856915371808,
+              104.45611476843209
+            ]
+          ]
+        }
+      }
+    }
+  ],
+  "complete_full5grid_native_q0_still_unqualified_verdict": {
+    "new_theory_fixed_half_consistent_half_lump_Q1": {
+      "all_4adjacent_original_three_frozen_gates_pass": false,
+      "strict_original_three_metric_monotone": false,
+      "no_canonical_upstream_qualification": true
+    },
+    "preobserved_positive_row_sum_lumped_cut_Q1": {
+      "all_4adjacent_original_three_frozen_gates_pass": false,
+      "strict_original_three_metric_monotone": false,
+      "no_canonical_upstream_qualification": true
+    },
+    "preobserved_consistent_mass_cut_Q1": {
+      "all_4adjacent_original_three_frozen_gates_pass": false,
+      "strict_original_three_metric_monotone": false,
+      "no_canonical_upstream_qualification": true
+    },
+    "original_unmodified_PFFDTD_q0": {
+      "all_4adjacent_original_three_frozen_gates_pass": false,
+      "strict_original_three_metric_monotone": false,
+      "no_canonical_upstream_qualification": true
+    }
+  },
+  "parameter_free_1D_dispersion_theory": {
+    "kh": [
+      0.4,
+      0.2,
+      0.1,
+      0.05,
+      0.025
+    ],
+    "half_M_lambda_over_true_wave_k2": [
+      0.9998926637945613,
+      0.9999933227810741,
+      0.9999995831681052,
+      0.9999999739557501,
+      0.9999999983723553
+    ],
+    "lumped_M_lambda_over_true_wave_k2": [
+      0.9867375749639362,
+      0.9966711079379184,
+      0.9991669443948467,
+      0.9997916840270026,
+      0.9999479177517239
+    ],
+    "consistent_M_lambda_over_true_wave_k2": [
+      1.0134032568882694,
+      1.0033377596482154,
+      1.0008336108294804,
+      1.0002083506900503,
+      1.0000520844183343
+    ],
+    "fixed_blend_coefficient_without_fitting": 0.5
+  },
+  "no_production_go_or_independent_physical_validation": true
+}
