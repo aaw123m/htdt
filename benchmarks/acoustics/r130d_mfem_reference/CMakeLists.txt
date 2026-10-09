@@ -32,3 +32,7 @@ target_link_libraries(r130d_mfem_sloped_tet_r4_system PRIVATE mfem)
 add_executable(r130d_mfem_convex_tet_system convex_tet_system.cpp)
 target_compile_features(r130d_mfem_convex_tet_system PRIVATE cxx_std_17)
 target_link_libraries(r130d_mfem_convex_tet_system PRIVATE mfem)
+
+add_executable(r130d_mfem_gaussian_functionals sloped_spatial_gaussian_functionals.cpp)
+target_compile_features(r130d_mfem_gaussian_functionals PRIVATE cxx_std_17)
+target_link_libraries(r130d_mfem_gaussian_functionals PRIVATE mfem)
