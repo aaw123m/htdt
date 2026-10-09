@@ -1262,3 +1262,29 @@ entries:
   - docs/issues/issue-987-preferences-reset.md
   - backend/tests/test_issue_987_preferences_reset.py
   close_when_gates_clear: true
+
+- issue: 986
+  lifecycle: acceptance_remaining
+  landed:
+    prs: [1081]
+    commits: [f62bace729c90c33a54db8af605b3adbd07787f0]
+  remaining_gates:
+  - kind: manual
+    description: 'オペレータ受入 — 検索/並替/状態絞込・IDピン選択・開けない理由表示・DPI 100-200% の実画面確認'
+  evidence_refs:
+  - docs/issues/issue-986-project-picker.md
+  - backend/tests/test_issue_986_project_picker.py
+  close_when_gates_clear: true
+
+- issue: 990
+  lifecycle: acceptance_remaining
+  landed:
+    prs: [1077]
+    commits: [4e704600a9e749bbf7833bb57eed1e65c429b124]
+  remaining_gates:
+  - kind: manual
+    description: 'オペレータ受入 — 横断検索/比較/出典・使用箇所の実画面確認、0/100/1000件の体感確認'
+  evidence_refs:
+  - docs/issues/issue-990-ref-library-search.md
+  - backend/tests/test_issue_990_reference_library.py
+  close_when_gates_clear: true
