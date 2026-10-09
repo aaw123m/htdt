@@ -3857,7 +3857,11 @@ class ContextToolStrip(QFrame):
             ("fit-scene", "全体表示"),
             ("view-menu", "ビュー"),
         ),
-        "acoustics": (("toggle-acoustics", "音響表示"), ("fit-scene", "全体表示")),
+        "acoustics": (
+            ("toggle-acoustics", "音響表示"),
+            ("reflection-correspondence", "反射対応"),
+            ("fit-scene", "全体表示"),
+        ),
         "history": (("fit-scene", "全体表示"),),
     }
 
@@ -3871,6 +3875,7 @@ class ContextToolStrip(QFrame):
         "focus-selection": "選択した物体にカメラを合わせます",
         "fit-scene": "部屋全体が見えるようカメラを調整します",
         "toggle-acoustics": "音響予測結果の3Dオーバーレイ表示を切り替えます",
+        "reflection-correspondence": "実測ETCと予測反射パスの対応レビューを測定ワークスペースで開きます",
     }
 
     GUIDANCE = {
@@ -7542,6 +7547,16 @@ class RoomWorkspace(QWidget):
             return
         if tool_id == "toggle-acoustics":
             self.overlay_controls.acoustics.toggle()
+            return
+        if tool_id == "reflection-correspondence":
+            # #1002: jump to the measurement workspace's correspondence
+            # review surface (declared pairings only — no re-matching).
+            if self._on_navigate is not None:
+                self._on_navigate(
+                    WorkspaceDeepLink(
+                        WorkspaceId.MEASUREMENT, 'correspondence'
+                    )
+                )
             return
         if tool_id == "measure":
             self.toggle_measure()

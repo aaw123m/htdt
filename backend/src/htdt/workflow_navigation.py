@@ -227,6 +227,10 @@ CANONICAL_WORKSPACE_CONTEXTS: dict[WorkspaceId, tuple[WorkspaceContext, ...]] = 
         WorkspaceContext("campaign", "キャンペーン", "どこを・何を測るかの測定計画を立てます"),
         WorkspaceContext("quality", "品質", "測定結果の品質（SN比・残差など）を確認します"),
         WorkspaceContext("comparison", "比較", "複数の測定や候補を並べて比較します"),
+        # #1002 correspondence review — the deep link
+        # `measurement/correspondence` (from measurement review and the
+        # room acoustics tool strip) resolves only with the context here.
+        WorkspaceContext("correspondence", "反射対応", "実測ETCの観測イベントと予測反射パスの対応関係を、宣言済みの権威だけで照合します"),
         # Instrument onboarding/checklist page; reached last in the bar since
         # it guides the first capture rather than describing a workflow stage.
         WorkspaceContext("calibration", "機器の準備", "測定機器の準備手順と確認項目を案内します"),

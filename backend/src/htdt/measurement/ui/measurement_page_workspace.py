@@ -170,6 +170,7 @@ _CONTEXT_IDS = (
     "campaign",
     "quality",
     "comparison",
+    "correspondence",
     "calibration",
     "acquisition",
     # #877 guided calibration wizard — reached from the calibration page,
@@ -832,6 +833,7 @@ class MeasurementPageWorkspace(QWidget):
         self._build_campaign_page()
         self._build_quality_page()
         self._build_comparison_page()
+        self._build_correspondence_page()
         self._build_calibration_page()
         self._build_acquisition_page()
         self._build_calibration_wizard_page()
@@ -855,6 +857,14 @@ class MeasurementPageWorkspace(QWidget):
         self._update_context_label()
 
     def focus_entity(self, entity_id: str) -> None:
+        if (
+            self.current_context_id == "correspondence"
+            and self.correspondence_panel.select_measurement(entity_id)
+        ):
+            # #1002: a deep link into the correspondence surface selects
+            # the measurement there instead of bouncing to the quality row.
+            return
+
         def _match() -> MeasurementView | None:
             for row in self._quality_views:
                 if (
@@ -889,6 +899,10 @@ class MeasurementPageWorkspace(QWidget):
     def select_measurement_id(self, measurement_id: str) -> bool:
         """Deep-link/palette focus port: select the quality row for
         ``measurement_id``; returns False when the record is absent."""
+        if self.current_context_id == "correspondence":
+            return self.correspondence_panel.select_measurement(
+                measurement_id
+            )
         self.refresh()
         for row in self._quality_views:
             if row.measurement_id != measurement_id:
@@ -1166,6 +1180,17 @@ class MeasurementPageWorkspace(QWidget):
         self._refresh_authority_inventory()
         self._refresh_journey(batch_items, views, plans=runner_plans)
         self._refresh_record_surfaces()
+        correspondence_panel = getattr(
+            self, "correspondence_panel", None
+        )
+        if (
+            self.current_context_id == "correspondence"
+            and correspondence_panel is not None
+        ):
+            # #1002: the correspondence surface replays sealed pairings and
+            # registrations — re-read them with the rest of the workspace.
+            correspondence_panel.reload_measurement_options()
+            correspondence_panel.refresh()
 
     def _refresh_journey(
         self,
@@ -5106,6 +5131,19 @@ class MeasurementPageWorkspace(QWidget):
         )
         analysis_row.addWidget(self.quality_target_combo)
         analysis_row.addStretch(1)
+        self.correspondence_link_button = QPushButton(
+            "反射対応を確認", detail_card
+        )
+        self.correspondence_link_button.setObjectName(
+            "correspondence_link_button"
+        )
+        self.correspondence_link_button.setAccessibleName(
+            "反射対応を確認 — 実測ETCピークと予測反射パスの対応レビュー"
+        )
+        self.correspondence_link_button.clicked.connect(
+            self._open_correspondence_for_selection
+        )
+        analysis_row.addWidget(self.correspondence_link_button)
         detail_layout.addLayout(analysis_row)
 
         self.provenance_label = QLabel("", detail_card)
@@ -6478,6 +6516,43 @@ class MeasurementPageWorkspace(QWidget):
 
     # ------------------------------------------------------------------
     # Comparison page
+
+    def _open_correspondence_for_selection(self) -> None:
+        """Quality-page link: open the correspondence review for the
+        currently selected measurement (#1002)."""
+        row = self.quality_table.currentRow()
+        measurement_id = None
+        if row is not None and row >= 0:
+            item = self.quality_table.item(row, 0)
+            if item is not None:
+                measurement_id = item.data(Qt.ItemDataRole.UserRole)
+        self.set_context("correspondence")
+        if measurement_id is not None:
+            self.correspondence_panel.select_measurement(measurement_id)
+
+    def _build_correspondence_page(self) -> None:
+        """#1002 — measured ETC ↔ predicted reflection-path correspondence
+        review surface (reuse-only: sealed pairings, #564 registrations,
+        persisted deterministic path artifacts)."""
+        from .reflection_correspondence_panel import (
+            ReflectionCorrespondencePanel,
+        )
+
+        page, host, layout = _page(
+            "反射対応を確認",
+            "実測 ETC の観測イベントと予測反射パスの対応を、宣言済みの"
+            "対応権威だけで照合します。最近接ピークの自動マッチングは"
+            "行いません。",
+        )
+        page.setObjectName("measurementCorrespondencePage")
+        self.correspondence_panel = ReflectionCorrespondencePanel(
+            self.controller, host
+        )
+        self.correspondence_panel.setObjectName(
+            "correspondence_panel"
+        )
+        layout.addWidget(self.correspondence_panel, 1)
+        self.pages.addWidget(page)
 
     def _build_comparison_page(self) -> None:
         page, host, layout = _page(

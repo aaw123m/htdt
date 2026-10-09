@@ -4,7 +4,7 @@ from collections import OrderedDict
 from contextlib import contextmanager
 from dataclasses import dataclass
 from math import hypot, isfinite, radians, tan
-from typing import TYPE_CHECKING, Iterator
+from typing import TYPE_CHECKING, Iterator, Sequence
 
 import numpy as np
 import pyvista as pv
@@ -1464,6 +1464,7 @@ class RoomViewport3D(QFrame):
         'campaign-overlay-',
         'survey-overlay-',
         'coverage-overlay-',
+        'correspond-',
     )
 
     def _remove_overlay_actors(self) -> None:
@@ -1549,6 +1550,132 @@ class RoomViewport3D(QFrame):
                 name="measurement-direction",
                 render=False,
             )
+        self._render()
+
+    _CORRESPONDENCE_PREFIX = 'correspond-'
+
+    def clear_reflection_correspondence_overlay(self) -> None:
+        """Drop every ``correspond-*`` actor (#1002 — toggle off/reload)."""
+        renderer = getattr(self.plotter, 'renderer', None)
+        actors = getattr(renderer, 'actors', None)
+        if not actors:
+            return
+        removed = False
+        for name in tuple(actors):
+            if isinstance(name, str) and name.startswith(
+                self._CORRESPONDENCE_PREFIX
+            ):
+                self.plotter.remove_actor(name)
+                removed = True
+        if removed:
+            self._render()
+
+    def render_reflection_correspondence_overlay(
+        self,
+        paths: Sequence[tuple[str, tuple[tuple[float, float, float], ...]]],
+        *,
+        highlighted_row_ids: Sequence[str] = (),
+        path_classes: dict[str, str] | None = None,
+    ) -> None:
+        """Measured↔predicted correspondence review layer (#1002).
+
+        ``paths`` are ``(row_id, points)`` pairs in *domain* coordinates,
+        each point list ordered source → interactions → receiver. Only the
+        rows named in ``highlighted_row_ids`` get ``pv.Line`` actors — the
+        runtime-load requirement keeps full geometry exclusive to the
+        selected pairing/cluster; every other candidate contributes its
+        interaction points to one batched glyph cloud so context stays
+        visible without per-path meshes.
+
+        ``path_classes`` maps row_id → a display class
+        (``'matched'``/``'ambiguous'``/``'hypothesis'``/``'unmatched'``);
+        ambiguous members intentionally share one colour — an unresolved
+        cluster never gets an arbitrary 'correct' colour. All actors are
+        non-pickable so CAD picking and the measure tool stay undisturbed.
+        """
+        self.clear_reflection_correspondence_overlay()
+        if not paths:
+            return
+        highlighted = set(highlighted_row_ids)
+        classes = path_classes or {}
+        class_colors = {
+            'matched': DARK_THEME.scientific.predicted.hex,
+            'ambiguous': DARK_THEME.semantic.warning.hex,
+            'hypothesis': DARK_THEME.accent.primary.hex,
+            'unmatched': DARK_THEME.text.muted.hex,
+        }
+        context_points: list[tuple[float, float, float]] = []
+        for index, (row_id, points) in enumerate(paths):
+            if len(points) < 2:
+                continue
+            emphasized = row_id in highlighted
+            class_label = classes.get(row_id, 'matched')
+            if not emphasized:
+                # Interior points only — endpoints duplicate the shared
+                # source/receiver markers for every candidate.
+                context_points.extend(
+                    (px, -py, pz) for (px, py, pz) in points[1:-1]
+                )
+                continue
+            color = (
+                class_colors['hypothesis']
+                if class_label == 'hypothesis'
+                else class_colors.get(class_label, class_colors['matched'])
+            )
+            render_points = [(px, -py, pz) for (px, py, pz) in points]
+            for seg_index, (a, b) in enumerate(
+                zip(render_points, render_points[1:])
+            ):
+                self.plotter.add_mesh(
+                    pv.Line(a, b),
+                    color=color,
+                    line_width=4 if class_label != 'ambiguous' else 3,
+                    opacity=0.85,
+                    pickable=False,
+                    name=(
+                        f'{self._CORRESPONDENCE_PREFIX}'
+                        f'path-{index}-seg-{seg_index}'
+                    ),
+                    render=False,
+                )
+            for point_index, point in enumerate(render_points[1:-1]):
+                self.plotter.add_mesh(
+                    pv.Sphere(radius=0.045, center=point),
+                    color=color,
+                    opacity=0.9,
+                    lighting=False,
+                    pickable=False,
+                    name=(
+                        f'{self._CORRESPONDENCE_PREFIX}'
+                        f'path-{index}-pt-{point_index}'
+                    ),
+                    render=False,
+                )
+        if context_points:
+            cloud = pv.PolyData(
+                np.asarray(context_points, dtype=float)
+            )
+            self.plotter.add_mesh(
+                cloud,
+                color=DARK_THEME.scientific.predicted.hex,
+                point_size=6.0,
+                render_points_as_spheres=True,
+                opacity=0.55,
+                lighting=False,
+                pickable=False,
+                name=f'{self._CORRESPONDENCE_PREFIX}candidates',
+                render=False,
+            )
+        # ASCII only — VTK/Mesa cannot render .ttc CJK glyphs.
+        self.plotter.add_text(
+            'reflection correspondence review '
+            '(declared pairings / candidates)',
+            name=f'{self._CORRESPONDENCE_PREFIX}label',
+            position='lower_right',
+            font_size=9,
+            color=DARK_THEME.text.secondary.hex,
+            render=False,
+        )
         self._render()
 
     def render_proposed_entities(
