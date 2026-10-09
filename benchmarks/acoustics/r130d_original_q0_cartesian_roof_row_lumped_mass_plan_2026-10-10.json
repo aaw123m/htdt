@@ -1,0 +1,118 @@
+{
+  "schema_version": "htdt.r130d.original-q0-cartesian-roof-row-lumped-mass-plan-1",
+  "date_jst": "2026-10-10",
+  "issue_migrated": 53,
+  "pr_migrated": 118,
+  "old_issue": 938,
+  "old_pr": 1055,
+  "repo": "aaw123m/htdt",
+  "hypothesis": "Full Cartesian 7-point physically weighted diagonal mass for the intact interior, combined with symmetric true inclined-Neumann cut-Q1 roof flux, may reduce modal dispersion and whole-record point-q0 five-grid nonconvergence relative to prior consistent mass hybrid. Failure is admissible; never relax original acceptance.",
+  "preregistration": "This exact plan must be committed on GitHub feature branch BEFORE calculating any real native HDF5 new-row-lumped-mass results.",
+  "original": {
+    "upstream_sha": "aa319f6c86517cb95aabfae8656277da62c3ead5",
+    "original_HDF5_SHA_match_required": true,
+    "ppw": [
+      28,
+      32,
+      36,
+      40,
+      44
+    ],
+    "source_xyz": [
+      1.5,
+      2,
+      2
+    ],
+    "receiver_xyz": [
+      2.5,
+      2,
+      2
+    ],
+    "unmodified_HDF5_eight_source_and_eight_receiver": true,
+    "zero_q0_samples_after_initial": true,
+    "sound_speed_m_s": 343.2,
+    "density_kg_m3": 1.2,
+    "record_s": 0.25,
+    "native_dt_h_Nt_each_grid": true,
+    "frequencies_signed_hz": [
+      40,
+      80
+    ],
+    "all_four_pairs": [
+      [
+        28,
+        32
+      ],
+      [
+        32,
+        36
+      ],
+      [
+        36,
+        40
+      ],
+      [
+        40,
+        44
+      ]
+    ],
+    "frozen_acceptance": {
+      "complex_rms_relative": 0.2,
+      "magnitude_max_relative": 0.25,
+      "phase_max_deg": 15
+    },
+    "strict_monotone_all_three": true,
+    "prior_hybrid_reference": "benchmarks/acoustics/r130d_original_q0_cartesian_flux_true_roof_hybrid_evidence_2026-10-10.json"
+  },
+  "new_operator": {
+    "name": "native_complete_cartesian_7point_true_roof_positive_row_lumped_mass",
+    "x_stiffness": "original physically exact Neumann P1 Kx (unmodified)",
+    "yz_stiffness": "previously committed native Cartesian FULL wet 5point + exact true inclined Neumann cut-Q1 roof flux (unmodified)",
+    "x_mass": "diagonal positive physical Mx consistent-P1 rowsums EXACT, no floors or zero-physical-mass-drop",
+    "yz_mass": "diagonal positive physical Myz exact cut-Q1 consistent rowsums EXACT, no floors, no tiny-sliver-drop",
+    "full_3d": "M=diag(rowSum Mx) tensor diag(rowSum Myz); K=Kx tensor Myz_lumped + Mx_lumped tensor Kyz_hybrid. This reproduces Cartesian 7point axis flux on every fully wet 3D interior cell and physical true-roof weak flux at cut cells.",
+    "roof_manufactured": "u(y,z)=y-0.25z Neumann tangent roof-only Kyz residual <1e-7 pre-qualified per original-grid",
+    "mass_volume_m3": 56,
+    "source_observer": "same 8+8 native voxel HDF5 rows/weights factorized on same Q1 basis; NO fitted weights",
+    "time": "same native implicit Newmark beta=1/4 impulse and forward/center/backward original pressure derivative; full native Nt",
+    "all_generalized_3d_modes_retained": true,
+    "positive_physical_sliver_basis_retained": true,
+    "exact_consistent_mass_comparator_unmodified": true,
+    "forbidden": [
+      "high-mode-cut",
+      "mass-floor",
+      "source smoothing",
+      "receiver smoothing",
+      "time windowing",
+      "phase/level fitting",
+      "any frequency/gate change",
+      "post-hoc experiment arm change"
+    ]
+  },
+  "independent": {
+    "positive_mass_and_volume": true,
+    "Neumann_constant_and_roof_affine": true,
+    "symmetric_PSD_K": true,
+    "full_tensor_3D_stiffness_and_volume": true,
+    "interior_seven_point_axis_flux_verified": true,
+    "full_eigenpair_M_orthogonality": true,
+    "all_mode_frozen_full_Nt_transfer_and_40_80": true,
+    "fixed_first_roof_three_physical_witnesses": true,
+    "no_unfavorable_omission": true
+  },
+  "caps": {
+    "five_grids_only": true,
+    "max_yz_modes": 3300,
+    "max_total_3d_modes": 180000,
+    "new_original_PFFDTD_waves": 0,
+    "new_actions_runs": 0,
+    "retain_scratch": true
+  },
+  "authority": {
+    "PFFDTD_original": "SELF_CONVERGENCE_FAILED",
+    "independent_physics": "NOT_VALIDATED",
+    "product": "NO_GO",
+    "issue_open": true,
+    "PR_draft": true
+  }
+}
