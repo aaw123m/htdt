@@ -47,8 +47,8 @@ jobs:
           y=json.loads(Path('scratch/independent_convex_mfem/mesh_provenance.json').read_text())
           assert x==y,'meshing authority changed'
           for room,metadata in x['rooms'].items():
-              original_bytes=(Path('benchmarks/acoustics/r130d_convex_mfem_tetra_sources')/(room+'.tet')).read_bytes()
-              actual=(Path('scratch/independent_convex_mfem/meshes')/(room+'.tet')).read_bytes()
+              original_bytes=(Path('benchmarks/acoustics/r130d_convex_mfem_tetra_sources')/(room+'.tet')).read_bytes().replace(b'\\r\\n',b'\\n')
+              actual=(Path('scratch/independent_convex_mfem/meshes')/(room+'.tet')).read_bytes().replace(b'\\r\\n',b'\\n')
               assert hashlib.sha256(original_bytes).hexdigest()==metadata['sha256']
               assert original_bytes==actual
           print('PASS independent Qhull/halfspace geometry and byte-verified tetra input')
