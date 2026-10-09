@@ -1,0 +1,75 @@
+{
+  "schema_version": "htdt.r130d.original-native-sparse-fullstate-independent-plan-1",
+  "date_jst": "2026-10-09",
+  "issue": 938,
+  "pr": 1055,
+  "goal": "Independently integrate exact original PFFDTD Cartesian rigid Neumann source-connected graph using scipy CSR sparse matrix-vector recurrence rather than upstream PFFDTD Numba air/boundary in/out kernels, to test full untruncated original 8-node q0 waveform against each raw SHA-pinned original upstream 8-node 0.25s output for PPW28/32/36/40/44. Do not modify any native solver or input.",
+  "original_inputs": {
+    "ppw": [
+      28,
+      32,
+      36,
+      40,
+      44
+    ],
+    "pffdtd_git_pin": "aa319f6c86517cb95aabfae8656277da62c3ead5",
+    "graph_evidence": "benchmarks/acoustics/r130d_original_pffdtd_neumann_graph_evidence_2026-10-09.json",
+    "full_original_wave_control_evidence": "benchmarks/acoustics/r130d_original_point_quadratic_pffdtd_evidence_2026-10-09.json",
+    "original_source": "exact 8 native in_ixyz and in_sigs[:,0], all later native in_sigs=0; original volume velocity q[0]=1",
+    "original_receiver": "exact 8 original out_ixyz/output node raw traces and original out_alpha from comms",
+    "original_time": "native Ts/Nt frozen 0.25s, 40/80Hz finite P_T/Q_T from same second order pressure derivative and rho=1.2",
+    "room_boundary": "unchanged original Neumann voxel-mask graph with exactly zero asymmetric edges and no halo connections",
+    "physical_source_receiver_xyz_m": [
+      [
+        1.5,
+        2,
+        2
+      ],
+      [
+        2.5,
+        2,
+        2
+      ]
+    ],
+    "frequencies_hz": [
+      40,
+      80
+    ]
+  },
+  "independent_solver": {
+    "method": "fully untruncated CSR matrix-vector leapfrog u_next=2*u_current-u_previous-l2*A@u_current; inject exact native in_sigs[:,n] after update; raw receiver node samples u_current before injection each n",
+    "L": "A=degree I minus adjacency, precomputed from original source-connected 6-neighbour graph; exact HDF5 pins",
+    "sampling": "native output raw 8xNt plus native 8 weights; check raw arrays and recombined potential and full original pressure transfer; no artificial taper",
+    "time_integrator": "native same second order recurrence but mathematically separate sparse CSR implementation; not independent physical solver and not a proof of spatial continuum convergence",
+    "energy_check": "for any n>=1 following q0 source, discrete homogeneous energy E_n=||u_n-u_(n-1)||^2/l2 + u_n^T A u_(n-1), at n=1, n=Nt/4, n=Nt/2, n=Nt-1; preserve actual signed drift",
+    "source_aliasing": "if multiple original native source nodes coincide, explicit numpy.add.at",
+    "max_raw_trace_relative_l2": 1e-8,
+    "max_recombined_trace_relative_l2": 1e-8,
+    "max_signed_transfer_relative_l2": 1e-8,
+    "max_discrete_energy_relative_drift": 1e-7,
+    "all_levels_and_negative_results_retained": true
+  },
+  "scope": {
+    "five_grids_mandatory": true,
+    "full_original_record_mandatory": true,
+    "do_not_change_thresholds": true,
+    "original_8_10_12_self_convergence": "SELF_CONVERGENCE_FAILED",
+    "changed_source_and_receiver_stencil_forbidden": true,
+    "github_actions_runs": 0,
+    "diagnostic_not_product_qualification": true
+  },
+  "resource": {
+    "max_grid_cells": 240000,
+    "max_active_room_nodes": 150000,
+    "max_wave_steps": 2000,
+    "max_solver_cases": 5,
+    "max_probe_energy_samples": 4
+  },
+  "release": {
+    "original_point_q0_self_convergence": "SELF_CONVERGENCE_FAILED",
+    "physical_validation": "NOT_VALIDATED",
+    "production": "NO_GO",
+    "draft_PR": true,
+    "issue_open": true
+  }
+}
