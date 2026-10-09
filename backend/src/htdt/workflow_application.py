@@ -4837,6 +4837,7 @@ class WorkflowApplicationComposition:
                     or geometry_input.is_active
                     or workspace.controller.working.has_preview
                     or workspace.measure_controller.is_active
+                    or workspace.cable_waypoint_controller.is_active
                     or bool(workspace.controller.view_state.selection),
                     'command.blocked.nothing_to_cancel',
                 ),

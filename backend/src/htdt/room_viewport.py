@@ -4285,8 +4285,11 @@ class RoomViewport3D(QFrame):
                 # entity, room floor/shell, committed authoring surface —
                 # resolves to the domain point on its face, never to a
                 # selection. Entities stay pickable anyway; the room
-                # surfaces were armed by set_waypoint_pick_armed.
-                picked = getattr(self.plotter, "picked_position", None)
+                # surfaces were armed by set_waypoint_pick_armed. The pick
+                # position comes off the shared picker — it is populated by
+                # the Pick() whose EndPickEvent invoked this callback, so no
+                # second pick (and no recursion) is needed.
+                picked = self._last_pick_render_position()
                 if picked is not None:
                     array = np.asarray(picked, dtype=float).reshape(-1)
                     if array.size >= 3:
@@ -4302,7 +4305,7 @@ class RoomViewport3D(QFrame):
             underlay_id = self._actor_underlay_ids.get(id(actor))
             if underlay_id is not None:
                 self.dismiss_pick_candidates()
-                picked = getattr(self.plotter, "picked_position", None)
+                picked = self._last_pick_render_position()
                 if picked is not None:
                     array = np.asarray(picked, dtype=float).reshape(-1)
                     if array.size >= 3:
@@ -4511,6 +4514,24 @@ class RoomViewport3D(QFrame):
         except Exception:
             return None
         return self._display_to_widget_position(pos)
+
+    def _last_pick_render_position(self) -> tuple[float, float, float] | None:
+        """Render-space position of the pick currently being dispatched.
+
+        Only valid inside ``_picked_actor`` — the shared interactor picker's
+        pick position is still populated by the ``Pick()`` whose
+        EndPickEvent invoked the callback. Reading it performs no new pick,
+        so it cannot recurse through EndPickEvent.
+        """
+
+        try:
+            picker = self.plotter.iren.picker
+            picked = picker.GetPickPosition()
+        except Exception:
+            return None
+        if picked is None:
+            return None
+        return (float(picked[0]), float(picked[1]), float(picked[2]))
 
     def pick_actor_at(self, position: QPointF):
         """Run the shared picker at a Qt display position; actor or None."""
