@@ -73,10 +73,26 @@ def test_every_native_signed_wave_40_80_and_weight_exactness_and_source_q0():
         assert case["native_solver"]["wall_seconds"]>0
         assert len(case["native_solver"]["sim_outs_sha256"])==64
 
+def assert_derived_metrics_same_up_to_roundoff(actual, frozen):
+    """Do not require cross-machine IEEE last-bit equality of derived metrics."""
+    if isinstance(actual, dict):
+        assert isinstance(frozen,dict) and actual.keys()==frozen.keys()
+        for key in actual:
+            assert_derived_metrics_same_up_to_roundoff(actual[key],frozen[key])
+    elif isinstance(actual,list):
+        assert isinstance(frozen,list) and len(actual)==len(frozen)
+        for a,b in zip(actual,frozen):
+            assert_derived_metrics_same_up_to_roundoff(a,b)
+    elif isinstance(actual,float):
+        assert actual==pytest.approx(frozen,rel=5e-12,abs=5e-12)
+    else:
+        assert actual==frozen
+
+
 def test_preserved_unfavorable_results_and_original_thresholds():
     p,e=frozen()
     x=native_pair_metrics(e["actual_native_wave_cases"],p)
-    assert x==e["adjacent_quadratic_refinement"]
+    assert_derived_metrics_same_up_to_roundoff(x,e["adjacent_quadratic_refinement"])
     assert x["diagnostic_refinement_pass"] is False
     assert x["all_three_metrics_strictly_decreasing"] is False
     assert x["last_pair_passes_original_frozen_thresholds"] is False
