@@ -1,0 +1,727 @@
+{
+  "schema_version": "htdt.r130d.original-point-q0-matched-newmark-spatial-ab-evidence-1",
+  "plan_sha256_lf": "ea53975c54ce7186e7285673442214c67555fa13ab8766b9e2e48b84ad035826",
+  "preregistered_plan": {
+    "schema_version": "htdt.r130d.original-point-q0-matched-newmark-spatial-ab-plan-1",
+    "date_jst": "2026-10-09",
+    "issue": 938,
+    "pr": 1055,
+    "question": "Does exact sloped-room roof cut-volume/aperture spatial FV improve original physical eight-node point q0 nonconvergence independently of changed temporal integration? Apply exactly same native-grid implicit Newmark beta=1/4 to original staircase Cartesian graph (control) and preregistered exact-roof-cutcell graph (treatment), holding original source receiver time and frequency invariant.",
+    "preregistered_treatment": {
+      "plan": "benchmarks/acoustics/r130d_native_grid_exact_roof_mass_fv_q0_plan_2026-10-09.json",
+      "evidence": "benchmarks/acoustics/r130d_native_grid_exact_roof_mass_fv_q0_evidence_2026-10-09.json",
+      "data": "exact room 56m3 mass FV native nodes; preregistered and executed before this control"
+    },
+    "native_control": {
+      "source_original": "benchmarks/acoustics/r130d_original_point_quadratic_pffdtd_evidence_2026-10-09.json",
+      "geometry": "benchmarks/acoustics/r130d_original_pffdtd_neumann_graph_evidence_2026-10-09.json",
+      "original_unmodified_PFFDTD": "rigid Neumann source-connected original native graph exact original vox_out.h5; symmetric graph A=degree minus adjacency as verified; each room vertex original nodal mass h^3 (staircase room), stiffness c^2*h*A (original full-voronoi face h^2 and spacing h); source original eight native unit q0 weights, same original 8 receiver weights",
+      "pinned_upstream": "aa319f6c86517cb95aabfae8656277da62c3ead5",
+      "ppw": [
+        28,
+        32,
+        36,
+        40,
+        44
+      ],
+      "source_xyz_m": [
+        1.5,
+        2,
+        2
+      ],
+      "receiver_xyz_m": [
+        2.5,
+        2,
+        2
+      ],
+      "density_kg_m3": 1.2,
+      "original_q0": "q[0]=1 and zero later, no temporal smoothing or spectral taper",
+      "record_s": 0.25,
+      "compare_bins_hz": [
+        40,
+        80
+      ],
+      "timing": "native original Ts, Nt; same source injection before native sample n+1, observation before update at sample n"
+    },
+    "matched_time": {
+      "scheme": "exact same backend htdt.r130d_native_grid_exact_roof_fv.implicit_newmark_original_q0 source q0 and beta1/4 implicit step as exact roof treatment; only M and K (geometry) differ",
+      "rtol": 1e-10,
+      "atol": 1e-12,
+      "maxiter": 500,
+      "true_relative_residual_max": 5e-10,
+      "max_relative_energy_drift": 1e-06,
+      "physical_point_receiver_original_8node": true
+    },
+    "acceptance": {
+      "frozen_adjacent_original_complex_max": 0.2,
+      "frozen_adjacent_original_magnitude_max": 0.25,
+      "frozen_adjacent_original_phase_deg_max": 15,
+      "strictly_decreasing_three_metrics_required": true,
+      "adjacent": [
+        [
+          28,
+          32
+        ],
+        [
+          32,
+          36
+        ],
+        [
+          36,
+          40
+        ],
+        [
+          40,
+          44
+        ]
+      ],
+      "store_all_unfavorable_original_and_ab_complex_results": true,
+      "intervention_not_product_qualification": true,
+      "no_causal_claim_if_both_nonconvergent": true
+    },
+    "limits": {
+      "max_active_native_graph_nodes": 150000,
+      "max_native_steps": 2000,
+      "max_num_wave_integrations": 5,
+      "max_CG_iterations": 500,
+      "max_wall_sec_per_case": 300,
+      "run_github_actions": false
+    },
+    "authority": {
+      "original_point_q0": "SELF_CONVERGENCE_FAILED",
+      "BRAS": "NOT_VALIDATED",
+      "product": "NO_GO",
+      "pr_draft": true,
+      "issue_open": true
+    }
+  },
+  "original_canonical": "SELF_CONVERGENCE_FAILED",
+  "physical_validation": "NOT_VALIDATED",
+  "product": "NO_GO",
+  "github_actions_run_count": 0,
+  "actual_matched_time_spatial_AB_cases": [
+    {
+      "ppw": 28,
+      "original_exact_native_voxel_sha256": "9d8b598fc1e2077840ba5a51e8f2db72c30ad4b6991ae88d3174bac72acf9fc8",
+      "original_exact_native_comms_sha256": "4404a9818a8f0c673c97e8ede8665367100aecb3d2f2f8481bc532bc45fd6b6c",
+      "original_staircase_native_graph_volume_m3": 57.42665126448979,
+      "treatment_exact_cutcell_volume_m3": 56.000000000000085,
+      "control_staircase_graph_room_nodes": 31185,
+      "treatment_exact_roof_room_nodes": 31713,
+      "control_staircase_graph_K_nnz": 212049,
+      "original_native_full_baseline_P_T_Q_40_80": [
+        [
+          101.0987693066617,
+          42.7956809667478
+        ],
+        [
+          150.77953891006572,
+          -21.729992606786517
+        ]
+      ],
+      "control_same_newmark_native_staircase_P_T_Q_40_80": [
+        [
+          -54.30747396476114,
+          40.50550989916652
+        ],
+        [
+          -28.607837364313482,
+          -18.415399114107267
+        ]
+      ],
+      "treatment_same_newmark_exact_roof_P_T_Q_40_80": [
+        [
+          109.77995299635002,
+          3.2042770297113004
+        ],
+        [
+          160.23217045463107,
+          -202.67189170820038
+        ]
+      ],
+      "per_grid_signed_spatial_only_complex_relative_change": 1.114691763463847,
+      "time_source_receiver_sampling_newmark_matched": true,
+      "original_physical_point_source_q0_unchanged": true,
+      "control_implicit_solver": {
+        "linear_solver": "Jacobi-preconditioned scipy sparse CG with verified true residual",
+        "linear_solve_count": 1214,
+        "maximum_CG_iterations": 13,
+        "total_CG_iterations": 15782,
+        "maximum_true_linear_relative_residual": 8.659787322058907e-11,
+        "newmark_midpoint_homogeneous_energy_probes": [
+          {
+            "sample_index": 1,
+            "modified_midpoint_discrete_energy": 71359.6801322515
+          },
+          {
+            "sample_index": 303,
+            "modified_midpoint_discrete_energy": 71359.68013874735
+          },
+          {
+            "sample_index": 607,
+            "modified_midpoint_discrete_energy": 71359.68014584259
+          },
+          {
+            "sample_index": 1213,
+            "modified_midpoint_discrete_energy": 71359.68015929157
+          }
+        ],
+        "relative_energy_drift_after_source": 3.789265561299198e-10,
+        "original_discrete_q0_unchanged": true,
+        "no_point_source_smoothing_or_taper": true
+      },
+      "control_local_wall_seconds": 10.411151600070298
+    },
+    {
+      "ppw": 32,
+      "original_exact_native_voxel_sha256": "8f3ebd62703c40793d68fdf703e098bbecc568cc9beb227cfa126b8042954e3b",
+      "original_exact_native_comms_sha256": "716199c1cb8f9d982cdafe7deaccdf630073a2b0d8cdec17fcaf3dff52f4b60b",
+      "original_staircase_native_graph_volume_m3": 55.09356767423437,
+      "treatment_exact_cutcell_volume_m3": 55.99999999999979,
+      "control_staircase_graph_room_nodes": 44659,
+      "treatment_exact_roof_room_nodes": 48032,
+      "control_staircase_graph_K_nnz": 304723,
+      "original_native_full_baseline_P_T_Q_40_80": [
+        [
+          16.56628166594011,
+          -21.00233450877161
+        ],
+        [
+          -21.520688403756687,
+          -230.6577420888628
+        ]
+      ],
+      "control_same_newmark_native_staircase_P_T_Q_40_80": [
+        [
+          23.000341738091432,
+          -9.15154932822842
+        ],
+        [
+          1.1189073082403382,
+          -209.02462228751605
+        ]
+      ],
+      "treatment_same_newmark_exact_roof_P_T_Q_40_80": [
+        [
+          120.25492987882916,
+          0.15430183282345666
+        ],
+        [
+          160.8019645580573,
+          -213.45005785778673
+        ]
+      ],
+      "per_grid_signed_spatial_only_complex_relative_change": 0.638971987323786,
+      "time_source_receiver_sampling_newmark_matched": true,
+      "original_physical_point_source_q0_unchanged": true,
+      "control_implicit_solver": {
+        "linear_solver": "Jacobi-preconditioned scipy sparse CG with verified true residual",
+        "linear_solve_count": 1388,
+        "maximum_CG_iterations": 13,
+        "total_CG_iterations": 18044,
+        "maximum_true_linear_relative_residual": 7.346125429274648e-11,
+        "newmark_midpoint_homogeneous_energy_probes": [
+          {
+            "sample_index": 1,
+            "modified_midpoint_discrete_energy": 76526.82616186755
+          },
+          {
+            "sample_index": 347,
+            "modified_midpoint_discrete_energy": 76526.8261705437
+          },
+          {
+            "sample_index": 694,
+            "modified_midpoint_discrete_energy": 76526.82617997748
+          },
+          {
+            "sample_index": 1387,
+            "modified_midpoint_discrete_energy": 76526.82619798303
+          }
+        ],
+        "relative_energy_drift_after_source": 4.719323072177825e-10,
+        "original_discrete_q0_unchanged": true,
+        "no_point_source_smoothing_or_taper": true
+      },
+      "control_local_wall_seconds": 16.875673200003803
+    },
+    {
+      "ppw": 36,
+      "original_exact_native_voxel_sha256": "433c1d334419006b1185a4ef275545d329244d0808b2a3c12a3200e7af4e3d50",
+      "original_exact_native_comms_sha256": "3cd05bcee5f8fed08da3dc94ff2ac90b92969b293daf2db77b4bac8d0c51a2f9",
+      "original_staircase_native_graph_volume_m3": 56.18636312177776,
+      "treatment_exact_cutcell_volume_m3": 56.000000000000185,
+      "control_staircase_graph_room_nodes": 64848,
+      "treatment_exact_roof_room_nodes": 65688,
+      "control_staircase_graph_K_nnz": 443792,
+      "original_native_full_baseline_P_T_Q_40_80": [
+        [
+          57.86557590696418,
+          12.212530552108216
+        ],
+        [
+          119.43681400077243,
+          -167.8458584505424
+        ]
+      ],
+      "control_same_newmark_native_staircase_P_T_Q_40_80": [
+        [
+          27.907097430419313,
+          12.355867015246856
+        ],
+        [
+          97.90180902882692,
+          -159.2705374310362
+        ]
+      ],
+      "treatment_same_newmark_exact_roof_P_T_Q_40_80": [
+        [
+          83.32075014129923,
+          2.12025262348167
+        ],
+        [
+          118.92750843764863,
+          -210.7938766023252
+        ]
+      ],
+      "per_grid_signed_spatial_only_complex_relative_change": 0.3093903221003661,
+      "time_source_receiver_sampling_newmark_matched": true,
+      "original_physical_point_source_q0_unchanged": true,
+      "control_implicit_solver": {
+        "linear_solver": "Jacobi-preconditioned scipy sparse CG with verified true residual",
+        "linear_solve_count": 1561,
+        "maximum_CG_iterations": 13,
+        "total_CG_iterations": 20293,
+        "maximum_true_linear_relative_residual": 5.537198271932018e-11,
+        "newmark_midpoint_homogeneous_energy_probes": [
+          {
+            "sample_index": 1,
+            "modified_midpoint_discrete_energy": 52165.94305467281
+          },
+          {
+            "sample_index": 390,
+            "modified_midpoint_discrete_energy": 52165.94306151639
+          },
+          {
+            "sample_index": 780,
+            "modified_midpoint_discrete_energy": 52165.94306901925
+          },
+          {
+            "sample_index": 1560,
+            "modified_midpoint_discrete_energy": 52165.94308295081
+          }
+        ],
+        "relative_energy_drift_after_source": 5.42077844963511e-10,
+        "original_discrete_q0_unchanged": true,
+        "no_point_source_smoothing_or_taper": true
+      },
+      "control_local_wall_seconds": 27.732390800025314
+    },
+    {
+      "ppw": 40,
+      "original_exact_native_voxel_sha256": "c7c1894826c4774393987855e533081f615b22d510ec6042aacda12acbe0daaf",
+      "original_exact_native_comms_sha256": "64a4f45cf19b92bb7a8a1ffd24af05e10877c99000e29bf985637b18e287763a",
+      "original_staircase_native_graph_volume_m3": 56.671622926776,
+      "treatment_exact_cutcell_volume_m3": 55.99999999999979,
+      "control_staircase_graph_room_nodes": 89723,
+      "treatment_exact_roof_room_nodes": 91415,
+      "control_staircase_graph_K_nnz": 615501,
+      "original_native_full_baseline_P_T_Q_40_80": [
+        [
+          23.081760574920366,
+          18.909536564347828
+        ],
+        [
+          109.07263342140902,
+          -119.86161783862582
+        ]
+      ],
+      "control_same_newmark_native_staircase_P_T_Q_40_80": [
+        [
+          149.9929063666748,
+          24.38091691204454
+        ],
+        [
+          239.75763622877997,
+          -99.43934720317425
+        ]
+      ],
+      "treatment_same_newmark_exact_roof_P_T_Q_40_80": [
+        [
+          101.30171270677356,
+          -6.578475241552964
+        ],
+        [
+          130.56902480480593,
+          -230.03603580145864
+        ]
+      ],
+      "per_grid_signed_spatial_only_complex_relative_change": 0.6344114425718776,
+      "time_source_receiver_sampling_newmark_matched": true,
+      "original_physical_point_source_q0_unchanged": true,
+      "control_implicit_solver": {
+        "linear_solver": "Jacobi-preconditioned scipy sparse CG with verified true residual",
+        "linear_solve_count": 1734,
+        "maximum_CG_iterations": 13,
+        "total_CG_iterations": 22542,
+        "maximum_true_linear_relative_residual": 8.872515405994164e-11,
+        "newmark_midpoint_homogeneous_energy_probes": [
+          {
+            "sample_index": 1,
+            "modified_midpoint_discrete_energy": 151510.18956338806
+          },
+          {
+            "sample_index": 433,
+            "modified_midpoint_discrete_energy": 151510.18959047593
+          },
+          {
+            "sample_index": 867,
+            "modified_midpoint_discrete_energy": 151510.18962110116
+          },
+          {
+            "sample_index": 1733,
+            "modified_midpoint_discrete_energy": 151510.18968045668
+          }
+        ],
+        "relative_energy_drift_after_source": 7.726781667065273e-10,
+        "original_discrete_q0_unchanged": true,
+        "no_point_source_smoothing_or_taper": true
+      },
+      "control_local_wall_seconds": 40.76244749990292
+    },
+    {
+      "ppw": 44,
+      "original_exact_native_voxel_sha256": "4a7cb6c30c013adc31d5b1910d50cef003cacbdd37a271ac3efa7a39956e505b",
+      "original_exact_native_comms_sha256": "41c537b663ef11aa7404a248862f89398dec80fd3b6c794f4ecce4a0a8577ee4",
+      "original_staircase_native_graph_volume_m3": 55.398725928,
+      "treatment_exact_cutcell_volume_m3": 56.000000000000234,
+      "control_staircase_graph_room_nodes": 116739,
+      "treatment_exact_roof_room_nodes": 123032,
+      "control_staircase_graph_K_nnz": 802191,
+      "original_native_full_baseline_P_T_Q_40_80": [
+        [
+          -64.44884936510273,
+          -11.312555997628882
+        ],
+        [
+          -83.61305811577175,
+          -224.3177326070579
+        ]
+      ],
+      "control_same_newmark_native_staircase_P_T_Q_40_80": [
+        [
+          76.359380970671,
+          -3.3677002151168547
+        ],
+        [
+          66.77736096344535,
+          -207.63326422690628
+        ]
+      ],
+      "treatment_same_newmark_exact_roof_P_T_Q_40_80": [
+        [
+          -23.438724548586478,
+          5.7155377669852925
+        ],
+        [
+          2.762763408170244,
+          -205.60610766006334
+        ]
+      ],
+      "per_grid_signed_spatial_only_complex_relative_change": 0.5744395141745914,
+      "time_source_receiver_sampling_newmark_matched": true,
+      "original_physical_point_source_q0_unchanged": true,
+      "control_implicit_solver": {
+        "linear_solver": "Jacobi-preconditioned scipy sparse CG with verified true residual",
+        "linear_solve_count": 1908,
+        "maximum_CG_iterations": 13,
+        "total_CG_iterations": 24804,
+        "maximum_true_linear_relative_residual": 8.74566765640729e-11,
+        "newmark_midpoint_homogeneous_energy_probes": [
+          {
+            "sample_index": 1,
+            "modified_midpoint_discrete_energy": 128123.70511543316
+          },
+          {
+            "sample_index": 477,
+            "modified_midpoint_discrete_energy": 128123.70514517045
+          },
+          {
+            "sample_index": 954,
+            "modified_midpoint_discrete_energy": 128123.70517684004
+          },
+          {
+            "sample_index": 1907,
+            "modified_midpoint_discrete_energy": 128123.70524009099
+          }
+        ],
+        "relative_energy_drift_after_source": 9.729490111934479e-10,
+        "original_discrete_q0_unchanged": true,
+        "no_point_source_smoothing_or_taper": true
+      },
+      "control_local_wall_seconds": 57.025855199899524
+    }
+  ],
+  "matched_time_spatial_adjacent": {
+    "native_staircase_control": [
+      {
+        "coarse_ppw": 28,
+        "fine_ppw": 32,
+        "complex_rms_relative": 1.0151493992373057,
+        "magnitude_max_relative": 1.7368986615805102,
+        "magnitude_max_db": 15.768731012198181,
+        "phase_max_deg": 164.97938606060183,
+        "mask_floor": 0.6610033636525853,
+        "compared_frequency_count": 2,
+        "frequency_metrics": [
+          {
+            "frequency_hz": 40.0,
+            "masked_in": true,
+            "magnitude_absolute": 42.995402043472055,
+            "magnitude_relative": 1.7368986615805102,
+            "magnitude_db": 8.745174344028811,
+            "phase_deg": 164.97938606060183,
+            "complex_relative": 3.711790192576588
+          },
+          {
+            "frequency_hz": 80.0,
+            "masked_in": true,
+            "magnitude_absolute": 175.00504681481334,
+            "magnitude_relative": 0.8372340904608061,
+            "magnitude_db": 15.768731012198181,
+            "phase_deg": 57.536560717352444,
+            "complex_relative": 0.9229083650009605
+          }
+        ]
+      },
+      {
+        "coarse_ppw": 32,
+        "fine_ppw": 36,
+        "complex_rms_relative": 0.5861628149645619,
+        "magnitude_max_relative": 0.1889226504469461,
+        "magnitude_max_db": 1.8187545339711977,
+        "phase_max_deg": 45.578359648356695,
+        "mask_floor": 0.5912010512904049,
+        "compared_frequency_count": 2,
+        "frequency_metrics": [
+          {
+            "frequency_hz": 40.0,
+            "masked_in": true,
+            "magnitude_absolute": 5.765928999884121,
+            "magnitude_relative": 0.1889226504469461,
+            "magnitude_db": 1.8187545339711977,
+            "phase_deg": 45.578359648356695,
+            "complex_relative": 0.7228046962672587
+          },
+          {
+            "frequency_hz": 80.0,
+            "masked_in": true,
+            "magnitude_absolute": 22.073429301101783,
+            "magnitude_relative": 0.1180686539880535,
+            "magnitude_db": 0.9693694365311654,
+            "phase_deg": 31.271873985078003,
+            "complex_relative": 0.5820826405740117
+          }
+        ]
+      },
+      {
+        "coarse_ppw": 36,
+        "fine_ppw": 40,
+        "complex_rms_relative": 0.6545018391651335,
+        "magnitude_max_relative": 0.7991593330109937,
+        "magnitude_max_db": 13.942966900189633,
+        "phase_max_deg": 35.89522253798046,
+        "mask_floor": 0.8208039223968501,
+        "compared_frequency_count": 2,
+        "frequency_metrics": [
+          {
+            "frequency_hz": 40.0,
+            "masked_in": true,
+            "magnitude_absolute": 121.44146041672379,
+            "magnitude_relative": 0.7991593330109937,
+            "magnitude_db": 13.942966900189633,
+            "phase_deg": 14.64884952645599,
+            "complex_relative": 0.8072872660006652
+          },
+          {
+            "frequency_hz": 80.0,
+            "masked_in": true,
+            "magnitude_absolute": 72.60680300104315,
+            "magnitude_relative": 0.2797292566974779,
+            "magnitude_db": 2.85008450969522,
+            "phase_deg": 35.89522253798046,
+            "complex_relative": 0.5931449453129344
+          }
+        ]
+      },
+      {
+        "coarse_ppw": 40,
+        "fine_ppw": 44,
+        "complex_rms_relative": 0.9461972528734446,
+        "magnitude_max_relative": 0.9881504396347637,
+        "magnitude_max_db": 5.968984871158308,
+        "phase_max_deg": 49.645380648749466,
+        "mask_floor": 0.6897157990851199,
+        "compared_frequency_count": 2,
+        "frequency_metrics": [
+          {
+            "frequency_hz": 40.0,
+            "masked_in": true,
+            "magnitude_absolute": 75.5279035747372,
+            "magnitude_relative": 0.9881504396347637,
+            "magnitude_db": 5.968984871158308,
+            "phase_deg": 11.757813403233342,
+            "complex_relative": 1.0295014607961868
+          },
+          {
+            "frequency_hz": 80.0,
+            "masked_in": true,
+            "magnitude_absolute": 41.453704386208216,
+            "magnitude_relative": 0.19006107078540652,
+            "magnitude_db": 1.5113849761625202,
+            "phase_deg": 49.645380648749466,
+            "complex_relative": 0.9354554653026288
+          }
+        ]
+      }
+    ],
+    "exact_roof_treatment": [
+      {
+        "coarse_ppw": 28,
+        "fine_ppw": 32,
+        "complex_rms_relative": 0.05236850268282767,
+        "magnitude_max_relative": 0.086718388600455,
+        "magnitude_max_db": 0.7879057325800982,
+        "phase_max_deg": 1.5983673706383286,
+        "mask_floor": 0.8450928884165528,
+        "compared_frequency_count": 2,
+        "frequency_metrics": [
+          {
+            "frequency_hz": 40.0,
+            "masked_in": true,
+            "magnitude_absolute": 10.428322324957534,
+            "magnitude_relative": 0.086718388600455,
+            "magnitude_db": 0.7879057325800982,
+            "phase_deg": 1.5983673706383286,
+            "complex_relative": 0.09072362393710594
+          },
+          {
+            "frequency_hz": 80.0,
+            "masked_in": true,
+            "magnitude_absolute": 8.88115005142248,
+            "magnitude_relative": 0.03323263370117676,
+            "magnitude_db": 0.29356035675536124,
+            "phase_deg": 1.3374235694390393,
+            "complex_relative": 0.04038745222611324
+          }
+        ]
+      },
+      {
+        "coarse_ppw": 32,
+        "fine_ppw": 36,
+        "complex_rms_relative": 0.21850801746915602,
+        "magnitude_max_relative": 0.44281121321302397,
+        "magnitude_max_db": 3.184190178022393,
+        "phase_max_deg": 7.561236298971664,
+        "mask_floor": 0.7653614223112064,
+        "compared_frequency_count": 2,
+        "frequency_metrics": [
+          {
+            "frequency_hz": 40.0,
+            "masked_in": true,
+            "magnitude_absolute": 36.90730619675746,
+            "magnitude_relative": 0.44281121321302397,
+            "magnitude_db": 3.184190178022393,
+            "phase_deg": 1.3841664175209587,
+            "complex_relative": 0.44376095521473824
+          },
+          {
+            "frequency_hz": 80.0,
+            "masked_in": true,
+            "magnitude_absolute": 25.21330340774091,
+            "magnitude_relative": 0.10417492152214387,
+            "magnitude_db": 0.8607575808019692,
+            "phase_deg": 7.561236298971664,
+            "complex_relative": 0.17336226657837925
+          }
+        ]
+      },
+      {
+        "coarse_ppw": 36,
+        "fine_ppw": 40,
+        "complex_rms_relative": 0.10616751741958833,
+        "magnitude_max_relative": 0.1789622277945377,
+        "magnitude_max_db": 1.7127372502286469,
+        "phase_max_deg": 5.173221913725399,
+        "mask_floor": 0.8364499268081024,
+        "compared_frequency_count": 2,
+        "frequency_metrics": [
+          {
+            "frequency_hz": 40.0,
+            "masked_in": true,
+            "magnitude_absolute": 18.1673665167111,
+            "magnitude_relative": 0.1789622277945377,
+            "magnitude_db": 1.7127372502286469,
+            "phase_deg": 5.173221913725399,
+            "complex_relative": 0.1967644022673873
+          },
+          {
+            "frequency_hz": 80.0,
+            "masked_in": true,
+            "magnitude_absolute": 22.48015896653135,
+            "magnitude_relative": 0.08498835640786065,
+            "magnitude_db": 0.771467589367389,
+            "phase_deg": 0.14815459601499015,
+            "complex_relative": 0.08502434211242736
+          }
+        ]
+      },
+      {
+        "coarse_ppw": 40,
+        "fine_ppw": 44,
+        "complex_rms_relative": 0.8726662923738087,
+        "magnitude_max_relative": 3.2077869669976202,
+        "magnitude_max_db": 12.48107488242222,
+        "phase_max_deg": 170.01140184338982,
+        "mask_floor": 0.6502422961386862,
+        "compared_frequency_count": 2,
+        "frequency_metrics": [
+          {
+            "frequency_hz": 40.0,
+            "masked_in": true,
+            "magnitude_absolute": 77.3895595524249,
+            "magnitude_relative": 3.2077869669976202,
+            "magnitude_db": 12.48107488242222,
+            "phase_deg": 170.01140184338982,
+            "complex_relative": 5.195525407484615
+          },
+          {
+            "frequency_hz": 80.0,
+            "masked_in": true,
+            "magnitude_absolute": 58.88402306187791,
+            "magnitude_relative": 0.28636653102261606,
+            "magnitude_db": 2.1872946395725372,
+            "phase_deg": 28.80950512219681,
+            "complex_relative": 0.6328043377990258
+          }
+        ]
+      }
+    ],
+    "original_staircase_threshold_flags": [
+      false,
+      false,
+      false,
+      false
+    ],
+    "exact_roof_threshold_flags": [
+      true,
+      false,
+      true,
+      false
+    ],
+    "final_pair_experimental_staircase_pass": false,
+    "final_pair_experimental_exact_roof_pass": false,
+    "same_exact_original_source_receiver_q0_and_native_dt": true,
+    "original_PFFDTD_8node_8_10_12_selfconvergence_still_FAILED": true,
+    "not_a_production_solver_promotion": true
+  }
+}
