@@ -81,7 +81,25 @@ def test_actual_fem_gate_is_recomputed_no_ref4_or_threshold_substitution():
     from run_r130d_convex_independent_mfem_drive import evaluate
     plan,meshes,levels,verdict,fv=_authorities()
     actual=evaluate(plan,meshes,levels,fv)
-    assert actual==verdict
+    # Sparse floating reductions vary by a few ULPs between BLAS builds.
+    # Preserve exact authority/gate labels and compare ONLY floats under
+    # strict replay tolerance, never physical acceptance thresholds.
+    def assert_same_evidence(actual_value, frozen_value):
+        if isinstance(frozen_value, dict):
+            assert isinstance(actual_value, dict)
+            assert set(actual_value)==set(frozen_value)
+            for key in frozen_value:
+                assert_same_evidence(actual_value[key],frozen_value[key])
+        elif isinstance(frozen_value,list):
+            assert isinstance(actual_value,list)
+            assert len(actual_value)==len(frozen_value)
+            for left,right in zip(actual_value,frozen_value):
+                assert_same_evidence(left,right)
+        elif isinstance(frozen_value,float):
+            assert actual_value==pytest.approx(frozen_value,rel=1e-11,abs=1e-11)
+        else:
+            assert actual_value==frozen_value
+    assert_same_evidence(actual,verdict)
     dropped=copy.deepcopy(levels)
     dropped["planar_wedge"].pop()
     with pytest.raises(ValueError,match="missing"):
