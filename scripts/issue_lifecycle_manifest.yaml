@@ -245,7 +245,8 @@ entries:
   landed:
     prs:
     - 843
-    commits: []
+    - 1
+    commits: [75476ada]
   remaining_gates:
   - kind: structural
     description: 'Action 2–6: BRAS importer・メトリクス・修飾実行（コーパス権威着地済み）'
@@ -765,8 +766,8 @@ entries:
 - issue: 955
   lifecycle: structural_followup_remaining
   landed:
-    prs: [1042, 1103]
-    commits: [e09b6479, 91abfcc8bb55fa61c4b44338774d33e63f08a43c]
+    prs: [1042, 1103, 116]
+    commits: [e09b6479, 91abfcc8bb55fa61c4b44338774d33e63f08a43c, a0f94102]
   remaining_gates:
   - kind: structural
     description: '残レイヤの broad catch 型付き化 — capture/ingestion/watch/persistence+worker lane (66件) は PR#1103 で全変換、残りは native_cad/他 UI・adapters 等 (docs/issues/issue-955-error-boundaries.md 棚卸し)'
@@ -858,8 +859,8 @@ entries:
 - issue: 954
   lifecycle: structural_followup_remaining
   landed:
-    prs: [1049]
-    commits: [fc0076ed, f05030b9]
+    prs: [1049, 117]
+    commits: [fc0076ed, f05030b9, 35203e91]
   remaining_gates:
   - kind: structural
     description: 'Phase 2 以降 — 残ドメイン (acoustics/calibration 他) のパッケージ化 + package_boundary_inventory.json の 26 violations/4 cycles (managed debt) の逐次解消 — docs/issues/issue-954-domain-split-phase1.md に deferred work 記載'
