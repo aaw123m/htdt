@@ -1,0 +1,83 @@
+{
+  "schema_version": "htdt.r130d.original-q0-true-roof-sevenpoint-native-leapfrog-stability-plan-1",
+  "date_jst": "2026-10-10",
+  "repo": "aaw123m/htdt",
+  "issue": 53,
+  "pr": 118,
+  "question": "Does the already SHA-pinned row-lumped physically exact inclined-Neumann sevenpoint operator admit the ORIGINAL unmodified native PFFDTD explicit leapfrog timestep on all 5 grids, and if so does its signed original 250ms 8node q0 transfer meet unchanged convergence?",
+  "prospective_rule": "Push this exact design on GitHub before opening original HDF5 for any new full modal spectral stability calculation or full q0 experiment.",
+  "frozen": {
+    "upstream_pffdtd_sha": "aa319f6c86517cb95aabfae8656277da62c3ead5",
+    "ppw": [
+      28,
+      32,
+      36,
+      40,
+      44
+    ],
+    "source_xyz": [
+      1.5,
+      2,
+      2
+    ],
+    "receiver_xyz": [
+      2.5,
+      2,
+      2
+    ],
+    "source_receiver": "original 8 in_ixyz plus in_sigs[:,0] and 8 out_ixyz/out_alpha; source later samples all zero",
+    "native_h_dt_Nt": "unchanged original real SHA HDF5 by grid; no dt scaling",
+    "record_seconds": 0.25,
+    "frequency_hz": [
+      40,
+      80
+    ],
+    "c_m_s": 343.2,
+    "rho_kg_m3": 1.2,
+    "acceptance": {
+      "complex_rms_relative": 0.2,
+      "magnitude_max_relative": 0.25,
+      "phase_max_deg": 15
+    },
+    "all_four_adjacent_pairs": true,
+    "strict_monotone_all_three": true
+  },
+  "operator": {
+    "mass": "EXACT precommitted physically positive diagonal row-sum x-P1/y-z cut-Q1",
+    "stiffness": "EXACT previously precommitted Cartesian fivepoint full wet yz + true sloped physical roof Neumann cut-Q1, and x-P1 physical Neumann",
+    "spatial_same_previous_7point_commit": "902f7b4a7a21d2500abb8db91b49b7bf426be0c9",
+    "full_native_3d_eigenmodes_no_cut": true,
+    "all_positive_physical_support_nodes": true,
+    "volume_m3": 56
+  },
+  "temporal": {
+    "method": "native original centered explicit leapfrog q0 u[0]=0,u[1]=dt²*c²*full_correct_mass_dual_source; u[n+1]=(2-dt²*lambda)u[n]-u[n-1]; pressure forward/center/backward unchanged",
+    "cfl": "every original grid lambda_max times dt² must be strictly below 4 (allow 1e-10 numerical tolerance only for negative lambda); if ANY grid fails then NOT SCORE alternate full-record transfers and report all grid CFL spectra and UNSTABLE_AT_ORIGINAL_DT",
+    "nyquist_rule": "no high-mode truncation; spectral lam high from complete x⊗yz generalized eigenspectra",
+    "normalization": "same physical q0 unit as previous Newmark HDF5 impulse; original full native 250ms signed 40/80 bins; no window/phase fit",
+    "anti_causal_observer_not_qualified": true
+  },
+  "verification": {
+    "compare_all_5_max_dt2lambda_and_full_lambda_counts": true,
+    "crosscheck_M_orthogonality_and_constant_mode": true,
+    "sha_original_hdf5_source_and_geometry": true,
+    "exact_pressure_time_samples_in_independent_synthetic_case": true,
+    "compare_with_committed_newmark_only_as_experiment": true,
+    "full_original_frozen_acceptance_only_if_all_five_stable": true,
+    "no_favorable_censored_grid_choice": true
+  },
+  "limits": {
+    "max_yz_modes": 3300,
+    "max_total_3d_modes": 180000,
+    "new_pffdtd_waves": 0,
+    "new_github_actions": 0,
+    "preserve_scratch": true
+  },
+  "authority": {
+    "original_PFFDTD": "SELF_CONVERGENCE_FAILED",
+    "independent_physics": "NOT_VALIDATED",
+    "product": "NO_GO",
+    "PR_draft": true,
+    "issue_open": true
+  }
+}
