@@ -973,3 +973,17 @@ entries:
   - docs/issues/issue-1012-rack-workspace.md
   - backend/tests/test_issue_1012_rack_workspace.py
   close_when_gates_clear: true
+
+- issue: 1010
+  lifecycle: acceptance_remaining
+  landed:
+    prs: [1060]
+    commits: [5bf984f3]
+  remaining_gates:
+  - kind: manual
+    description: 'オペレータ受入 — 実レイアウトでの運用クリアランス・衝突ハイライトの実機確認 (子が実GUI Mesa GL でドラッグ中の live 再計算含め 7/7 検証済)'
+  evidence_refs:
+  - docs/issues/issue-1010-operational-clearance.md
+  - backend/tests/test_issue_1010_operational_clearance.py
+  - backend/src/htdt/room_operational_clearance.py
+  close_when_gates_clear: true
