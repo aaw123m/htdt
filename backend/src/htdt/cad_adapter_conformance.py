@@ -417,7 +417,7 @@ class ConformanceSuiteRunner:
     ) -> ConformanceScenarioResult:
         try:
             outcome = subject.run(name)
-        except Exception as exc:  # subject crashed — honest failure
+        except Exception as exc:  # error-boundary: scenario run — a subject crash is the scored observation (ok=False records the exception type); broad by design (noqa: BLE001)
             outcome = SubjectResult(
                 ok=False,
                 transcript=(f'subject raised {type(exc).__name__}',),
@@ -712,7 +712,7 @@ class AvrLanConformanceSubject(_BaseSubject):
             )
             observed = 'apply reached an unapproved remote endpoint'
             ok = False
-        except Exception as exc:  # noqa: BLE001 — typed refusal expected
+        except Exception as exc:  # error-boundary: refusal probe — the exception is the scored observation (typed AdapterCapabilityError expected); broad by design (noqa: BLE001)
             observed = _err_repr(exc)
             ok = isinstance(exc, AdapterCapabilityError)
         return SubjectResult(
@@ -736,7 +736,7 @@ class AvrLanConformanceSubject(_BaseSubject):
             )
             observed = 'apply ran without operator confirmation'
             ok = False
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:  # error-boundary: capability probe — the exception is the scored observation (refusal type decides ok); broad by design (noqa: BLE001)
             observed = _err_repr(exc)
             ok = isinstance(exc, AdapterCapabilityError)
         return SubjectResult(
@@ -760,7 +760,7 @@ class AvrLanConformanceSubject(_BaseSubject):
             )
             observed = 'apply returned despite a dead transport'
             ok = False
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:  # error-boundary: capability probe — the exception is the scored observation (refusal type decides ok); broad by design (noqa: BLE001)
             observed = _err_repr(exc)
             ok = isinstance(exc, AdapterCapabilityError)
         return SubjectResult(
@@ -781,7 +781,7 @@ class AvrLanConformanceSubject(_BaseSubject):
             )
             observed = 'read_back accepted a malformed response'
             ok = False
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:  # error-boundary: capability probe — the exception is the scored observation (refusal type decides ok); broad by design (noqa: BLE001)
             observed = _err_repr(exc)
             ok = isinstance(exc, AdapterCapabilityError)
         out_of_range = self._adapter(_StubAvrTransport(('CVFL 99',)))
@@ -791,7 +791,7 @@ class AvrLanConformanceSubject(_BaseSubject):
             )
             observed2 = 'read_back accepted an out-of-range value'
             ok2 = False
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:  # error-boundary: capability probe — the exception is the scored observation (refusal type decides ok); broad by design (noqa: BLE001)
             observed2 = _err_repr(exc)
             ok2 = isinstance(exc, AdapterCapabilityError)
         return SubjectResult(
@@ -829,7 +829,7 @@ class AvrLanConformanceSubject(_BaseSubject):
             observed = _err_repr(exc)
             counts = f'{exc.applied_units}/{exc.total_units}'
             ok = exc.applied_units < exc.total_units
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:  # error-boundary: capability probe — the exception is the scored observation (refusal type decides ok); broad by design (noqa: BLE001)
             observed = _err_repr(exc)
             counts = '-'
             ok = False
@@ -923,7 +923,7 @@ class AvrLanConformanceSubject(_BaseSubject):
             )
             transcript.append('transport failure: no error')
             ok = False
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:  # error-boundary: capability probe — the exception is the scored observation (refusal type decides ok); broad by design (noqa: BLE001)
             retryable = isinstance(exc, AvrLanApplyError)
             transcript.append(f'transport → {_err_repr(exc)}')
             ok = ok and retryable
@@ -936,7 +936,7 @@ class AvrLanConformanceSubject(_BaseSubject):
             )
             transcript.append('auth refusal: no error')
             ok = False
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:  # error-boundary: capability probe — the exception is the scored observation (refusal type decides ok); broad by design (noqa: BLE001)
             terminal = isinstance(exc, AdapterCapabilityError) and not (
                 isinstance(exc, AvrLanApplyError)
             )
@@ -1187,7 +1187,7 @@ class CamillaDSPConformanceSubject(_BaseSubject):
             adapter.capture_baseline(rogue)
             observed = 'remote endpoint reached without approval'
             ok = False
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:  # error-boundary: capability probe — the exception is the scored observation (refusal type decides ok); broad by design (noqa: BLE001)
             observed = _err_repr(exc)
             ok = isinstance(exc, AdapterCapabilityError)
         return SubjectResult(
@@ -1211,7 +1211,7 @@ class CamillaDSPConformanceSubject(_BaseSubject):
             )
             observed = 'apply ran without operator confirmation'
             ok = False
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:  # error-boundary: capability probe — the exception is the scored observation (refusal type decides ok); broad by design (noqa: BLE001)
             observed = _err_repr(exc)
             ok = isinstance(exc, PermissionError)
         return SubjectResult(
@@ -1247,7 +1247,7 @@ class CamillaDSPConformanceSubject(_BaseSubject):
         except CamillaDSPError as exc:
             observed = f'CamillaDSPError:{exc.kind}'
             ok = exc.kind == 'transport_error'
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:  # error-boundary: capability probe — the exception is the scored observation (refusal type decides ok); broad by design (noqa: BLE001)
             observed = _err_repr(exc)
             ok = False
         return SubjectResult(
@@ -1271,7 +1271,7 @@ class CamillaDSPConformanceSubject(_BaseSubject):
         except CamillaDSPError as exc:
             observed = f'CamillaDSPError:{exc.kind}'
             ok = exc.kind in ('malformed_config', 'malformed_response')
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:  # error-boundary: capability probe — the exception is the scored observation (refusal type decides ok); broad by design (noqa: BLE001)
             observed = _err_repr(exc)
             ok = False
         return SubjectResult(
@@ -1303,7 +1303,7 @@ class CamillaDSPConformanceSubject(_BaseSubject):
         except CamillaDSPError as exc:
             observed = f'CamillaDSPError:{exc.kind}'
             ok = exc.kind in ('transport_error', 'not_connected')
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:  # error-boundary: capability probe — the exception is the scored observation (refusal type decides ok); broad by design (noqa: BLE001)
             observed = _err_repr(exc)
             ok = False
         return SubjectResult(
@@ -2218,7 +2218,7 @@ class DiscoveryConformanceSubject(_BaseSubject):
         except DiscoveryScopeError as exc:
             observed = f'DiscoveryScopeError: {exc}'
             ok = True
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:  # error-boundary: capability probe — the exception is the scored observation (refusal type decides ok); broad by design (noqa: BLE001)
             observed = _err_repr(exc)
             ok = False
         return SubjectResult(

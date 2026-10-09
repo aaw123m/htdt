@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import logging
 from pathlib import Path
 import sys
 import uuid
@@ -29,6 +30,8 @@ from .runtime_instance import (
     default_data_dir,
     read_lock_metadata,
 )
+
+_LOGGER = logging.getLogger('htdt.native')
 
 # Lazy exports: every name here stays importable from this module (the
 # public facade in ``__all__`` plus collaborators tests monkeypatch on it)
@@ -168,11 +171,20 @@ def _restorable_backups(data_dir: Path) -> list[Path]:
     the launch path it advises.
     """
 
+    from .error_boundary import (
+        EXPECTED_OPERATION_ERRORS,
+        is_authority_failure,
+        report_boundary_failure,
+    )
+
     try:
         from .automatic_backup import list_restorable_backups
 
         return list(list_restorable_backups(Path(data_dir)))
-    except Exception:
+    except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: degraded backup listing — expected failures report and degrade to no restorable backup; sealed-store failures propagate
+        if is_authority_failure(exc):
+            raise
+        report_boundary_failure(exc, operation='復元可能なバックアップの確認')
         return []
 
 
@@ -220,7 +232,8 @@ def _create_startup_splash(app) -> object | None:
         finally:
             painter.end()
         return QSplashScreen(pixmap)
-    except Exception:
+    except Exception:  # error-boundary: cosmetic splash — a splash failure of any type degrades to no-splash by design; identity is logged (noqa: BLE001)
+        _LOGGER.exception('startup splash construction failed')
         return None
 
 
@@ -245,16 +258,16 @@ def _splash_status(splash, app, message: str | None = None) -> None:
                 color=QColor('#c8ccd2'),
             )
         app.processEvents()
-    except Exception:
-        pass
+    except Exception:  # error-boundary: cosmetic splash — a status-update failure must never break launch; identity is logged (noqa: BLE001)
+        _LOGGER.exception('startup splash status update failed')
 
 
 def _close_splash(splash) -> None:
     if splash is not None:
         try:
             splash.close()
-        except Exception:
-            pass
+        except Exception:  # error-boundary: splash teardown — close must never mask the launch path it guards; identity is logged (noqa: BLE001)
+            _LOGGER.exception('startup splash close failed')
 
 
 def _choose_recovery_action(
@@ -345,7 +358,10 @@ def _offer_post_update_revalidation(
     This check runs one bounded authority audit on the first launch of a
     changed build and offers the 再検証 lane — records that honestly
     re-derive under the current build get re-sealed; the rest stay stale
-    with reasons. Every failure here is non-fatal: launch proceeds.
+    with reasons. Expected failures here are non-fatal: launch proceeds.
+    A sealed-authority failure during the audit itself re-raises — a
+    store that cannot be audited fails loudly instead of launching under
+    a falsified 'nothing to revalidate'.
     """
 
     from .authority_revalidation import (
@@ -353,6 +369,10 @@ def _offer_post_update_revalidation(
         post_update_copy_ja,
         revalidate_native_authority_graph,
         write_launch_marker,
+    )
+    from .error_boundary import (
+        EXPECTED_OPERATION_ERRORS,
+        is_authority_failure,
     )
     from .native_authority_audit import audit_native_authority_graph
 
@@ -367,7 +387,9 @@ def _offer_post_update_revalidation(
         if not database_path.is_file() or database_path.stat().st_size == 0:
             return
         audit = audit_native_authority_graph(database_path)
-    except Exception:  # noqa: BLE001 - post-update notice must never block launch
+    except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: post-update audit probe — expected failures log and skip the notice; sealed-store failures propagate instead of a falsified 'nothing to revalidate'
+        if is_authority_failure(exc):
+            raise
         diagnostics.logger.warning(
             "post-update stale-evidence check failed", exc_info=True
         )
@@ -410,7 +432,7 @@ def _offer_post_update_revalidation(
                     len(report.revalidated),
                     len(report.kept_stale),
                 )
-            except Exception as exc:  # noqa: BLE001
+            except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: revalidation op surface — expected failures warn honestly with reason; unexpected failures propagate
                 diagnostics.logger.warning(
                     "post-update revalidation failed", exc_info=True
                 )
@@ -450,8 +472,8 @@ def _notify_instance_active(diagnostics: NativeDiagnostics) -> None:
             app = QApplication([sys.argv[0]])
         QMessageBox.information(None, "HTDTはすでに起動しています", message)
         return
-    except Exception:
-        diagnostics.logger.debug('already-running notice dialog unavailable')
+    except Exception:  # error-boundary: notice fallback — any dialog failure degrades to the stderr notice so the user is always told; identity is logged (noqa: BLE001)
+        diagnostics.logger.exception('already-running notice dialog unavailable')
     write_stderr(f'HTDTはすでに起動しています\n{message}')
 
 
@@ -498,7 +520,8 @@ def _launch_reason_ja(exc: BaseException) -> str:
         return message
     try:
         from .startup_recovery import classify_startup_failure
-    except Exception:
+    except Exception:  # error-boundary: failure reporter — a classifier failure must not mask the original launch failure; the generic reason stands and identity is logged (noqa: BLE001)
+        _LOGGER.exception('startup-failure classification unavailable')
         return message
     return _LAUNCH_CLASS_REASON_JA.get(
         classify_startup_failure(exc),
@@ -524,6 +547,7 @@ def _route_launch_intent(
 
     from PySide6.QtWidgets import QMessageBox
 
+    from .error_boundary import EXPECTED_OPERATION_ERRORS
     from .launch_intents import describe_launch_intent
     from .launch_router import route_launch_intent
     from .user_facing_error import operation_error_message
@@ -568,7 +592,7 @@ def _route_launch_intent(
         else:
             try:
                 switch_reason = application._switch_project(result.document_id)
-            except Exception as exc:
+            except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: project-switch follow-through — expected failures record an honest 'failed' outcome with reason; unexpected failures propagate
                 diagnostics.logger.exception(
                     'project switch failed for %s', intent.path
                 )
@@ -624,7 +648,7 @@ def _route_launch_intent(
                         preferred_destination=ApplicationDestinationId.INBOX,
                     )
                 )
-            except Exception:
+            except Exception:  # error-boundary: deep-link follow-through — a navigation failure must not falsify the intent outcome; identity is logged (noqa: BLE001)
                 diagnostics.logger.exception(
                     'inbox deep link failed for %s', intent.path
                 )
@@ -647,7 +671,7 @@ def _route_launch_intent(
                 application.data_management_controller.preview_restore(
                     Path(intent.path)
                 )
-            except Exception as exc:
+            except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: restore-preview follow-through — expected failures mark the outcome user_action_required with reason; unexpected failures propagate
                 diagnostics.logger.warning(
                     'restore preview failed for %s: %s', intent.path, exc
                 )
@@ -787,6 +811,7 @@ def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
         # evidence and bounded launch history BEFORE repeating risky
         # initialization. The launch record is written up front so a
         # crash in this attempt counts as a failed launch next time.
+        from .error_boundary import EXPECTED_OPERATION_ERRORS
         from .startup_recovery import (
             annotate_launch,
             classify_startup_failure,
@@ -859,7 +884,7 @@ def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
                 ),
                 started_at_utc=datetime.now(timezone.utc).isoformat(),
             )
-        except Exception:
+        except Exception:  # error-boundary: launch bookkeeping — a record-write failure must never gate the launch it describes; identity is logged (noqa: BLE001)
             # Launch bookkeeping is diagnostic evidence, never a gate: an
             # unwritable recovery-metadata file must not fail the launch
             # itself (the launch would then be reported as a crash it
@@ -895,7 +920,7 @@ def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
                 started_at_utc=datetime.now(timezone.utc).isoformat(),
             )
             activate_journal(session_journal)
-        except Exception:
+        except Exception:  # error-boundary: journal bootstrap — a journal failure degrades to no-journal so launch proceeds; identity is logged (noqa: BLE001)
             diagnostics.logger.exception('session journal open failed')
             session_journal = None
         # Round8-lifecycle deferred item: an honest splash for the
@@ -908,7 +933,8 @@ def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
         if splash is not None:
             try:
                 splash.show()
-            except Exception:
+            except Exception:  # error-boundary: cosmetic splash — a show failure degrades to no-splash; identity is logged (noqa: BLE001)
+                diagnostics.logger.exception('startup splash show failed')
                 splash = None
         _splash_status(splash, app, 'データ形式を確認しています…')
         # #606: run the explicit upgrade lifecycle before any repository
@@ -1035,7 +1061,7 @@ def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
                     or project_entry.document_id
                 ),
             )
-        except Exception:
+        except Exception:  # error-boundary: launch bookkeeping — an annotation failure must not gate launch; identity is logged (noqa: BLE001)
             diagnostics.logger.exception('launch record annotation failed')
         # #883: bind the journal to the opened project, then inspect prior
         # session journals against every sealed authority. Reports feed the
@@ -1047,7 +1073,7 @@ def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
                 session_journal.record_project_bound(
                     project_entry.document_id
                 )
-            except Exception:
+            except Exception:  # error-boundary: journal bind — a bind failure leaves the journal unscoped; identity is logged (noqa: BLE001)
                 diagnostics.logger.exception(
                     'session journal project bind failed'
                 )
@@ -1099,7 +1125,7 @@ def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
                     'session journal retention pruned %d dirs',
                     len(removed),
                 )
-        except Exception:
+        except Exception:  # error-boundary: advisory recovery probe — an inspection failure degrades to no recovery dialog; identity is logged (noqa: BLE001)
             diagnostics.logger.exception(
                 'session recovery inspection failed'
             )
@@ -1134,7 +1160,7 @@ def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
                 capture_receiver = CaptureReceiverController(
                     repository, preferences
                 )
-        except Exception:
+        except Exception:  # error-boundary: service init — a receiver failure leaves the receiver disabled; identity is logged (noqa: BLE001)
             diagnostics.logger.exception(
                 'capture receiver controller init failed; '
                 'receiver stays disabled'
@@ -1152,7 +1178,8 @@ def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
         if splash is not None:
             try:
                 splash.finish(window)
-            except Exception:
+            except Exception:  # error-boundary: cosmetic splash — a finish failure closes the splash; identity is logged (noqa: BLE001)
+                diagnostics.logger.exception('startup splash finish failed')
                 _close_splash(splash)
         # Recovery-dialog follow-throughs the dialog could not perform
         # itself (#739): Verify data opens the data-management surface and
@@ -1182,7 +1209,7 @@ def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
                 else:
                     try:
                         controller.preview_restore(newest)
-                    except Exception as exc:
+                    except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: restore-preview follow-through — expected failures warn and the launch continues; unexpected failures propagate
                         diagnostics.logger.warning(
                             'restore preview failed for %s: %s', newest, exc
                         )
@@ -1218,7 +1245,7 @@ def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
                     ),
                     logger=diagnostics.logger,
                 )
-            except Exception:
+            except Exception:  # error-boundary: recovery dialog — a dialog failure must not break a launch that already succeeded; identity is logged (noqa: BLE001)
                 diagnostics.logger.exception(
                     'session recovery dialog failed'
                 )
@@ -1228,7 +1255,7 @@ def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
         if application is not None and safe_mode_policy is None:
             try:
                 application.start_automatic_backup()
-            except Exception:
+            except Exception:  # error-boundary: background lane — a scheduler start failure leaves backups off; identity is logged (noqa: BLE001)
                 diagnostics.logger.exception(
                     'automatic backup tick failed to start'
                 )
@@ -1239,7 +1266,7 @@ def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
             try:
                 application.start_storage_watch()
                 application.start_capture_watch()
-            except Exception:
+            except Exception:  # error-boundary: background lanes — a watch start failure leaves watching off; identity is logged (noqa: BLE001)
                 diagnostics.logger.exception(
                     'background watch lanes failed to start'
                 )
@@ -1322,8 +1349,11 @@ def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
                         try:
                             if provider():
                                 dirty.append(str(workspace_id))
-                        except Exception:
-                            pass
+                        except Exception:  # error-boundary: per-mount dirty probe — one workspace's probe failure must not fail the journal heartbeat; identity is logged (noqa: BLE001)
+                            diagnostics.logger.exception(
+                                'workspace dirty probe failed for %s',
+                                workspace_id,
+                            )
                 return {
                     'destination': (
                         str(current) if current is not None else None
@@ -1334,7 +1364,7 @@ def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
 
             try:
                 session_journal.set_state_provider(_workspace_state)
-            except Exception:
+            except Exception:  # error-boundary: journal wiring — provider registration failure leaves the journal stateless; identity is logged (noqa: BLE001)
                 diagnostics.logger.exception(
                     'journal state provider failed'
                 )
@@ -1357,7 +1387,7 @@ def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
                 complete_launch(
                     args.data_dir, launch_record.launch_id, clean=True
                 )
-            except Exception:
+            except Exception:  # error-boundary: launch bookkeeping — a clean-close record failure must not turn a clean exit into a reported crash; identity is logged (noqa: BLE001)
                 diagnostics.logger.exception(
                     'clean-close launch record write failed'
                 )
@@ -1369,7 +1399,7 @@ def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
             from .automatic_backup import AutomaticBackupScheduler
 
             AutomaticBackupScheduler(args.data_dir).record_clean_close()
-        except Exception:
+        except Exception:  # error-boundary: launch bookkeeping — a backup marker failure must not mask the clean exit; identity is logged (noqa: BLE001)
             diagnostics.logger.exception(
                 "clean-close automatic backup marker failed"
             )
@@ -1379,14 +1409,14 @@ def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
         if session_journal is not None:
             try:
                 session_journal.close_clean()
-            except Exception:
+            except Exception:  # error-boundary: journal close — a close entry failure must not mask the successful exit code; identity is logged (noqa: BLE001)
                 diagnostics.logger.exception(
                     'session journal clean close failed'
                 )
             try:
                 deactivate_journal(session_journal)
-            except Exception:
-                pass
+            except Exception:  # error-boundary: journal teardown — a deactivate failure must not mask the clean exit; identity is logged (noqa: BLE001)
+                diagnostics.logger.exception('journal deactivate failed')
         return exit_code
     except IncompatibleNewerSchemaError as exc:
         _close_splash(splash)
@@ -1394,8 +1424,8 @@ def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
             try:
                 session_journal.note_failure('schema_incompatibility')
                 deactivate_journal(session_journal)
-            except Exception:
-                pass
+            except Exception:  # error-boundary: failure bookkeeping — a journal note failure must not mask the schema failure being reported; identity is logged (noqa: BLE001)
+                diagnostics.logger.exception('session journal failure note failed')
         if launch_record is not None:
             try:
                 complete_launch(
@@ -1404,7 +1434,7 @@ def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
                     clean=False,
                     failure_class='schema_incompatibility',
                 )
-            except Exception:
+            except Exception:  # error-boundary: launch bookkeeping — a failure-record write must not mask the failure it records; identity is logged (noqa: BLE001)
                 diagnostics.logger.exception(
                     'failed-launch record write failed'
                 )
@@ -1424,8 +1454,8 @@ def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
             try:
                 session_journal.note_failure('migration_failure')
                 deactivate_journal(session_journal)
-            except Exception:
-                pass
+            except Exception:  # error-boundary: failure bookkeeping — a journal note failure must not mask the migration failure being reported; identity is logged (noqa: BLE001)
+                diagnostics.logger.exception('session journal failure note failed')
         if launch_record is not None:
             try:
                 complete_launch(
@@ -1434,7 +1464,7 @@ def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
                     clean=False,
                     failure_class='migration_failure',
                 )
-            except Exception:
+            except Exception:  # error-boundary: launch bookkeeping — a failure-record write must not mask the failure it records; identity is logged (noqa: BLE001)
                 diagnostics.logger.exception(
                     'failed-launch record write failed'
                 )
@@ -1447,14 +1477,14 @@ def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
             technical_detail=concise_reason(exc),
         )
         return 1
-    except Exception as exc:
+    except Exception as exc:  # error-boundary: launch boundary — every startup failure is recorded and reported as a launch failure; the exit code stays honest (noqa: BLE001)
         _close_splash(splash)
         if session_journal is not None:
             try:
                 session_journal.note_failure(classify_startup_failure(exc))
                 deactivate_journal(session_journal)
-            except Exception:
-                pass
+            except Exception:  # error-boundary: failure bookkeeping — a journal note failure must not mask the launch failure being reported; identity is logged (noqa: BLE001)
+                diagnostics.logger.exception('session journal failure note failed')
         if launch_record is not None:
             try:
                 complete_launch(
@@ -1463,8 +1493,8 @@ def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
                     clean=False,
                     failure_class=classify_startup_failure(exc),
                 )
-            except Exception:
-                pass
+            except Exception:  # error-boundary: launch bookkeeping — a failure-record write must not mask the failure it records; identity is logged (noqa: BLE001)
+                diagnostics.logger.exception('failed-launch record write failed')
         diagnostics.log_startup_failure(exc)
         report_launch_failure(
             title="HTDTが起動しませんでした",
@@ -1617,7 +1647,7 @@ def main(argv: list[str] | None = None) -> int:
             args.data_dir, default=default_data_dir()
         )
         assert_managed_root_available(args.data_dir, data_dir_source)
-    except Exception as exc:
+    except Exception as exc:  # error-boundary: pre-Qt boundary — every data-dir failure reports and exits nonzero before diagnostics exist (noqa: BLE001)
         # The managed root resolution can also raise raw OSError (permission
         # denied reading the bootstrap config, relocation journal I/O) — every
         # failure here precedes QApplication, so the packaged GUI launch would
@@ -1814,7 +1844,7 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
         return _run_gui(args, diagnostics)
-    except Exception as exc:
+    except Exception as exc:  # error-boundary: maintenance boundary — headless failures report to diagnostics+stderr and exit nonzero; GUI failures re-raise (noqa: BLE001)
         if not maintenance_request:
             raise
         # Maintenance commands run headless (scheduled tasks, CI): report the
