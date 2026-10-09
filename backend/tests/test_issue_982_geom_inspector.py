@@ -21,8 +21,9 @@ import os
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
-from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QApplication
+from PySide6.QtCore import QEvent, QPointF, Qt
+from PySide6.QtGui import QKeyEvent, QMouseEvent
+from PySide6.QtWidgets import QApplication, QVBoxLayout, QWidget
 
 from htdt.cad_scene import F1_DOCUMENT_ID, room_vertices, scene_content_hash
 from htdt.cad_wall_models import WallConstraintBinding, WallOpening
@@ -421,3 +422,105 @@ def test_narrow_and_200pct_readability(tmp_path) -> None:
     finally:
         app.setFont(old_font)
     _teardown(app2, workspace, geometry)
+
+
+def test_3d_opening_pick_selects_opening_and_focuses_inspector(tmp_path) -> None:
+    """3D pick → opening branch resolves wall/edge; regression for the
+    UnboundLocalError on `room` found in real-GUI verification."""
+    app, workspace = _workspace(tmp_path)
+    geometry = _geometry(workspace)
+    panel = _panel(geometry, workspace)
+    _enter_edit(geometry)
+    topology = _topology_room(geometry)
+    opening = _add_opening(geometry, topology.walls[0])
+
+    geometry._opening_hit_ids = [opening.opening_id]
+    geometry._hit_handle = lambda _pos: ("opening", 0)
+    event = QMouseEvent(
+        QEvent.Type.MouseButtonPress,
+        QPointF(5.0, 5.0),
+        Qt.MouseButton.LeftButton,
+        Qt.MouseButton.LeftButton,
+        Qt.KeyboardModifier.NoModifier,
+    )
+    assert geometry._mouse_press(event) is True
+    assert geometry.selected_opening_id == opening.opening_id
+    assert geometry.selected_edge_index == 0  # parent wall edge follows
+
+    panel.refresh()
+    assert panel.selection_title.text() == "選択: 開口"
+    assert panel.opening_selector.currentData() == opening.opening_id
+    assert panel.opening_section.header.isChecked()
+
+    _teardown(app, workspace, geometry)
+
+
+def test_esc_shortcut_override_consumed_by_panel(tmp_path) -> None:
+    """Dock-focus Esc: the panel's eventFilter claims ShortcutOverride so
+    no shortcut ambiguity, then KeyPress drops the preview only."""
+    app, workspace = _workspace(tmp_path)
+    geometry = _geometry(workspace)
+    panel = _panel(geometry, workspace)
+    _enter_edit(geometry)
+    _topology_room(geometry)
+    geometry.select_edge(0)
+    panel.refresh()
+    panel.delete_wall_button.click()
+    app.processEvents()
+    assert panel._pending_preview is not None
+
+    override = QKeyEvent(
+        QEvent.Type.ShortcutOverride,
+        Qt.Key.Key_Escape,
+        Qt.KeyboardModifier.NoModifier,
+    )
+    assert panel.eventFilter(panel, override) is True
+    assert override.isAccepted()
+    press = QKeyEvent(
+        QEvent.Type.KeyPress,
+        Qt.Key.Key_Escape,
+        Qt.KeyboardModifier.NoModifier,
+    )
+    assert panel.eventFilter(panel, press) is True
+    assert panel._pending_preview is None
+    assert geometry.mode == "edit"  # preview dropped, mode preserved
+
+    # Without an armed preview the filter passes Esc through untouched.
+    override2 = QKeyEvent(
+        QEvent.Type.ShortcutOverride,
+        Qt.Key.Key_Escape,
+        Qt.KeyboardModifier.NoModifier,
+    )
+    assert panel.eventFilter(panel, override2) is False
+
+    _teardown(app, workspace, geometry)
+
+
+def test_workspace_esc_reaches_panel_wrapped_in_dock(tmp_path) -> None:
+    """The workflow shell attaches a dock container, not the panel —
+    cancel_active_operation must resolve the inner roomGeometryPanel."""
+    app, workspace = _workspace(tmp_path)
+    geometry = _geometry(workspace)
+    panel = RoomGeometryPanel(geometry)
+    dock = QWidget()
+    layout = QVBoxLayout(dock)
+    layout.setContentsMargins(0, 0, 0, 0)
+    layout.addWidget(panel)
+    workspace.attach_geometry_panel(dock)
+    _enter_edit(geometry)
+    _topology_room(geometry)
+    geometry.select_edge(0)
+    panel.refresh()
+    panel.delete_wall_button.click()
+    app.processEvents()
+    assert panel._pending_preview is not None
+
+    assert workspace.cancel_active_operation() is True
+    assert panel._pending_preview is None
+    assert geometry.mode == "edit"
+    # Second Esc exits edit mode through the normal chain.
+    assert workspace.cancel_active_operation() is True
+    assert geometry.mode == "idle"
+
+    dock.deleteLater()
+    _teardown(app, workspace, geometry)

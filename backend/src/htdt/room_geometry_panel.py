@@ -4,8 +4,7 @@ from math import hypot
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
-from PySide6.QtCore import QSignalBlocker, Qt
-from PySide6.QtGui import QKeySequence, QShortcut
+from PySide6.QtCore import QEvent, QObject, QSignalBlocker, Qt
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -196,10 +195,11 @@ class RoomGeometryPanel(QFrame):
         # Esc while a preview is armed discards the preview (not edit mode).
         # The shortcut stays disabled while nothing is armed so the
         # workspace-level Esc (edit-mode cancel) never goes ambiguous.
-        self._preview_escape = QShortcut(QKeySequence(Qt.Key.Key_Escape), self)
-        self._preview_escape.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
-        self._preview_escape.setEnabled(False)
-        self._preview_escape.activated.connect(self._cancel_pending_preview_clicked)
+        # Esc inside the panel subtree claims the key (ShortcutOverride) so
+        # the window-scope room.edit.cancel shortcut never goes ambiguous
+        # with an armed preview — accept() keeps Qt from matching ANY
+        # shortcut, then the plain KeyPress drops the preview (#982).
+        self.installEventFilter(self)
 
         self.vertex_section = InspectorSection("頂点", self, collapsible=True, expanded=False)
         self.vertex_host = QWidget()
@@ -673,6 +673,29 @@ class RoomGeometryPanel(QFrame):
     def _cancel_pending_preview_clicked(self) -> None:
         self.cancel_pending_preview()
 
+    def eventFilter(self, watched: QObject, event: QEvent) -> bool:  # noqa: N802 — Qt API name
+        """Esc claims while a preview is armed (#982).
+
+        ``ShortcutOverride`` propagates from the focus widget up through
+        ancestors, so installing the filter on the panel catches Esc for
+        every control inside it. Accepting the override stops Qt from
+        matching the window-scope ``room.edit.cancel`` shortcut (which
+        would otherwise go ambiguous with a panel-scope one); the
+        following plain KeyPress then drops the preview only.
+        """
+
+        if (
+            self._pending_preview is not None
+            and event.type() in (QEvent.Type.ShortcutOverride, QEvent.Type.KeyPress)
+            and event.key() == Qt.Key.Key_Escape
+            and event.modifiers() == Qt.KeyboardModifier.NoModifier
+        ):
+            if event.type() == QEvent.Type.KeyPress:
+                self.cancel_pending_preview()
+            event.accept()
+            return True
+        return super().eventFilter(watched, event)
+
     def _apply_pending_preview(self) -> None:
         preview = self._pending_preview
         if preview is None:
@@ -761,7 +784,6 @@ class RoomGeometryPanel(QFrame):
             self.operation_events.append(("preview_cancelled", "mode_exit"))
             armed = False
 
-        self._preview_escape.setEnabled(armed)
         can_commit = editable and not armed
         self.edit_button.setEnabled(editable and self.geometry.mode == "idle")
         self.finish_button.setEnabled(self.geometry.mode != "idle")

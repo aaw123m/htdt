@@ -6315,12 +6315,21 @@ class RoomWorkspace(QWidget):
         if self.transform_input is not None and self.transform_input.is_active:
             return bool(self.transform_input.cancel())
         # Issue #982: an armed geometry-change preview is cancelled first —
-        # Esc drops the pending change before it can exit edit mode.
+        # Esc drops the pending change before it can exit edit mode. The
+        # geometry panel may be wrapped in a dock container (the workflow
+        # shell attaches the dock, not the panel) — resolve the inner panel
+        # by its objectName when the container lacks the method.
         geometry_panel = getattr(self, "geometry_panel", None)
-        cancel_preview = getattr(geometry_panel, "cancel_pending_preview", None)
-        if callable(cancel_preview) and cancel_preview():
-            self._set_status("変更プレビューを取り消しました")
-            return True
+        preview_candidates = [geometry_panel]
+        if isinstance(geometry_panel, QWidget):
+            inner = geometry_panel.findChild(QWidget, "roomGeometryPanel")
+            if inner is not None:
+                preview_candidates.append(inner)
+        for candidate in preview_candidates:
+            cancel_preview = getattr(candidate, "cancel_pending_preview", None)
+            if callable(cancel_preview) and cancel_preview():
+                self._set_status("変更プレビューを取り消しました")
+                return True
         if self.geometry_input is not None and self.geometry_input.is_active:
             return bool(self.geometry_input.cancel())
         if self.controller.working.has_preview:

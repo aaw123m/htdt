@@ -672,6 +672,7 @@ class RoomGeometryInputController(QObject):
         if kind == "opening":
             opening_id = self._opening_hit_ids[index]
             topology = self.topology
+            room = self.room
             if topology is not None and room is not None:
                 opening = next(
                     (
