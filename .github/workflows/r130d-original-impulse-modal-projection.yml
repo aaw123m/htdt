@@ -1,0 +1,97 @@
+name: R130D original broadband impulse 12-mode versus full-wave truth
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/r130d-original-impulse-modal-projection.yml'
+      - 'scripts/run_r130d_impulse_modal_projection.py'
+      - 'backend/tests/test_r130d_modal_projection_evidence.py'
+      - 'benchmarks/acoustics/r130d_original_impulse_*'
+      - 'benchmarks/acoustics/r130d_sloped_neumann_modal_spectrum_*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: r130d-original-impulse-modal12-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  true-impulse-modes-vs-original-full:
+    runs-on: windows-2022
+    timeout-minutes: 12
+    steps:
+      - name: Checkout independent physical wave matrices and modal source/receiver coupling
+        uses: actions/checkout@v4
+      - name: Pinned Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Run full-basis identity checks on actual 3D FV cut cell wave and immutable modal evidence
+        shell: pwsh
+        env:
+          PYTHONUTF8: '1'
+        run: |
+          python -m pip install --disable-pip-version-check numpy==1.26.4 scipy==1.14.1 pydantic==2.11.9 pytest==8.4.2
+          if ($LASTEXITCODE -ne 0) { throw 'pinned numerical dependencies missing' }
+          New-Item -ItemType Directory -Force scratch/tests | Out-Null
+          Copy-Item backend/tests/test_r130d_modal_projection_evidence.py scratch/tests/
+          $env:PYTHONPATH = Join-Path $pwd 'backend/src'
+          python -m pytest -q scratch/tests/test_r130d_modal_projection_evidence.py --tb=short
+          if ($LASTEXITCODE -ne 0) { throw 'true modal source/output identity to direct wave failed' }
+      - name: Re-integrate the actual original q0 impulse on 12 true Neumann eigenmodes in all six spatial grids
+        shell: pwsh
+        env:
+          PYTHONUTF8: '1'
+          PYTHONIOENCODING: utf-8
+        run: |
+          $env:PYTHONPATH = Join-Path $pwd 'backend/src'
+          python scripts/run_r130d_impulse_modal_projection.py `
+            --plan benchmarks/acoustics/r130d_original_impulse_12mode_projection_plan_2026-10-09.json `
+            --modes benchmarks/acoustics/r130d_sloped_neumann_modal_spectrum_evidence_2026-10-09.json `
+            --full-impulse benchmarks/acoustics/r130d_exact_discrete_impulse_candidate_evidence_2026-10-09.json `
+            --out scratch/ci_original_impulse_modal_projection.json
+          if ($LASTEXITCODE -ne 0) { throw 'modal reconstruction no longer propagates actual original impulse' }
+      - name: Verify real 40/80 Hz modal-vs-full discrepancy and fail-closed original PFFDTD status
+        shell: pwsh
+        env:
+          PYTHONUTF8: '1'
+        run: |
+          @'
+          import json
+          import numpy as np
+          def j(path):return json.load(open(path,encoding='utf-8'))
+          new=j('scratch/ci_original_impulse_modal_projection.json')
+          old=j('benchmarks/acoustics/r130d_original_impulse_modal_projection_evidence_2026-10-09.json')
+          assert new['plan']==old['plan']
+          assert new['same_original_unsmoothed_discrete_impulse'] is True
+          assert new['canonical_fullband_impulse']=='SELF_CONVERGENCE_FAILED'
+          assert new['production_ready'] is False
+          assert new['low_modal_truncation_is_NOT_a_production_solver'] is True
+          assert len(new['cases'])==len(old['cases'])==6
+          for x,y in zip(new['cases'],old['cases']):
+              assert x['method']==y['method'] and x['level']==y['level']
+              assert x['number_of_reconstructed_modes_including_zero']==12
+              for f in ('first_twelve_modal_original_impulse_transfer_40_80_hz','true_fullspace_original_impulse_transfer_40_80_hz'):
+                  xx=np.array(x[f],dtype=float);yy=np.array(y[f],dtype=float)
+                  assert xx.shape==yy.shape==(2,2)
+                  np.testing.assert_allclose(xx,yy,rtol=2e-8,atol=2e-6)
+              assert abs(x['fullspace_vs_12mode_relative_error']['normalized_complex_l2'] -
+                         y['fullspace_vs_12mode_relative_error']['normalized_complex_l2'])<1e-8
+          pairs=new['modal_vs_full_grid_pairs']
+          assert len(pairs)==2
+          assert pairs[1]['method']=='independent_pinned_MFEM_P2'
+          assert pairs[1]['12modal_adjacent']['normalized_complex_l2']<0.02
+          assert pairs[1]['fullspace_adjacent']['normalized_complex_l2']>0.26
+          assert pairs[0]['fullspace_adjacent']['normalized_complex_l2']>pairs[0]['12modal_adjacent']['normalized_complex_l2']
+          print('PASS: original q0 physics, independent 12 modal reconstructed transfer vs full 3D wave; original impulse still NO_GO')
+          '@ | python -
+          if ($LASTEXITCODE -ne 0) { throw 'modal 12 versus full original impulse physical discrepancy changed' }
+      - name: Upload actual reconstructed original impulse complex observation
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: r130d-original-impulse-six-modal12-versus-full
+          path: scratch/ci_original_impulse_modal_projection.json
+          if-no-files-found: warn
+          retention-days: 30

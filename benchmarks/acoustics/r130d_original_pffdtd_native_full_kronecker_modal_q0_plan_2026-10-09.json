@@ -1,0 +1,115 @@
+{
+  "schema_version": "htdt.r130d.original-pffdtd-native-full-kronecker-modal-q0-plan-1",
+  "date_jst": "2026-10-09",
+  "issue": 938,
+  "pr": 1055,
+  "objective": "Apply exact ALL-mode finite-window 40/80Hz impulse decomposition to frozen ORIGINAL upstream PFFDTD native 8-node q[0] wave, not experimental roof FV. Test whether original connected native staircase rigid Neumann graph actually separates x⊗yz for all five PPW28,32,36,40,44 and if so verify exact full recorded native wave P_T/Q_T and quantify original high-mode contribution to four unresolved spatial refinement failures.",
+  "original_authority": {
+    "frozen_original_native_ppw": [
+      28,
+      32,
+      36,
+      40,
+      44
+    ],
+    "pffdtd_sha": "aa319f6c86517cb95aabfae8656277da62c3ead5",
+    "raw_native_wave_SHA_evidence": "benchmarks/acoustics/r130d_original_point_quadratic_pffdtd_evidence_2026-10-09.json",
+    "native_true_rigid_graph_audit": "benchmarks/acoustics/r130d_original_pffdtd_neumann_graph_evidence_2026-10-09.json",
+    "native_original_high_ppw_signed_wave_partition": "benchmarks/acoustics/r130d_original_high_ppw_native_window_partition_evidence_2026-10-09.json",
+    "original_source_xyz_m": [
+      1.5,
+      2,
+      2
+    ],
+    "original_receiver_xyz_m": [
+      2.5,
+      2,
+      2
+    ],
+    "original_eight_source_receiver_weight_HDF5_must_match": true,
+    "temporal_q0": "exact original native in_sigs[:,0], q[0]=1 then all native q[n>0]=0",
+    "original_full_no_taper_record_s": 0.25,
+    "frequencies_hz": [
+      40,
+      80
+    ],
+    "rho_kg_m3": 1.2,
+    "c_m_s": 343.2
+  },
+  "spatial": {
+    "original_graph": "direct pinned original native PFFDTD seven-point 6-neighbor zero-flux graph; source-connected reachable native interior only, from actual archived frozen vox_out HDF5 and native reconstruction; NO modified voxel or cap, NO staircase smooth",
+    "original_C_native_order": "flattened Nx Ny Nz original native index and exact in_ixyz out_ixyz from comms; source-connected A maybe not x⊗yz; check and fail closed if no exact product",
+    "mass": "original discrete unit mass all graph nodes",
+    "separable_if_verified": "A3_original_native = kron(Ax,I_yz)+kron(I_x,Ayz), x Neumann adjacency 1D and yz Neumann 4-neighbor degree-adjacency from independently reconstructed original source-connected native graph; exact sorted original C index permutation from graph BFS",
+    "matrix_max_absolute_difference": 0,
+    "original_connected_room_vertices_and_directed_edges_exact_match": true,
+    "original_constant_null_and_reciprocal_edges_required": true,
+    "physical_room_not_revoxelized": true
+  },
+  "solver": {
+    "x_spectral": "all original native 1D x Neumann eigenpairs via symmetric scipy.linalg.eigh",
+    "yz_spectral": "ALL ORIGINAL 2D yz graph normalized Neumann eigenpairs via symmetric scipy.linalg.eigh (no truncation)",
+    "native_frequency": "theta = 2arcsin(sqrt((c*Ts/h)^2*(lambda_x+lambda_yz))/2), theta in [0,pi], physically stable ORIGINAL PFFDTD leapfrog",
+    "mode_amp": "original raw native injected in_sigs[:,0] sum times original 8node source+receiver Euclidean mode overlap, initial u0=0, u1=q0_native_scale*source_projection; q[n>0]=0",
+    "pressure_and_frequency": "exact original rho dphi/dt second-order one-sided endpoints and centered interior; signed full 250ms direct-frequency analysis P_T/Q_T q0 denominator",
+    "analytic_DTFT": "same closed-form finite N derivation validated independently on original temporal Leapfrog q0, theta inserted from actual original leapfrog. Full cosine time progression, include first/last sample endpoint derivatives and full 40/80Hz (no Gaussian or temporal filter).",
+    "true_original_8node_all_raw_wave_matched_relative_max": 0.000002,
+    "low_modes_are_not_acceptance": true,
+    "entire_native_source_connected_eigensystem_no_high_mode_filter": true,
+    "if_original_graph_not_separable": "save exact counterexample/structural mismatch with PPW and DO NOT fabricate spectral results",
+    "all_graphs_required_or_diagnostic_incomplete": true
+  },
+  "bins": {
+    "semidiscrete_frequencies_hz": [
+      [
+        0,
+        100
+      ],
+      [
+        100,
+        200
+      ],
+      [
+        200,
+        400
+      ],
+      [
+        400,
+        800
+      ],
+      [
+        800,
+        1000000000
+      ]
+    ],
+    "band_edges_are_half_open": true,
+    "all_native_modes_are_assigned_once": true,
+    "save_full_signed_two_frequency_original_native_transfer_both_bins": true,
+    "save_each_band_signed_transfer_each_PPWave": true,
+    "save_all_4_adjacent_PPW_original_native_signed_band_differences": true,
+    "save_top20_signed_modes_each_bin_each_grid": true,
+    "save_original_native_rigid_volume_and_modes_count": true,
+    "save_40_80_signed_comparison_vs_original_saved_pressure_wave": true,
+    "retain_unfavorable_results": true,
+    "diagnostic_no_original_fullband_qualification_if_mismatch": true,
+    "original_frozen_complex_threshold": 0.2,
+    "original_frozen_magnitude_threshold": 0.25,
+    "original_frozen_phase_deg_threshold": 15
+  },
+  "limits": {
+    "max_original_native_cases": 5,
+    "max_room_nodes": 150000,
+    "max_2d_yz_nodes": 3500,
+    "max_x_nodes": 90,
+    "max_full_record_samples": 2000,
+    "no_github_actions_runs": true,
+    "max_artifact_size_bytes": 25000000
+  },
+  "release": {
+    "original_run25_8node_PFFDTD_q0": "SELF_CONVERGENCE_FAILED",
+    "physical_Bras_owned_room": "NOT_VALIDATED",
+    "product": "NO_GO",
+    "PR_draft": true,
+    "issue_open": true
+  }
+}

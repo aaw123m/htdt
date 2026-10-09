@@ -1,0 +1,94 @@
+{
+  "schema_version": "htdt.r130d.original-native-q0-pressure-extended-end-operator-plan-1",
+  "date_jst": "2026-10-09",
+  "issue": 938,
+  "pr": 1055,
+  "rationale": "Frozen original all-mode time attribution proved end sample contributes strongly at PPW36->40 but not PPW40->44. Test a genuine consistent one-step-homogeneous-extension CENTRAL pressure derivative at the final sample without changing spatial solver/source/Nt or cutting any modal excitation. All arms diagnostics; native original pressure remains the canonical control.",
+  "original": {
+    "upstream_sha": "aa319f6c86517cb95aabfae8656277da62c3ead5",
+    "original_wave_evidence": "benchmarks/acoustics/r130d_original_point_quadratic_pffdtd_evidence_2026-10-09.json",
+    "original_full_modal_evidence": "benchmarks/acoustics/r130d_original_pffdtd_native_full_modal_q0_evidence_2026-10-09.json",
+    "graph_audit": "benchmarks/acoustics/r130d_original_pffdtd_neumann_graph_evidence_2026-10-09.json",
+    "graph_plan": "benchmarks/acoustics/r130d_original_pffdtd_neumann_graph_plan_2026-10-09.json",
+    "last_exact_time_partition": "benchmarks/acoustics/r130d_original_q0_finite_window_endpoint_leakage_evidence_2026-10-09.json",
+    "ppw": [
+      28,
+      32,
+      36,
+      40,
+      44
+    ],
+    "physical_source_xyz": [
+      1.5,
+      2,
+      2
+    ],
+    "physical_receiver_xyz": [
+      2.5,
+      2,
+      2
+    ],
+    "actual_original_native_eight_point_q0_hdf5_sha": true,
+    "original_native_Ts_Nt_h": true,
+    "original_neumann_graph_without_change": true,
+    "full_record_s": 0.25,
+    "scored_freq_hz": [
+      40,
+      80
+    ],
+    "sound_speed_m_s": 343.2,
+    "rho": 1.2
+  },
+  "arms": [
+    {
+      "id": "original_one_sided_end",
+      "pressure": "original forward at n=0, centered interior, second-order backward at n=N-1; exact archived original"
+    },
+    {
+      "id": "extended_centered_end",
+      "pressure": "original forward at n=0 and centered interior, centered at last n=N-1 using TRUE extra homogeneous phi[N] to maintain 2nd-order centered temporal differentiation; do not add phi[N] to output samples"
+    },
+    {
+      "id": "hypothetical_all_centered",
+      "pressure": "hypothetical centered at BOTH n=0 (anti-causal pre-source phi[-1], NOT physical causal q0 derivative) and n=N-1; only a diagnostic, never canonical or candidate"
+    }
+  ],
+  "numerical": {
+    "native_original_explicit_leapfrog_per_mode": true,
+    "source_discrete_original_q0": true,
+    "all_original_native_3d_modes_complete": true,
+    "original_sample_count_unchanged": true,
+    "pressure_full_250ms_true_native_40_80_without_taper": true,
+    "phi_N_extra_state_only_end_derivative": true,
+    "no_q0_change_no_smoothing_no_damping_no_mode_cut": true,
+    "analytic_pressure_stencils": "original pressure p_start=ρ A/dt (2−cosθ), p_mid[n]=ρ A/dt cos(nθ), p_end_backward=ρ A/dt [R(N-1)+(cosθ−2)R(N-2)], p_end_extended_centered=ρ A/dt cos((N-1)θ), p_start_hypothetical_centered=ρ A/dt",
+    "preserve_original_native_transfer_complex_relative_max": 0.000002,
+    "original_three_part_reconstruction_relative_max": 2e-10,
+    "previous_original_40_80_timepartition_match_relative_max": 2e-10
+  },
+  "evaluation": {
+    "all_four_adjacent_grid_pairs": true,
+    "original_complex_limit": 0.2,
+    "original_magnitude_limit": 0.25,
+    "original_phase_deg_limit": 15,
+    "retain_all_original_unfavorable_results": true,
+    "record_signed_both_bin_per_grid_every_arm": true,
+    "require_all_components_and_monotonic_for_any_experimental_numerical_refinement": true,
+    "not_original_native_pffdtd_requalification": true,
+    "anti_causal_both_centered_never_physical_candidate": true
+  },
+  "limits": {
+    "max_cases": 5,
+    "max_arms": 3,
+    "new_native_pffdtd_waves": 0,
+    "new_github_actions_runs": 0,
+    "clean_scratch": false
+  },
+  "authority": {
+    "original_PFFDTD": "SELF_CONVERGENCE_FAILED",
+    "physical_validation": "NOT_VALIDATED",
+    "product": "NO_GO",
+    "draft_pr": true,
+    "issue_open": true
+  }
+}

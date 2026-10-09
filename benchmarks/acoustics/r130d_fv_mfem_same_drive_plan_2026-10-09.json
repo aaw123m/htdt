@@ -1,0 +1,78 @@
+{
+  "schema_version": "htdt.r130d.fv-mfem-same-drive-comparison-plan-1",
+  "issue": 938,
+  "date": "2026-10-09",
+  "purpose": "Independent same-physical-input finite-time wave transfer between planar cut-cell Neumann FV and pinned MFEM P2 tetrahedron systems",
+  "reference_mfem_source_sha": "d964264cdb9a13e94a201b6c236c7721e0c8765f",
+  "reference_mfem_github_workflow_run": 37855143962,
+  "reference_mfem_artifact_id": 11584137754,
+  "mfem_sparse_export_sha256_by_refinement": {
+    "1": "758dff6aeafeaa5c902e905aa797c2e5f8250e4b81822723e968bb842187161b",
+    "2": "e61410d4a69000c39975762b9986008974353953f7d8d9f100f9953a33c5ecb4",
+    "3": "6a43a624223fa512152059d103c4d841723fa1266ea8a22842322fb50db42511"
+  },
+  "mfem_dofs": [
+    125,
+    729,
+    4913
+  ],
+  "mfem_frozen_refinements": [
+    1,
+    2,
+    3
+  ],
+  "fv_grid_levels": [
+    20,
+    24,
+    28,
+    32
+  ],
+  "source_xyz_m": [
+    1.5,
+    2,
+    2
+  ],
+  "receiver_xyz_m": [
+    2.5,
+    2,
+    2
+  ],
+  "physical_medium": {
+    "c_m_s": 343.2,
+    "density_kg_m3": 1.2
+  },
+  "fixture": "sloped 4x4m floor, roof z=4-y/4; rigid Neumann; volume=56m3",
+  "source": {
+    "q_units": "m3/s",
+    "waveform": "exp(-0.5*((t-0.012)/0.003)^2)",
+    "midpoint_sampling": true
+  },
+  "time": {
+    "dt_s": 0.00025,
+    "duration_s": 0.25,
+    "steps": 1000
+  },
+  "frequency_hz": [
+    40,
+    80
+  ],
+  "finite_transfer": "rho*r^T phi_t and exact midpoint Q_T/P_T with exp(+i2πft) kernel",
+  "mfem_integrator": "same implicit midpoint for exported mass and stiffness; actual force c²*b*q injected on each midpoint; NOT a posteriori impulse convolution",
+  "relative_metric": "L2 complex difference normalized to fine-level transfer; zero amplitude not clipped; 40 and 80 Hz both retained",
+  "goal": "Evaluate MFEM 1→2 and 2→3, FV 20→24/24→28/28→32, cross-solver finest comparison MFEM r3 vs FV n32. Do not claim formal physical convergence from 3 FEM levels or 2 bins.",
+  "observational_limit": "same physical geometry, medium, source, sampling and finite observation window, but different spatial shape functions; reference r3 not continuum ground truth",
+  "numerical_resource_cap": {
+    "largest_mfem_dof": 4913,
+    "max_time_steps": 1000,
+    "run_wall_seconds_per_refinement": 120,
+    "max_memory_mb": 2000
+  },
+  "gate": {
+    "candidate_numerical_diagnostic_only": true,
+    "may_unblock_canonical_r130d": false,
+    "may_promote_production": false,
+    "canonical_pffdtd": "SELF_CONVERGENCE_FAILED",
+    "canonical_mfem_impulse": "SELF_CONVERGENCE_FAILED",
+    "physical_validation": "NOT_VALIDATED"
+  }
+}

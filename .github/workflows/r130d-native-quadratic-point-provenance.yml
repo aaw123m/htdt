@@ -1,0 +1,84 @@
+name: R130D native PFFDTD Q2 physical point source - signed evidence integrity
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/r130d-native-quadratic-point-provenance.yml'
+      - 'benchmarks/acoustics/r130d_original_point_quadratic_pffdtd*'
+      - 'scripts/run_r130d_original_point_quadratic_pffdtd.py'
+      - 'backend/tests/test_r130d_original_point_quadratic_pffdtd*'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  native-solver-q2-nonpromotion-evidence-integrity:
+    runs-on: windows-2022
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Checkout prospective original temporal Q0 physical delta plan and two native-run records
+        uses: actions/checkout@v4
+      - name: Pin Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install independent HDF5 and numerical evidence checker dependencies
+        run: |
+          python -m pip install --disable-pip-version-check numpy==1.26.4 scipy==1.14.1 h5py==3.11.0 pytest==8.4.2 pydantic==2.11.9
+          if ($LASTEXITCODE -ne 0) { throw 'PFFDTD Q2 source evidence checker dependencies failed' }
+      - name: Full 27-node quadratic point polynomial and pinned double-native-run integrity suite
+        env:
+          PYTHONUTF8: '1'
+        run: |
+          New-Item -ItemType Directory -Force scratch/tests | Out-Null
+          Copy-Item backend/tests/test_r130d_original_point_quadratic_pffdtd.py scratch/tests/
+          Copy-Item backend/tests/test_r130d_original_point_quadratic_pffdtd_evidence.py scratch/tests/
+          $env:PYTHONPATH = Join-Path $pwd 'backend/src'
+          python -m pytest -q scratch/tests/test_r130d_original_point_quadratic_pffdtd.py scratch/tests/test_r130d_original_point_quadratic_pffdtd_evidence.py --tb=short
+          if ($LASTEXITCODE -ne 0) { throw 'Q2 numerical delta or original NO_GO/evidence integrity failed' }
+      - name: Independently recompute signed refinement metrics from actual stored native wave samples
+        env:
+          PYTHONUTF8: '1'
+        run: |
+          @'
+          import json,hashlib,sys
+          import numpy as np
+          from pathlib import Path
+          sys.path.insert(0,'scripts')
+          from run_r130d_original_point_quadratic_pffdtd import native_pair_metrics,validate_plan
+          root=Path('benchmarks/acoustics')
+          planbytes=(root/'r130d_original_point_quadratic_pffdtd_plan_2026-10-09.json').read_bytes()
+          plan=validate_plan(json.loads(planbytes))
+          a=json.loads((root/'r130d_original_point_quadratic_pffdtd_evidence_2026-10-09.json').read_text())
+          b=json.loads((root/'r130d_original_point_quadratic_pffdtd_independent_replay_2026-10-09.json').read_text())
+          assert a['plan_sha256_lf']==hashlib.sha256(planbytes.replace(b'\r\n',b'\n')).hexdigest()
+          assert a['preregistered_plan']==b['preregistered_plan']==plan
+          assert len(a['actual_native_wave_cases'])==len(b['actual_native_wave_cases'])==5
+          for x,y in zip(a['actual_native_wave_cases'],b['actual_native_wave_cases']):
+              assert x['ppw']==y['ppw']
+              assert x['original_native_comm_sha256']==y['original_native_comm_sha256']
+              assert x['native_solver']['sim_outs_sha256']==y['native_solver']['sim_outs_sha256']
+              assert x['quadratic_transfer_pa_per_m3_s']==y['quadratic_transfer_pa_per_m3_s']
+              assert x['original_same_geometry_and_point_locations'] is True
+              assert x['native_original_discrete_q0_unchanged'] is True
+              assert x['numerical_operator']['source']['support_count']==27
+              assert x['numerical_operator']['receiver']['support_count']==27
+          actual=native_pair_metrics(a['actual_native_wave_cases'],plan)
+          sys.path.insert(0,'scratch/tests')
+          from test_r130d_original_point_quadratic_pffdtd_evidence import assert_derived_metrics_same_up_to_roundoff
+          assert_derived_metrics_same_up_to_roundoff(actual,a['adjacent_quadratic_refinement'])
+          assert a['adjacent_quadratic_refinement']==b['adjacent_quadratic_refinement']
+          assert [z['coarse_ppw'] for z in actual['pairs']]==[28,32,36,40]
+          assert all(z['compared_frequency_count']==2 for z in actual['pairs'])
+          assert actual['diagnostic_refinement_pass'] is False
+          assert actual['last_pair_passes_original_frozen_thresholds'] is False
+          assert a['canonical_original_8_node_point_point']==b['canonical_original_8_node_point_point']=='SELF_CONVERGENCE_FAILED'
+          assert a['production_ready'] is b['production_ready'] is False
+          print('PASS frozen original-q0 Q2 physical-point five-grid signed evidence and two recorded native PFFDTD traces; original NO_GO preserved')
+          '@ | python -
+          if ($LASTEXITCODE -ne 0) { throw 'PFFDTD five-grid Q2 original trace evidence failed independent numerical audit' }
+      # This checks two existing actual native-engine wave-run records and pure
+      # mathematical operator correctness. It DOES NOT rerun PFFDTD full time
+      # integration in CI because the SHA-bound original 5 large setup HDF5
+      # bundles are external. Never present this CI as a new full wave replay.

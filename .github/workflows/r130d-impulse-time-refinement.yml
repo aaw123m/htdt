@@ -1,0 +1,106 @@
+name: R130D impulse fixed-grid dt-halving P2/FV independent replay
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/r130d-impulse-time-refinement.yml'
+      - 'scripts/run_r130d_impulse_time_refinement.py'
+      - 'scripts/run_r130d_exact_discrete_impulse_candidate.py'
+      - 'backend/src/htdt/r130d_embedded_neumann_fv.py'
+      - 'backend/tests/test_r130d_impulse_time_refinement.py'
+      - 'benchmarks/acoustics/r130d_impulse_time_refinement_*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: r130d-half-dt-impulse-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  five-actual-waves:
+    runs-on: windows-2022
+    timeout-minutes: 20
+    steps:
+      - name: Checkout preregistered independent timing experiment
+        uses: actions/checkout@v4
+      - name: Pinned Python runtime
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install bounded sparse numerical dependencies
+        shell: pwsh
+        env:
+          PYTHONUTF8: '1'
+        run: |
+          python -m pip install --disable-pip-version-check numpy==1.26.4 scipy==1.14.1 pydantic==2.11.9 pytest==8.4.2
+          if ($LASTEXITCODE -ne 0) { throw 'pinned dependencies failed' }
+          New-Item -ItemType Directory -Force scratch/tests | Out-Null
+          Copy-Item backend/tests/test_r130d_impulse_time_refinement.py scratch/tests/
+          $env:PYTHONPATH = Join-Path $pwd 'backend/src'
+          python -m pytest -q scratch/tests/test_r130d_impulse_time_refinement.py --tb=short
+          if ($LASTEXITCODE -ne 0) { throw 'pre-archived timing evidence did not match immutable prospective plan' }
+      - name: Actually integrate five 2000-step independent FV / P2 FEM wave systems
+        shell: pwsh
+        env:
+          PYTHONUTF8: '1'
+          PYTHONIOENCODING: utf-8
+        run: |
+          $env:PYTHONPATH = Join-Path $pwd 'backend/src'
+          python scripts/run_r130d_impulse_time_refinement.py `
+            --plan benchmarks/acoustics/r130d_impulse_time_refinement_plan_2026-10-09.json `
+            --original benchmarks/acoustics/r130d_exact_discrete_impulse_candidate_evidence_2026-10-09.json `
+            --systems benchmarks/acoustics/r130d_mfem_independent_sparse_systems `
+            --output scratch/ci_r130d_half_dt_actual.json
+          if ($LASTEXITCODE -ne 0) { throw 'actual timestep-refinement wave solve failed' }
+      - name: Check exact physical source, numerical evidence and known original NO_GO
+        shell: pwsh
+        env:
+          PYTHONUTF8: '1'
+        run: |
+          @'
+          import json
+          import numpy as np
+          def read(p):
+              return json.load(open(p,encoding='utf-8'))
+          fresh=read('scratch/ci_r130d_half_dt_actual.json')
+          frozen=read('benchmarks/acoustics/r130d_impulse_time_refinement_evidence_2026-10-09.json')
+          assert fresh['preregistered_plan']==frozen['preregistered_plan']
+          assert fresh['source_waveform']=='q[0]=1, others zero for both dt values'
+          assert fresh['production_ready'] is False
+          assert fresh['physical_validation']=='NOT_VALIDATED'
+          assert len(fresh['cases'])==len(frozen['cases'])==5
+          for x,y in zip(fresh['cases'],frozen['cases']):
+              assert x['method']==y['method'] and x['level']==y['level']
+              assert x['new_dt_s']==0.000125 and x['record_legacy_dt_s']==0.00025
+              assert x['actual_fine_result']['step_count']==2000
+              if x['method']=='pinned_independent_MFEM_P2':
+                  assert x['actual_fine_result']['export_sha256']==y['actual_fine_result']['export_sha256']
+                  assert x['actual_fine_result']['worst_true_relative_linear_residual']<=1e-8
+              u=np.array(x['fine_dt_transfer_40_80_hz'],dtype=float)
+              v=np.array(y['fine_dt_transfer_40_80_hz'],dtype=float)
+              assert u.shape==v.shape==(2,2)
+              np.testing.assert_allclose(u,v,rtol=2e-6,atol=2e-4)
+              assert abs(x['fixed_grid_halved_dt_metrics']['normalized_complex_l2'] -
+                         y['fixed_grid_halved_dt_metrics']['normalized_complex_l2'])<2e-5
+          for key in ('FV_n28_to_32_new_dt_complex','FEM_r3_to_r4_new_dt_complex',
+                      'FV_n32_to_FEM_r4_new_dt_complex'):
+              assert abs(fresh['diagnostic'][key]-frozen['diagnostic'][key])<2e-5
+          assert fresh['diagnostic']['FEM_self_under_frozen_complex_limit'] is False
+          assert fresh['diagnostic']['cross_under_frozen_complex_limit'] is False
+          assert fresh['diagnostic']['not_temporal_only_because_midpoint_source_move'] is True
+          assert fresh['diagnostic']['overall_original_fullband_impulse']=='SELF_CONVERGENCE_FAILED'
+          assert fresh['diagnostic']['production_ready'] is False
+          print('PASS: five true dt/2 original impulse wave solves reproduce physical numeric nonconvergence; NO_GO')
+          '@ | python -
+          if ($LASTEXITCODE -ne 0) { throw 'actual full independent dt-halving numerical witness differed from original frozen values' }
+      - name: Preserve original five reexecuted time-domain wave observations
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: r130d-original-impulse-five-dt-half-fv-mfem
+          path: |
+            scratch/ci_r130d_half_dt_actual.json
+            scratch/ci_r130d_half_dt_actual_partial.json
+          if-no-files-found: warn
+          retention-days: 30

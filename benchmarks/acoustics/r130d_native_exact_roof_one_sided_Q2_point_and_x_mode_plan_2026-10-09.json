@@ -1,0 +1,108 @@
+{
+  "schema_version": "htdt.r130d.exact-roof-original-physical-point-q0-one-sided-q2-and-x-mode-plan-1",
+  "date_jst": "2026-10-09",
+  "issue": 938,
+  "pr": 1055,
+  "objective": "At fixed exact-roof original PPW40/44 spatial M,K and native q0, decompose original point source vs receiver discrete 8-trilinear to degree-2 27-triquadratic point evaluation individually; independent analytical x-axis Neumann eigenfrequency and source-receiver modal coupling on original and +/-quarter-grid shift, no fitting or smoothing.",
+  "immutable_original": {
+    "ppw": [
+      40,
+      44
+    ],
+    "upstream_git_pin": "aa319f6c86517cb95aabfae8656277da62c3ead5",
+    "unshifted_prior_evidence": "benchmarks/acoustics/r130d_native_grid_exact_roof_mass_fv_q0_evidence_2026-10-09.json",
+    "previous_x_shift_evidence": "benchmarks/acoustics/r130d_exact_roof_original_point_q0_x_grid_phase_evidence_2026-10-09.json",
+    "original_comms_control": "benchmarks/acoustics/r130d_original_point_quadratic_pffdtd_evidence_2026-10-09.json",
+    "original_source_xyz_m": [
+      1.5,
+      2,
+      2
+    ],
+    "original_receiver_xyz_m": [
+      2.5,
+      2,
+      2
+    ],
+    "original_q0": "unchanged discrete q[0]=1 and q[n>0]=0",
+    "original_record_s": 0.25,
+    "original_frequencies_hz": [
+      40,
+      80
+    ],
+    "original_native_h_Ts_Nt": true,
+    "original_analytic_rigid_roof_volume_m3": 56,
+    "original_source_8node_and_receiver_8node": true,
+    "physical_source_changed": false,
+    "temporal_source_changed": false
+  },
+  "spatial_operator": {
+    "exact_same_native_unshifted_ppw40_ppw44_mass_M_and_stiffness_K_for_all_four_operator_combinations": true,
+    "exact_roof_conservative_neumann_positive_mass": true,
+    "solver": "same implicit Newmark beta1/4 dt original sample clock as existing baseline, explicit source kick at step0, output phi at current sample; full 250ms time records",
+    "only_operator_marginal_change": "source 8- vs 27-node spatial point delta basis; receiver 8- vs 27-node evaluation; cross 8/8 27/8 8/27 27/27",
+    "interpolation": "3 nearest native grid nodes each x,y,z, unique sorted; tensor degree-2 Lagrange cardinal weights, 27 signed weights; physical zeroth+first+second Cartesian moments exactly (delta consistency), no Gaussian filtering",
+    "source_new27_signed_weights_allowed": true,
+    "receiver_new27_signed_weights_allowed": true,
+    "all_27_native_nodes_inside_positive_original_exact_fluid_volume": true,
+    "hold_8_8_prior_experiment_as_control": true,
+    "number_of_full_wave_integrations": 4,
+    "both_receiver_8_and_27_sampled_from_same_full_state_time_loop": true,
+    "max_CG_iterations": 500,
+    "max_true_relative_residual": 5e-10,
+    "max_energy_drift": 0.000001
+  },
+  "x_spectral": {
+    "grid_phase_offsets_h": [
+      -0.25,
+      0,
+      0.25
+    ],
+    "ppw": [
+      40,
+      44
+    ],
+    "method": "Exact separable x-domain one-dimensional Neumann FV Mx=clipped Voronoi segment widths, Kx=(c²/h) pairwise adjacent edges; 1D symmetrized generalized eigenproblem Mx^-1/2 Kx Mx^-1/2 using scipy.linalg.eigh; compare first nonzero f1 to analytic c/(2L)=42.9 Hz.",
+    "x_is_independent_of_roof_yz": true,
+    "preserve_8node_1D_physical_trilinear_x_interpolation_of_src_recv": true,
+    "store_mode1_source_receiver_overlap_signed": true,
+    "store_all_low_3_modes_and_frequency_drift": true,
+    "do_not_claim_3D_exact_mode_from_1D_alone": true
+  },
+  "comparison": {
+    "frozen_complex_rms_relative_max": 0.2,
+    "frozen_magnitude_relative_max": 0.25,
+    "frozen_phase_deg_max": 15,
+    "pairs": [
+      [
+        40,
+        44
+      ]
+    ],
+    "only_40_44_diagnostic_not_full_refinement": true,
+    "store_all_four_operator_combinations_at_both_grids": true,
+    "store_each_signed_40_80_transfer_as_real_imag": true,
+    "store_full8_8_reconstruction_difference_vs_frozen": true,
+    "compute_one_sided_relative_operator_changes_at_each_ppw": true,
+    "store_per_frequency_magnitude_and_phase_errors": true,
+    "store_all_adverse_modes_and_wave_results": true,
+    "source_receiver_physical_xyz_fixed": true,
+    "no_threshold_frequency_window_or_amplitude_fitting": true,
+    "do_not_promote_if_any_case_meets_threshold": true
+  },
+  "limits": {
+    "max_cases": 4,
+    "max_node_count": 150000,
+    "max_original_native_cells": 240000,
+    "max_wave_samples": 2000,
+    "max_cg_iterations": 500,
+    "max_total_runtime_minutes": 20,
+    "no_github_actions_runs": true
+  },
+  "release": {
+    "original_eight_node_q0": "SELF_CONVERGENCE_FAILED",
+    "physical_validation": "NOT_VALIDATED",
+    "product": "NO_GO",
+    "PR_draft": true,
+    "issue_open": true
+  }
+}

@@ -1,0 +1,94 @@
+{
+  "schema_version": "htdt.r130d.sloped-neumann-modal-spectral-diagnostic-plan-1",
+  "date": "2026-10-09",
+  "issue": 938,
+  "goal": "Independently compare room Neumann modal frequencies and signed source/receiver modal couplings near 40 and 80Hz for FV and pinned MFEM, to identify whether spatial eigenvalue drift plausibly contributes to impulse finite-record response oscillations.",
+  "geometry": {
+    "room": "4m box roof z+.25y<=4, rigid Neumann 56 m3",
+    "source": [
+      1.5,
+      2,
+      2
+    ],
+    "receiver": [
+      2.5,
+      2,
+      2
+    ],
+    "sound_speed_m_s": 343.2,
+    "density_kg_m3": 1.2
+  },
+  "operators": {
+    "generalized_eigenproblem": "K*x=lambda*M*x, K=c^2 stiffness, M FV cell volumes / FEM P2 true consistent mass",
+    "include_constant_zero_mode": true,
+    "normalization": "x.T*M*x=1",
+    "smallest_modes_including_zero": 12,
+    "sort_by": "ascending eigenvalue then ascending frequency",
+    "frequency_hz": "sqrt(max(lambda,0))/(2*pi)",
+    "compare_bins_hz": [
+      40,
+      80
+    ],
+    "shift_invert_sigma": -1,
+    "eigensolver": "scipy.sparse.linalg.eigsh(A=K,M=M,k=12,sigma=-1,which='LM',tol=1e-9,maxiter=1000)",
+    "relative_residual_max": 1e-7,
+    "zero_mode_frequency_hz_max": 0.001,
+    "negative_lambda_tolerance": -0.000001
+  },
+  "spatial_levels": [
+    {
+      "method": "embedded_neumann_FV",
+      "n": 12
+    },
+    {
+      "method": "embedded_neumann_FV",
+      "n": 20
+    },
+    {
+      "method": "embedded_neumann_FV",
+      "n": 32
+    },
+    {
+      "method": "independent_pinned_MFEM_P2",
+      "r": 2
+    },
+    {
+      "method": "independent_pinned_MFEM_P2",
+      "r": 3
+    },
+    {
+      "method": "independent_pinned_MFEM_P2",
+      "r": 4
+    }
+  ],
+  "mfem": {
+    "pinned_commit": "d964264cdb9a13e94a201b6c236c7721e0c8765f",
+    "system_sha256_by_ref": {
+      "2": "e61410d4a69000c39975762b9986008974353953f7d8d9f100f9953a33c5ecb4",
+      "3": "6a43a624223fa512152059d103c4d841723fa1266ea8a22842322fb50db42511",
+      "4": "e1c67d02db77a6e8775a0a59d8e75fa996434d58f8efae077f4cec2cf2c831ed"
+    }
+  },
+  "metrics": [
+    "first 11 nonzero natural mode frequencies by space and refinement",
+    "smallest distance-to-target 40 and 80Hz mode",
+    "normalized signed source and receiver mode shape product (phase arbitrary but product sign invariant)",
+    "relative generalized mode residual",
+    "max relative drift of ordered 11 modal frequencies between adjacent spatial refinements"
+  ],
+  "limits": {
+    "max_dofs": 35937,
+    "max_eigenpairs": 12,
+    "max_per_case_wall_seconds": 360,
+    "max_raw_json_bytes": 120000000
+  },
+  "interpretation": {
+    "not_impulse_finite_time_response": true,
+    "not_temporal_integration_test": true,
+    "spectrum_only_not_fullband_validation": true,
+    "not_a_causal_proof": true,
+    "production_NO_GO": true,
+    "original_R130D_impulse": "SELF_CONVERGENCE_FAILED",
+    "physical_measurements": "NOT_VALIDATED"
+  }
+}

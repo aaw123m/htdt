@@ -1,0 +1,250 @@
+{
+  "schema_version": "htdt.r130d.original-pffdtd-eight-node-width-evidence-1",
+  "plan_sha256_lf": "454427ce5ab090397f87e183d370ab0bc510766767de7b76a1df2efc2f5e9726",
+  "original_run76_sha256": "c95ad31aeedae3138a3141763c26cb2a03a44a9069aeabd2793e61cdb9de26d4",
+  "preregistered_plan": {
+    "schema_version": "htdt.r130d.pffdtd-trilinear-original-operator-effective-width-plan-1",
+    "date_jst": "2026-10-09",
+    "issue": 938,
+    "purpose": "Compute physical effective second moment of canonical PFFDTD eight-node trilinear source and receiver operators across original PPW8/10/12; no new solver, source waveform alteration or canonical numerical acceptance claims.",
+    "immutable_source": {
+      "path": "benchmarks/acoustics/r130d_spatial_representation_diagnostic_run76_summary.json",
+      "raw_sha256": "c95ad31aeedae3138a3141763c26cb2a03a44a9069aeabd2793e61cdb9de26d4",
+      "expected_canonical_state": "SELF_CONVERGENCE_FAILED"
+    },
+    "grid": {
+      "ppw": [
+        8,
+        10,
+        12
+      ],
+      "source_xyz_m": [
+        1.5,
+        2,
+        2
+      ],
+      "receiver_xyz_m": [
+        2.5,
+        2,
+        2
+      ],
+      "fixed_reference_gaussian_sigma_m": [
+        0.35,
+        0.7
+      ]
+    },
+    "formula": {
+      "axis_variance_m2": "h*h*f*(1-f), with physical grid spacing h and fractional coordinate f",
+      "axis_sigma_m": "sqrt(axis_variance_m2)",
+      "rms_radius_m": "sqrt(sum over all three axes of axis_variance_m2)",
+      "stencil": "native exact canonical eight-node trilinear interpolation; do not smooth or recompute the waveform",
+      "gaussian_comparison": "compare 3D RMS radius to sqrt(3)*fixed sigma only as dimensional context, not a physical model equivalence",
+      "source_receiver_independent": true,
+      "calculate_both_each_ppw": true,
+      "do_not_assume_monotonicity": true
+    },
+    "validation": {
+      "require_each_original_stencil_weight_sum_one": true,
+      "require_exact_source_receiver_coordinates": true,
+      "require_finite_fractional_coordinates_within_0_to_1": true,
+      "require_grid_width_positive": true,
+      "require_all_original_ppw_without_frequency_mask": true,
+      "check_trilinear_second_moment_formula_against_8_corner_weight_aggregation": true,
+      "no_acceptance_gate_changes": true
+    },
+    "limits": {
+      "max_levels": 3
+    },
+    "authority": {
+      "original_fullband_pffdtd": "SELF_CONVERGENCE_FAILED",
+      "original_point_impulse": "NOT_QUALIFIED",
+      "physical_validation": "NOT_VALIDATED",
+      "production_ready": false,
+      "issue938": "OPEN",
+      "pr1055": "DRAFT"
+    }
+  },
+  "levels": [
+    {
+      "ppw": 8,
+      "physical_grid_spacing_m": 0.429,
+      "original_source": {
+        "fractional_cell_coordinate": [
+          0.996503496503497,
+          0.1620046620046623,
+          0.1620046620046623
+        ],
+        "source_weight_sum": 0.9999999999999999,
+        "stencil_sha256": "fec54f949f37b2a3c28da1cd16cead28d74aec1b64d2eeaceb7c334f633b8393",
+        "axis_variance_m2": [
+          0.0006412499999999073,
+          0.024985250000000035,
+          0.024985250000000035
+        ],
+        "axis_effective_sigma_m": [
+          0.025322914524199366,
+          0.15806723253097094,
+          0.15806723253097094
+        ],
+        "rms_radius_m": 0.22497055362869153,
+        "trilinear_stencil_weight_shape_verified": true
+      },
+      "original_receiver": {
+        "fractional_cell_coordinate": [
+          0.3275058275058282,
+          0.1620046620046623,
+          0.1620046620046623
+        ],
+        "source_weight_sum": 1.0,
+        "stencil_sha256": "81c9ad84677512d9c2f4f455e92277c589247e8ade8569ef2cfdc0c3c380acae",
+        "axis_variance_m2": [
+          0.040534250000000036,
+          0.024985250000000035,
+          0.024985250000000035
+        ],
+        "axis_effective_sigma_m": [
+          0.20133119480100453,
+          0.15806723253097094,
+          0.15806723253097094
+        ],
+        "rms_radius_m": 0.3008400737933697,
+        "trilinear_stencil_weight_shape_verified": true
+      },
+      "fixed_gaussian_reference_rms_radius_m": {
+        "0.35": 0.606217782649107,
+        "0.7": 1.212435565298214
+      },
+      "canonical_operator_is_not_fixed_physical_width": true,
+      "original_evidence_volume_relative_error": -0.07370521476785731
+    },
+    {
+      "ppw": 10,
+      "physical_grid_spacing_m": 0.3432,
+      "original_source": {
+        "fractional_cell_coordinate": [
+          0.8706293706293705,
+          0.3275058275058277,
+          0.3275058275058277
+        ],
+        "source_weight_sum": 1.0000000000000002,
+        "stencil_sha256": "11829baa76b35508779facea868293dc94b4433aed0bdee6c7793ab809199bd0",
+        "axis_variance_m2": [
+          0.01326672000000001,
+          0.025941920000000007,
+          0.025941920000000007
+        ],
+        "axis_effective_sigma_m": [
+          0.11518124847387273,
+          0.16106495584080358,
+          0.16106495584080358
+        ],
+        "rms_radius_m": 0.255246077344981,
+        "trilinear_stencil_weight_shape_verified": true
+      },
+      "original_receiver": {
+        "fractional_cell_coordinate": [
+          0.7843822843822846,
+          0.3275058275058277,
+          0.3275058275058277
+        ],
+        "source_weight_sum": 1.0,
+        "stencil_sha256": "60a196298d0c36afa8bdfe4ebce2dd6dacf0581a5f1009ba0f6adf34651adfa2",
+        "axis_variance_m2": [
+          0.019920799999999985,
+          0.025941920000000007,
+          0.025941920000000007
+        ],
+        "axis_effective_sigma_m": [
+          0.1411410641875708,
+          0.16106495584080358,
+          0.16106495584080358
+        ],
+        "rms_radius_m": 0.2679638781627106,
+        "trilinear_stencil_weight_shape_verified": true
+      },
+      "fixed_gaussian_reference_rms_radius_m": {
+        "0.35": 0.606217782649107,
+        "0.7": 1.212435565298214
+      },
+      "canonical_operator_is_not_fixed_physical_width": true,
+      "original_evidence_volume_relative_error": 0.06546740447085726
+    },
+    {
+      "ppw": 12,
+      "physical_grid_spacing_m": 0.286,
+      "original_source": {
+        "fractional_cell_coordinate": [
+          0.7447552447552451,
+          0.4930069930069931,
+          0.4930069930069931
+        ],
+        "source_weight_sum": 1.0,
+        "stencil_sha256": "dd49f6327c1382ecb920670cecb0ef1b065e9367233bee62f6feceed57ef9f43",
+        "axis_variance_m2": [
+          0.015548999999999981,
+          0.02044499999999999,
+          0.02044499999999999
+        ],
+        "axis_effective_sigma_m": [
+          0.1246956294342347,
+          0.14298601330200095,
+          0.14298601330200095
+        ],
+        "rms_radius_m": 0.2375689373634524,
+        "trilinear_stencil_weight_shape_verified": true
+      },
+      "original_receiver": {
+        "fractional_cell_coordinate": [
+          0.24125874125874266,
+          0.4930069930069931,
+          0.4930069930069931
+        ],
+        "source_weight_sum": 1.0,
+        "stencil_sha256": "379272a1e9a0b5c65e42bddbcb9a0844ef399e9053f6066a15ee5278213e2290",
+        "axis_variance_m2": [
+          0.014973000000000054,
+          0.02044499999999999,
+          0.02044499999999999
+        ],
+        "axis_effective_sigma_m": [
+          0.12236421045387436,
+          0.14298601330200095,
+          0.14298601330200095
+        ],
+        "rms_radius_m": 0.23635354873578698,
+        "trilinear_stencil_weight_shape_verified": true
+      },
+      "fixed_gaussian_reference_rms_radius_m": {
+        "0.35": 0.606217782649107,
+        "0.7": 1.212435565298214
+      },
+      "canonical_operator_is_not_fixed_physical_width": true,
+      "original_evidence_volume_relative_error": 0.005927207999999747
+    }
+  ],
+  "source_trend": {
+    "values_m": [
+      0.22497055362869153,
+      0.255246077344981,
+      0.2375689373634524
+    ],
+    "strictly_decreasing": false,
+    "last_over_first": 1.056000145492615,
+    "all_levels_retained": true
+  },
+  "receiver_trend": {
+    "values_m": [
+      0.3008400737933697,
+      0.2679638781627106,
+      0.23635354873578698
+    ],
+    "strictly_decreasing": true,
+    "last_over_first": 0.7856451627455892,
+    "all_levels_retained": true
+  },
+  "canonical_pffdtd_fullband": "SELF_CONVERGENCE_FAILED",
+  "canonical_original_point_impulse": "NOT_QUALIFIED",
+  "physical_validation": "NOT_VALIDATED",
+  "changed_solver_or_original_stencils": false,
+  "production_ready": false
+}

@@ -1,0 +1,104 @@
+{
+  "schema_version": "htdt.r130d.original-unit-impulse-time-refinement-1",
+  "issued_on": "2026-10-09",
+  "issue": 938,
+  "goal": "Determine relative size of temporal-discretization+impulse-midpoint-placement and spatial-discretization error in the actually injected original unit discrete impulse, without weakening any frozen original acceptance gate.",
+  "prerequisite": "benchmarks/acoustics/r130d_exact_discrete_impulse_candidate_evidence_2026-10-09.json",
+  "spatial_cases": [
+    {
+      "method": "exact_sloped_cutcell_neumann_FV",
+      "level": 20
+    },
+    {
+      "method": "exact_sloped_cutcell_neumann_FV",
+      "level": 28
+    },
+    {
+      "method": "exact_sloped_cutcell_neumann_FV",
+      "level": 32
+    },
+    {
+      "method": "pinned_independent_MFEM_P2",
+      "level": 3
+    },
+    {
+      "method": "pinned_independent_MFEM_P2",
+      "level": 4
+    }
+  ],
+  "timestep_s": [
+    0.00025,
+    0.000125
+  ],
+  "new_executions_only_dt_s": 0.000125,
+  "record_length_s": 0.25,
+  "sample_counts": [
+    1000,
+    2000
+  ],
+  "source": {
+    "q_samples": "q[0]=1 m3/s, q[n>0]=0",
+    "exact_shape_per_timestep": true,
+    "always_first_midpoint": true,
+    "units": "m3/s",
+    "no_Gaussian_no_taper": true,
+    "identical_source_receiver_m": [
+      [
+        1.5,
+        2,
+        2
+      ],
+      [
+        2.5,
+        2,
+        2
+      ]
+    ],
+    "frequency_hz": [
+      40,
+      80
+    ],
+    "kernel": "P_T/Q_T, exp(+iωt), every midpoint pressure and source sample",
+    "c_m_s": 343.2,
+    "rho_kg_m3": 1.2,
+    "volume_m3": 56,
+    "rigid_neumann": true
+  },
+  "preserved_independent_mfem": {
+    "pin": "d964264cdb9a13e94a201b6c236c7721e0c8765f",
+    "ref3_sha256": "6a43a624223fa512152059d103c4d841723fa1266ea8a22842322fb50db42511",
+    "ref4_sha256": "e1c67d02db77a6e8775a0a59d8e75fa996434d58f8efae077f4cec2cf2c831ed",
+    "linear_rtol": 1e-11,
+    "linear_atol": 0,
+    "linear_max_iter": 350,
+    "true_residual_max": 1e-8
+  },
+  "metrics": {
+    "temporal_fixed_spatial": "normalized_complex_L2 norm(T_dt/2-T_dt)/norm(T_dt/2), max 40/80Hz magnitude rel and phase degrees",
+    "spatial_fixed_dt": "normalized_complex_L2 norm(T_fine-T_coarse)/norm(T_fine), magnitude and phase",
+    "comparison": "temporal_n32_vs_spatial_n28_to_n32 at dt=0.000125 and independent MFEM r3_to_r4 at dt=0.000125; preserve all values and distinguish source placement from temporal truncation"
+  },
+  "reference_previous_gates": {
+    "fv_self_limit": 0.2,
+    "mfem_self_limit": 0.05,
+    "cross_limit": 0.35
+  },
+  "limits": {
+    "max_n": 32,
+    "max_mfem_dofs": 35937,
+    "max_steps": 2000,
+    "max_runtime_per_case_s": 300,
+    "max_sparse_json_bytes": 120000000,
+    "max_cases": 5
+  },
+  "interpretation": {
+    "source_pulse_start_moves_from_dt_0_00025_half_to_dt_0_000125_half": true,
+    "strict_isolation_of_temporal_truncation": false,
+    "diagnostic_only": true,
+    "never_promote_numerical_acceptance_on_temporal_result_alone": true,
+    "original_fullband_impulse_self": "SELF_CONVERGENCE_FAILED",
+    "new_candidate_impulse_numeric": "NOT_QUALIFIED",
+    "production_ready": false,
+    "physical_validation": "NOT_VALIDATED"
+  }
+}

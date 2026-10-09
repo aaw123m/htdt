@@ -1,0 +1,109 @@
+{
+  "schema_version": "htdt.r130d.native-exact-roof-full-x-yz-eigenspectrum-finite-window-q0-plan-1",
+  "date_jst": "2026-10-09",
+  "issue": 938,
+  "pr": 1055,
+  "goal": "Exactly reconstruct the ORIGINAL physical point q0 250ms signed 40/80Hz wave transfer of native PPW40 and44 entire 3D exact-roof FV/Newmark from a COMPLETE x⊗yz generalized Neumann eigenbasis; quantify high modal tail's signed grid-to-grid difference without changing numerical model or source.",
+  "pinned": {
+    "precomputed_exact_separability": "benchmarks/acoustics/r130d_native_exact_roof_xy_z_separable_modal_q0_evidence_2026-10-09.json",
+    "previous_spectrum_plan": "benchmarks/acoustics/r130d_native_exact_roof_xy_z_separable_modal_q0_plan_2026-10-09.json",
+    "unchanged_exact_roof_wave": "benchmarks/acoustics/r130d_native_grid_exact_roof_mass_fv_q0_evidence_2026-10-09.json",
+    "original_PFFDTD_HDF5_source": "benchmarks/acoustics/r130d_original_point_quadratic_pffdtd_evidence_2026-10-09.json",
+    "upstream_sha": "aa319f6c86517cb95aabfae8656277da62c3ead5",
+    "native_PPW": [
+      40,
+      44
+    ],
+    "source_xyz_m": [
+      1.5,
+      2,
+      2
+    ],
+    "receiver_xyz_m": [
+      2.5,
+      2,
+      2
+    ],
+    "temporal_source": "q[0]=1 and q[n>0]=0 on original Ts and Nt",
+    "full_record_s": 0.25,
+    "frequency_bins_hz": [
+      40,
+      80
+    ],
+    "rho": 1.2,
+    "c": 343.2,
+    "original_analytic_56m3_rigid_roof": true
+  },
+  "numerical": {
+    "M_K_full_tensor_exact_matrix_required": true,
+    "entire_full_x_generalized_symmetric_eigensystem": true,
+    "entire_full_yz_generalized_symmetric_eigensystem": true,
+    "yz_solver": "scipy.linalg.eigh full symmetric normalized mass-inverted Kyz dense; no eigenvalue truncation",
+    "all_original_native_3D_eigenmodes_exact_cartesian_product": true,
+    "analytical_250ms_NT_Fourier": "for each Newmark eigenvalue lambda with theta=2atan(dt*sqrt(lambda)/2), u[n]=dt²c²source-receiver-coupling/(1+dt²lambda/4)*sin(n theta)/sin theta, pressure original rho*2nd-order endpoint/interior derivative; calculate full finite-record sum analytically by geometric sine/cosine progression, including exact q0 source denominator, no taper or smoothing",
+    "finite_window_formula": "H= rho*amp/dt*(2-cos(theta) + 0.5*(G(N-2,omega*dt+theta)+G(N-2,omega*dt-theta)) + exp(i*omega*(N-1)*dt)*(R(N-1,theta)+(cos(theta)-2)*R(N-2,theta))), R(m,t)=sin(m*t)/sin(t), G(m,b)=m exp(i*(m+1)*b/2)*sinc(m*b/(2pi))/sinc(b/(2pi)); all modes summed signed",
+    "mode_amplitude_normalization": "amp=dt²*c²*(sx vx)*(rx vx)*(syz vyz)*(ryz vyz)/(1+dt²lambda/4)",
+    "check_low_384_against_archived_direct_time_P_TQ_T_each_bin": true,
+    "low_384_relative_max": 2e-9,
+    "full_exact_modal_vs_earlier_true_CG_wave_relative_max": 0.00002,
+    "true_mass_orthonormality_max": 5e-8,
+    "true_eigen_relative_residual_max": 2e-7,
+    "zero_neumann_frequency_hz_max": 0.01,
+    "save_full_mode_count": true
+  },
+  "decomposition": {
+    "semidiscrete_frequency_bands_hz": [
+      [
+        0,
+        100
+      ],
+      [
+        100,
+        200
+      ],
+      [
+        200,
+        400
+      ],
+      [
+        400,
+        800
+      ],
+      [
+        800,
+        1000000000
+      ]
+    ],
+    "band_boundaries": "[lo,hi) except last to infinity; ALL modes exactly one band",
+    "save_signed_two_bin_transfer_each_band_each_grid": true,
+    "save_signed_two_bin_adjacent_grid_deltas_each_band": true,
+    "compare_each_band_delta_L2_relative_to_full_signed_ppw40_44_delta": true,
+    "save_top_24_individual_modes_each_frequency_bin": true,
+    "retain_384_partial_direct_wave_control": true,
+    "save_all_x_and_yz_eigenfrequency_first_32_and_max": true,
+    "all_modes_included_even_singular_sliver_modes": true,
+    "no_filtering_for_qualification": true,
+    "show_baseline_fullPPW40_44_FAIL": true,
+    "absolute_original_acceptance": {
+      "complex": 0.2,
+      "magnitude": 0.25,
+      "phase_deg": 15
+    }
+  },
+  "limits": {
+    "max_cases": 2,
+    "max_xy_cross_section_nodes": 3500,
+    "max_total_native_mode_count": 150000,
+    "max_fft_bin_count": 2,
+    "max_modes_kept_in_individual_top": 24,
+    "max_saved_bytes": 12000000,
+    "run_github_actions": false
+  },
+  "release": {
+    "canonical_original_q0_self_convergence": "SELF_CONVERGENCE_FAILED",
+    "physical_validation": "NOT_VALIDATED",
+    "product": "NO_GO",
+    "pr_draft": true,
+    "issue_open": true
+  }
+}

@@ -1,0 +1,92 @@
+{
+  "schema_version": "htdt.r130d.exact-roof-original-point-q0-x-grid-phase-plan-1",
+  "date_jst": "2026-10-09",
+  "issue": 938,
+  "pr": 1055,
+  "preregistered_before_wave": true,
+  "scientific_question": "Does the high-resolution nonconvergence of the unchanged mathematical point-q0 input persist under a harmless shift of the computational x-grid (flat walls; physical roof and source/receiver fixed)? Is it sensitive to mesh alignment/interpolation rather than tiny sloped roof slivers alone?",
+  "reference_data": {
+    "original_native_exact_comms": "benchmarks/acoustics/r130d_original_point_quadratic_pffdtd_evidence_2026-10-09.json",
+    "original_exact_roof_control": "benchmarks/acoustics/r130d_native_grid_exact_roof_mass_fv_q0_evidence_2026-10-09.json",
+    "original_exact_roof_plan": "benchmarks/acoustics/r130d_native_grid_exact_roof_mass_fv_q0_plan_2026-10-09.json",
+    "pffdtd_pin": "aa319f6c86517cb95aabfae8656277da62c3ead5",
+    "native_ppw": [
+      40,
+      44
+    ],
+    "native_original_8node_q0": true,
+    "physical_point_source_m": [
+      1.5,
+      2,
+      2
+    ],
+    "physical_point_receiver_m": [
+      2.5,
+      2,
+      2
+    ],
+    "original_discrete_q0": "q[0]=1 then zeros",
+    "physical_sloped_room": "0<=x,y,z<=4, z+0.25*y<=4 exact 56 m3",
+    "c_m_s": 343.2,
+    "rho_kg_m3": 1.2,
+    "analysis_frequencies_hz": [
+      40,
+      80
+    ],
+    "record_s": 0.25,
+    "record_no_taper": true
+  },
+  "controlled_perturbation": {
+    "which_grid_axis": "x only, since roof independent of x",
+    "x_grid_offset_in_native_h": [
+      -0.25,
+      0.25
+    ],
+    "unshifted_control_offset_in_native_h": 0,
+    "unchanged_yz_node_coordinates": true,
+    "unchanged_grid_spacing_native_h": true,
+    "unchanged_Nx_Ny_Nz": true,
+    "unchanged_native_dt_and_samples": true,
+    "source_and_receiver_at_exact_same_physical_xyz": true,
+    "spatial_trilinear_weights_recomputed_from_physical_xyz_for_shifted_grid": true,
+    "verify_original_unshifted_reconstruction_exactly_matches_original_native_8node_source_receiver_weights": true,
+    "trilinear_degree_one_constant_and_first_moment_exact": true,
+    "no_Gaussian_smoothing_or_physical_point_move": true,
+    "roof_geometry_exact_in_all_cases": true,
+    "all_MK_assembled_from_shifted_native_grid_as_true_cut_volume_aperture": true,
+    "solver": "same exact roof conservative Neumann implicit Newmark beta=1/4 and pinned CG residual tolerances as original unshifted treatment"
+  },
+  "analysis": {
+    "hold_out_unshifted_baseline_from_existing_evidence": true,
+    "compute_2x2_full_wave_cases": true,
+    "compare_signed_40_80_H_for_each_phase_and_both_ppw": true,
+    "compare_coarse40_to_fine44_complex_magnitude_phase_by_each_phase": true,
+    "compare_same_ppw_shift_vs_unshifted": true,
+    "store_exact_all_4_frequencies_two_bins_no_frequency_mask": true,
+    "store_40hz_response_phase_and_amplitude_sign_changes": true,
+    "store_cutcell_room_volume_and_min_volume_fraction": true,
+    "store_CG_true_residual_and_energy_drift": true,
+    "no_damping_taper_or_source_shape_changes": true,
+    "canonical_acceptance_original_complex_max": 0.2,
+    "canonical_acceptance_original_magnitude_max": 0.25,
+    "canonical_acceptance_original_phase_deg_max": 15,
+    "do_not_promote_altered_grid_to_canonical_pffdtd": true
+  },
+  "limits": {
+    "max_cases": 4,
+    "max_native_grid_cells": 240000,
+    "max_active_cut_cells": 180000,
+    "max_record_samples": 2000,
+    "max_CG_iterations": 500,
+    "max_CG_relative_residual": 5e-10,
+    "max_undriven_energy_drift": 0.000001,
+    "no_github_actions_runs": true
+  },
+  "qualification": {
+    "original_PFFDTD_point_q0": "SELF_CONVERGENCE_FAILED",
+    "physical_validation": "NOT_VALIDATED",
+    "product": "NO_GO",
+    "PR_draft": true,
+    "issue_open": true
+  }
+}

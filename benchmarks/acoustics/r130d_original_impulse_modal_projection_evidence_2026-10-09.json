@@ -1,0 +1,425 @@
+{
+  "schema_version": "htdt.r130d.original-impulse-low-modal-projection-diagnostic-1",
+  "plan": {
+    "schema_version": "htdt.r130d.original-impulse-12-neumann-mode-projection-plan-1",
+    "date": "2026-10-09",
+    "issue": 938,
+    "purpose": "Quantify how well only the first 12 independently validated spatial Neumann modes reproduce the original unsmoothed unit-impulse 40/80Hz finite-time transfer, then compare low-modal spatial convergence versus the real full-space FV/P2 time-integrated nonconvergence.",
+    "immutable_inputs": [
+      "benchmarks/acoustics/r130d_sloped_neumann_modal_spectrum_evidence_2026-10-09.json",
+      "benchmarks/acoustics/r130d_exact_discrete_impulse_candidate_evidence_2026-10-09.json"
+    ],
+    "methods": [
+      {
+        "method": "embedded_neumann_FV",
+        "levels": [
+          12,
+          20,
+          32
+        ]
+      },
+      {
+        "method": "independent_pinned_MFEM_P2",
+        "levels": [
+          2,
+          3,
+          4
+        ]
+      }
+    ],
+    "source": {
+      "q": "q[0]=1m3/s, q[n>0]=0",
+      "dt_s": 0.00025,
+      "steps": 1000,
+      "duration_s": 0.25,
+      "source_xyz_m": [
+        1.5,
+        2,
+        2
+      ],
+      "receiver_xyz_m": [
+        2.5,
+        2,
+        2
+      ],
+      "frequencies_hz": [
+        40,
+        80
+      ],
+      "rho_kg_m3": 1.2,
+      "c_m_s": 343.2,
+      "Fourier": "P_T/Q_T with exp(+i\u03c9t) at midpoint",
+      "actual_implicit_midpoint_scalar_modal_ode": "u_j''+lambda_j*u_j=c^2*(b^T x_j)*q(t); pressure=rho*sum (r^T x_j)*u_j'",
+      "same_source_as_frozen_fullspace": true
+    },
+    "spatial_modes": {
+      "count_including_zero": 12,
+      "nonzero": 11,
+      "mass_normalization": "x.T*M*x=1",
+      "mode_to_receiver_source_product": "(b.T*x_j)*(r.T*x_j)",
+      "reconstruct_signed_modal_sum": true,
+      "include_unregularized_zero_mode": true
+    },
+    "analysis": {
+      "metrics": [
+        "each fullwave vs 12mode truncated response normalized complex L2",
+        "per-frequency complex/magnitude/phase differences",
+        "modal12 adjacent-grid spatial difference",
+        "original full-space adjacent-grid difference"
+      ],
+      "explicit_no_single_cause_claim": true,
+      "zero_source_spectrum_missing_must_fail": true
+    },
+    "limits": {
+      "max_modes": 12,
+      "max_steps": 1000,
+      "max_level_cases": 6
+    },
+    "gate": {
+      "original_fullband_impulse": "SELF_CONVERGENCE_FAILED",
+      "candidate_unfiltered_impulse": "NOT_QUALIFIED",
+      "generic_CAD": "NOT_VALIDATED",
+      "physical_data": "NOT_VALIDATED",
+      "production_ready": false,
+      "modal_diagnostic_only": true
+    }
+  },
+  "cases": [
+    {
+      "method": "embedded_neumann_FV",
+      "level": 12,
+      "dofs_full": 1584,
+      "number_of_reconstructed_modes_including_zero": 12,
+      "first_twelve_modal_original_impulse_transfer_40_80_hz": [
+        [
+          37.59871472175203,
+          21.17346111191041
+        ],
+        [
+          100.4530344772585,
+          -64.64801185542149
+        ]
+      ],
+      "true_fullspace_original_impulse_transfer_40_80_hz": [
+        [
+          32.98807557207648,
+          29.400336316924708
+        ],
+        [
+          90.20092908766735,
+          -42.60106495834684
+        ]
+      ],
+      "fullspace_vs_12mode_relative_error": {
+        "normalized_complex_l2": 0.20532617981095,
+        "complex_relative_by_hz": [
+          0.21855457383640692,
+          0.203536734392644
+        ],
+        "magnitude_relative_by_hz": [
+          0.024043692849054842,
+          0.16493564205915356
+        ],
+        "phase_difference_deg_by_hz": [
+          12.323003659551398,
+          7.482963444775587
+        ]
+      },
+      "modal_source_method": "mass-orthonormal signed source-receiver coupling of independently solved eigenpairs",
+      "fullwave_actual_midpoint_execution_reused": true
+    },
+    {
+      "method": "embedded_neumann_FV",
+      "level": 20,
+      "dofs_full": 7200,
+      "number_of_reconstructed_modes_including_zero": 12,
+      "first_twelve_modal_original_impulse_transfer_40_80_hz": [
+        [
+          42.07260768886348,
+          9.172062489845283
+        ],
+        [
+          106.24408788037655,
+          -162.80593058651527
+        ]
+      ],
+      "true_fullspace_original_impulse_transfer_40_80_hz": [
+        [
+          52.030562791782515,
+          16.3371569040829
+        ],
+        [
+          124.2371212808564,
+          -148.15183831200267
+        ]
+      ],
+      "fullspace_vs_12mode_relative_error": {
+        "normalized_complex_l2": 0.13182482990669228,
+        "complex_relative_by_hz": [
+          0.28489546019195194,
+          0.11936595992146946
+        ],
+        "magnitude_relative_by_hz": [
+          0.26646897879639436,
+          0.005435637868960988
+        ],
+        "phase_difference_deg_by_hz": [
+          5.133472122154246,
+          6.854802755844507
+        ]
+      },
+      "modal_source_method": "mass-orthonormal signed source-receiver coupling of independently solved eigenpairs",
+      "fullwave_actual_midpoint_execution_reused": true
+    },
+    {
+      "method": "embedded_neumann_FV",
+      "level": 32,
+      "dofs_full": 29184,
+      "number_of_reconstructed_modes_including_zero": 12,
+      "first_twelve_modal_original_impulse_transfer_40_80_hz": [
+        [
+          39.282615236179225,
+          5.214154910556959
+        ],
+        [
+          83.90793648618452,
+          -189.18512735714006
+        ]
+      ],
+      "true_fullspace_original_impulse_transfer_40_80_hz": [
+        [
+          101.11318810769707,
+          3.0063944731411776
+        ],
+        [
+          158.12097801167783,
+          -197.6113044166866
+        ]
+      ],
+      "fullspace_vs_12mode_relative_error": {
+        "normalized_complex_l2": 0.46027006219554045,
+        "complex_relative_by_hz": [
+          1.5613025699769034,
+          0.3608940814562712
+        ],
+        "magnitude_relative_by_hz": [
+          1.5527413542039723,
+          0.22288615584951446
+        ],
+        "phase_difference_deg_by_hz": [
+          5.857853143745688,
+          14.747070915514042
+        ]
+      },
+      "modal_source_method": "mass-orthonormal signed source-receiver coupling of independently solved eigenpairs",
+      "fullwave_actual_midpoint_execution_reused": true
+    },
+    {
+      "method": "independent_pinned_MFEM_P2",
+      "level": 2,
+      "dofs_full": 729,
+      "number_of_reconstructed_modes_including_zero": 12,
+      "first_twelve_modal_original_impulse_transfer_40_80_hz": [
+        [
+          28.90812109718357,
+          0.7291782138514646
+        ],
+        [
+          15.244969048424457,
+          -213.4262451883624
+        ]
+      ],
+      "true_fullspace_original_impulse_transfer_40_80_hz": [
+        [
+          57.22101400268961,
+          3.4208363969077182
+        ],
+        [
+          44.93168243071341,
+          -211.10966675609453
+        ]
+      ],
+      "fullspace_vs_12mode_relative_error": {
+        "normalized_complex_l2": 0.19070838603589718,
+        "complex_relative_by_hz": [
+          0.9835128111162991,
+          0.13916417722042262
+        ],
+        "magnitude_relative_by_hz": [
+          0.982313173705042,
+          0.008731221553620393
+        ],
+        "phase_difference_deg_by_hz": [
+          1.9763122609092831,
+          7.929623344851456
+        ]
+      },
+      "modal_source_method": "mass-orthonormal signed source-receiver coupling of independently solved eigenpairs",
+      "fullwave_actual_midpoint_execution_reused": true
+    },
+    {
+      "method": "independent_pinned_MFEM_P2",
+      "level": 3,
+      "dofs_full": 4913,
+      "number_of_reconstructed_modes_including_zero": 12,
+      "first_twelve_modal_original_impulse_transfer_40_80_hz": [
+        [
+          36.145138039612995,
+          2.7502378948145463
+        ],
+        [
+          61.94475673212282,
+          -204.62363509285566
+        ]
+      ],
+      "true_fullspace_original_impulse_transfer_40_80_hz": [
+        [
+          118.28063818572429,
+          1.9755548256506732
+        ],
+        [
+          156.787712798592,
+          -213.0454315894987
+        ]
+      ],
+      "fullspace_vs_12mode_relative_error": {
+        "normalized_complex_l2": 0.5799036697404816,
+        "complex_relative_by_hz": [
+          2.2659315514620775,
+          0.4453634017176776
+        ],
+        "magnitude_relative_by_hz": [
+          2.2634036262650197,
+          0.23726350934934484
+        ],
+        "phase_difference_deg_by_hz": [
+          3.3942989192091586,
+          19.508280854808664
+        ]
+      },
+      "modal_source_method": "mass-orthonormal signed source-receiver coupling of independently solved eigenpairs",
+      "fullwave_actual_midpoint_execution_reused": true
+    },
+    {
+      "method": "independent_pinned_MFEM_P2",
+      "level": 4,
+      "dofs_full": 35937,
+      "number_of_reconstructed_modes_including_zero": 12,
+      "first_twelve_modal_original_impulse_transfer_40_80_hz": [
+        [
+          36.56685871332685,
+          2.9835037692751674
+        ],
+        [
+          64.93798567959766,
+          -202.8593196780599
+        ]
+      ],
+      "true_fullspace_original_impulse_transfer_40_80_hz": [
+        [
+          73.36501973071158,
+          -1.694541960075574
+        ],
+        [
+          107.1926801821992,
+          -218.9261820829705
+        ]
+      ],
+      "fullspace_vs_12mode_relative_error": {
+        "normalized_complex_l2": 0.2705574647019882,
+        "complex_relative_by_hz": [
+          1.0110648999278051,
+          0.21223618511841086
+        ],
+        "magnitude_relative_by_hz": [
+          1.0002139108756836,
+          0.14441515386562195
+        ],
+        "phase_difference_deg_by_hz": [
+          5.98760099246306,
+          8.33716064770614
+        ]
+      },
+      "modal_source_method": "mass-orthonormal signed source-receiver coupling of independently solved eigenpairs",
+      "fullwave_actual_midpoint_execution_reused": true
+    }
+  ],
+  "modal_vs_full_grid_pairs": [
+    {
+      "method": "embedded_neumann_FV",
+      "coarse": 20,
+      "fine": 32,
+      "fullspace_adjacent": {
+        "normalized_complex_l2": 0.28845865583030594,
+        "complex_relative_by_hz": [
+          0.5027856310023169,
+          0.23688769969621287
+        ],
+        "magnitude_relative_by_hz": [
+          0.4608907381757064,
+          0.23603414530460154
+        ],
+        "phase_difference_deg_by_hz": [
+          15.728776319897495,
+          1.317059842724694
+        ]
+      },
+      "12modal_adjacent": {
+        "normalized_complex_l2": 0.16563851269817187,
+        "complex_relative_by_hz": [
+          0.1221996959974916,
+          0.167016528615858
+        ],
+        "magnitude_relative_by_hz": [
+          0.08664841392415887,
+          0.060650770507245294
+        ],
+        "phase_difference_deg_by_hz": [
+          4.737451053997565,
+          9.209328002394233
+        ]
+      }
+    },
+    {
+      "method": "independent_pinned_MFEM_P2",
+      "coarse": 3,
+      "fine": 4,
+      "fullspace_adjacent": {
+        "normalized_complex_l2": 0.2642493650607944,
+        "complex_relative_by_hz": [
+          0.6140977884008558,
+          0.20488377555439094
+        ],
+        "magnitude_relative_by_hz": [
+          0.612016094607282,
+          0.0851650001469662
+        ],
+        "phase_difference_deg_by_hz": [
+          2.2800293113469277,
+          10.26294835247978
+        ]
+      },
+      "12modal_adjacent": {
+        "normalized_complex_l2": 0.01622946394933057,
+        "complex_relative_by_hz": [
+          0.013135905365413389,
+          0.016312287145365437
+        ],
+        "magnitude_relative_by_hz": [
+          0.011958866798437714,
+          0.0037306210266077377
+        ],
+        "phase_difference_deg_by_hz": [
+          0.313272761906973,
+          0.9081718546227447
+        ]
+      }
+    }
+  ],
+  "same_original_unsmoothed_discrete_impulse": true,
+  "low_modal_truncation_is_NOT_a_production_solver": true,
+  "low_mode_spectrum_not_a_causal_proof_of_highband_failure": true,
+  "canonical_fullband_impulse": "SELF_CONVERGENCE_FAILED",
+  "physical_measurements": "NOT_VALIDATED",
+  "production_ready": false
+}

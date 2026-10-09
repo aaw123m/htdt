@@ -1,0 +1,115 @@
+{
+  "schema_version": "htdt.r130d.one-sided-spatial-operator-q0-plan-1",
+  "issue": 938,
+  "pr": 1055,
+  "created_jst": "2026-10-09",
+  "purpose": "Independently isolate which spatial operator regularization contributes to finite-record original temporal q0 impulse nonconvergence while preserving source location, receiver location, q0 waveform, K and M; not canonical point-source qualification",
+  "geometry": {
+    "air_domain": "0<=x<=4, 0<=y<=4, 0<=z<=4-0.25*y",
+    "volume_m3": 56,
+    "sound_speed_m_s": 343.2,
+    "density_kg_m3": 1.2,
+    "source_xyz_m": [
+      1.5,
+      2,
+      2
+    ],
+    "receiver_xyz_m": [
+      2.5,
+      2,
+      2
+    ],
+    "boundary": "natural Neumann rigid"
+  },
+  "operator_cases": [
+    "point_source_point_receiver",
+    "gaussian_source_point_receiver",
+    "point_source_gaussian_receiver",
+    "gaussian_source_gaussian_receiver"
+  ],
+  "spatial_kernel": {
+    "formula": "exp(-|x-x0|^2/(2*sigma_m^2)) normalized on the physical domain",
+    "sigma_m": [
+      0.35,
+      0.7
+    ],
+    "source_or_receiver_gaussian_is_distinct_from_original_point": true,
+    "finite_volume": "integrate over each exactly clipped cut-cell with Gauss-Legendre 4 in x y z and roof-split y intervals",
+    "mfem": "integrate H1 P2 domain linear form with tetrahedral Gauss quadrature order 10 independently of FV; preserve source and receiver functional normalizations",
+    "point": "existing FV interior_point_stencil or pinned MFEM reference point functionals unmodified",
+    "normalization": "sum of all source weights=1 and sum receiver weights=1 individually; no posthoc amplitude fit"
+  },
+  "grid": {
+    "fv_n": [
+      20,
+      32
+    ],
+    "p2_mfem_refinement": [
+      3,
+      4
+    ],
+    "expected_mfem_dofs": [
+      4913,
+      35937
+    ],
+    "pinned_mfem_commit": "d964264cdb9a13e94a201b6c236c7721e0c8765f",
+    "archive": "benchmarks/acoustics/r130d_mfem_independent_sparse_systems",
+    "gaussian_functional_exporter": "benchmarks/acoustics/r130d_mfem_reference/sloped_spatial_gaussian_functionals.cpp"
+  },
+  "source_waveform": {
+    "q0": 1,
+    "q_after_0": 0,
+    "dt_s": 0.00025,
+    "steps": 1000,
+    "record_duration_s": 0.25,
+    "frequencies_hz": [
+      40,
+      80
+    ],
+    "phase": "P_T/Q_T exp(+i2pi f (n+0.5)dt), rectangular window",
+    "no_time_smoothing": true,
+    "no_taper": true
+  },
+  "numerical_evidence": {
+    "baseline_pointpoint": "benchmarks/acoustics/r130d_exact_discrete_impulse_candidate_evidence_2026-10-09.json",
+    "baseline_bothgaussian": "benchmarks/acoustics/r130d_fixed_spatial_kernel_independent_fv_mfem_evidence_2026-10-09.json",
+    "require_hashed_reproduction_of_both_baselines": true,
+    "run_only_the_two_new_mixed_operator_combinations_per_grid": true,
+    "save_both_40_and_80_hz_complex_magnitude_phase": true,
+    "measure_source_only_vs_point_and_receiver_only_vs_point": true,
+    "measure_same_operator_self_convergence_for_each_perturbation": true,
+    "metric": "normalized complex L2, per-frequency relative magnitude and signed wrapped phase; no omitted frequencies",
+    "no_exclusion_of_nonmonotonic_or_unfavorable_result": true
+  },
+  "solver": {
+    "FV": "sparse LU midpoint",
+    "MFEM": "Jacobi-PCG midpoint",
+    "rtol": 1e-11,
+    "atol": 0,
+    "maxiter": 350,
+    "true_relative_linear_residual_max": 1e-8
+  },
+  "analysis": {
+    "no_posthoc_threshold": true,
+    "no_physical_pass_without_bras": true,
+    "differential_is_not_unique_causality_proof": true,
+    "no_one_sided_pass_promotes_original_point_point": true,
+    "observe_which_mixed_combination_reduces_adjacent_complex_error": true
+  },
+  "resource_limits": {
+    "max_fv_n": 32,
+    "max_mfem_dofs": 35937,
+    "max_time_steps": 1000,
+    "max_mixed_time_integrations": 16,
+    "max_raw_reference_bytes": 120000000,
+    "max_wall_per_case_s": 900
+  },
+  "authority": {
+    "original_pffdtd_fullband": "SELF_CONVERGENCE_FAILED",
+    "original_pointpoint_q0": "NOT_QUALIFIED",
+    "physical_validation": "NOT_VALIDATED",
+    "production_ready": false,
+    "issue938": "OPEN",
+    "pr1055": "DRAFT"
+  }
+}

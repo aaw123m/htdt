@@ -1,0 +1,122 @@
+{
+  "schema_version": "htdt.r130d.experimental-convex-multiplane-cutcell-plan-1",
+  "date": "2026-10-09",
+  "issue": 938,
+  "scope": "Experimental geometrical extension of independent new candidate solver from planar sloped prism to bounded convex planar CAD room domains; no production integration, no implied support for concave/multi-region CAD",
+  "algorithm": "Clip each cubic fluid voxel against every outward half-space; exact geometric polytope volume from triangulated oriented clipping surface; exact open neighbour face polygon areas from 2D plane intersection; conservative undamped rigid Neumann FV + existing implicit midpoint time integration",
+  "grid_room_box_m": [
+    4,
+    4,
+    4
+  ],
+  "geometry_cases": [
+    {
+      "name": "baseline_sloped",
+      "additional_planes": [
+        {
+          "normal": [
+            0,
+            0.25,
+            1
+          ],
+          "offset": 4
+        }
+      ],
+      "exact_volume_m3": 56,
+      "existing_legacy_analytical_builder_cross_check": true
+    },
+    {
+      "name": "planar_wedge",
+      "additional_planes": [
+        {
+          "normal": [
+            0,
+            0.25,
+            1
+          ],
+          "offset": 4
+        },
+        {
+          "normal": [
+            1,
+            1,
+            0
+          ],
+          "offset": 6
+        }
+      ],
+      "exact_volume_m3": 49.666666666666664,
+      "existing_legacy_analytical_builder_cross_check": false
+    },
+    {
+      "name": "three_axis_diagonal",
+      "additional_planes": [
+        {
+          "normal": [
+            1,
+            1,
+            1
+          ],
+          "offset": 8
+        }
+      ],
+      "exact_volume_m3": 53.333333333333336,
+      "existing_legacy_analytical_builder_cross_check": false
+    }
+  ],
+  "numerical_levels": [
+    6,
+    8,
+    12,
+    16,
+    20
+  ],
+  "source": [
+    1.5,
+    2,
+    2
+  ],
+  "receiver": [
+    2.5,
+    2,
+    2
+  ],
+  "medium": {
+    "sound_speed_m_s": 343.2,
+    "density_kg_m3": 1.2
+  },
+  "drive": {
+    "gaussian_center_s": 0.012,
+    "sigma_s": 0.003,
+    "actual_injected": true,
+    "dt_s": 0.00025,
+    "duration_s": 0.25,
+    "frequencies_hz": [
+      40,
+      80
+    ]
+  },
+  "expected_properties": [
+    "exact polyhedral fluid volumes to 5e-9 relative against independent half-space triple intersection convex hull and analytic volumes",
+    "symmetric positive-semi-definite rigid Neumann stiffness, constant potential zero residual below 1e-11 normalized",
+    "undriven implicit midpoint energy conservation relative drift <1e-9 at large dt",
+    "sloped prism generalized cut-cell stiffness and mass recover original exact-geometry solver within 2e-10 relative",
+    "reject non-finite, unbounded-domain, incompatible solid source/receiver stencils and near-zero cut-cell fractions without implicit voxel deletion"
+  ],
+  "exploratory_candidate_metric": "adjacent complex 40/80-Hz transfer differences for wedge or 3-axis diagonal geometry; report regardless of monotonicity. These are NOT accepted by original #938 frozen candidate limits until separately predeclared independent FEM reference.",
+  "resource_limits": {
+    "max_halfspaces": 8,
+    "max_cells": 30000,
+    "min_retained_cut_volume_fraction": 1e-12,
+    "max_matrix_nnz": 200000,
+    "max_numerical_wall_seconds_per_geometry": 300
+  },
+  "frozen_gate": {
+    "original_r130d_impulse": "SELF_CONVERGENCE_FAILED",
+    "candidate_sloped_gaussian_numerical": "EXPERIMENTAL_CANDIDATE_NUMERICAL_PASS_ONLY",
+    "new_geometries_independent_cross_solver": "BLOCKED",
+    "general_cad": "NOT_VALIDATED",
+    "production_enabled": false,
+    "physical_validation": "NOT_VALIDATED"
+  }
+}

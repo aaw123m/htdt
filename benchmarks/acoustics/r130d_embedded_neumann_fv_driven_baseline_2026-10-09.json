@@ -1,0 +1,139 @@
+{
+  "schema": "htdt.r130d.embedded-fv-actual-bandlimited-source-1",
+  "experimental_solver": "embedded-plane-Neumann conservative finite-volume implicit-midpoint",
+  "physical_model_change_from_frozen_run25": true,
+  "actual_driven_solver_execution": true,
+  "pffdtd_canonical_self_convergence": "SELF_CONVERGENCE_FAILED",
+  "cross_solver_eligible": false,
+  "production_ready": false,
+  "physical_contract": {
+    "fixture": "x,y=0..4m; z=0..4-y/4m; rigid Neumann; c=343.2m/s",
+    "source_xyz_m": [
+      1.5,
+      2.0,
+      2.0
+    ],
+    "receiver_xyz_m": [
+      2.5,
+      2.0,
+      2.0
+    ],
+    "frequency_hz": [
+      40.0,
+      80.0
+    ],
+    "duration_s": 0.25,
+    "time_step_s": 0.00025,
+    "Gaussian_volume_velocity_center_s": 0.012,
+    "Gaussian_volume_velocity_sigma_s": 0.003,
+    "analysis_kernel": "exp(+i omega t) midpoint left-rectified",
+    "source_normalization": "complex P_T/Q_T, no fitted phase or gain"
+  },
+  "runtime": {
+    "numpy": "1.26.4",
+    "platform": "Windows-11-10.0.26200-SP0"
+  },
+  "levels": [
+    {
+      "grid_cells_per_axis": 12,
+      "active_cells": 1584,
+      "cell_h_m": 0.3333333333333333,
+      "transfer_complex_40_80_hz": [
+        [
+          11.364481195131143,
+          41.97579738012664
+        ],
+        [
+          75.25503688019566,
+          -53.7693852810898
+        ]
+      ]
+    },
+    {
+      "grid_cells_per_axis": 16,
+      "active_cells": 3712,
+      "cell_h_m": 0.25,
+      "transfer_complex_40_80_hz": [
+        [
+          13.211837213659841,
+          40.64784515582685
+        ],
+        [
+          96.5901508040828,
+          -106.48507995273782
+        ]
+      ]
+    },
+    {
+      "grid_cells_per_axis": 20,
+      "active_cells": 7200,
+      "cell_h_m": 0.2,
+      "transfer_complex_40_80_hz": [
+        [
+          14.441925528728346,
+          41.081713505244274
+        ],
+        [
+          96.14980304177607,
+          -128.79047999232003
+        ]
+      ]
+    },
+    {
+      "grid_cells_per_axis": 24,
+      "active_cells": 12384,
+      "cell_h_m": 0.16666666666666666,
+      "transfer_complex_40_80_hz": [
+        [
+          14.505957406425836,
+          40.19901854411983
+        ],
+        [
+          93.53327790893093,
+          -140.4470155140501
+        ]
+      ]
+    }
+  ],
+  "pairs": [
+    {
+      "coarse_n": 12,
+      "fine_n": 16,
+      "normalized_complex_rms": 0.37947047800605405,
+      "per_bin_complex_relative": [
+        0.05323034072835914,
+        0.3955687272876746
+      ],
+      "per_bin_phase_difference_deg": [
+        2.856776044401692,
+        12.243919483845408
+      ]
+    },
+    {
+      "coarse_n": 16,
+      "fine_n": 20,
+      "normalized_complex_rms": 0.1342072503443905,
+      "per_bin_complex_relative": [
+        0.029953471484778303,
+        0.13880896881466212
+      ],
+      "per_bin_phase_difference_deg": [
+        1.3628860333967285,
+        5.466902618917947
+      ]
+    },
+    {
+      "coarse_n": 20,
+      "fine_n": 24,
+      "normalized_complex_rms": 0.06881918302799149,
+      "per_bin_complex_relative": [
+        0.02070876975555634,
+        0.07079799684653064
+      ],
+      "per_bin_phase_difference_deg": [
+        0.4734679426688132,
+        3.0811797911460475
+      ]
+    }
+  ]
+}

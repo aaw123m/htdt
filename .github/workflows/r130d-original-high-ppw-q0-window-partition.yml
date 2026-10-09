@@ -1,0 +1,80 @@
+name: R130D original PFFDTD high-PPW 8-node q0 finite window attribution
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/r130d-original-high-ppw-q0-window-partition.yml'
+      - 'benchmarks/acoustics/r130d_original_high_ppw_native_window_partition*'
+      - 'scripts/run_r130d_original_high_ppw_window_partition.py'
+      - 'backend/tests/test_r130d_original_high_ppw_native_window_partition.py'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  original-point-q0-window-integrity:
+    runs-on: windows-2022
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+        name: Checkout original source waveform provenance
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Pin numerical evidence dependencies
+        run: |
+          python -m pip install --disable-pip-version-check numpy==1.26.4 scipy==1.14.1 h5py==3.11.0 pytest==8.4.2 pydantic==2.11.9
+          if ($LASTEXITCODE -ne 0) { throw 'original high PPW time window checker dependencies failed' }
+      - name: Exhaustive native original point q0 window partition and fail-closed tests
+        env:
+          PYTHONUTF8: '1'
+        run: |
+          New-Item -ItemType Directory -Force scratch/tests | Out-Null
+          Copy-Item backend/tests/test_r130d_original_high_ppw_native_window_partition.py scratch/tests/
+          $env:PYTHONPATH = Join-Path $pwd 'backend/src'
+          python -m pytest -q scratch/tests/test_r130d_original_high_ppw_native_window_partition.py --tb=short
+          if ($LASTEXITCODE -ne 0) { throw 'original eight-node time-segment conservation/evidence failure' }
+      - name: Independently reconstruct actual stored signed complex components and four original PPW deltas
+        env:
+          PYTHONUTF8: '1'
+        run: |
+          @'
+          import json,hashlib,math,sys
+          import numpy as np
+          from pathlib import Path
+          sys.path.insert(0,'scripts')
+          from run_r130d_original_high_ppw_window_partition import adjacent_analysis,complex_from_pairs,validate_plan
+          root=Path('benchmarks/acoustics')
+          raw=(root/'r130d_original_high_ppw_native_window_partition_plan_2026-10-09.json').read_bytes()
+          p=validate_plan(json.loads(raw))
+          d=json.loads((root/'r130d_original_high_ppw_native_window_partition_evidence_2026-10-09.json').read_text())
+          other=json.loads((root/'r130d_original_point_quadratic_pffdtd_evidence_2026-10-09.json').read_text())
+          assert d['plan_sha256_lf']==hashlib.sha256(raw.replace(b'\r\n',b'\n')).hexdigest()
+          assert d['preregistered_plan']==p
+          assert [x['ppw'] for x in d['levels']]==[28,32,36,40,44]
+          for row,frozen in zip(d['levels'],other['actual_native_wave_cases']):
+              assert row['original_8node_comms_sha256']==frozen['original_native_comm_sha256']
+              assert row['original_8node_native_output_sha256']!=frozen['native_solver']['sim_outs_sha256']
+              assert row['full_original_control_signed_complex']==frozen['unmodified_original_transfer_pa_per_m3_s']
+              z=row['time_components']
+              full=complex_from_pairs(z['full_original_40_80_complex'])
+              segments=[complex_from_pairs(q) for q in z['signed_partitions_40_80_complex']]
+              np.testing.assert_allclose(np.sum(segments,axis=0),full,rtol=1e-10,atol=2e-8)
+              assert sum(v['sample_count'] for v in z['segments'])==z['record_samples']
+          scored=adjacent_analysis(d['levels'])
+          for observed,new in zip(d['adjacent_native_8node_original_signed_difference_contributions'],scored):
+              assert observed['coarse_ppw']==new['coarse_ppw'] and observed['fine_ppw']==new['fine_ppw']
+              np.testing.assert_allclose(observed['full_delta_norm'],new['full_delta_norm'],rtol=1e-10,atol=2e-8)
+              for a,b in zip(observed['segments'],new['segments']):
+                  np.testing.assert_allclose(a['relative_to_full_delta_norm'],b['relative_to_full_delta_norm'],rtol=1e-10,atol=2e-8)
+          assert all(q['segments'][2]['relative_to_full_delta_norm']>1.0 for q in scored)
+          assert d['canonical_original_full_window_point_q0']=='SELF_CONVERGENCE_FAILED'
+          assert d['modified_source_receiver_waveform_or_boundary'] is False
+          assert d['physical_validation']=='NOT_VALIDATED' and d['production_ready'] is False
+          print('PASS complete saved original native 8-node high PPW signed finite-window decomposition; original self-convergence FAIL retained')
+          '@ | python -
+          if ($LASTEXITCODE -ne 0) { throw 'original high PPW source window evidence or NO_GO drifted' }
+      # The original 8-node native full raw sim_outs.h5 files are external.
+      # This CI verifies saved original source hashes & signed window evidence;
+      # it does NOT rerun the upstream PFFDTD source or re-read external HDF5.

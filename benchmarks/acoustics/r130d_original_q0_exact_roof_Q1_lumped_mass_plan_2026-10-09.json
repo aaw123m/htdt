@@ -1,0 +1,93 @@
+{
+  "schema_version": "htdt.r130d.original-q0-exact-roof-cut-Q1-positive-row-lump-plan-1",
+  "date_jst": "2026-10-09",
+  "issue": 938,
+  "pr": 1055,
+  "scientific_question": "With EXACTLY the preexisting true physical cut Q1 Neumann roof stiffness (exact y-z bilinear original Cartesian basis, all positive-support roof-exterior original nodes), keep original 8node source/receiver and native q0, but replace fully consistent Q1 mass with its positive exact physical row sums M_lumped. Does the uniform-diagonal kinetic approximation change first sloping Neumann roof causal image error and improve entire original 250ms full native 40/80Hz signed P_T/Q_T refinement? Distinguish discrete mass dispersion from actual weak roof physics, no sliver/node/mode deletion. If full 250ms remains fail report clearly.",
+  "preobserved_baselines": {
+    "physical_cut_Q1_consistent_mass_reference": "benchmarks/acoustics/r130d_original_q0_exact_roof_cut_Q1_variational_evidence_2026-10-09.json",
+    "conforming_P1_consistent_mass_reference": "benchmarks/acoustics/r130d_original_q0_conforming_p1_consistent_mass_evidence_2026-10-09.json",
+    "true_original_PFFDTD_source_reference": "benchmarks/acoustics/r130d_original_point_quadratic_pffdtd_evidence_2026-10-09.json",
+    "original_first_roof_reflection_real_reference": "benchmarks/acoustics/r130d_original_q0_first_roof_echo_causal_weak_evidence_2026-10-09.json",
+    "preobserved_cut_Q1_all_four_pairs_FAIL": true,
+    "preobserved_original_PFFDTD_all_four_pairs_FAIL": true
+  },
+  "frozen_original": {
+    "upstream_sha": "aa319f6c86517cb95aabfae8656277da62c3ead5",
+    "ppw": [
+      28,
+      32,
+      36,
+      40,
+      44
+    ],
+    "original_exact_native_source_xyz_m": [
+      1.5,
+      2,
+      2
+    ],
+    "original_exact_native_receiver_xyz_m": [
+      2.5,
+      2,
+      2
+    ],
+    "original_SHA_pinned_8node_in_ixyz_in_sigs_out_ixyz_out_alpha_preserved": true,
+    "original_q0": "q[0]=1 and q[n>0]=0, original native in_sigs sum c² dt²/h³",
+    "native_original_h_dt_Nt_all_grids_preserved": true,
+    "full_record_s": 0.25,
+    "original_pffdtd_pressure_n0_forward_interior_centered_nlast_backward": true,
+    "original_signed_hz": [
+      40,
+      80
+    ],
+    "c_m_s": 343.2,
+    "rho_kg_m3": 1.2,
+    "complex_gate": 0.2,
+    "magnitude_gate": 0.25,
+    "phase_deg_gate": 15,
+    "zero_high_mode_cutoff": true,
+    "zero_taper_or_wave_smoothing": true
+  },
+  "new_physical_scheme": {
+    "y_z_neumann_stiffness": "exact same existing true 14m² cut-Cartesian Q1 bilinear weak gradient stiffness, clipped native Cartesian cells, six-point degree-4 exact physical triangle quadrature (no new boundary law), original positive-support outer ghost Cartesian nodes preserved",
+    "x_stiffness": "same existing physically exact P1 native x consistent weak stiffness x=0..4",
+    "mass_change_only": "Mx_lump=diag(row-sums(Mx_consistent)), Myz_lump=diag(row-sums(Myz_Q1_consistent)); physical exact integrated 3D mass 56m³; no floor/ghost trim or tiny cell removal",
+    "total_sparse": "M=Mx_lump ⊗ Myz_lump; K=Kx ⊗ Myz_lump + Mx_lump ⊗ Kyz_Q1. Note this is a SEMIDISCRETE MASS-LUMPED weak formulation and changes some x/y cross-section stiffness tensor factors compared with consistent baseline: preserve Kx, Kyz but 3D tensor K inevitably changes with M.",
+    "source_receiver": "exact original 8node native Cartesian positions+unmodified HDF5 weights; same previous Q1 mode projection, every generalized mode",
+    "causal_time": "same native beta=1/4 implicit Newmark q[0]=1, full 250ms pressure transfer, all original signed 40/80, no coefficient fitting",
+    "roof_direct_diagnostic": "same previously preregistered roof-center 0.0089668767033651s, R=.0011s, widths [.00035,.0006,.00085]s and correct Neumann 64-point true roof image per original native HDF5; computed new solver q0 roof-window pressure using modal exact native n pressure, original 250ms full score independently",
+    "physical_volume_exact": 56,
+    "physical_yz_area_exact": 14,
+    "no_mode_eigenvalue_truncation_damping_or_shift": true
+  },
+  "independent_invariants": {
+    "positive_exact_row_sum_M_lump_each_grid": true,
+    "physical_mass_action_ones_matches_previous_full_consistent_mass": true,
+    "original_eight_native_source_weights_factorization_exact": true,
+    "rigid_Neumann_K_constant_true": true,
+    "true_finite_wet_14m2_and_56m3": true,
+    "exact_physical_affine_grad_Q1_yz_energy_unchanged": true,
+    "analytic_causal_modal_pressure_vs_original_finite_record_same_Newmark_clock": true,
+    "all_original_3D_modes_no_cut": true,
+    "compare_all_five_grids_and_all_four_adjacent": true,
+    "compare_all_original_three_gates_and_strict_monotonicity": true,
+    "report_all_unfavorable_per_bin_phase_magnitude_signed_values": true,
+    "previous_true_consistent_Q1_and_original_upstream_raw_control_unmodified": true,
+    "roof_window_is_only_diagnostic_not_original_250ms_acceptance": true
+  },
+  "limits": {
+    "max_yz_modes": 3300,
+    "max_total_dofs": 180000,
+    "max_cases": 5,
+    "new_native_pffdtd_waves": 0,
+    "new_github_actions": 0,
+    "retain_scratch": true
+  },
+  "release": {
+    "original_upstream_PFFDTD_q0": "SELF_CONVERGENCE_FAILED",
+    "independent_physics": "NOT_VALIDATED",
+    "product": "NO_GO",
+    "PR_draft": true,
+    "issue_open": true
+  }
+}

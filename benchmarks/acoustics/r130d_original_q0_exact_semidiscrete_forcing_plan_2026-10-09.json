@@ -1,0 +1,90 @@
+{
+  "schema_version": "htdt.r130d.original-q0-exact-semidiscrete-forcing-plan-1",
+  "date_jst": "2026-10-09",
+  "issue": 938,
+  "pr": 1055,
+  "purpose": "Prospectively test exact semidiscrete causal numerical time integration with fixed original six-neighbor spatial graph and original 8point q[0]=1, distinguishing discrete velocity kick versus one-native-sample piecewise constant force. Neither is identical to the original leapfrog source discretization; no original native qualification claim.",
+  "original": {
+    "pffdtd_sha": "aa319f6c86517cb95aabfae8656277da62c3ead5",
+    "ppw": [
+      28,
+      32,
+      36,
+      40,
+      44
+    ],
+    "physical_source_m": [
+      1.5,
+      2,
+      2
+    ],
+    "physical_receiver_m": [
+      2.5,
+      2,
+      2
+    ],
+    "source_receiver_eight_point_native_hdf5_sha": true,
+    "original_spatial_neumann_graph_unmodified": true,
+    "original_native_dt_nt_and_h": true,
+    "original_q0": "original native in_sigs q0=1 and q[n>0]=0, sum(in_sigs[:,0]) is fixed unmodified modal initial-kick scale",
+    "record_s": 0.25,
+    "signed_frequency_hz": [
+      40,
+      80
+    ],
+    "density_kg_m3": 1.2,
+    "c_m_s": 343.2,
+    "original_true_wave_evidence": "benchmarks/acoustics/r130d_original_point_quadratic_pffdtd_evidence_2026-10-09.json",
+    "original_allmode_evidence": "benchmarks/acoustics/r130d_original_pffdtd_native_full_modal_q0_evidence_2026-10-09.json",
+    "original_graph_evidence": "benchmarks/acoustics/r130d_original_pffdtd_neumann_graph_evidence_2026-10-09.json",
+    "original_graph_plan": "benchmarks/acoustics/r130d_original_pffdtd_neumann_graph_plan_2026-10-09.json"
+  },
+  "temporal_arms": [
+    {
+      "id": "original_native_leapfrog",
+      "formula": "theta=2*asin(sqrt(l2*lambda)/2); phi_n=A*sin(n*theta)/sin(theta); exact original 250ms pressure forward/center/backward finite differences"
+    },
+    {
+      "id": "exact_semidiscrete_velocity_impulse",
+      "formula": "theta=dt*(c/h)*sqrt(lambda); phi_n=A*sin(n*theta)/theta, n>=0. Exact harmonic semidiscrete solution to causal velocity jump v0+=A/dt; physical acceleration impulse impulse-area A/dt. Original A fixed; original spatial graph and 8node source weights."
+    },
+    {
+      "id": "exact_semidiscrete_one_sample_force_hold",
+      "formula": "theta=dt*(c/h)*sqrt(lambda); acceleration a=A/dt^2 is held constant over [0,dt] and zero thereafter, phi0=0, phi_n=A*[cos((n-1)*theta)-cos(n*theta)]/theta^2 for n>=1. Exact semidiscrete causal force quadrature for original single nonzero q0 sample, same a and original source weights."
+    }
+  ],
+  "observer": {
+    "pressure": "Original PFFDTD second order forward n0, centered n1..Nt-2, backward Nt-1, rho * finite difference of potential. Same 250ms actual Nt and 40/80 signed P_T/Q_T all arms.",
+    "no_extra_sample_in_scored_record": true,
+    "no_modal_cut_or_smoothing_taper_damping_or_amplitude_fit": true,
+    "zero_mode_analytic_limits_required": true,
+    "independent_direct_time_oscillator_fixtures_required": true
+  },
+  "tests": {
+    "original_native_full_eigenwaves_vs_real_sha_hdf5_complex_relative_max": 0.000002,
+    "original_eigen_fullsigned_vs_prior_full_modal_relative_max": 2e-10,
+    "original_frozen_complex": 0.2,
+    "original_frozen_magnitude": 0.25,
+    "original_frozen_phase_deg": 15,
+    "all_four_adjacent_grid_pairs": true,
+    "all_modes_including_high": true,
+    "compare_all_bins_and_max_phase_magnitude": true,
+    "all_three_metrics_strict_monotonic_for_provisional_refinement": true,
+    "negative_data_not_hidden": true,
+    "no_convergence_success_without_independent_phys": true
+  },
+  "limits": {
+    "max_cases": 5,
+    "max_arms": 3,
+    "original_native_pffdtd_new_waves": 0,
+    "new_github_actions_runs": 0,
+    "scratch_cleanup": false
+  },
+  "authority": {
+    "original_PFFDTD_q0": "SELF_CONVERGENCE_FAILED",
+    "physical_validation": "NOT_VALIDATED",
+    "product": "NO_GO",
+    "pr_draft": true,
+    "issue_open": true
+  }
+}

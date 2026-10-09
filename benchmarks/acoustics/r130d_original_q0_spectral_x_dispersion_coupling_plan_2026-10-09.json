@@ -1,0 +1,106 @@
+{
+  "schema_version": "htdt.r130d.original-native-q0-x-spectral-ab-plan-1",
+  "date_jst": "2026-10-09",
+  "issue": 938,
+  "pr": 1055,
+  "objective": "Pre-observation isolate original PFFDTD temporal dispersion from x-axis Neumann eigenfrequency spatial dispersion and fixed continuous point x coupling, using the COMPLETE frozen native original 3D modes. Numerical spectral solver candidates are NOT original upstream PFFDTD or production replacement.",
+  "input": {
+    "original_full_modal_preregistered_plan": "benchmarks/acoustics/r130d_original_pffdtd_native_full_kronecker_modal_q0_plan_2026-10-09.json",
+    "original_full_modal_evidence": "benchmarks/acoustics/r130d_original_pffdtd_native_full_modal_q0_evidence_2026-10-09.json",
+    "upstream_sha": "aa319f6c86517cb95aabfae8656277da62c3ead5",
+    "ppw": [
+      28,
+      32,
+      36,
+      40,
+      44
+    ],
+    "room_x_interval_m": [
+      0,
+      4
+    ],
+    "source_xyz_m": [
+      1.5,
+      2,
+      2
+    ],
+    "receiver_xyz_m": [
+      2.5,
+      2,
+      2
+    ],
+    "physical_roof_and_original_yz_staircase_unchanged": true,
+    "original_8_node_source_receiver_for_native_arms": true,
+    "q0": "original frozen native in_sigs[:,0], zero for n>0; preserve initial phi0=0 and phi1=original q0 modal kick for all arms",
+    "original_native_dt_nt_rho_c_per_ppw": true,
+    "record_s": 0.25,
+    "frequency_hz": [
+      40,
+      80
+    ]
+  },
+  "method": {
+    "spectral_modes": "all original connected x times all original connected yz original graph modes, no discarded frequencies, no damping",
+    "arms": [
+      {
+        "id": "native_leapfrog",
+        "time": "theta=2asin(dt*omega_native/2)",
+        "x_frequency": "original graph",
+        "x_coupling": "original 8-node"
+      },
+      {
+        "id": "native_newmark",
+        "time": "theta=2atan(dt*omega_native/2)",
+        "x_frequency": "original graph",
+        "x_coupling": "original 8-node"
+      },
+      {
+        "id": "x_frequency_newmark",
+        "time": "theta=2atan(dt*omega_candidate/2)",
+        "x_frequency": "replace x graph lambda_x by (h*pi*m/4)^2, mode m=0..nx-1; yz graph unchanged",
+        "x_coupling": "original 8-node"
+      },
+      {
+        "id": "x_coupling_newmark",
+        "time": "theta=2atan(dt*omega_native/2)",
+        "x_frequency": "original graph",
+        "x_coupling": "(2-delta_m0)/nx *cos(pi*m*1.5/4)*cos(pi*m*2.5/4); yz original exact mode coupling unchanged"
+      },
+      {
+        "id": "both_x_newmark",
+        "time": "theta=2atan(dt*omega_candidate/2)",
+        "x_frequency": "exact x Neumann corrected lambda",
+        "x_coupling": "fixed continuous mathematical x point eval product as in x_coupling_newmark"
+      }
+    ],
+    "source_q0_initial_discrete_kick_frozen_in_all_arms": true,
+    "finite_250ms_pressure_dtft": "full native Nt, original rho second-order pressure derivative endpoints, original signed P_T/Q_T on both 40 and 80 Hz",
+    "mode_matching": "x index m inside each ORIGINAL graph with original full yz modes, not cross-grid high-mode pairing",
+    "constant_mode": "x m0 lambda0=0, coupling=1/nx",
+    "no_yz_geometry_fix_or_bras_claim": true
+  },
+  "evaluation": {
+    "all_four_adjacent_pairs": true,
+    "compare_original_frozen_native_wave_to_native_leapfrog": 0.000002,
+    "complex_limit": 0.2,
+    "magnitude_limit": 0.25,
+    "phase_deg_limit": 15,
+    "save_full_signed_per_grid_and_pair_bin": true,
+    "save_all_unfavorable_results": true,
+    "no_result_dependent_fitting_or_truncation": true,
+    "full_original_canonical_run25_unqualified": true,
+    "one_or_multiple_experimental_high_ppw_pairs_not_canonical_success": true
+  },
+  "limits": {
+    "max_original_cases": 5,
+    "max_new_native_pffdtd_wave_runs": 0,
+    "no_github_actions_runs": true
+  },
+  "authority": {
+    "original_point_q0": "SELF_CONVERGENCE_FAILED",
+    "physical_validation": "NOT_VALIDATED",
+    "product": "NO_GO",
+    "issue_open": true,
+    "pr_draft": true
+  }
+}

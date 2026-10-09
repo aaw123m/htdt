@@ -1,0 +1,437 @@
+{
+  "schema_version": "htdt.r130d.original-q0-oblique-roof-affine-manufactured-strong-vs-weak-evidence-1",
+  "preregistered_plan_sha256_lf": "6bcbe2c042829f8e3a23840b20310a28c52f3e0530095a8c7813785faa6954b8",
+  "preregistered_plan": {
+    "schema_version": "htdt.r130d.original-native-oblique-roof-affine-harmonic-operator-consistency-plan-1",
+    "created_jst": "2026-10-10",
+    "issue": 938,
+    "pr": 1055,
+    "goal": "Independent manufactured harmonic exact true-roof Neumann consistency comparison: apply untouched ORIGINAL PFFDTD HDF5 boundary stencil (6 Cartesian axes) to true physical roof-tangential affine u(y,z)=y-0.25*z with \u0394u=0 and n_roof\u00b7grad u=0; independently apply exact physical cut-Cartesian-Q1 weak stiffness Kyz to SAME affine nodal values at genuine near-roof FE basis DOFs with supports only touching inclined roof. Report actual native h-scaled strong residual of original staircase near roof vs small true-cut Q1 weak residual on 5 original PPW28/32/36/40/44. NOT identical norms/units; compare their individually correct consistency properties, not magnitude as though comparable physical fluxes. Maintain original 250ms q0 full signed gates unchanged.",
+    "original": {
+      "pffdtd_pin": "aa319f6c86517cb95aabfae8656277da62c3ead5",
+      "ppw": [
+        28,
+        32,
+        36,
+        40,
+        44
+      ],
+      "original_HDF5_evidence": "benchmarks/acoustics/r130d_original_point_quadratic_pffdtd_evidence_2026-10-09.json",
+      "original_roof_first_reflection_evidence": "benchmarks/acoustics/r130d_original_q0_first_roof_echo_causal_weak_evidence_2026-10-09.json",
+      "original_full_Q1_cut_evidence": "benchmarks/acoustics/r130d_original_q0_exact_roof_cut_Q1_variational_evidence_2026-10-09.json",
+      "unchanged_real_8_source_8_receiver_native_weights_indices_SHA": true,
+      "unchanged_full_250ms_q0_40_80_signed": true,
+      "original_40_80_full250ms_frozen_gates": [
+        0.2,
+        0.25,
+        15
+      ],
+      "preserve_original_physical_room_56m3": true,
+      "no_native_pffdtd_rerun": true
+    },
+    "manufactured": {
+      "true_physical_room_2D": "0<y<4, 0<z<4\u22120.25y; x\u2208[0,4]",
+      "affine_roof_tangent_u": "u=y\u22120.25z, grad_yz=(1,\u2212.25), \u0394u=0, true roof n=(.25,1)/sqrt(1.0625), n\u00b7grad=0",
+      "original_native_6direction_adjacency_order": [
+        "+x",
+        "-x",
+        "+y",
+        "-y",
+        "+z",
+        "-z"
+      ],
+      "original_native_active_roof_node_selection": "from actual vox_out.h5 bn_ixyz/adj_bn. x at least 1 interior layer from halo, native resident physical point wet, y\u2208(2h,4\u22122h), z>2h, roof distance 0\u22644\u2212.25y\u2212z\u22642h, missing +y/+z neighbor beyond true roof, at least 1 such neighbor",
+      "strong_native_PFFDTD_axial_graph_laplacian_residual": "[adj(+y)\u2212adj(\u2212y)\u2212.25*(adj(+z)\u2212adj(\u2212z))]/h, since each neighbor axial difference in u is +/-h or +/-0.25h; interior finite difference \u0394u=0. This yields residual in 1/m. No physical flux-face integral claim.",
+      "true_roof_Q1_fem": "The same y,z original Cartesian coordinates and original bilinear Q1 physical cut polygon (no small-cell removal, exact positive degree4 triangle quadrature); Kyz=c\u00b2\u222btrue wet \u2207Ni\u00b7\u2207Nj; apply affine u[y,z] directly to ALL active roof Q1 nodes. For nodes within original stencil selection, their bilinear shape support is strictly interior to y=0/4 and z=0 boundaries so the weak normal flux residual must be zero by Green identity; no computed correction fit.",
+      "report_original_native_strong_laplacian_residual_RMS_peak_and_1over_h_scaled": true,
+      "report_exact_cutQ1_manufactured_weak_residual_abs_RMS_peak": true,
+      "original_native_road_guard": "Don't equate strong pointwise discrete Laplacian (1/m) to FEM weighted stiffness row (c\u00b2\u00d7m). Results show mathematical consistency individually.",
+      "report_no_canonical_actual_full_wave_CAUSAL_PROOF": true
+    },
+    "validation": {
+      "positive_56m3_physical_cut_Q1_volume": true,
+      "actual_SHA_original_raw_Neumann_boundary_graph_and_native_q0_full_wave": true,
+      "actual_original_native_h_ts_Nt_each_ppw": true,
+      "manufactured_gradient_normal_exact_zero": true,
+      "independent_Q1_affine_reproduction_not_merely_K1": true,
+      "strict_original_roof_nearfield_node_localization_and_control_interior_residual_zero": true,
+      "all_five_grid_counterexamples_without_best_choice": true,
+      "unchanged_original_complete_250ms_signed_40_80_recomputed_each_original_HDF5": true,
+      "all_four_original_250ms_pairs_frozen_3gates_fail": true,
+      "no_new_wave_runs_no_github_actions": true
+    },
+    "limits": {
+      "max_ppws": 5,
+      "max_active_yz_nodes": 3300,
+      "no_new_pffdtd_wave_runs": 0,
+      "no_github_actions": 0,
+      "preserve_scratch": true
+    },
+    "release": {
+      "canonical_original": "SELF_CONVERGENCE_FAILED",
+      "independent_physics": "NOT_VALIDATED",
+      "product": "NO_GO",
+      "PR_draft": true,
+      "issue_open": true
+    }
+  },
+  "canonical_original_q0": "SELF_CONVERGENCE_FAILED",
+  "physical_validation": "NOT_VALIDATED",
+  "product": "NO_GO",
+  "new_PFFDTD_runs": 0,
+  "new_GitHub_actions": 0,
+  "actual_original_genuine_6neigh_vs_true_roof_Q1_five_grid_manufactured": [
+    {
+      "ppw": 28,
+      "source_HDF5_sha256": "4404a9818a8f0c673c97e8ede8665367100aecb3d2f2f8481bc532bc45fd6b6c",
+      "room_HDF5_sha256": "9d8b598fc1e2077840ba5a51e8f2db72c30ad4b6991ae88d3174bac72acf9fc8",
+      "original_full_wave_HDF5_sha256": "6e8a94d695fe77e992d8bd66bbb9b63ed9eaf27abd86f5be94f7554d2ba97d6b",
+      "original_native_h_m": 0.12257142857142857,
+      "original_native_dt_s": 0.00020599032818587005,
+      "original_Nt": 1214,
+      "real_original_input_strength_8nodes": 2.7140664335664337,
+      "physical_true_Q1_all_positive_support_yz_basis_modes": 1081,
+      "physical_true_wet_area_yz_m2": 13.999999999999927,
+      "physical_true_room_volume_m3": 55.99999999999971,
+      "original_real_PFFDTD_vs_true_neumann_Q1_affine_roof_manufactured": {
+        "actual_original_native_genuine_roof_stencil_rows": 957,
+        "physical_true_cut_Q1_unique_roof_only_basis_rows": 29,
+        "original_real_roof_stencil_y_crossings": 231,
+        "original_real_roof_stencil_z_crossings": 957,
+        "original_strong_laplacian_affine_harmonic_residual_RMS_inverse_m": 3.4918953906898507,
+        "original_strong_laplacian_affine_harmonic_residual_peak_inverse_m": 6.11888111888112,
+        "original_h_times_strong_laplacian_roof_residual_RMS_dimensionless": 0.42800660645884164,
+        "native_original_strong_action_independent_direct_sixneighbor_max_difference": 2.5757174171303632e-14,
+        "true_cut_Q1_roof_only_affine_weak_K_u_RMS_in_Ku_units": 5.721537596290674e-11,
+        "true_cut_Q1_roof_only_affine_weak_K_u_peak_in_Ku_units": 1.6007106751203537e-10,
+        "true_cut_Q1_roof_only_affine_weak_K_u_peak_relative_to_global_K_diagonal": 5.096236225641739e-16,
+        "physical_true_roof_affine_exact_normal_derivative": 0.0,
+        "original_graph_strong_residual_and_true_Q1_weak_residual_have_DIFFERENT_UNITS": true,
+        "do_NOT_ascribe_entire_250ms_q0_failure_solely_to_this_boundary_example": true,
+        "all_native_Q1_true_cut_positive_support_nodes_preserved": true,
+        "fixed_manufactured_affine_field_not_fit_to_original_wave": true
+      },
+      "unchanged_original_250ms_signed_40_80_P_T_over_Q_T": [
+        [
+          101.09876930666194,
+          42.79568096674776
+        ],
+        [
+          150.77953891006572,
+          -21.729992606786688
+        ]
+      ],
+      "canonical_real_wave_vs_historical_relative": 1.591093726964842e-15,
+      "original_true_wave_and_q0_source_untouched": true
+    },
+    {
+      "ppw": 32,
+      "source_HDF5_sha256": "716199c1cb8f9d982cdafe7deaccdf630073a2b0d8cdec17fcaf3dff52f4b60b",
+      "room_HDF5_sha256": "8f3ebd62703c40793d68fdf703e098bbecc568cc9beb227cfa126b8042954e3b",
+      "original_full_wave_HDF5_sha256": "773601d4be74cef568739d8957082c9561912ccfd4fa860c415585409a1d84b7",
+      "original_native_h_m": 0.10725,
+      "original_native_dt_s": 0.0001802415371626363,
+      "original_Nt": 1388,
+      "real_original_input_strength_8nodes": 3.10179020979021,
+      "physical_true_Q1_all_positive_support_yz_basis_modes": 1359,
+      "physical_true_wet_area_yz_m2": 14.00000000000008,
+      "physical_true_room_volume_m3": 56.00000000000032,
+      "original_real_PFFDTD_vs_true_neumann_Q1_affine_roof_manufactured": {
+        "actual_original_native_genuine_roof_stencil_rows": 1221,
+        "physical_true_cut_Q1_unique_roof_only_basis_rows": 33,
+        "original_real_roof_stencil_y_crossings": 333,
+        "original_real_roof_stencil_z_crossings": 1221,
+        "original_strong_laplacian_affine_harmonic_residual_RMS_inverse_m": 4.157960769304638,
+        "original_strong_laplacian_affine_harmonic_residual_peak_inverse_m": 6.9930069930069925,
+        "original_h_times_strong_laplacian_roof_residual_RMS_dimensionless": 0.44594129250792247,
+        "native_original_strong_action_independent_direct_sixneighbor_max_difference": 1.0480505352461478e-13,
+        "true_cut_Q1_roof_only_affine_weak_K_u_RMS_in_Ku_units": 6.824189729304593e-11,
+        "true_cut_Q1_roof_only_affine_weak_K_u_peak_in_Ku_units": 1.8553691916167736e-10,
+        "true_cut_Q1_roof_only_affine_weak_K_u_peak_relative_to_global_K_diagonal": 5.907001079721108e-16,
+        "physical_true_roof_affine_exact_normal_derivative": 0.0,
+        "original_graph_strong_residual_and_true_Q1_weak_residual_have_DIFFERENT_UNITS": true,
+        "do_NOT_ascribe_entire_250ms_q0_failure_solely_to_this_boundary_example": true,
+        "all_native_Q1_true_cut_positive_support_nodes_preserved": true,
+        "fixed_manufactured_affine_field_not_fit_to_original_wave": true
+      },
+      "unchanged_original_250ms_signed_40_80_P_T_over_Q_T": [
+        [
+          16.566281665940135,
+          -21.002334508771654
+        ],
+        [
+          -21.520688403756928,
+          -230.65774208886285
+        ]
+      ],
+      "canonical_real_wave_vs_historical_relative": 1.0850914818395571e-15,
+      "original_true_wave_and_q0_source_untouched": true
+    },
+    {
+      "ppw": 36,
+      "source_HDF5_sha256": "3cd05bcee5f8fed08da3dc94ff2ac90b92969b293daf2db77b4bac8d0c51a2f9",
+      "room_HDF5_sha256": "433c1d334419006b1185a4ef275545d329244d0808b2a3c12a3200e7af4e3d50",
+      "original_full_wave_HDF5_sha256": "8fad2511eee77d463b43a1aa5d6f7ae13047ed8bf5d27e0cb0b76ffb7b3bd486",
+      "original_native_h_m": 0.09533333333333333,
+      "original_native_dt_s": 0.00016021469970012116,
+      "original_Nt": 1561,
+      "real_original_input_strength_8nodes": 3.4895139860139857,
+      "physical_true_Q1_all_positive_support_yz_basis_modes": 1716,
+      "physical_true_wet_area_yz_m2": 13.999999999999666,
+      "physical_true_room_volume_m3": 55.999999999998664,
+      "original_real_PFFDTD_vs_true_neumann_Q1_affine_roof_manufactured": {
+        "actual_original_native_genuine_roof_stencil_rows": 1596,
+        "physical_true_cut_Q1_unique_roof_only_basis_rows": 38,
+        "original_real_roof_stencil_y_crossings": 378,
+        "original_real_roof_stencil_z_crossings": 1596,
+        "original_strong_laplacian_affine_harmonic_residual_RMS_inverse_m": 4.461693929493363,
+        "original_strong_laplacian_affine_harmonic_residual_peak_inverse_m": 7.8671328671328675,
+        "original_h_times_strong_laplacian_roof_residual_RMS_dimensionless": 0.4253481546117006,
+        "native_original_strong_action_independent_direct_sixneighbor_max_difference": 6.572520305780927e-14,
+        "true_cut_Q1_roof_only_affine_weak_K_u_RMS_in_Ku_units": 5.713694125875224e-11,
+        "true_cut_Q1_roof_only_affine_weak_K_u_peak_in_Ku_units": 1.2369127944111824e-10,
+        "true_cut_Q1_roof_only_affine_weak_K_u_peak_relative_to_global_K_diagonal": 3.9380007198140683e-16,
+        "physical_true_roof_affine_exact_normal_derivative": 0.0,
+        "original_graph_strong_residual_and_true_Q1_weak_residual_have_DIFFERENT_UNITS": true,
+        "do_NOT_ascribe_entire_250ms_q0_failure_solely_to_this_boundary_example": true,
+        "all_native_Q1_true_cut_positive_support_nodes_preserved": true,
+        "fixed_manufactured_affine_field_not_fit_to_original_wave": true
+      },
+      "unchanged_original_250ms_signed_40_80_P_T_over_Q_T": [
+        [
+          57.86557590696425,
+          12.21253055210823
+        ],
+        [
+          119.4368140007726,
+          -167.8458584505423
+        ]
+      ],
+      "canonical_real_wave_vs_historical_relative": 1.0142767680232727e-15,
+      "original_true_wave_and_q0_source_untouched": true
+    },
+    {
+      "ppw": 40,
+      "source_HDF5_sha256": "64a4f45cf19b92bb7a8a1ffd24af05e10877c99000e29bf985637b18e287763a",
+      "room_HDF5_sha256": "c7c1894826c4774393987855e533081f615b22d510ec6042aacda12acbe0daaf",
+      "original_full_wave_HDF5_sha256": "79763a63cedf667e98cbcf5867b848675d634a861e63fc3e1cf94ed9982596fa",
+      "original_native_h_m": 0.0858,
+      "original_native_dt_s": 0.00014419322973010905,
+      "original_Nt": 1734,
+      "real_original_input_strength_8nodes": 3.877237762237762,
+      "physical_true_Q1_all_positive_support_yz_basis_modes": 2101,
+      "physical_true_wet_area_yz_m2": 13.999999999999423,
+      "physical_true_room_volume_m3": 55.99999999999769,
+      "original_real_PFFDTD_vs_true_neumann_Q1_affine_roof_manufactured": {
+        "actual_original_native_genuine_roof_stencil_rows": 2021,
+        "physical_true_cut_Q1_unique_roof_only_basis_rows": 43,
+        "original_real_roof_stencil_y_crossings": 517,
+        "original_real_roof_stencil_z_crossings": 2021,
+        "original_strong_laplacian_affine_harmonic_residual_RMS_inverse_m": 5.085739848203175,
+        "original_strong_laplacian_affine_harmonic_residual_peak_inverse_m": 8.741258741258742,
+        "original_h_times_strong_laplacian_roof_residual_RMS_dimensionless": 0.4363564789758323,
+        "native_original_strong_action_independent_direct_sixneighbor_max_difference": 5.639932965095795e-14,
+        "true_cut_Q1_roof_only_affine_weak_K_u_RMS_in_Ku_units": 5.588551402701338e-11,
+        "true_cut_Q1_roof_only_affine_weak_K_u_peak_in_Ku_units": 1.8917489796876907e-10,
+        "true_cut_Q1_roof_only_affine_weak_K_u_peak_relative_to_global_K_diagonal": 6.022824630303868e-16,
+        "physical_true_roof_affine_exact_normal_derivative": 0.0,
+        "original_graph_strong_residual_and_true_Q1_weak_residual_have_DIFFERENT_UNITS": true,
+        "do_NOT_ascribe_entire_250ms_q0_failure_solely_to_this_boundary_example": true,
+        "all_native_Q1_true_cut_positive_support_nodes_preserved": true,
+        "fixed_manufactured_affine_field_not_fit_to_original_wave": true
+      },
+      "unchanged_original_250ms_signed_40_80_P_T_over_Q_T": [
+        [
+          23.0817605749197,
+          18.909536564347956
+        ],
+        [
+          109.07263342140816,
+          -119.86161783862613
+        ]
+      ],
+      "canonical_real_wave_vs_historical_relative": 6.950130991884988e-15,
+      "original_true_wave_and_q0_source_untouched": true
+    },
+    {
+      "ppw": 44,
+      "source_HDF5_sha256": "41c537b663ef11aa7404a248862f89398dec80fd3b6c794f4ecce4a0a8577ee4",
+      "room_HDF5_sha256": "4a7cb6c30c013adc31d5b1910d50cef003cacbdd37a271ac3efa7a39956e505b",
+      "original_full_wave_HDF5_sha256": "a5603179fa00ef7a82e5e5e486d864b1b2f08e3f432692d80631fcf406c0ce89",
+      "original_native_h_m": 0.078,
+      "original_native_dt_s": 0.00013108475430009911,
+      "original_Nt": 1908,
+      "real_original_input_strength_8nodes": 4.264961538461538,
+      "physical_true_Q1_all_positive_support_yz_basis_modes": 2497,
+      "physical_true_wet_area_yz_m2": 13.9999999999997,
+      "physical_true_room_volume_m3": 55.9999999999988,
+      "original_real_PFFDTD_vs_true_neumann_Q1_affine_roof_manufactured": {
+        "actual_original_native_genuine_roof_stencil_rows": 2397,
+        "physical_true_cut_Q1_unique_roof_only_basis_rows": 47,
+        "original_real_roof_stencil_y_crossings": 612,
+        "original_real_roof_stencil_z_crossings": 2397,
+        "original_strong_laplacian_affine_harmonic_residual_RMS_inverse_m": 5.5906782103272175,
+        "original_strong_laplacian_affine_harmonic_residual_peak_inverse_m": 9.615384615384613,
+        "original_h_times_strong_laplacian_roof_residual_RMS_dimensionless": 0.43607290040552305,
+        "native_original_strong_action_independent_direct_sixneighbor_max_difference": 1.9406698470447736e-13,
+        "true_cut_Q1_roof_only_affine_weak_K_u_RMS_in_Ku_units": 4.961303905651577e-11,
+        "true_cut_Q1_roof_only_affine_weak_K_u_peak_in_Ku_units": 1.0913936421275139e-10,
+        "true_cut_Q1_roof_only_affine_weak_K_u_peak_relative_to_global_K_diagonal": 3.4747065174829946e-16,
+        "physical_true_roof_affine_exact_normal_derivative": 0.0,
+        "original_graph_strong_residual_and_true_Q1_weak_residual_have_DIFFERENT_UNITS": true,
+        "do_NOT_ascribe_entire_250ms_q0_failure_solely_to_this_boundary_example": true,
+        "all_native_Q1_true_cut_positive_support_nodes_preserved": true,
+        "fixed_manufactured_affine_field_not_fit_to_original_wave": true
+      },
+      "unchanged_original_250ms_signed_40_80_P_T_over_Q_T": [
+        [
+          -64.44884936510246,
+          -11.312555997628882
+        ],
+        [
+          -83.61305811577184,
+          -224.3177326070581
+        ]
+      ],
+      "canonical_real_wave_vs_historical_relative": 1.3944025047719968e-15,
+      "original_true_wave_and_q0_source_untouched": true
+    }
+  ],
+  "unchanged_original_full250ms_signed_4adjacent_gate_scores": [
+    {
+      "coarse_ppw": 28,
+      "fine_ppw": 32,
+      "real_original_full250ms_canonical_signed_three_metrics": {
+        "complex_rms_relative": 1.2469270700426662,
+        "magnitude_max_relative": 3.1041238212532622,
+        "magnitude_max_db": 12.264409098974966,
+        "phase_max_deg": 87.12947751814937,
+        "mask_floor": 0.7325717303780155,
+        "compared_frequency_count": 2,
+        "frequency_metrics": [
+          {
+            "frequency_hz": 40.0,
+            "masked_in": true,
+            "magnitude_absolute": 83.03399182710316,
+            "magnitude_relative": 3.1041238212532622,
+            "magnitude_db": 12.264409098974966,
+            "phase_deg": 74.6774437475728,
+            "complex_relative": 3.959138829081376
+          },
+          {
+            "frequency_hz": 80.0,
+            "masked_in": true,
+            "magnitude_absolute": 79.32219233173214,
+            "magnitude_relative": 0.3424085128657372,
+            "magnitude_db": 3.640876352016603,
+            "phase_deg": 87.12947751814937,
+            "complex_relative": 1.169001012744118
+          }
+        ]
+      },
+      "all_original_three_gates_pass": false
+    },
+    {
+      "coarse_ppw": 32,
+      "fine_ppw": 36,
+      "real_original_full250ms_canonical_signed_three_metrics": {
+        "complex_rms_relative": 0.7613047721569628,
+        "magnitude_max_relative": 0.5476926714692754,
+        "magnitude_max_db": 6.891327510406865,
+        "phase_max_deg": 63.65161559834692,
+        "mask_floor": 0.6514398263666002,
+        "compared_frequency_count": 2,
+        "frequency_metrics": [
+          {
+            "frequency_hz": 40.0,
+            "masked_in": true,
+            "magnitude_absolute": 32.39068895717156,
+            "magnitude_relative": 0.5476926714692754,
+            "magnitude_db": 6.891327510406865,
+            "phase_deg": 63.65161559834692,
+            "complex_relative": 0.8961520672161258
+          },
+          {
+            "frequency_hz": 80.0,
+            "masked_in": true,
+            "magnitude_absolute": 25.65616075822234,
+            "magnitude_relative": 0.12454243773201218,
+            "magnitude_db": 1.019516987786429,
+            "phase_deg": 40.765478351612614,
+            "complex_relative": 0.7491090813120069
+          }
+        ]
+      },
+      "all_original_three_gates_pass": false
+    },
+    {
+      "coarse_ppw": 36,
+      "fine_ppw": 40,
+      "real_original_full250ms_canonical_signed_three_metrics": {
+        "complex_rms_relative": 0.36736729325072404,
+        "magnitude_max_relative": 0.982009544152205,
+        "magnitude_max_db": 5.942114829046252,
+        "phase_max_deg": 27.40837044937203,
+        "mask_floor": 0.5124807000499993,
+        "compared_frequency_count": 2,
+        "frequency_metrics": [
+          {
+            "frequency_hz": 40.0,
+            "masked_in": true,
+            "magnitude_absolute": 29.30172736085337,
+            "magnitude_relative": 0.982009544152205,
+            "magnitude_db": 5.942114829046252,
+            "phase_deg": 27.40837044937203,
+            "complex_relative": 1.1871441546382009
+          },
+          {
+            "frequency_hz": 80.0,
+            "masked_in": true,
+            "magnitude_absolute": 43.94273408275029,
+            "magnitude_relative": 0.271149969751141,
+            "magnitude_db": 2.083935829225804,
+            "phase_deg": 6.866684363922531,
+            "complex_relative": 0.30291607398380493
+          }
+        ]
+      },
+      "all_original_three_gates_pass": false
+    },
+    {
+      "coarse_ppw": 40,
+      "fine_ppw": 44,
+      "real_original_full250ms_canonical_signed_three_metrics": {
+        "complex_rms_relative": 0.9587423413785162,
+        "magnitude_max_relative": 0.5439913897220735,
+        "magnitude_max_db": 6.820539139654827,
+        "phase_max_deg": 150.62981979481629,
+        "mask_floor": 0.757030967989045,
+        "compared_frequency_count": 2,
+        "frequency_metrics": [
+          {
+            "frequency_hz": 40.0,
+            "masked_in": true,
+            "magnitude_absolute": 35.59561469867676,
+            "magnitude_relative": 0.5439913897220735,
+            "magnitude_db": 6.820539139654827,
+            "phase_deg": 150.62981979481629,
+            "complex_relative": 1.4151815280125029
+          },
+          {
+            "frequency_hz": 80.0,
+            "masked_in": true,
+            "magnitude_absolute": 77.33358490918354,
+            "magnitude_relative": 0.3230386579675358,
+            "magnitude_db": 3.3887226210191406,
+            "phase_deg": 62.74444928198932,
+            "complex_relative": 0.9155512944726367
+          }
+        ]
+      },
+      "all_original_three_gates_pass": false
+    }
+  ],
+  "original_q0_full250ms_still_all4_nonconvergent": true,
+  "manufactured_strong_and_weak_residual_UNITS_not_comparable": true,
+  "not_proof_sole_causing_original_250ms_nonconvergence": true
+}

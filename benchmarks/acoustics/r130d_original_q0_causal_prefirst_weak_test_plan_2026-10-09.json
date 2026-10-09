@@ -1,0 +1,89 @@
+{
+  "schema_version": "htdt.r130d.original-q0-causal-prefirst-weak-test-plan-1",
+  "created_jst": "2026-10-09",
+  "issue": 938,
+  "pr": 1055,
+  "question": "Does the original unmodified high-band native q0 PFFDTD waveform reproduce the analytical free-space retarded Dirac derivative when tested against smooth C-infinity compact physical-time witnesses supported wholly BEFORE the first real physical Neumann wall echo? This is an auxiliary distributional early-arrival diagnostic, NEVER a substitute for original unchanged full250ms signed40/80 gates.",
+  "original": {
+    "upstream_sha": "aa319f6c86517cb95aabfae8656277da62c3ead5",
+    "ppw": [
+      28,
+      32,
+      36,
+      40,
+      44
+    ],
+    "source_reference": "benchmarks/acoustics/r130d_original_point_quadratic_pffdtd_evidence_2026-10-09.json",
+    "original_complete_modal_reference": "benchmarks/acoustics/r130d_original_pffdtd_native_full_modal_q0_evidence_2026-10-09.json",
+    "continuous_physical_G_reference": "benchmarks/acoustics/r130d_original_q0_continuum_retarded_green_evidence_2026-10-09.json",
+    "source_physical_m": [
+      1.5,
+      2,
+      2
+    ],
+    "receiver_physical_m": [
+      2.5,
+      2,
+      2
+    ],
+    "true_original_eight_HDF5_weights_indices_and_native_q0_untouched": true,
+    "native_each_h_Ts_Nt": true,
+    "source_q0_native_unit_sample": "q[0]=1 and all q[n>0]=0, physical q continuum is a temporal held one native timestep for amplitude interpretation",
+    "c_m_s": 343.2,
+    "rho_kg_m3": 1.2,
+    "full_original_record_s": 0.25,
+    "signed_original_bins_hz": [
+      40,
+      80
+    ],
+    "full_original_complex_gate": 0.2,
+    "full_original_magnitude_gate": 0.25,
+    "full_original_phase_deg_gate": 15,
+    "no_mode_removal_or_signal_change": true
+  },
+  "witness": {
+    "purpose": "independent causal test-function-only distributional functional of existing ORIGINAL full 250ms sampled pressure, not replacement of original P_T/Q_T nor modification to q0",
+    "center": "same continuum geometric direct travel tau=1m/343.2m_s",
+    "half_support_radius_s": 0.0032,
+    "physical_width_s": [
+      0.0005,
+      0.0008,
+      0.0012
+    ],
+    "definition": "w(t)=(t-tau)/sigma * exp(-0.5*((t-tau)/sigma)^2) * exp(1-1/(1-((t-tau)/R)^2)) for |t-tau|<R; 0 outside; w' analytic product rule, zero at boundaries",
+    "source_native_alignment": "as recorded original n=0 impulse time; no time shift fitted. Direct analytic comparison first uses continuum q_n held for exactly native dt but point source temporal response is distributional dt*delta at 0; tau_j=||src_i-rec_j||/c",
+    "wave_interpolation": "none: evaluate witness directly at every native p[n] with first/center/last original pressure derivative; original p exactly recovered from untouched original native 8 raw velocity potential channels and out_alpha weights",
+    "original_to_weak_output": "W_original = dt*sum_n(p_original[n]*w(n dt)) /(dt*sum_n(q_original[n])), q_original=[1,0,...]; dt cancels; this is NOT original signed full record P_T/Q_T",
+    "continuum_analytic": "W_cont=-rho*c^2*sum_64(srcweight_i*recvweight_j*w'(rij/c)/(4π rij)), derived from spatially 8node-smeared velocity-potential source with one native q[0] temporal impulse c² dt; absolute ratio is conditional on that amplitude convention, no amplitude fit",
+    "true_physical_point_analytic": "W_true=-rho*c²*w'(1m/c)/(4π*1m)",
+    "causality": "support upper bound tau+R = 6.11375ms strictly before true earliest point wall bounce 8.9668767ms; verify all 64 original source/receiver first-wall specular arrivals later than support upper bound or fail closed",
+    "replay_original_full_signed": "original full record 40/80Hz P_T/Q_T recomputed from SAME raw original u_out and same source q0 for all five grid levels to within 2e-6 relative, independent of weak early diagnostic",
+    "negative_controls": "witness with support before earliest possible direct 64-node physical arrival; native p amplitude must be near numerical noise. Report not fit."
+  },
+  "assessment": {
+    "report_native_each_signed_or_real_witness_3_widths": true,
+    "report_continuum_original_64point_each_width": true,
+    "report_continuum_true_point_each_width": true,
+    "report_sampled_pulse_first_sign_and_peak_and_arrival_as_diagnostic": true,
+    "compare_full_original_4pairs_3gates_unchanged": true,
+    "independent_causal_bump_derivative_finite_difference_test": true,
+    "independent_direct_point_distribution_integral_test": true,
+    "all_original_8node_source_receiver_SHA_checked": true,
+    "no_reinterpretation_of_original_branded_solver_as_validated": true,
+    "keep_fail_and_unfavorable_results": true
+  },
+  "limits": {
+    "max_cases": 5,
+    "max_witnesses": 3,
+    "new_native_PFFDTD_wave_runs": 0,
+    "new_github_actions_runs": 0,
+    "preserve_scratch": true
+  },
+  "authority": {
+    "original_upstream_q0": "SELF_CONVERGENCE_FAILED",
+    "independent_physical": "NOT_VALIDATED",
+    "product": "NO_GO",
+    "PR_draft": true,
+    "issue_open": true
+  }
+}

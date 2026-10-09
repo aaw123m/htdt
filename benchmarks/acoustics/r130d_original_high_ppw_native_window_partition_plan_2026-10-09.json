@@ -1,0 +1,117 @@
+{
+  "schema_version": "htdt.r130d.original-native-pffdtd-high-ppw-window-partition-plan-1",
+  "date_jst": "2026-10-09",
+  "issue": 938,
+  "pr": 1055,
+  "purpose": "Isolate, using unchanged original native eight-node q0 source/receiver 0.25 s PFFDTD outputs, contributions of fixed physical-time record segments to signed 40/80 Hz spatial adjacent error. No new solver wave run, source alteration, posthoc frequency gate, or acceptance promotion.",
+  "original_pffdtd": {
+    "frozen_ppw": [
+      28,
+      32,
+      36,
+      40,
+      44
+    ],
+    "upstream_sha": "aa319f6c86517cb95aabfae8656277da62c3ead5",
+    "original_native_high_ppw_evidence_sha256": "9a0c7c4cf6080fdd75ce42a4e4a4a08256973b1d8c73724974073782dd9aeb34",
+    "source_control_evidence": "benchmarks/acoustics/r130d_original_point_quadratic_pffdtd_evidence_2026-10-09.json",
+    "original_8_node_comms_sha_by_ppw": {
+      "28": "4404a9818a8f0c673c97e8ede8665367100aecb3d2f2f8481bc532bc45fd6b6c",
+      "32": "716199c1cb8f9d982cdafe7deaccdf630073a2b0d8cdec17fcaf3dff52f4b60b",
+      "36": "3cd05bcee5f8fed08da3dc94ff2ac90b92969b293daf2db77b4bac8d0c51a2f9",
+      "40": "64a4f45cf19b92bb7a8a1ffd24af05e10877c99000e29bf985637b18e287763a",
+      "44": "41c537b663ef11aa7404a248862f89398dec80fd3b6c794f4ecce4a0a8577ee4"
+    },
+    "exact_rigid_room": true,
+    "exact_source_xyz_m": [
+      1.5,
+      2,
+      2
+    ],
+    "exact_receiver_xyz_m": [
+      2.5,
+      2,
+      2
+    ],
+    "temporal_source": "original eight-node trilinear, unit discrete volume velocity impulse q[0]=1 and q[n>0]=0",
+    "record_s": [
+      0,
+      0.25
+    ],
+    "frequencies_hz": [
+      40,
+      80
+    ],
+    "no_taper": true,
+    "pressure_conversion": "original p=rho*d(phi)/dt centered interior and second-order one-sided endpoints",
+    "density_kg_m3": 1.2
+  },
+  "window": {
+    "physical_intervals_s": [
+      [
+        0,
+        0.05
+      ],
+      [
+        0.05,
+        0.15
+      ],
+      [
+        0.15,
+        0.25
+      ]
+    ],
+    "rule": "half-open, include n with left native sample timestamp t=n*Ts in [start,end); every n in exactly one segment",
+    "signed_DFT": "exp(+i2pi*f*n*Ts) times raw physical pressure sample; no window taper; source Q_T=Ts exactly, cancels numerator native Ts",
+    "complex_transfer_component": "P_segment(f) / original full-period Q_T(f), with the original full unit q0 source (not segment-local Q)",
+    "conservation_identity": "sum of three signed complex partition contributions reproduces original full finite-record P_T/Q_T at both Hz and each PPW to relative tolerance 1e-10",
+    "unaltered_full_record": "original exact recorded 40/80 Hz controls must match freshly recomputed native full finite DTFT per PPW before partitioning",
+    "no_time_domain_wave_change": true
+  },
+  "analysis": {
+    "adjacent_pairs": [
+      [
+        28,
+        32
+      ],
+      [
+        32,
+        36
+      ],
+      [
+        36,
+        40
+      ],
+      [
+        40,
+        44
+      ]
+    ],
+    "comparison": "For each pair (a,b), D_total=H_a-H_b and D_partition=H_a,partition-H_b,partition; L2 across signed 40,80 Hz and relative ||D_partition||/max(||D_total||,1e-12); no assume ratios sum 1 due cancellation",
+    "store_each_frozen_full_spectrum": true,
+    "store_signed_three_components": true,
+    "store_every_segment_and_full_record_pressure_rms": true,
+    "store_each_grid_40_80_complex_phase_and_absolute_contribution": true,
+    "nonmonotonic_or_cancellation_not_excluded": true,
+    "original_acceptance": {
+      "complex_rms_relative_max": 0.2,
+      "magnitude_max_relative": 0.25,
+      "phase_max_deg": 15
+    },
+    "diagnostic_cannot_replace_original_full_window_gate": true
+  },
+  "resource_limits": {
+    "max_cases": 5,
+    "max_samples_per_case": 2000,
+    "max_original_full_trace_bytes": 100000000,
+    "allowed_segment_count": 3,
+    "max_original_grid_cells": 1700000
+  },
+  "authority": {
+    "original_point_q0_state": "SELF_CONVERGENCE_FAILED",
+    "physical_validation": "NOT_VALIDATED",
+    "product": "NO_GO",
+    "issue_open": true,
+    "pr_draft": true
+  }
+}

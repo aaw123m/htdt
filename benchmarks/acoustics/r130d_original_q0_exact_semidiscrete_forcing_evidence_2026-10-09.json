@@ -1,0 +1,922 @@
+{
+  "schema_version": "htdt.r130d.original-q0-exact-semidiscrete-forcing-evidence-1",
+  "pre_observation_plan_sha256_lf": "fc06bb126b4d392e6de8ab40acfdf4fbbe0d5fe83f331fac4c072c57f2d644c8",
+  "preregistered_plan": {
+    "schema_version": "htdt.r130d.original-q0-exact-semidiscrete-forcing-plan-1",
+    "date_jst": "2026-10-09",
+    "issue": 938,
+    "pr": 1055,
+    "purpose": "Prospectively test exact semidiscrete causal numerical time integration with fixed original six-neighbor spatial graph and original 8point q[0]=1, distinguishing discrete velocity kick versus one-native-sample piecewise constant force. Neither is identical to the original leapfrog source discretization; no original native qualification claim.",
+    "original": {
+      "pffdtd_sha": "aa319f6c86517cb95aabfae8656277da62c3ead5",
+      "ppw": [
+        28,
+        32,
+        36,
+        40,
+        44
+      ],
+      "physical_source_m": [
+        1.5,
+        2,
+        2
+      ],
+      "physical_receiver_m": [
+        2.5,
+        2,
+        2
+      ],
+      "source_receiver_eight_point_native_hdf5_sha": true,
+      "original_spatial_neumann_graph_unmodified": true,
+      "original_native_dt_nt_and_h": true,
+      "original_q0": "original native in_sigs q0=1 and q[n>0]=0, sum(in_sigs[:,0]) is fixed unmodified modal initial-kick scale",
+      "record_s": 0.25,
+      "signed_frequency_hz": [
+        40,
+        80
+      ],
+      "density_kg_m3": 1.2,
+      "c_m_s": 343.2,
+      "original_true_wave_evidence": "benchmarks/acoustics/r130d_original_point_quadratic_pffdtd_evidence_2026-10-09.json",
+      "original_allmode_evidence": "benchmarks/acoustics/r130d_original_pffdtd_native_full_modal_q0_evidence_2026-10-09.json",
+      "original_graph_evidence": "benchmarks/acoustics/r130d_original_pffdtd_neumann_graph_evidence_2026-10-09.json",
+      "original_graph_plan": "benchmarks/acoustics/r130d_original_pffdtd_neumann_graph_plan_2026-10-09.json"
+    },
+    "temporal_arms": [
+      {
+        "id": "original_native_leapfrog",
+        "formula": "theta=2*asin(sqrt(l2*lambda)/2); phi_n=A*sin(n*theta)/sin(theta); exact original 250ms pressure forward/center/backward finite differences"
+      },
+      {
+        "id": "exact_semidiscrete_velocity_impulse",
+        "formula": "theta=dt*(c/h)*sqrt(lambda); phi_n=A*sin(n*theta)/theta, n>=0. Exact harmonic semidiscrete solution to causal velocity jump v0+=A/dt; physical acceleration impulse impulse-area A/dt. Original A fixed; original spatial graph and 8node source weights."
+      },
+      {
+        "id": "exact_semidiscrete_one_sample_force_hold",
+        "formula": "theta=dt*(c/h)*sqrt(lambda); acceleration a=A/dt^2 is held constant over [0,dt] and zero thereafter, phi0=0, phi_n=A*[cos((n-1)*theta)-cos(n*theta)]/theta^2 for n>=1. Exact semidiscrete causal force quadrature for original single nonzero q0 sample, same a and original source weights."
+      }
+    ],
+    "observer": {
+      "pressure": "Original PFFDTD second order forward n0, centered n1..Nt-2, backward Nt-1, rho * finite difference of potential. Same 250ms actual Nt and 40/80 signed P_T/Q_T all arms.",
+      "no_extra_sample_in_scored_record": true,
+      "no_modal_cut_or_smoothing_taper_damping_or_amplitude_fit": true,
+      "zero_mode_analytic_limits_required": true,
+      "independent_direct_time_oscillator_fixtures_required": true
+    },
+    "tests": {
+      "original_native_full_eigenwaves_vs_real_sha_hdf5_complex_relative_max": 2e-06,
+      "original_eigen_fullsigned_vs_prior_full_modal_relative_max": 2e-10,
+      "original_frozen_complex": 0.2,
+      "original_frozen_magnitude": 0.25,
+      "original_frozen_phase_deg": 15,
+      "all_four_adjacent_grid_pairs": true,
+      "all_modes_including_high": true,
+      "compare_all_bins_and_max_phase_magnitude": true,
+      "all_three_metrics_strict_monotonic_for_provisional_refinement": true,
+      "negative_data_not_hidden": true,
+      "no_convergence_success_without_independent_phys": true
+    },
+    "limits": {
+      "max_cases": 5,
+      "max_arms": 3,
+      "original_native_pffdtd_new_waves": 0,
+      "new_github_actions_runs": 0,
+      "scratch_cleanup": false
+    },
+    "authority": {
+      "original_PFFDTD_q0": "SELF_CONVERGENCE_FAILED",
+      "physical_validation": "NOT_VALIDATED",
+      "product": "NO_GO",
+      "pr_draft": true,
+      "issue_open": true
+    }
+  },
+  "original_PFFDTD_q0": "SELF_CONVERGENCE_FAILED",
+  "physical_validation": "NOT_VALIDATED",
+  "product": "NO_GO",
+  "new_native_pffdtd_waves": 0,
+  "new_GitHub_Actions_runs": 0,
+  "actual_original_native_q0_five_grid_full_modal_cases": [
+    {
+      "ppw": 28,
+      "native_original_full_graph_3d_modes_count": 31185,
+      "original_source_comm_SHA256": "4404a9818a8f0c673c97e8ede8665367100aecb3d2f2f8481bc532bc45fd6b6c",
+      "original_room_voxel_SHA256": "9d8b598fc1e2077840ba5a51e8f2db72c30ad4b6991ae88d3174bac72acf9fc8",
+      "original_true_raw_wave_SHA256": "6e8a94d695fe77e992d8bd66bbb9b63ed9eaf27abd86f5be94f7554d2ba97d6b",
+      "original_native_dt_s": 0.00020599032818587005,
+      "original_Nt": 1214,
+      "original_true_discrete_q0_source_total_kick": 2.7140664335664337,
+      "original_graph_tensor_identity": {
+        "original_room_native_flat_C_order_exact": true,
+        "original_connected_nodes": 31185,
+        "original_directed_rigid_neumann_edges": 180864,
+        "original_full_native_staircase_A_equals_kron_Ax_I_plus_I_Ayz": true,
+        "original_native_Kronecker_neumann_matrix_max_abs": 0.0,
+        "original_x_native_nodes": 33,
+        "original_yz_native_nodes": 945,
+        "original_unmodified_voxel_room_mask_used": true
+      },
+      "all_original_source_receiver_eigenmodes_untruncated": true,
+      "original_control_vs_true_raw_saved_pressure_rel": 1.2321528297295843e-11,
+      "original_control_vs_prior_untruncated_full_modes_rel": 1.2321528297295843e-11,
+      "signed_original_full_250ms_P_over_Q_40_80_by_arm": {
+        "original_native_leapfrog": [
+          [
+            101.09876930668506,
+            42.79568096883028
+          ],
+          [
+            150.7795389101757,
+            -21.72999260578468
+          ]
+        ],
+        "exact_semidiscrete_velocity_impulse": [
+          [
+            56.43755901739013,
+            37.14817143846425
+          ],
+          [
+            98.05735760744975,
+            -29.90121446544204
+          ]
+        ],
+        "exact_semidiscrete_one_sample_force_hold": [
+          [
+            59.98235804411319,
+            39.016531776807994
+          ],
+          [
+            103.97778795569342,
+            -23.92751826665605
+          ]
+        ]
+      },
+      "new_time_integrators_not_original_PFFDTD": true,
+      "wall_seconds": 1.3780469000339508
+    },
+    {
+      "ppw": 32,
+      "native_original_full_graph_3d_modes_count": 44659,
+      "original_source_comm_SHA256": "716199c1cb8f9d982cdafe7deaccdf630073a2b0d8cdec17fcaf3dff52f4b60b",
+      "original_room_voxel_SHA256": "8f3ebd62703c40793d68fdf703e098bbecc568cc9beb227cfa126b8042954e3b",
+      "original_true_raw_wave_SHA256": "773601d4be74cef568739d8957082c9561912ccfd4fa860c415585409a1d84b7",
+      "original_native_dt_s": 0.0001802415371626363,
+      "original_Nt": 1388,
+      "original_true_discrete_q0_source_total_kick": 3.10179020979021,
+      "original_graph_tensor_identity": {
+        "original_room_native_flat_C_order_exact": true,
+        "original_connected_nodes": 44659,
+        "original_directed_rigid_neumann_edges": 260064,
+        "original_full_native_staircase_A_equals_kron_Ax_I_plus_I_Ayz": true,
+        "original_native_Kronecker_neumann_matrix_max_abs": 0.0,
+        "original_x_native_nodes": 37,
+        "original_yz_native_nodes": 1207,
+        "original_unmodified_voxel_room_mask_used": true
+      },
+      "all_original_source_receiver_eigenmodes_untruncated": true,
+      "original_control_vs_true_raw_saved_pressure_rel": 1.485024661663064e-13,
+      "original_control_vs_prior_untruncated_full_modes_rel": 1.485024661663064e-13,
+      "signed_original_full_250ms_P_over_Q_40_80_by_arm": {
+        "original_native_leapfrog": [
+          [
+            16.56628166592005,
+            -21.002334508772627
+          ],
+          [
+            -21.52068840373007,
+            -230.65774208887214
+          ]
+        ],
+        "exact_semidiscrete_velocity_impulse": [
+          [
+            39.00261506863052,
+            -14.85098583997038
+          ],
+          [
+            7.235741411726771,
+            -218.746302992222
+          ]
+        ],
+        "exact_semidiscrete_one_sample_force_hold": [
+          [
+            42.0506265301193,
+            -13.69695382365253
+          ],
+          [
+            19.840998526708,
+            -217.58849396443014
+          ]
+        ]
+      },
+      "new_time_integrators_not_original_PFFDTD": true,
+      "wall_seconds": 2.213749799877405
+    },
+    {
+      "ppw": 36,
+      "native_original_full_graph_3d_modes_count": 64848,
+      "original_source_comm_SHA256": "3cd05bcee5f8fed08da3dc94ff2ac90b92969b293daf2db77b4bac8d0c51a2f9",
+      "original_room_voxel_SHA256": "433c1d334419006b1185a4ef275545d329244d0808b2a3c12a3200e7af4e3d50",
+      "original_true_raw_wave_SHA256": "8fad2511eee77d463b43a1aa5d6f7ae13047ed8bf5d27e0cb0b76ffb7b3bd486",
+      "original_native_dt_s": 0.00016021469970012116,
+      "original_Nt": 1561,
+      "original_true_discrete_q0_source_total_kick": 3.4895139860139857,
+      "original_graph_tensor_identity": {
+        "original_room_native_flat_C_order_exact": true,
+        "original_connected_nodes": 64848,
+        "original_directed_rigid_neumann_edges": 378944,
+        "original_full_native_staircase_A_equals_kron_Ax_I_plus_I_Ayz": true,
+        "original_native_Kronecker_neumann_matrix_max_abs": 0.0,
+        "original_x_native_nodes": 42,
+        "original_yz_native_nodes": 1544,
+        "original_unmodified_voxel_room_mask_used": true
+      },
+      "all_original_source_receiver_eigenmodes_untruncated": true,
+      "original_control_vs_true_raw_saved_pressure_rel": 2.481568524769028e-11,
+      "original_control_vs_prior_untruncated_full_modes_rel": 2.481568524769028e-11,
+      "signed_original_full_250ms_P_over_Q_40_80_by_arm": {
+        "original_native_leapfrog": [
+          [
+            57.865575906862375,
+            12.2125305568984
+          ],
+          [
+            119.43681400068691,
+            -167.84585844823502
+          ]
+        ],
+        "exact_semidiscrete_velocity_impulse": [
+          [
+            34.8440947462077,
+            6.162829426536912
+          ],
+          [
+            99.10291734656252,
+            -177.70393655180658
+          ]
+        ],
+        "exact_semidiscrete_one_sample_force_hold": [
+          [
+            62.98581946084286,
+            7.1824328866012
+          ],
+          [
+            134.4145124331961,
+            -172.88393457192836
+          ]
+        ]
+      },
+      "new_time_integrators_not_original_PFFDTD": true,
+      "wall_seconds": 4.073292900109664
+    },
+    {
+      "ppw": 40,
+      "native_original_full_graph_3d_modes_count": 89723,
+      "original_source_comm_SHA256": "64a4f45cf19b92bb7a8a1ffd24af05e10877c99000e29bf985637b18e287763a",
+      "original_room_voxel_SHA256": "c7c1894826c4774393987855e533081f615b22d510ec6042aacda12acbe0daaf",
+      "original_true_raw_wave_SHA256": "79763a63cedf667e98cbcf5867b848675d634a861e63fc3e1cf94ed9982596fa",
+      "original_native_dt_s": 0.00014419322973010905,
+      "original_Nt": 1734,
+      "original_true_discrete_q0_source_total_kick": 3.877237762237762,
+      "original_graph_tensor_identity": {
+        "original_room_native_flat_C_order_exact": true,
+        "original_connected_nodes": 89723,
+        "original_directed_rigid_neumann_edges": 525778,
+        "original_full_native_staircase_A_equals_kron_Ax_I_plus_I_Ayz": true,
+        "original_native_Kronecker_neumann_matrix_max_abs": 0.0,
+        "original_x_native_nodes": 47,
+        "original_yz_native_nodes": 1909,
+        "original_unmodified_voxel_room_mask_used": true
+      },
+      "all_original_source_receiver_eigenmodes_untruncated": true,
+      "original_control_vs_true_raw_saved_pressure_rel": 2.5253740620373566e-11,
+      "original_control_vs_prior_untruncated_full_modes_rel": 2.5253740620373566e-11,
+      "signed_original_full_250ms_P_over_Q_40_80_by_arm": {
+        "original_native_leapfrog": [
+          [
+            23.081760574873243,
+            18.909536568094314
+          ],
+          [
+            109.07263342137534,
+            -119.8616178368153
+          ]
+        ],
+        "exact_semidiscrete_velocity_impulse": [
+          [
+            70.77953446199508,
+            21.439398847360074
+          ],
+          [
+            158.48093610902134,
+            -112.12336036659467
+          ]
+        ],
+        "exact_semidiscrete_one_sample_force_hold": [
+          [
+            -22.423963563239802,
+            24.098505912416638
+          ],
+          [
+            69.6592852304221,
+            -103.52264020472987
+          ]
+        ]
+      },
+      "new_time_integrators_not_original_PFFDTD": true,
+      "wall_seconds": 5.891622300026938
+    },
+    {
+      "ppw": 44,
+      "native_original_full_graph_3d_modes_count": 116739,
+      "original_source_comm_SHA256": "41c537b663ef11aa7404a248862f89398dec80fd3b6c794f4ecce4a0a8577ee4",
+      "original_room_voxel_SHA256": "4a7cb6c30c013adc31d5b1910d50cef003cacbdd37a271ac3efa7a39956e505b",
+      "original_true_raw_wave_SHA256": "a5603179fa00ef7a82e5e5e486d864b1b2f08e3f432692d80631fcf406c0ce89",
+      "original_native_dt_s": 0.00013108475430009911,
+      "original_Nt": 1908,
+      "original_true_discrete_q0_source_total_kick": 4.264961538461538,
+      "original_graph_tensor_identity": {
+        "original_room_native_flat_C_order_exact": true,
+        "original_connected_nodes": 116739,
+        "original_directed_rigid_neumann_edges": 685452,
+        "original_full_native_staircase_A_equals_kron_Ax_I_plus_I_Ayz": true,
+        "original_native_Kronecker_neumann_matrix_max_abs": 0.0,
+        "original_x_native_nodes": 51,
+        "original_yz_native_nodes": 2289,
+        "original_unmodified_voxel_room_mask_used": true
+      },
+      "all_original_source_receiver_eigenmodes_untruncated": true,
+      "original_control_vs_true_raw_saved_pressure_rel": 2.050828518164721e-11,
+      "original_control_vs_prior_untruncated_full_modes_rel": 2.050828518164721e-11,
+      "signed_original_full_250ms_P_over_Q_40_80_by_arm": {
+        "original_native_leapfrog": [
+          [
+            -64.4488493655164,
+            -11.312555993320913
+          ],
+          [
+            -83.61305811663996,
+            -224.3177326045239
+          ]
+        ],
+        "exact_semidiscrete_velocity_impulse": [
+          [
+            123.82044981747127,
+            -21.26576218253616
+          ],
+          [
+            109.67774123036355,
+            -244.4594029431917
+          ]
+        ],
+        "exact_semidiscrete_one_sample_force_hold": [
+          [
+            188.55120502000034,
+            -18.60108200940892
+          ],
+          [
+            182.02857321146587,
+            -239.4280247442827
+          ]
+        ]
+      },
+      "new_time_integrators_not_original_PFFDTD": true,
+      "wall_seconds": 7.9123528997879475
+    }
+  ],
+  "all_four_adjacent_native_q0_refinements": [
+    {
+      "coarse_ppw": 28,
+      "fine_ppw": 32,
+      "arms": {
+        "original_native_leapfrog": {
+          "two_original_frequency_signed_coarse_minus_fine": [
+            [
+              84.532487640765,
+              63.79801547760291
+            ],
+            [
+              172.30022731390576,
+              208.92774948308747
+            ]
+          ],
+          "full_original_three_metric_scoring": {
+            "complex_rms_relative": 1.2469270700479786,
+            "magnitude_max_relative": 3.1041238212861977,
+            "magnitude_max_db": 12.26440909904467,
+            "phase_max_deg": 87.12947751852147,
+            "mask_floor": 0.7325717303780368,
+            "compared_frequency_count": 2,
+            "frequency_metrics": [
+              {
+                "frequency_hz": 40.0,
+                "masked_in": true,
+                "magnitude_absolute": 83.03399182794793,
+                "magnitude_relative": 3.1041238212861977,
+                "magnitude_db": 12.26440909904467,
+                "phase_deg": 74.67744374860405,
+                "complex_relative": 3.9591388291313137
+              },
+              {
+                "frequency_hz": 80.0,
+                "masked_in": true,
+                "magnitude_absolute": 79.32219233177298,
+                "magnitude_relative": 0.3424085128659035,
+                "magnitude_db": 3.6408763520188,
+                "phase_deg": 87.12947751852147,
+                "complex_relative": 1.16900101274768
+              }
+            ]
+          },
+          "three_frozen_limits_simultaneously_passed": false
+        },
+        "exact_semidiscrete_velocity_impulse": {
+          "two_original_frequency_signed_coarse_minus_fine": [
+            [
+              17.43494394875961,
+              51.99915727843463
+            ],
+            [
+              90.82161619572298,
+              188.84508852677996
+            ]
+          ],
+          "full_original_three_metric_scoring": {
+            "complex_rms_relative": 0.9721659047296759,
+            "magnitude_max_relative": 0.6189578761142328,
+            "magnitude_max_db": 6.587814285611552,
+            "phase_max_deg": 71.14709870175562,
+            "mask_floor": 0.6921148822741957,
+            "compared_frequency_count": 2,
+            "frequency_metrics": [
+              {
+                "frequency_hz": 40.0,
+                "masked_in": true,
+                "magnitude_absolute": 25.831803099698433,
+                "magnitude_relative": 0.6189578761142328,
+                "magnitude_db": 4.18471097866053,
+                "phase_deg": 54.19888058424226,
+                "complex_relative": 1.3141269445001273
+              },
+              {
+                "frequency_hz": 80.0,
+                "masked_in": true,
+                "magnitude_absolute": 116.35092947756922,
+                "magnitude_relative": 0.5316081974971592,
+                "magnitude_db": 6.587814285611552,
+                "phase_deg": 71.14709870175562,
+                "complex_relative": 0.9574335488955459
+              }
+            ]
+          },
+          "three_frozen_limits_simultaneously_passed": false
+        },
+        "exact_semidiscrete_one_sample_force_hold": {
+          "two_original_frequency_signed_coarse_minus_fine": [
+            [
+              17.93173151399389,
+              52.71348560046052
+            ],
+            [
+              84.13678942898542,
+              193.6609756977741
+            ]
+          ],
+          "full_original_three_metric_scoring": {
+            "complex_rms_relative": 0.9795629986446085,
+            "magnitude_max_relative": 0.617980352758925,
+            "magnitude_max_db": 6.225767014161394,
+            "phase_max_deg": 71.83046983088178,
+            "mask_floor": 0.6909299380418081,
+            "compared_frequency_count": 2,
+            "frequency_metrics": [
+              {
+                "frequency_hz": 40.0,
+                "masked_in": true,
+                "magnitude_absolute": 27.33025872808819,
+                "magnitude_relative": 0.617980352758925,
+                "magnitude_db": 4.1794648728404,
+                "phase_deg": 51.08440616609383,
+                "complex_relative": 1.2590120375392442
+              },
+              {
+                "frequency_hz": 80.0,
+                "masked_in": true,
+                "magnitude_absolute": 111.7958395096984,
+                "magnitude_relative": 0.5116719747059169,
+                "magnitude_db": 6.225767014161394,
+                "phase_deg": 71.83046983088178,
+                "complex_relative": 0.9663922165789266
+              }
+            ]
+          },
+          "three_frozen_limits_simultaneously_passed": false
+        }
+      }
+    },
+    {
+      "coarse_ppw": 32,
+      "fine_ppw": 36,
+      "arms": {
+        "original_native_leapfrog": {
+          "two_original_frequency_signed_coarse_minus_fine": [
+            [
+              -41.299294240942324,
+              -33.21486506567103
+            ],
+            [
+              -140.95750240441697,
+              -62.81188364063712
+            ]
+          ],
+          "full_original_three_metric_scoring": {
+            "complex_rms_relative": 0.7613047721708401,
+            "magnitude_max_relative": 0.5476926714762758,
+            "magnitude_max_db": 6.891327510541294,
+            "phase_max_deg": 63.65161560294311,
+            "mask_floor": 0.6514398263604985,
+            "compared_frequency_count": 2,
+            "frequency_metrics": [
+              {
+                "frequency_hz": 40.0,
+                "masked_in": true,
+                "magnitude_absolute": 32.39068895807272,
+                "magnitude_relative": 0.5476926714762758,
+                "magnitude_db": 6.891327510541294,
+                "phase_deg": 63.65161560294311,
+                "complex_relative": 0.8961520672523416
+              },
+              {
+                "frequency_hz": 80.0,
+                "masked_in": true,
+                "magnitude_absolute": 25.656160760158684,
+                "magnitude_relative": 0.1245424377425783,
+                "magnitude_db": 1.019516987868042,
+                "phase_deg": 40.76547835195845,
+                "complex_relative": 0.7491090813231018
+              }
+            ]
+          },
+          "three_frozen_limits_simultaneously_passed": false
+        },
+        "exact_semidiscrete_velocity_impulse": {
+          "two_original_frequency_signed_coarse_minus_fine": [
+            [
+              4.158520322422817,
+              -21.01381526650729
+            ],
+            [
+              -91.86717593483576,
+              -41.042366440415435
+            ]
+          ],
+          "full_original_three_metric_scoring": {
+            "complex_rms_relative": 0.4981181345415459,
+            "magnitude_max_relative": 0.179439343607416,
+            "magnitude_max_db": 1.433512216616109,
+            "phase_max_deg": 30.87537996900113,
+            "mask_floor": 0.6434289183166086,
+            "compared_frequency_count": 2,
+            "frequency_metrics": [
+              {
+                "frequency_hz": 40.0,
+                "masked_in": true,
+                "magnitude_absolute": 6.349443881787458,
+                "magnitude_relative": 0.179439343607416,
+                "magnitude_db": 1.433512216616109,
+                "phase_deg": 30.87537996900113,
+                "complex_relative": 0.6053807086490212
+              },
+              {
+                "frequency_hz": 80.0,
+                "masked_in": true,
+                "magnitude_absolute": 15.395853618684015,
+                "magnitude_relative": 0.07566642184029163,
+                "magnitude_db": 0.6335522367386627,
+                "phase_deg": 27.25322403147223,
+                "complex_relative": 0.4945117866638848
+              }
+            ]
+          },
+          "three_frozen_limits_simultaneously_passed": false
+        },
+        "exact_semidiscrete_one_sample_force_hold": {
+          "two_original_frequency_signed_coarse_minus_fine": [
+            [
+              -20.93519293072356,
+              -20.87938671025373
+            ],
+            [
+              -114.5735139064881,
+              -44.70455939250178
+            ]
+          ],
+          "full_original_three_metric_scoring": {
+            "complex_rms_relative": 0.5548308883477275,
+            "magnitude_max_relative": 0.3023769278683689,
+            "magnitude_max_db": 3.127583292766765,
+            "phase_max_deg": 32.65434097234876,
+            "mask_floor": 0.6925035450142089,
+            "compared_frequency_count": 2,
+            "frequency_metrics": [
+              {
+                "frequency_hz": 40.0,
+                "masked_in": true,
+                "magnitude_absolute": 19.16888668412261,
+                "magnitude_relative": 0.3023769278683689,
+                "magnitude_db": 3.127583292766765,
+                "phase_deg": 24.547223689353075,
+                "complex_relative": 0.46640681157407937
+              },
+              {
+                "frequency_hz": 80.0,
+                "masked_in": true,
+                "magnitude_absolute": 0.49761821747077306,
+                "magnitude_relative": 0.0022723450063615756,
+                "magnitude_db": 0.019759796995114362,
+                "phase_deg": 32.65434097234876,
+                "complex_relative": 0.5616090897808548
+              }
+            ]
+          },
+          "three_frozen_limits_simultaneously_passed": false
+        }
+      }
+    },
+    {
+      "coarse_ppw": 36,
+      "fine_ppw": 40,
+      "arms": {
+        "original_native_leapfrog": {
+          "two_original_frequency_signed_coarse_minus_fine": [
+            [
+              34.78381533198913,
+              -6.6970060111959135
+            ],
+            [
+              10.364180579311565,
+              -47.98424061141972
+            ]
+          ],
+          "full_original_three_metric_scoring": {
+            "complex_rms_relative": 0.3673672932494281,
+            "magnitude_max_relative": 0.9820095440266986,
+            "magnitude_max_db": 5.942114828496239,
+            "phase_max_deg": 27.408370450432187,
+            "mask_floor": 0.5124807000456942,
+            "compared_frequency_count": 2,
+            "frequency_metrics": [
+              {
+                "frequency_hz": 40.0,
+                "masked_in": true,
+                "magnitude_absolute": 29.301727359404623,
+                "magnitude_relative": 0.9820095440266986,
+                "magnitude_db": 5.942114828496239,
+                "phase_deg": 27.408370450432187,
+                "complex_relative": 1.187144154536735
+              },
+              {
+                "frequency_hz": 80.0,
+                "masked_in": true,
+                "magnitude_absolute": 43.94273408218211,
+                "magnitude_relative": 0.27114996974991284,
+                "magnitude_db": 2.083935829217412,
+                "phase_deg": 6.866684363992192,
+                "complex_relative": 0.30291607398328646
+              }
+            ]
+          },
+          "three_frozen_limits_simultaneously_passed": false
+        },
+        "exact_semidiscrete_velocity_impulse": {
+          "two_original_frequency_signed_coarse_minus_fine": [
+            [
+              -35.93543971578738,
+              -15.276569420823161
+            ],
+            [
+              -59.37801876245882,
+              -65.58057618521191
+            ]
+          ],
+          "full_original_three_metric_scoring": {
+            "complex_rms_relative": 0.4654884565502316,
+            "magnitude_max_relative": 0.5215367804240152,
+            "magnitude_max_db": 6.4030288337776495,
+            "phase_max_deg": 25.57327503466459,
+            "mask_floor": 0.6139043496334666,
+            "compared_frequency_count": 2,
+            "frequency_metrics": [
+              {
+                "frequency_hz": 40.0,
+                "masked_in": true,
+                "magnitude_absolute": 38.57042289166727,
+                "magnitude_relative": 0.5215367804240152,
+                "magnitude_db": 6.4030288337776495,
+                "phase_deg": 6.8216676166260015,
+                "complex_relative": 0.5279914969308064
+              },
+              {
+                "frequency_hz": 80.0,
+                "masked_in": true,
+                "magnitude_absolute": 9.336488397280675,
+                "magnitude_relative": 0.04809310880558148,
+                "magnitude_db": 0.4079973102882194,
+                "phase_deg": 25.57327503466459,
+                "complex_relative": 0.45570603402985127
+              }
+            ]
+          },
+          "three_frozen_limits_simultaneously_passed": false
+        },
+        "exact_semidiscrete_one_sample_force_hold": {
+          "two_original_frequency_signed_coarse_minus_fine": [
+            [
+              85.40978302408266,
+              -16.916073025815436
+            ],
+            [
+              64.75522720277401,
+              -69.3612943671985
+            ]
+          ],
+          "full_original_three_metric_scoring": {
+            "complex_rms_relative": 0.9979648925427502,
+            "magnitude_max_relative": 0.9258361154607901,
+            "magnitude_max_db": 5.692386536566303,
+            "phase_max_deg": 126.4330876976917,
+            "mask_floor": 0.39458019531866084,
+            "compared_frequency_count": 2,
+            "frequency_metrics": [
+              {
+                "frequency_hz": 40.0,
+                "masked_in": true,
+                "magnitude_absolute": 30.476355500288577,
+                "magnitude_relative": 0.9258361154607901,
+                "magnitude_db": 5.692386536566303,
+                "phase_deg": 126.4330876976917,
+                "complex_relative": 2.64505004375937
+              },
+              {
+                "frequency_hz": 80.0,
+                "masked_in": true,
+                "magnitude_absolute": 94.21163531847633,
+                "magnitude_relative": 0.7550387810390399,
+                "magnitude_db": 4.8857343499989465,
+                "phase_deg": 3.9283071801326344,
+                "complex_relative": 0.7604803080759044
+              }
+            ]
+          },
+          "three_frozen_limits_simultaneously_passed": false
+        }
+      }
+    },
+    {
+      "coarse_ppw": 40,
+      "fine_ppw": 44,
+      "arms": {
+        "original_native_leapfrog": {
+          "two_original_frequency_signed_coarse_minus_fine": [
+            [
+              87.53060994038964,
+              30.222092561415227
+            ],
+            [
+              192.6856915380153,
+              104.45611476770861
+            ]
+          ],
+          "full_original_three_metric_scoring": {
+            "complex_rms_relative": 0.958742341388282,
+            "magnitude_max_relative": 0.5439913896839902,
+            "magnitude_max_db": 6.820539138929429,
+            "phase_max_deg": 150.62981978541697,
+            "mask_floor": 0.7570309679824948,
+            "compared_frequency_count": 2,
+            "frequency_metrics": [
+              {
+                "frequency_hz": 40.0,
+                "masked_in": true,
+                "magnitude_absolute": 35.59561469600144,
+                "magnitude_relative": 0.5439913896839902,
+                "magnitude_db": 6.820539138929429,
+                "phase_deg": 150.62981978541697,
+                "complex_relative": 1.4151815280223004
+              },
+              {
+                "frequency_hz": 80.0,
+                "masked_in": true,
+                "magnitude_absolute": 77.3335849084736,
+                "magnitude_relative": 0.32303865796736525,
+                "magnitude_db": 3.388722621016953,
+                "phase_deg": 62.74444928281815,
+                "complex_relative": 0.9155512944821861
+              }
+            ]
+          },
+          "three_frozen_limits_simultaneously_passed": false
+        },
+        "exact_semidiscrete_velocity_impulse": {
+          "two_original_frequency_signed_coarse_minus_fine": [
+            [
+              -53.04091535547619,
+              42.70516102989623
+            ],
+            [
+              48.80319487865779,
+              132.33604257659704
+            ]
+          ],
+          "full_original_three_metric_scoring": {
+            "complex_rms_relative": 0.5292701618101536,
+            "magnitude_max_relative": 0.41133996923888155,
+            "magnitude_max_db": 4.602709024174004,
+            "phase_max_deg": 30.55746142030597,
+            "mask_floor": 0.8472874754694321,
+            "compared_frequency_count": 2,
+            "frequency_metrics": [
+              {
+                "frequency_hz": 40.0,
+                "masked_in": true,
+                "magnitude_absolute": 51.67801472607974,
+                "magnitude_relative": 0.41133996923888155,
+                "magnitude_db": 4.602709024174004,
+                "phase_deg": 26.59705513936558,
+                "complex_relative": 0.542021971496204
+              },
+              {
+                "frequency_hz": 80.0,
+                "masked_in": true,
+                "magnitude_absolute": 73.80222450913394,
+                "magnitude_relative": 0.27544739252360784,
+                "magnitude_db": 2.7986015259471,
+                "phase_deg": 30.55746142030597,
+                "complex_relative": 0.5264251150646034
+              }
+            ]
+          },
+          "three_frozen_limits_simultaneously_passed": false
+        },
+        "exact_semidiscrete_one_sample_force_hold": {
+          "two_original_frequency_signed_coarse_minus_fine": [
+            [
+              -210.97516858324013,
+              42.699587921825554
+            ],
+            [
+              -112.36928798104377,
+              135.90538453955284
+            ]
+          ],
+          "full_original_three_metric_scoring": {
+            "complex_rms_relative": 0.7828097972393354,
+            "magnitude_max_relative": 0.8262613410185969,
+            "magnitude_max_db": 15.202070699078858,
+            "phase_max_deg": 138.57272180815357,
+            "mask_floor": 0.9511055698414915,
+            "compared_frequency_count": 2,
+            "frequency_metrics": [
+              {
+                "frequency_hz": 40.0,
+                "masked_in": true,
+                "magnitude_absolute": 156.5488499156377,
+                "magnitude_relative": 0.8262613410185969,
+                "magnitude_db": 15.202070699078858,
+                "phase_deg": 138.57272180815357,
+                "complex_relative": 1.1360995874579816
+              },
+              {
+                "frequency_hz": 80.0,
+                "masked_in": true,
+                "magnitude_absolute": 175.98877591703877,
+                "magnitude_relative": 0.5851352280647242,
+                "magnitude_db": 7.641868830712346,
+                "phase_deg": 3.308239494911021,
+                "complex_relative": 0.5863155771355947
+              }
+            ]
+          },
+          "three_frozen_limits_simultaneously_passed": false
+        }
+      }
+    }
+  ],
+  "all_arms_full_five_grid_refinement_verdict": {
+    "original_native_leapfrog": {
+      "all_four_adjacent_pairs_three_gates_pass": false,
+      "all_three_frozen_metrics_strictly_monotone_decrease": false,
+      "canonical_original_PFFDTD_status_unchanged": true
+    },
+    "exact_semidiscrete_velocity_impulse": {
+      "all_four_adjacent_pairs_three_gates_pass": false,
+      "all_three_frozen_metrics_strictly_monotone_decrease": false,
+      "canonical_original_PFFDTD_status_unchanged": true
+    },
+    "exact_semidiscrete_one_sample_force_hold": {
+      "all_four_adjacent_pairs_three_gates_pass": false,
+      "all_three_frozen_metrics_strictly_monotone_decrease": false,
+      "canonical_original_PFFDTD_status_unchanged": true
+    }
+  },
+  "new_numerical_time_solvers_not_original_pffdtd_qualification": true
+}

@@ -1,0 +1,406 @@
+{
+  "schema_version": "htdt.r130d.fv-mfem-same-drive-comparison-evidence-1",
+  "plan": {
+    "schema_version": "htdt.r130d.fv-mfem-same-drive-comparison-plan-1",
+    "issue": 938,
+    "date": "2026-10-09",
+    "purpose": "Independent same-physical-input finite-time wave transfer between planar cut-cell Neumann FV and pinned MFEM P2 tetrahedron systems",
+    "reference_mfem_source_sha": "d964264cdb9a13e94a201b6c236c7721e0c8765f",
+    "reference_mfem_github_workflow_run": 37855143962,
+    "reference_mfem_artifact_id": 11584137754,
+    "mfem_sparse_export_sha256_by_refinement": {
+      "1": "758dff6aeafeaa5c902e905aa797c2e5f8250e4b81822723e968bb842187161b",
+      "2": "e61410d4a69000c39975762b9986008974353953f7d8d9f100f9953a33c5ecb4",
+      "3": "6a43a624223fa512152059d103c4d841723fa1266ea8a22842322fb50db42511"
+    },
+    "mfem_dofs": [
+      125,
+      729,
+      4913
+    ],
+    "mfem_frozen_refinements": [
+      1,
+      2,
+      3
+    ],
+    "fv_grid_levels": [
+      20,
+      24,
+      28,
+      32
+    ],
+    "source_xyz_m": [
+      1.5,
+      2,
+      2
+    ],
+    "receiver_xyz_m": [
+      2.5,
+      2,
+      2
+    ],
+    "physical_medium": {
+      "c_m_s": 343.2,
+      "density_kg_m3": 1.2
+    },
+    "fixture": "sloped 4x4m floor, roof z=4-y/4; rigid Neumann; volume=56m3",
+    "source": {
+      "q_units": "m3/s",
+      "waveform": "exp(-0.5*((t-0.012)/0.003)^2)",
+      "midpoint_sampling": true
+    },
+    "time": {
+      "dt_s": 0.00025,
+      "duration_s": 0.25,
+      "steps": 1000
+    },
+    "frequency_hz": [
+      40,
+      80
+    ],
+    "finite_transfer": "rho*r^T phi_t and exact midpoint Q_T/P_T with exp(+i2\u03c0ft) kernel",
+    "mfem_integrator": "same implicit midpoint for exported mass and stiffness; actual force c\u00b2*b*q injected on each midpoint; NOT a posteriori impulse convolution",
+    "relative_metric": "L2 complex difference normalized to fine-level transfer; zero amplitude not clipped; 40 and 80 Hz both retained",
+    "goal": "Evaluate MFEM 1\u21922 and 2\u21923, FV 20\u219224/24\u219228/28\u219232, cross-solver finest comparison MFEM r3 vs FV n32. Do not claim formal physical convergence from 3 FEM levels or 2 bins.",
+    "observational_limit": "same physical geometry, medium, source, sampling and finite observation window, but different spatial shape functions; reference r3 not continuum ground truth",
+    "numerical_resource_cap": {
+      "largest_mfem_dof": 4913,
+      "max_time_steps": 1000,
+      "run_wall_seconds_per_refinement": 120,
+      "max_memory_mb": 2000
+    },
+    "gate": {
+      "candidate_numerical_diagnostic_only": true,
+      "may_unblock_canonical_r130d": false,
+      "may_promote_production": false,
+      "canonical_pffdtd": "SELF_CONVERGENCE_FAILED",
+      "canonical_mfem_impulse": "SELF_CONVERGENCE_FAILED",
+      "physical_validation": "NOT_VALIDATED"
+    }
+  },
+  "runtime": {
+    "platform": "Windows-11-10.0.26200-SP0",
+    "numpy": "1.26.4",
+    "python": "3.12.10"
+  },
+  "mfem_source": "actual midpoint-driven PINNED independent MFEM P2 exported CSR",
+  "fv_source": "pre-registered actual midpoint-driven cut-cell FV frozen evidence",
+  "mfem_levels": [
+    {
+      "refinement": 1,
+      "dofs": 125,
+      "element_count": 48,
+      "operator_sha256": "758dff6aeafeaa5c902e905aa797c2e5f8250e4b81822723e968bb842187161b",
+      "actual_integrated_gaussian_source": true,
+      "discrete_natural_neumann_constant_mode_residual_norm": 1.6423415479430665e-09,
+      "source_complex_spectrum": [
+        [
+          -0.005614938998581556,
+          0.0007093423445759307
+        ],
+        [
+          0.0023362809750236183,
+          -0.0005998358115978582
+        ]
+      ],
+      "transfer_complex_40_80_hz": [
+        [
+          26.966875948826218,
+          34.43700882001507
+        ],
+        [
+          -45.07611437030608,
+          -52.72969012190121
+        ]
+      ],
+      "runtime_seconds": 0.0380349000915885
+    },
+    {
+      "refinement": 2,
+      "dofs": 729,
+      "element_count": 384,
+      "operator_sha256": "e61410d4a69000c39975762b9986008974353953f7d8d9f100f9953a33c5ecb4",
+      "actual_integrated_gaussian_source": true,
+      "discrete_natural_neumann_constant_mode_residual_norm": 2.6485187996766686e-09,
+      "source_complex_spectrum": [
+        [
+          -0.005614938998581556,
+          0.0007093423445759307
+        ],
+        [
+          0.0023362809750236183,
+          -0.0005998358115978582
+        ]
+      ],
+      "transfer_complex_40_80_hz": [
+        [
+          14.658786226375051,
+          40.46330489459772
+        ],
+        [
+          60.79359049640764,
+          -191.21882255400033
+        ]
+      ],
+      "runtime_seconds": 0.14208029978908598
+    },
+    {
+      "refinement": 3,
+      "dofs": 4913,
+      "element_count": 3072,
+      "operator_sha256": "6a43a624223fa512152059d103c4d841723fa1266ea8a22842322fb50db42511",
+      "actual_integrated_gaussian_source": true,
+      "discrete_natural_neumann_constant_mode_residual_norm": 4.0592914579406315e-09,
+      "source_complex_spectrum": [
+        [
+          -0.005614938998581556,
+          0.0007093423445759307
+        ],
+        [
+          0.0023362809750236183,
+          -0.0005998358115978582
+        ]
+      ],
+      "transfer_complex_40_80_hz": [
+        [
+          14.174637647910844,
+          40.328398778842526
+        ],
+        [
+          83.9841927027808,
+          -165.59347305467742
+        ]
+      ],
+      "runtime_seconds": 4.39991440018639
+    }
+  ],
+  "fv_levels": [
+    {
+      "grid_cells_per_axis": 20,
+      "active_cells": 7200,
+      "cell_h_m": 0.2,
+      "transfer_complex_40_80_hz": [
+        [
+          14.441925528728346,
+          41.081713505244274
+        ],
+        [
+          96.14980304177607,
+          -128.79047999232003
+        ]
+      ]
+    },
+    {
+      "grid_cells_per_axis": 24,
+      "active_cells": 12384,
+      "cell_h_m": 0.16666666666666666,
+      "transfer_complex_40_80_hz": [
+        [
+          14.505957406425836,
+          40.19901854411983
+        ],
+        [
+          93.53327790893093,
+          -140.4470155140501
+        ]
+      ]
+    },
+    {
+      "grid_cells_per_axis": 28,
+      "active_cells": 19600,
+      "cell_h_m": 0.14285714285714285,
+      "transfer_complex_40_80_hz": [
+        [
+          14.560452822287797,
+          40.43097382201881
+        ],
+        [
+          92.11310528745258,
+          -146.9496242414008
+        ]
+      ]
+    },
+    {
+      "grid_cells_per_axis": 32,
+      "active_cells": 29184,
+      "cell_h_m": 0.125,
+      "transfer_complex_40_80_hz": [
+        [
+          14.488039491599054,
+          40.02133354205423
+        ],
+        [
+          90.46093497256749,
+          -151.29124238787318
+        ]
+      ]
+    }
+  ],
+  "mfem_adjacent": [
+    {
+      "coarse_refinement": 1,
+      "fine_refinement": 2,
+      "normalized_complex_l2": 0.8520793271520918,
+      "complex_relative_by_hz": [
+        0.31843060499261266,
+        0.8687781098372124
+      ],
+      "magnitude_relative_by_hz": [
+        0.016323489763608475,
+        0.6542710856918222
+      ],
+      "phase_difference_deg_by_hz": [
+        18.14961323285351,
+        58.16242000206606
+      ]
+    },
+    {
+      "coarse_refinement": 2,
+      "fine_refinement": 3,
+      "normalized_complex_l2": 0.18141276858099634,
+      "complex_relative_by_hz": [
+        0.011757400428668692,
+        0.18613884449855483
+      ],
+      "magnitude_relative_by_hz": [
+        0.006779121776243238,
+        0.08066308588223613
+      ],
+      "phase_difference_deg_by_hz": [
+        0.548543305906422,
+        9.255942248265105
+      ]
+    }
+  ],
+  "fv_adjacent": [
+    {
+      "coarse_n": 20,
+      "fine_n": 24,
+      "normalized_complex_l2": 0.06881918302799149,
+      "complex_relative_by_hz": [
+        0.02070876975555634,
+        0.07079799684653064
+      ],
+      "magnitude_relative_by_hz": [
+        0.018954485975146155,
+        0.04752388087523236
+      ],
+      "phase_difference_deg_by_hz": [
+        0.4734679426688132,
+        3.0811797911460475
+      ]
+    },
+    {
+      "coarse_n": 24,
+      "fine_n": 28,
+      "normalized_complex_l2": 0.037274670760885295,
+      "complex_relative_by_hz": [
+        0.0055446767123421585,
+        0.03837726509616597
+      ],
+      "magnitude_relative_by_hz": [
+        0.005507902352706209,
+        0.027048498235233295
+      ],
+      "phase_difference_deg_by_hz": [
+        0.03662910828909735,
+        1.5814539162776278
+      ]
+    },
+    {
+      "coarse_n": 28,
+      "fine_n": 32,
+      "normalized_complex_l2": 0.025719470492134203,
+      "complex_relative_by_hz": [
+        0.00977354129417544,
+        0.02635315880181582
+      ],
+      "magnitude_relative_by_hz": [
+        0.00963010492768675,
+        0.016111992603019227
+      ],
+      "phase_difference_deg_by_hz": [
+        0.09512898169072279,
+        1.204616599064745
+      ]
+    }
+  ],
+  "cross_solver_vs_mfem_r3": [
+    {
+      "fv_n": 20,
+      "mfem_r": 3,
+      "normalized_complex_l2": 0.20348377581194912,
+      "complex_relative_by_hz": [
+        0.018699082755315326,
+        0.20876252630812653
+      ],
+      "magnitude_relative_by_hz": [
+        0.018699002040694,
+        0.13437888040059523
+      ],
+      "phase_difference_deg_by_hz": [
+        0.0031188930279423066,
+        9.850743899043891
+      ]
+    },
+    {
+      "fv_n": 24,
+      "mfem_r": 3,
+      "normalized_complex_l2": 0.14118927443988705,
+      "complex_relative_by_hz": [
+        0.008320721169957595,
+        0.14487011987648857
+      ],
+      "magnitude_relative_by_hz": [
+        0.0002507314487237911,
+        0.09118863746964502
+      ],
+      "phase_difference_deg_by_hz": [
+        0.47658683569675864,
+        6.769564107897846
+      ]
+    },
+    {
+      "fv_n": 28,
+      "mfem_r": 3,
+      "normalized_complex_l2": 0.10676958058179818,
+      "complex_relative_by_hz": [
+        0.009339102540319394,
+        0.10954157263687155
+      ],
+      "magnitude_relative_by_hz": [
+        0.0052862872580078804,
+        0.06592326453895445
+      ],
+      "phase_difference_deg_by_hz": [
+        0.43995772740765965,
+        5.188110191620221
+      ]
+    },
+    {
+      "fv_n": 32,
+      "mfem_r": 3,
+      "normalized_complex_l2": 0.08243571292457451,
+      "complex_relative_by_hz": [
+        0.01026411370473328,
+        0.08455921809591256
+      ],
+      "magnitude_relative_by_hz": [
+        0.004302385248298426,
+        0.05062697335616297
+      ],
+      "phase_difference_deg_by_hz": [
+        0.5350867090983833,
+        3.983493592555477
+      ]
+    }
+  ],
+  "gate": {
+    "same_source_cross_solver_diagnostic_executed": true,
+    "canonical_r130d_self_convergence": "SELF_CONVERGENCE_FAILED",
+    "original_mfem_impulse_self_convergence": "SELF_CONVERGENCE_FAILED",
+    "production_ready": false,
+    "physical_validation": "NOT_VALIDATED",
+    "cross_solver_production_eligible": false
+  }
+}

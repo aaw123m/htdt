@@ -1,0 +1,89 @@
+{
+  "schema_version": "htdt.r130d.original-native-neumann-q0-modal-drift-plan-1",
+  "date_jst": "2026-10-09",
+  "issue": 938,
+  "pr": 1055,
+  "goal": "Compute lowest physical modes of the unchanged native pinned PFFDTD rigid Neumann graph on ALL five frozen original PPW28-44 meshes and couple the original unaltered eight-node q0 source/receiver; compare native leapfrog discrete frequencies and signed 0.25-second modal impulse transfer with frozen full native 40/80Hz data. Diagnostic, not qualification.",
+  "source_authority": {
+    "pffdtd_upstream_git_sha": "aa319f6c86517cb95aabfae8656277da62c3ead5",
+    "previous_original_graph_evidence": "benchmarks/acoustics/r130d_original_pffdtd_neumann_graph_evidence_2026-10-09.json",
+    "previous_original_wave_evidence": "benchmarks/acoustics/r130d_original_point_quadratic_pffdtd_evidence_2026-10-09.json",
+    "original_ppw": [
+      28,
+      32,
+      36,
+      40,
+      44
+    ],
+    "physical_source_xyz_m": [
+      1.5,
+      2,
+      2
+    ],
+    "physical_receiver_xyz_m": [
+      2.5,
+      2,
+      2
+    ],
+    "sound_speed_m_s": 343.2,
+    "density_kg_m3": 1.2,
+    "raw_source": "unchanged original native 8-node sim comms impulse, q[0]=1 and n>0=0, source scale l2/h and out_alpha trilinear receiver",
+    "wave_record_duration_s": 0.25,
+    "original_full_transfer_frequencies_hz": [
+      40,
+      80
+    ],
+    "no_correction_or_taper": true
+  },
+  "spectral_problem": {
+    "matrix": "exact pinned original native seven-point rigid graph of -L on source-connected interior room only; degree minus full reciprocal one-step adjacency; graph indices C ordered",
+    "solve": "scipy.sparse.linalg.eigsh(A,k=20,which=SM,tol=1e-9,maxiter=6000,ncv=60) CPU sparse symmetric Krylov; zero constant mode included",
+    "number_eigenpairs": 20,
+    "reference_eigenfrequencies_hz": "f_cont=(c/(2*pi*h))*sqrt(lambda_graph)",
+    "leapfrog_native_eigenfrequencies_hz": "f_native=asin(sqrt(l2*lambda_graph)/2)/(pi*Ts), with native Ts and l2, real stable 0<= l2*lambda <=4",
+    "eigen_relative_residual_max": 5e-7,
+    "zero_mode_max_abs_hz": 0.005,
+    "original_receiver_source_eigen_overlap": "normalized original 8-node alpha and source pulse distribution (native source signals first step divided by original total scaling), projected onto Euclidean unit eigenvector; signed product is invariant under eigenvector sign",
+    "modal_impulse": "u[n]=source_scale*sum_k (dot(vk,receiver)*dot(vk,source)) sin(n*theta_k)/sin(theta_k) for n>=1; zero theta uses n; source_scale native total in_sigs[0] sum; u[0]=0; phi native output emitted before n-step source update",
+    "pressure_derivative": "existing unchanged htdt acoustic_pffdtd_adapter.pffdtd_velocity_potential_to_pressure_trace; exact native second order derivative on 0.25s Nt samples; no taper; finite P_T/Q_T q0 unit, signed 40/80Hz",
+    "numerical_provenance": "each eigenvector true residual and modal signed individual finite-window transfer at 40/80 preserved; retain small/large and negative/error findings",
+    "modal_count_not_sufficient_to_qualify": true
+  },
+  "comparisons": {
+    "per_grid_signed_finite_window_modal_transfer": true,
+    "per_grid_original_full_native_transfer": true,
+    "per_grid_all_mode_couplings": true,
+    "compare_adjacent_original_PPW28_32_36_40_44": true,
+    "frequency_bin_modes": [
+      40,
+      80
+    ],
+    "cross_grid_index_modes_only_diagnostic_due_degeneracy": true,
+    "do_not_infer_unique_cause_from_eigenvalues": true,
+    "no_canonical_8_10_12_qualification": true,
+    "original_acceptance_unchanged": {
+      "complex_rms_relative_max": 0.2,
+      "magnitude_max_relative": 0.25,
+      "phase_max_deg": 15
+    },
+    "original_state": "SELF_CONVERGENCE_FAILED"
+  },
+  "limits": {
+    "max_graph_nodes": 150000,
+    "max_grid_cells": 240000,
+    "max_krylov_modes": 20,
+    "max_cases": 5,
+    "max_time_steps": 2000,
+    "max_eigen_relative_residual": 5e-7,
+    "max_requested_modes": 20,
+    "run_locally_only_no_github_actions": true,
+    "if_memory_or_convergence_fails": "store complete explicit failure for level, do not forge or silently omit mode; diagnostic incomplete"
+  },
+  "release": {
+    "original_canonical_point_impulse": "SELF_CONVERGENCE_FAILED",
+    "physical_validation": "NOT_VALIDATED",
+    "production": "NO_GO",
+    "pull_request_draft": true,
+    "issue_open": true
+  }
+}

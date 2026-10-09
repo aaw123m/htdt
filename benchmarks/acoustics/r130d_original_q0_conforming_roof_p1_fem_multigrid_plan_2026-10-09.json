@@ -1,0 +1,97 @@
+{
+  "schema_version": "htdt.r130d.original-q0-conforming-roof-p1-fem-multigrid-plan-1",
+  "date_jst": "2026-10-09",
+  "issue": 938,
+  "pr": 1055,
+  "research_question": "Can a physical-domain conforming triangular P1 Galerkin Neumann discretization with exact planar roof boundaries and the original 8node q0 source/observer remove nonmonotone sliver-cutcell frequency artifacts of exact-volume face-aperture FV? Compare five original grids before observing new solution outcomes.",
+  "fixed_original": {
+    "upstream_sha": "aa319f6c86517cb95aabfae8656277da62c3ead5",
+    "ppw": [
+      28,
+      32,
+      36,
+      40,
+      44
+    ],
+    "original_native_hdf5_sha_evidence": "benchmarks/acoustics/r130d_original_point_quadratic_pffdtd_evidence_2026-10-09.json",
+    "reference_real_fullstate_exact_roof_fv": "benchmarks/acoustics/r130d_native_grid_exact_roof_mass_fv_q0_evidence_2026-10-09.json",
+    "original_source_m": [
+      1.5,
+      2,
+      2
+    ],
+    "original_receiver_m": [
+      2.5,
+      2,
+      2
+    ],
+    "raw_original_eight_point_source_and_receiver_HDF5_unchanged": true,
+    "original_q0": "native original one-sample q[0]=1, in_sigs[:,0] preserved, all n>0 zero",
+    "native_each_dt_nt_h_unchanged": true,
+    "original_full_record_seconds": 0.25,
+    "original_full_signed_frequency_hz": [
+      40,
+      80
+    ],
+    "original_sound_speed_m_s": 343.2,
+    "original_rho_kg_m3": 1.2,
+    "sloped_prism_m": {
+      "length": 4,
+      "roof_z_y0": 4,
+      "roof_slope": 0.25,
+      "volume": 56
+    }
+  },
+  "new_spatial_method": {
+    "architecture": "x extruded 1D lumped P1 FE tensor physical yz conforming 2D P1 Galerkin triangles mass-lumped, true exact planar Neumann natural boundary",
+    "yz_nodes": "all Cartesian original native yz nodes lying in physical polygon retained; supplement exact points along all four true boundary segments, including all intersections of the true sloped roof with y,z native grid lines; merge duplicates only by fixed 12 decimal coordinate key",
+    "yz_triangulation": "scipy.spatial.Delaunay of exact physical polygon all interior and boundary vertices, keep all triangles including near-boundary skinny triangles, no cutcell/spectral deletion or regularization",
+    "yz_K": "sum true element polygon triangle area * c² * gradients(N_a) dot gradients(N_b), symmetric positive semidefinite, Neumann natural",
+    "yz_M": "physical P1 Galerkin consistent element mass row sum A/3 diagonal lumping (positive), not fitted",
+    "x_nodes": "original native x-axis physically inside [0,4] retained with exact physical endpoints 0 and 4 inserted; original x sample nodes retained",
+    "x_K": "physical standard P1 line elements c²/dx [[1,-1],[-1,1]], natural Neumann",
+    "x_M": "P1 positive lumped element mass dx/2 per end",
+    "true_3d_operator": "M=Mx tensor Myz, K=Kx tensor Myz + Mx tensor Kyz",
+    "source_receiver": "map each of exact original eight native x,y,z Cartesian HDF5 sample indices to exactly preserved FE nodes; preserve per-node original q0 and receiver weights; zero load on additional physical roof nodes; reject absent/duplicate original sample",
+    "time": "same previous beta=1/4 Newmark exact full-mode q0 kick A/(1+dt²lambda/4), A=dt²*c²*(mass-normalized original 8node source-receiver overlap)",
+    "all_modes": true,
+    "no_modal_truncation_or_clamp": true,
+    "no_sliver_cutoff_or_mesh_agglomeration": true,
+    "no_source_or_receiver_reinterpolation_fitting": true
+  },
+  "verification": {
+    "exact_yz_polygon_area_m2": 14,
+    "exact_full_volume_m3": 56,
+    "exact_volume_absolute_tolerance": 2e-8,
+    "true_full_matrix_kronecker_identity": true,
+    "true_sparse_FEM_symmetric_neumann_constant_mode": true,
+    "positive_lumped_physical_element_mass": true,
+    "independent_small_mesh_manufactured_affine_and_constant_field_energy_tests": true,
+    "all_cartesian_original_source_receiver_indices_preserved": true,
+    "reproduction_of_reference_old_FV_modal_vs_saved_true_CG_rel_max": 0.00002,
+    "reference_old_FV_all_five_grids_previously_known": true,
+    "report_min_triangle_area_and_high_frequency_counts": true,
+    "all_four_adjacent_pair_original_complex_mag_phase": true,
+    "frozen_complex_gate": 0.2,
+    "frozen_magnitude_gate": 0.25,
+    "frozen_phase_deg_gate": 15,
+    "no_three_gate_or_monotonic_cherry_pick": true,
+    "report_full_signed_40_80_all_five_grids": true,
+    "preserve_unfavorable_results": true
+  },
+  "limits": {
+    "max_true_3d_fem_dofs": 180000,
+    "max_each_yz_vertices": 2200,
+    "max_cases": 5,
+    "new_original_PFFDTD_wave_runs": 0,
+    "new_github_actions_runs": 0,
+    "clean_scratch": false
+  },
+  "authority": {
+    "original_upstream_PFFDTD_q0": "SELF_CONVERGENCE_FAILED",
+    "independent_physics": "NOT_VALIDATED",
+    "product": "NO_GO",
+    "draft_pr": true,
+    "issue_open": true
+  }
+}

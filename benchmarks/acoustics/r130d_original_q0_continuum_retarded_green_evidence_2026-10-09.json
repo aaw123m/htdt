@@ -1,0 +1,2032 @@
+{
+  "schema_version": "htdt.r130d.continuum-retarded-point-green-reference-evidence-1",
+  "preregistered_plan_sha256_lf": "2fc3cda6b87f86f442e9b7c21b9693c1390559beb4e703a88c13625c65f11b86",
+  "preregistered_plan": {
+    "schema_version": "htdt.r130d.continuum-retarded-point-green-reference-plan-1",
+    "created_jst": "2026-10-09",
+    "issue": 938,
+    "pr": 1055,
+    "scientific_goal": "Independently separate original native 8-node Cartesian source/receiver geometry interpolation error from singular free-space retarded point Green physics, before assuming additional numeric spatial schemes can fix the original 250ms broadband q0 problem. Compute all five SHA-pinned actual native HDF5 eightpoint weights in analytic continuum 3D retarded Green, plus exactly one first-image planar reflection per true Neumann face with specular-foot validity; DO NOT use finite-reflection model as full-room 250ms physical qualification.",
+    "prospective_original_frozen": {
+      "upstream_sha": "aa319f6c86517cb95aabfae8656277da62c3ead5",
+      "ppw": [
+        28,
+        32,
+        36,
+        40,
+        44
+      ],
+      "raw_native_HDF5_evidence": "benchmarks/acoustics/r130d_original_point_quadratic_pffdtd_evidence_2026-10-09.json",
+      "native_actual_full_modes_evidence": "benchmarks/acoustics/r130d_original_pffdtd_native_full_modal_q0_evidence_2026-10-09.json",
+      "point_source_xyz_m": [
+        1.5,
+        2,
+        2
+      ],
+      "point_receiver_xyz_m": [
+        2.5,
+        2,
+        2
+      ],
+      "source_original_input_sum_in_sigs": true,
+      "source_original_8node_SHA": true,
+      "receiver_original_8node_SHA": true,
+      "native_Ts_Nt_h_original": true,
+      "original_q0_0_1_later_0": true,
+      "full_actual_record_s": 0.25,
+      "freq_hz": [
+        40,
+        80
+      ],
+      "sound_speed_m_s": 343.2,
+      "rho_kg_m3": 1.2,
+      "original_full_signed_complex_gate": 0.2,
+      "original_full_magnitude_gate": 0.25,
+      "original_full_phase_deg_gate": 15,
+      "original_original_status": "SELF_CONVERGENCE_FAILED"
+    },
+    "retarded_reference": {
+      "equation": "free-space retarded wave Green in 3D G(r,t)=\u03b4(t-r/c)/(4\u03c0r) at r>0; for signed exp(+i\u03c9t) time Fourier integral G+(\u03c9,r)=exp(+i\u03c9r/c)/(4\u03c0r). Point impulse native pressure derivative multiplies common -i\u03c9 rho; normalized eightnode-vs-true-point ratio cancels unknown fixed q0 physical force scale.",
+      "original_eightnode_spatial_functional": "sum_{i=0..7,j=0..7} original_in_sigs[i,0]/sum(in_sigs[:,0]) * original_out_alpha[j] * exp(+i\u03c9||x_i-x_j||/c)/(4\u03c0||x_i-x_j||); original eight points and real comms/voxel SHAs verified",
+      "true_point": "exp(+i\u03c9*1m/c)/(4\u03c0*1m)",
+      "first_reflections": "six individual rigid planar image sources x=0 x=4 y=0 y=4 z=0 z=4-.25*y, reflect geometric source through corresponding infinite plane then receiver; specular reflection foot on finite original wall face required, compute from image source to receiver and line-plane intersection",
+      "causal_arrival": "direct travel 1/c and shortest single valid image arrival; direct-only continuum valid before first reflected arrival (in simple constant-c geometric acoustics) but not full native 250ms Neumann response",
+      "record": "report all five original HDF5 spatially weighted signed 40/80 image/direct coefficients and unweighted true-point baseline plus both finite 250ms original saved signed native P_T/Q_T. Signed complex 40/80 intrinsic original three gates recomputed unchanged; analytic direct field is diagnostic only, not an alternate pass criterion.",
+      "geometry": "true 56m3 wedge x0..4 y0..4 0<=z<=4-.25y; reflective walls individually planar first bounce",
+      "finite_record_interpretation": "retarded one-shot direct pulse reaches receiver within original T, so unwindowed distributional first-arrival integral equals infinite-time direct Green; reflected and multibounce path contributions in 250ms unknown from first images alone; no whole-room physical equivalence claim",
+      "no_amplitude_fit_or_q0_change": true,
+      "no_modal_cutoff_or_frequency_bin_mask": true
+    },
+    "acceptance": {
+      "geometry_8node_max_relative_complex_at_40_80_report_all": true,
+      "original_8node_5grid_all_pairs_and_three_gates_recompute": true,
+      "independent_analytic_images_on_plane_reflection_law_tests": true,
+      "analytic_source_receiver_swap_reciprocity": true,
+      "analytic_point_green_rotation_translation_invariance": true,
+      "nonzero_true_min_direct_reflection_time_gap": true,
+      "exact_eight_weight_and_flat_index_mass_moments": true,
+      "source_receiver_physical_position_fixed": true,
+      "all_unfavorable_results": true,
+      "no_physical_qualification_claim": true
+    },
+    "limits": {
+      "max_five_grid_cases": 5,
+      "max_image_planes": 6,
+      "no_native_pffdtd_reruns": 0,
+      "no_github_actions_runs": 0,
+      "preserve_scratch": true
+    },
+    "release": {
+      "original_PFFDTD": "SELF_CONVERGENCE_FAILED",
+      "independent_physics": "NOT_VALIDATED",
+      "product": "NO_GO",
+      "pr_draft": true,
+      "issue_open": true
+    }
+  },
+  "original_PFFDTD_q0": "SELF_CONVERGENCE_FAILED",
+  "independent_physical_validation": "NOT_VALIDATED",
+  "product": "NO_GO",
+  "new_native_PFFDTD_wave_runs": 0,
+  "new_GitHub_Actions_runs": 0,
+  "unit_true_point_free_space_and_six_single_wall_image_geometry": {
+    "direct_G_signed": [
+      [
+        0.059176563968623044,
+        0.05320440070627218
+      ],
+      [
+        0.00843401349126098,
+        0.0791292701474956
+      ]
+    ],
+    "direct_original_physical_distance_m": 1.0,
+    "direct_original_physical_arrival_s": 0.002913752913752914,
+    "first_supported_reflection_s": 0.0089668767033651,
+    "strict_direct_before_any_single_wall_bounce_interval_s": 0.006053123789612185,
+    "six_true_planar_neumann_wall_reflections": {
+      "x0": {
+        "wall": "x0",
+        "source_image_xyz_m": [
+          -1.5,
+          2.0,
+          2.0
+        ],
+        "reflection_xyz_m": [
+          0.0,
+          2.0,
+          2.0
+        ],
+        "single_bounce_path_m": 4.0,
+        "specular_fraction_from_image": 0.375,
+        "reflecting_point_on_true_finite_room_wall": true,
+        "travel_time_s": 0.011655011655011656,
+        "single_bounce_G_signed": [
+          [
+            -0.019447428682533317,
+            0.004193255446626449
+          ],
+          [
+            0.018126692598587398,
+            -0.00819810277071463
+          ]
+        ]
+      },
+      "x4": {
+        "wall": "x4",
+        "source_image_xyz_m": [
+          6.5,
+          2.0,
+          2.0
+        ],
+        "reflection_xyz_m": [
+          4.0,
+          2.0,
+          2.0
+        ],
+        "single_bounce_path_m": 4.0,
+        "specular_fraction_from_image": 0.625,
+        "reflecting_point_on_true_finite_room_wall": true,
+        "travel_time_s": 0.011655011655011656,
+        "single_bounce_G_signed": [
+          [
+            -0.019447428682533317,
+            0.004193255446626449
+          ],
+          [
+            0.018126692598587398,
+            -0.00819810277071463
+          ]
+        ]
+      },
+      "y0": {
+        "wall": "y0",
+        "source_image_xyz_m": [
+          1.5,
+          -2.0,
+          2.0
+        ],
+        "reflection_xyz_m": [
+          2.0,
+          0.0,
+          2.0
+        ],
+        "single_bounce_path_m": 4.123105625617661,
+        "specular_fraction_from_image": 0.5,
+        "reflecting_point_on_true_finite_room_wall": true,
+        "travel_time_s": 0.01201371103035449,
+        "single_bounce_G_signed": [
+          [
+            -0.01915640459477135,
+            0.0023529799462947156
+          ],
+          [
+            0.01872665076674986,
+            -0.004670856740088346
+          ]
+        ]
+      },
+      "y4": {
+        "wall": "y4",
+        "source_image_xyz_m": [
+          1.5,
+          6.0,
+          2.0
+        ],
+        "reflection_xyz_m": [
+          2.0,
+          4.0,
+          2.0
+        ],
+        "single_bounce_path_m": 4.123105625617661,
+        "specular_fraction_from_image": 0.5,
+        "reflecting_point_on_true_finite_room_wall": true,
+        "travel_time_s": 0.01201371103035449,
+        "single_bounce_G_signed": [
+          [
+            -0.01915640459477135,
+            0.0023529799462947156
+          ],
+          [
+            0.01872665076674986,
+            -0.004670856740088346
+          ]
+        ]
+      },
+      "z0": {
+        "wall": "z0",
+        "source_image_xyz_m": [
+          1.5,
+          2.0,
+          -2.0
+        ],
+        "reflection_xyz_m": [
+          2.0,
+          2.0,
+          0.0
+        ],
+        "single_bounce_path_m": 4.123105625617661,
+        "specular_fraction_from_image": 0.5,
+        "reflecting_point_on_true_finite_room_wall": true,
+        "travel_time_s": 0.01201371103035449,
+        "single_bounce_G_signed": [
+          [
+            -0.01915640459477135,
+            0.0023529799462947156
+          ],
+          [
+            0.01872665076674986,
+            -0.004670856740088346
+          ]
+        ]
+      },
+      "true_sloping_roof": {
+        "wall": "true_sloping_roof",
+        "source_image_xyz_m": [
+          1.5,
+          2.7058823529411766,
+          4.8235294117647065
+        ],
+        "reflection_xyz_m": [
+          2.0,
+          2.3529411764705883,
+          3.4117647058823533
+        ],
+        "single_bounce_path_m": 3.0774320845949017,
+        "specular_fraction_from_image": 0.5000000000000001,
+        "reflecting_point_on_true_finite_room_wall": true,
+        "travel_time_s": 0.0089668767033651,
+        "single_bounce_G_signed": [
+          [
+            -0.016316330465293724,
+            0.020060763688717256
+          ],
+          [
+            -0.005267595712080124,
+            -0.025316186818739195
+          ]
+        ]
+      }
+    }
+  },
+  "actual_original_8node_HDF5_5grid_analytic_direct_point_Green_cases": [
+    {
+      "ppw": 28,
+      "original_native_original_source_comms_HDF5_SHA256": "4404a9818a8f0c673c97e8ede8665367100aecb3d2f2f8481bc532bc45fd6b6c",
+      "original_native_original_room_voxel_HDF5_SHA256": "9d8b598fc1e2077840ba5a51e8f2db72c30ad4b6991ae88d3174bac72acf9fc8",
+      "original_native_original_250ms_real_wave_HDF5_SHA256": "6e8a94d695fe77e992d8bd66bbb9b63ed9eaf27abd86f5be94f7554d2ba97d6b",
+      "native_original_h_m": 0.12257142857142857,
+      "native_original_Ts_s": 0.00020599032818587005,
+      "native_original_Nt": 1214,
+      "original_native_source_kick_l2_over_h": 2.7140664335664337,
+      "original_native_source_HDF5_exact_eight_flat_indices": [
+        27736,
+        26055,
+        27695,
+        27735,
+        26014,
+        26054,
+        27694,
+        26013
+      ],
+      "original_native_receiver_HDF5_exact_eight_flat_indices": [
+        41184,
+        39503,
+        41143,
+        41183,
+        39462,
+        39502,
+        41142,
+        39461
+      ],
+      "original_native_source_HDF5_normalized_eight_coefficients": [
+        0.4924678487383246,
+        0.175047813532579,
+        0.1102959375918945,
+        0.1102959375918945,
+        0.03920471715351681,
+        0.03920471715351682,
+        0.02470251384012508,
+        0.008780514398148682
+      ],
+      "original_native_receiver_HDF5_eight_coefficients": [
+        0.5982745271402378,
+        0.06924113513066585,
+        0.13399301107135328,
+        0.13399301107135328,
+        0.015507643674058047,
+        0.015507643674058047,
+        0.03000984698745044,
+        0.00347318125082332
+      ],
+      "original_native_eight_source_xyz_m": [
+        [
+          1.532142857142857,
+          2.0224285714285717,
+          2.0224285714285717
+        ],
+        [
+          1.4095714285714285,
+          2.0224285714285717,
+          2.0224285714285717
+        ],
+        [
+          1.532142857142857,
+          1.8998571428571427,
+          2.0224285714285717
+        ],
+        [
+          1.532142857142857,
+          2.0224285714285717,
+          1.8998571428571427
+        ],
+        [
+          1.4095714285714285,
+          1.8998571428571427,
+          2.0224285714285717
+        ],
+        [
+          1.4095714285714285,
+          2.0224285714285717,
+          1.8998571428571427
+        ],
+        [
+          1.532142857142857,
+          1.8998571428571427,
+          1.8998571428571427
+        ],
+        [
+          1.4095714285714285,
+          1.8998571428571427,
+          1.8998571428571427
+        ]
+      ],
+      "original_native_eight_receiver_xyz_m": [
+        [
+          2.512714285714286,
+          2.0224285714285717,
+          2.0224285714285717
+        ],
+        [
+          2.390142857142857,
+          2.0224285714285717,
+          2.0224285714285717
+        ],
+        [
+          2.512714285714286,
+          1.8998571428571427,
+          2.0224285714285717
+        ],
+        [
+          2.512714285714286,
+          2.0224285714285717,
+          1.8998571428571427
+        ],
+        [
+          2.390142857142857,
+          1.8998571428571427,
+          2.0224285714285717
+        ],
+        [
+          2.390142857142857,
+          2.0224285714285717,
+          1.8998571428571427
+        ],
+        [
+          2.512714285714286,
+          1.8998571428571427,
+          1.8998571428571427
+        ],
+        [
+          2.390142857142857,
+          1.8998571428571427,
+          1.8998571428571427
+        ]
+      ],
+      "original_source_first_moment_error_m": 2.220446049250313e-16,
+      "original_receiver_first_moment_error_m": 0.0,
+      "exact_64_original_native_pairs_analytic_retarded_G_40_80": [
+        [
+          0.0590880602737121,
+          0.05314120326797941
+        ],
+        [
+          0.008370394832388366,
+          0.0787528597928456
+        ]
+      ],
+      "physical_continuum_single_true_Dirac_point_retarded_G_40_80": [
+        [
+          0.059176563968623044,
+          0.05320440070627218
+        ],
+        [
+          0.00843401349126098,
+          0.0791292701474956
+        ]
+      ],
+      "original_native_eightnode_analytic_retarded_vs_physical_point_complex_relative": 0.003527088433629444,
+      "original_native_eightnode_analytic_retarded_vs_physical_point_per_bin_relative": [
+        0.0013666076943487854,
+        0.004797195956705531
+      ],
+      "original_native_eightnode_analytic_retarded_vs_physical_point_max_relative": 0.004797195956705531,
+      "original_native_eightnode_analytic_retarded_vs_physical_point_signed_phase_deg": [
+        0.008779035609051595,
+        0.016904832714239166
+      ],
+      "original_native_eightnode_analytic_direct_pressure_signed_40_80_without_amplitude_fitting": [
+        [
+          16.027009323802176,
+          -17.820539142793425
+        ],
+        [
+          47.50260590868302,
+          -5.048903215310834
+        ]
+      ],
+      "physical_point_analytic_direct_pressure_signed_40_80_without_amplitude_fitting": [
+        [
+          16.04606922215734,
+          -17.84723122833721
+        ],
+        [
+          47.729651285624506,
+          -5.087277086289158
+        ]
+      ],
+      "exact_original_full_250ms_PFFDTD_signed_room_P_over_Q_40_80": [
+        [
+          101.0987693066617,
+          42.7956809667478
+        ],
+        [
+          150.77953891006572,
+          -21.729992606786517
+        ]
+      ],
+      "real_original_allmode_native_full250ms_signed_P_over_Q_40_80": [
+        [
+          101.0987693066617,
+          42.7956809667478
+        ],
+        [
+          150.77953891006572,
+          -21.729992606786517
+        ]
+      ],
+      "original_eightnode_analytic_individual_finite_wall_first_reflections": {
+        "x0": {
+          "original_native_64_source_receiver_pairs_specular_on_true_finite_face": 64,
+          "physically_supported_first_bounce_G_signed": [
+            [
+              -0.019424636461700843,
+              0.004187517491330191
+            ],
+            [
+              0.018043257944048444,
+              -0.008155996303340095
+            ]
+          ],
+          "earliest_supported_original_native_pair_bounce_s": 0.011071428571428572,
+          "latest_supported_original_native_pair_bounce_s": 0.011796531832081248
+        },
+        "x4": {
+          "original_native_64_source_receiver_pairs_specular_on_true_finite_face": 64,
+          "physically_supported_first_bounce_G_signed": [
+            [
+              -0.01942519543175585,
+              0.004187882250318489
+            ],
+            [
+              0.018043889285840022,
+              -0.008162016250998855
+            ]
+          ],
+          "earliest_supported_original_native_pair_bounce_s": 0.011524309024309025,
+          "latest_supported_original_native_pair_bounce_s": 0.01224901233636309
+        },
+        "y0": {
+          "original_native_64_source_receiver_pairs_specular_on_true_finite_face": 64,
+          "physically_supported_first_bounce_G_signed": [
+            [
+              -0.01913317594758797,
+              0.002350241153352296
+            ],
+            [
+              0.018636086962948897,
+              -0.004646014057067506
+            ]
+          ],
+          "earliest_supported_original_native_pair_bounce_s": 0.01135017755862193,
+          "latest_supported_original_native_pair_bounce_s": 0.01222138473733477
+        },
+        "y4": {
+          "original_native_64_source_receiver_pairs_specular_on_true_finite_face": 64,
+          "physically_supported_first_bounce_G_signed": [
+            [
+              -0.01913372238481848,
+              0.0023506353988814823
+            ],
+            [
+              0.018637513273686145,
+              -0.004651997876648832
+            ]
+          ],
+          "earliest_supported_original_native_pair_bounce_s": 0.011792357630591534,
+          "latest_supported_original_native_pair_bounce_s": 0.012658688117219265
+        },
+        "z0": {
+          "original_native_64_source_receiver_pairs_specular_on_true_finite_face": 64,
+          "physically_supported_first_bounce_G_signed": [
+            [
+              -0.01913317594758797,
+              0.0023502411533522956
+            ],
+            [
+              0.018636086962948894,
+              -0.004646014057067506
+            ]
+          ],
+          "earliest_supported_original_native_pair_bounce_s": 0.01135017755862193,
+          "latest_supported_original_native_pair_bounce_s": 0.01222138473733477
+        },
+        "true_sloping_roof": {
+          "original_native_64_source_receiver_pairs_specular_on_true_finite_face": 64,
+          "physically_supported_first_bounce_G_signed": [
+            [
+              -0.016296484958627417,
+              0.020037507426319393
+            ],
+            [
+              -0.005246790980395803,
+              -0.025195531442097848
+            ]
+          ],
+          "earliest_supported_original_native_pair_bounce_s": 0.008689176935985083,
+          "latest_supported_original_native_pair_bounce_s": 0.009733978343982734
+        }
+      },
+      "original_physical_8node_first_moments_unchanged": true,
+      "analytic_retarded_direct_only_is_not_full_250ms_room_response": true,
+      "full_original_native_q0_and_all_higher_modes_untouched": true
+    },
+    {
+      "ppw": 32,
+      "original_native_original_source_comms_HDF5_SHA256": "716199c1cb8f9d982cdafe7deaccdf630073a2b0d8cdec17fcaf3dff52f4b60b",
+      "original_native_original_room_voxel_HDF5_SHA256": "8f3ebd62703c40793d68fdf703e098bbecc568cc9beb227cfa126b8042954e3b",
+      "original_native_original_250ms_real_wave_HDF5_SHA256": "773601d4be74cef568739d8957082c9561912ccfd4fa860c415585409a1d84b7",
+      "native_original_h_m": 0.10725,
+      "native_original_Ts_s": 0.0001802415371626363,
+      "native_original_Nt": 1388,
+      "original_native_source_kick_l2_over_h": 3.10179020979021,
+      "original_native_source_HDF5_exact_eight_flat_indices": [
+        39169,
+        37053,
+        39123,
+        39168,
+        37007,
+        37052,
+        39122,
+        37006
+      ],
+      "original_native_receiver_HDF5_exact_eight_flat_indices": [
+        58213,
+        56097,
+        58167,
+        58212,
+        56051,
+        56096,
+        58166,
+        56050
+      ],
+      "original_native_source_HDF5_normalized_eight_coefficients": [
+        0.010648333225232204,
+        0.01126118693603688,
+        0.0612907999027134,
+        0.0612907999027134,
+        0.0648183279546678,
+        0.0648183279546678,
+        0.3527840529833282,
+        0.37308817114064025
+      ],
+      "original_native_receiver_HDF5_eight_coefficients": [
+        0.01774722204205362,
+        0.004162298119215461,
+        0.1021513331711887,
+        0.1021513331711887,
+        0.023957794686192503,
+        0.023957794686192503,
+        0.5879734216388787,
+        0.13789880248508982
+      ],
+      "original_native_eight_source_xyz_m": [
+        [
+          1.5551249999999999,
+          2.0913749999999998,
+          2.0913749999999998
+        ],
+        [
+          1.447875,
+          2.0913749999999998,
+          2.0913749999999998
+        ],
+        [
+          1.5551249999999999,
+          1.9841250000000001,
+          2.0913749999999998
+        ],
+        [
+          1.5551249999999999,
+          2.0913749999999998,
+          1.9841250000000001
+        ],
+        [
+          1.447875,
+          1.9841250000000001,
+          2.0913749999999998
+        ],
+        [
+          1.447875,
+          2.0913749999999998,
+          1.9841250000000001
+        ],
+        [
+          1.5551249999999999,
+          1.9841250000000001,
+          1.9841250000000001
+        ],
+        [
+          1.447875,
+          1.9841250000000001,
+          1.9841250000000001
+        ]
+      ],
+      "original_native_eight_receiver_xyz_m": [
+        [
+          2.520375,
+          2.0913749999999998,
+          2.0913749999999998
+        ],
+        [
+          2.413125,
+          2.0913749999999998,
+          2.0913749999999998
+        ],
+        [
+          2.520375,
+          1.9841250000000001,
+          2.0913749999999998
+        ],
+        [
+          2.520375,
+          2.0913749999999998,
+          1.9841250000000001
+        ],
+        [
+          2.413125,
+          1.9841250000000001,
+          2.0913749999999998
+        ],
+        [
+          2.413125,
+          2.0913749999999998,
+          1.9841250000000001
+        ],
+        [
+          2.520375,
+          1.9841250000000001,
+          1.9841250000000001
+        ],
+        [
+          2.413125,
+          1.9841250000000001,
+          1.9841250000000001
+        ]
+      ],
+      "original_source_first_moment_error_m": 0.0,
+      "original_receiver_first_moment_error_m": 0.0,
+      "exact_64_original_native_pairs_analytic_retarded_G_40_80": [
+        [
+          0.05928389611013511,
+          0.05315530934249188
+        ],
+        [
+          0.008617731061236736,
+          0.07885033900095306
+        ]
+      ],
+      "physical_continuum_single_true_Dirac_point_retarded_G_40_80": [
+        [
+          0.059176563968623044,
+          0.05320440070627218
+        ],
+        [
+          0.00843401349126098,
+          0.0791292701474956
+        ]
+      ],
+      "original_native_eightnode_analytic_retarded_vs_physical_point_complex_relative": 0.0031476799457673794,
+      "original_native_eightnode_analytic_retarded_vs_physical_point_per_bin_relative": [
+        0.0014831591993494974,
+        0.004197143894526041
+      ],
+      "original_native_eightnode_analytic_retarded_vs_physical_point_max_relative": 0.004197143894526041,
+      "original_native_eightnode_analytic_retarded_vs_physical_point_signed_phase_deg": [
+        -0.07790606170923318,
+        -0.1533131148890672
+      ],
+      "original_native_eightnode_analytic_direct_pressure_signed_40_80_without_amplitude_fitting": [
+        [
+          16.031263615647877,
+          -17.879601839594976
+        ],
+        [
+          47.5614039817841,
+          -5.198092913778029
+        ]
+      ],
+      "physical_point_analytic_direct_pressure_signed_40_80_without_amplitude_fitting": [
+        [
+          16.04606922215734,
+          -17.84723122833721
+        ],
+        [
+          47.729651285624506,
+          -5.087277086289158
+        ]
+      ],
+      "exact_original_full_250ms_PFFDTD_signed_room_P_over_Q_40_80": [
+        [
+          16.56628166594011,
+          -21.00233450877161
+        ],
+        [
+          -21.520688403756687,
+          -230.6577420888628
+        ]
+      ],
+      "real_original_allmode_native_full250ms_signed_P_over_Q_40_80": [
+        [
+          16.56628166594011,
+          -21.00233450877161
+        ],
+        [
+          -21.520688403756687,
+          -230.6577420888628
+        ]
+      ],
+      "original_eightnode_analytic_individual_finite_wall_first_reflections": {
+        "x0": {
+          "original_native_64_source_receiver_pairs_specular_on_true_finite_face": 64,
+          "physically_supported_first_bounce_G_signed": [
+            [
+              -0.019423906396030085,
+              0.0041946285418362995
+            ],
+            [
+              0.018033226174210663,
+              -0.008168708374985276
+            ]
+          ],
+          "earliest_supported_original_native_pair_bounce_s": 0.01125,
+          "latest_supported_original_native_pair_bounce_s": 0.011883220838644714
+        },
+        "x4": {
+          "original_native_64_source_receiver_pairs_specular_on_true_finite_face": 64,
+          "physically_supported_first_bounce_G_signed": [
+            [
+              -0.019424106375029008,
+              0.004194758973463283
+            ],
+            [
+              0.018033450619750608,
+              -0.008170860645904127
+            ]
+          ],
+          "earliest_supported_original_native_pair_bounce_s": 0.01143502331002331,
+          "latest_supported_original_native_pair_bounce_s": 0.012068118110886454
+        },
+        "y0": {
+          "original_native_64_source_receiver_pairs_specular_on_true_finite_face": 64,
+          "physically_supported_first_bounce_G_signed": [
+            [
+              -0.019140672503211918,
+              0.0023486368523794377
+            ],
+            [
+              0.018667427532860728,
+              -0.004652695074883196
+            ]
+          ],
+          "earliest_supported_original_native_pair_bounce_s": 0.011829683269217316,
+          "latest_supported_original_native_pair_bounce_s": 0.012585644103501416
+        },
+        "y4": {
+          "original_native_64_source_receiver_pairs_specular_on_true_finite_face": 64,
+          "physically_supported_first_bounce_G_signed": [
+            [
+              -0.01914032956176057,
+              0.0023483894342512836
+            ],
+            [
+              0.018666531663306136,
+              -0.0046489369553444
+            ]
+          ],
+          "earliest_supported_original_native_pair_bounce_s": 0.011400023016731676,
+          "latest_supported_original_native_pair_bounce_s": 0.012160081626763075
+        },
+        "z0": {
+          "original_native_64_source_receiver_pairs_specular_on_true_finite_face": 64,
+          "physically_supported_first_bounce_G_signed": [
+            [
+              -0.019140672503211918,
+              0.0023486368523794377
+            ],
+            [
+              0.018667427532860728,
+              -0.004652695074883196
+            ]
+          ],
+          "earliest_supported_original_native_pair_bounce_s": 0.011829683269217316,
+          "latest_supported_original_native_pair_bounce_s": 0.012585644103501416
+        },
+        "true_sloping_roof": {
+          "original_native_64_source_receiver_pairs_specular_on_true_finite_face": 64,
+          "physically_supported_first_bounce_G_signed": [
+            [
+              -0.016304796639906298,
+              0.020040317764612355
+            ],
+            [
+              -0.00524027531599834,
+              -0.025232432093621658
+            ]
+          ],
+          "earliest_supported_original_native_pair_bounce_s": 0.008223737271334509,
+          "latest_supported_original_native_pair_bounce_s": 0.009143078345636177
+        }
+      },
+      "original_physical_8node_first_moments_unchanged": true,
+      "analytic_retarded_direct_only_is_not_full_250ms_room_response": true,
+      "full_original_native_q0_and_all_higher_modes_untouched": true
+    },
+    {
+      "ppw": 36,
+      "original_native_original_source_comms_HDF5_SHA256": "3cd05bcee5f8fed08da3dc94ff2ac90b92969b293daf2db77b4bac8d0c51a2f9",
+      "original_native_original_room_voxel_HDF5_SHA256": "433c1d334419006b1185a4ef275545d329244d0808b2a3c12a3200e7af4e3d50",
+      "original_native_original_250ms_real_wave_HDF5_SHA256": "8fad2511eee77d463b43a1aa5d6f7ae13047ed8bf5d27e0cb0b76ffb7b3bd486",
+      "native_original_h_m": 0.09533333333333333,
+      "native_original_Ts_s": 0.00016021469970012116,
+      "native_original_Nt": 1561,
+      "original_native_source_kick_l2_over_h": 3.4895139860139857,
+      "original_native_source_HDF5_exact_eight_flat_indices": [
+        51275,
+        48775,
+        51225,
+        51274,
+        48725,
+        48774,
+        51224,
+        48724
+      ],
+      "original_native_receiver_HDF5_exact_eight_flat_indices": [
+        76275,
+        73775,
+        76225,
+        76274,
+        73725,
+        73774,
+        76224,
+        73724
+      ],
+      "original_native_source_HDF5_normalized_eight_coefficients": [
+        0.05375487268856183,
+        0.17570622565365687,
+        0.058463328690479294,
+        0.0584633286904793,
+        0.1910965519882826,
+        0.1910965519882826,
+        0.06358420419621431,
+        0.20783493610404333
+      ],
+      "original_native_receiver_HDF5_eight_coefficients": [
+        0.1660784872616763,
+        0.06338261108054234,
+        0.18062550804371985,
+        0.18062550804371985,
+        0.068934372635042,
+        0.068934372635042,
+        0.1964467204271102,
+        0.07497241987314741
+      ],
+      "original_native_eight_source_xyz_m": [
+        [
+          1.573,
+          2.0496666666666665,
+          2.0496666666666665
+        ],
+        [
+          1.4776666666666665,
+          2.0496666666666665,
+          2.0496666666666665
+        ],
+        [
+          1.573,
+          1.954333333333333,
+          2.0496666666666665
+        ],
+        [
+          1.573,
+          2.0496666666666665,
+          1.954333333333333
+        ],
+        [
+          1.4776666666666665,
+          1.954333333333333,
+          2.0496666666666665
+        ],
+        [
+          1.4776666666666665,
+          2.0496666666666665,
+          1.954333333333333
+        ],
+        [
+          1.573,
+          1.954333333333333,
+          1.954333333333333
+        ],
+        [
+          1.4776666666666665,
+          1.954333333333333,
+          1.954333333333333
+        ]
+      ],
+      "original_native_eight_receiver_xyz_m": [
+        [
+          2.526333333333333,
+          2.0496666666666665,
+          2.0496666666666665
+        ],
+        [
+          2.4309999999999996,
+          2.0496666666666665,
+          2.0496666666666665
+        ],
+        [
+          2.526333333333333,
+          1.954333333333333,
+          2.0496666666666665
+        ],
+        [
+          2.526333333333333,
+          2.0496666666666665,
+          1.954333333333333
+        ],
+        [
+          2.4309999999999996,
+          1.954333333333333,
+          2.0496666666666665
+        ],
+        [
+          2.4309999999999996,
+          2.0496666666666665,
+          1.954333333333333
+        ],
+        [
+          2.526333333333333,
+          1.954333333333333,
+          1.954333333333333
+        ],
+        [
+          2.4309999999999996,
+          1.954333333333333,
+          1.954333333333333
+        ]
+      ],
+      "original_source_first_moment_error_m": 2.220446049250313e-16,
+      "original_receiver_first_moment_error_m": 4.440892098500626e-16,
+      "exact_64_original_native_pairs_analytic_retarded_G_40_80": [
+        [
+          0.0590260724696962,
+          0.05314441881462234
+        ],
+        [
+          0.008277780207760899,
+          0.07876248263337923
+        ]
+      ],
+      "physical_continuum_single_true_Dirac_point_retarded_G_40_80": [
+        [
+          0.059176563968623044,
+          0.05320440070627218
+        ],
+        [
+          0.00843401349126098,
+          0.0791292701474956
+        ]
+      ],
+      "original_native_eightnode_analytic_retarded_vs_physical_point_complex_relative": 0.003823848064676955,
+      "original_native_eightnode_analytic_retarded_vs_physical_point_per_bin_relative": [
+        0.002035810936754568,
+        0.005009900385562358
+      ],
+      "original_native_eightnode_analytic_retarded_vs_physical_point_max_relative": 0.005009900385562358,
+      "original_native_eightnode_analytic_retarded_vs_physical_point_signed_phase_deg": [
+        0.04040576846672273,
+        0.08426885379148494
+      ],
+      "original_native_eightnode_analytic_direct_pressure_signed_40_80_without_amplitude_fitting": [
+        [
+          16.027979109822407,
+          -17.801844061541406
+        ],
+        [
+          47.50841026934743,
+          -4.993039389836666
+        ]
+      ],
+      "physical_point_analytic_direct_pressure_signed_40_80_without_amplitude_fitting": [
+        [
+          16.04606922215734,
+          -17.84723122833721
+        ],
+        [
+          47.729651285624506,
+          -5.087277086289158
+        ]
+      ],
+      "exact_original_full_250ms_PFFDTD_signed_room_P_over_Q_40_80": [
+        [
+          57.86557590696418,
+          12.212530552108216
+        ],
+        [
+          119.43681400077243,
+          -167.8458584505424
+        ]
+      ],
+      "real_original_allmode_native_full250ms_signed_P_over_Q_40_80": [
+        [
+          57.86557590696418,
+          12.212530552108216
+        ],
+        [
+          119.43681400077243,
+          -167.8458584505424
+        ]
+      ],
+      "original_eightnode_analytic_individual_finite_wall_first_reflections": {
+        "x0": {
+          "original_native_64_source_receiver_pairs_specular_on_true_finite_face": 64,
+          "physically_supported_first_bounce_G_signed": [
+            [
+              -0.019428980416948613,
+              0.00418522401625772
+            ],
+            [
+              0.018061823820324625,
+              -0.00816014364962607
+            ]
+          ],
+          "earliest_supported_original_native_pair_bounce_s": 0.011388888888888888,
+          "latest_supported_original_native_pair_bounce_s": 0.011950902646832752
+        },
+        "x4": {
+          "original_native_64_source_receiver_pairs_specular_on_true_finite_face": 64,
+          "physically_supported_first_bounce_G_signed": [
+            [
+              -0.019428971111628602,
+              0.004185217947617748
+            ],
+            [
+              0.018061813404996366,
+              -0.008160043668780023
+            ]
+          ],
+          "earliest_supported_original_native_pair_bounce_s": 0.011365578865578865,
+          "latest_supported_original_native_pair_bounce_s": 0.011927605244742566
+        },
+        "y0": {
+          "original_native_64_source_receiver_pairs_specular_on_true_finite_face": 64,
+          "physically_supported_first_bounce_G_signed": [
+            [
+              -0.019133813143525493,
+              0.002351713755492781
+            ],
+            [
+              0.01863695917025067,
+              -0.004651703419715774
+            ]
+          ],
+          "earliest_supported_original_native_pair_bounce_s": 0.011660051034341864,
+          "latest_supported_original_native_pair_bounce_s": 0.012332207155790616
+        },
+        "y4": {
+          "original_native_64_source_receiver_pairs_specular_on_true_finite_face": 64,
+          "physically_supported_first_bounce_G_signed": [
+            [
+              -0.019133784740068223,
+              0.0023516932615129786
+            ],
+            [
+              0.01863688497182373,
+              -0.004651392232512083
+            ]
+          ],
+          "earliest_supported_original_native_pair_bounce_s": 0.011637284174140157,
+          "latest_supported_original_native_pair_bounce_s": 0.012309631437767324
+        },
+        "z0": {
+          "original_native_64_source_receiver_pairs_specular_on_true_finite_face": 64,
+          "physically_supported_first_bounce_G_signed": [
+            [
+              -0.01913381314352549,
+              0.00235171375549278
+            ],
+            [
+              0.01863695917025067,
+              -0.0046517034197157735
+            ]
+          ],
+          "earliest_supported_original_native_pair_bounce_s": 0.011660051034341864,
+          "latest_supported_original_native_pair_bounce_s": 0.01233220715579062
+        },
+        "true_sloping_roof": {
+          "original_native_64_source_receiver_pairs_specular_on_true_finite_face": 64,
+          "physically_supported_first_bounce_G_signed": [
+            [
+              -0.016295999721337485,
+              0.02003914434722954
+            ],
+            [
+              -0.005246913564897067,
+              -0.025196778222327423
+            ]
+          ],
+          "earliest_supported_original_native_pair_bounce_s": 0.008505007789776281,
+          "latest_supported_original_native_pair_bounce_s": 0.009318208794358912
+        }
+      },
+      "original_physical_8node_first_moments_unchanged": true,
+      "analytic_retarded_direct_only_is_not_full_250ms_room_response": true,
+      "full_original_native_q0_and_all_higher_modes_untouched": true
+    },
+    {
+      "ppw": 40,
+      "original_native_original_source_comms_HDF5_SHA256": "64a4f45cf19b92bb7a8a1ffd24af05e10877c99000e29bf985637b18e287763a",
+      "original_native_original_room_voxel_HDF5_SHA256": "c7c1894826c4774393987855e533081f615b22d510ec6042aacda12acbe0daaf",
+      "original_native_original_250ms_real_wave_HDF5_SHA256": "79763a63cedf667e98cbcf5867b848675d634a861e63fc3e1cf94ed9982596fa",
+      "native_original_h_m": 0.0858,
+      "native_original_Ts_s": 0.00014419322973010905,
+      "native_original_Nt": 1734,
+      "original_native_source_kick_l2_over_h": 3.877237762237762,
+      "original_native_source_HDF5_exact_eight_flat_indices": [
+        65037,
+        62012,
+        64982,
+        65036,
+        61957,
+        62011,
+        64981,
+        61956
+      ],
+      "original_native_receiver_HDF5_exact_eight_flat_indices": [
+        101337,
+        98312,
+        101282,
+        101336,
+        98257,
+        98311,
+        101281,
+        98256
+      ],
+      "original_native_source_HDF5_normalized_eight_coefficients": [
+        0.6446668228723544,
+        0.0114709399087612,
+        0.15119524047222357,
+        0.15119524047222357,
+        0.002690306769968495,
+        0.002690306769968495,
+        0.03546017870068032,
+        0.0006309640338199589
+      ],
+      "original_native_receiver_HDF5_eight_coefficients": [
+        0.41830694200614316,
+        0.2378308207749724,
+        0.09810652021151423,
+        0.09810652021151423,
+        0.055779027030677844,
+        0.05577902703067784,
+        0.023009155099967,
+        0.013081987634533278
+      ],
+      "original_native_eight_source_xyz_m": [
+        [
+          1.5015,
+          2.0163,
+          2.0163
+        ],
+        [
+          1.4157,
+          2.0163,
+          2.0163
+        ],
+        [
+          1.5015,
+          1.9304999999999999,
+          2.0163
+        ],
+        [
+          1.5015,
+          2.0163,
+          1.9304999999999999
+        ],
+        [
+          1.4157,
+          1.9304999999999999,
+          2.0163
+        ],
+        [
+          1.4157,
+          2.0163,
+          1.9304999999999999
+        ],
+        [
+          1.5015,
+          1.9304999999999999,
+          1.9304999999999999
+        ],
+        [
+          1.4157,
+          1.9304999999999999,
+          1.9304999999999999
+        ]
+      ],
+      "original_native_eight_receiver_xyz_m": [
+        [
+          2.5311,
+          2.0163,
+          2.0163
+        ],
+        [
+          2.4453,
+          2.0163,
+          2.0163
+        ],
+        [
+          2.5311,
+          1.9304999999999999,
+          2.0163
+        ],
+        [
+          2.5311,
+          2.0163,
+          1.9304999999999999
+        ],
+        [
+          2.4453,
+          1.9304999999999999,
+          2.0163
+        ],
+        [
+          2.4453,
+          2.0163,
+          1.9304999999999999
+        ],
+        [
+          2.5311,
+          1.9304999999999999,
+          1.9304999999999999
+        ],
+        [
+          2.4453,
+          1.9304999999999999,
+          1.9304999999999999
+        ]
+      ],
+      "original_source_first_moment_error_m": 2.220446049250313e-16,
+      "original_receiver_first_moment_error_m": 0.0,
+      "exact_64_original_native_pairs_analytic_retarded_G_40_80": [
+        [
+          0.05910670830661914,
+          0.053173997476100715
+        ],
+        [
+          0.008365160482691323,
+          0.07894472042403283
+        ]
+      ],
+      "physical_continuum_single_true_Dirac_point_retarded_G_40_80": [
+        [
+          0.059176563968623044,
+          0.05320440070627218
+        ],
+        [
+          0.00843401349126098,
+          0.0791292701474956
+        ]
+      ],
+      "original_native_eightnode_analytic_retarded_vs_physical_point_complex_relative": 0.0018766330922257734,
+      "original_native_eightnode_analytic_retarded_vs_physical_point_per_bin_relative": [
+        0.0009573702395698501,
+        0.0024752668038132176
+      ],
+      "original_native_eightnode_analytic_retarded_vs_physical_point_max_relative": 0.0024752668038132176,
+      "original_native_eightnode_analytic_retarded_vs_physical_point_signed_phase_deg": [
+        0.01736462973778325,
+        0.03529674631259096
+      ],
+      "original_native_eightnode_analytic_direct_pressure_signed_40_80_without_amplitude_fitting": [
+        [
+          16.03689982396034,
+          -17.82616325701915
+        ],
+        [
+          47.61833351497759,
+          -5.04574592995636
+        ]
+      ],
+      "physical_point_analytic_direct_pressure_signed_40_80_without_amplitude_fitting": [
+        [
+          16.04606922215734,
+          -17.84723122833721
+        ],
+        [
+          47.729651285624506,
+          -5.087277086289158
+        ]
+      ],
+      "exact_original_full_250ms_PFFDTD_signed_room_P_over_Q_40_80": [
+        [
+          23.081760574920366,
+          18.909536564347828
+        ],
+        [
+          109.07263342140902,
+          -119.86161783862582
+        ]
+      ],
+      "real_original_allmode_native_full250ms_signed_P_over_Q_40_80": [
+        [
+          23.081760574920366,
+          18.909536564347828
+        ],
+        [
+          109.07263342140902,
+          -119.86161783862582
+        ]
+      ],
+      "original_eightnode_analytic_individual_finite_wall_first_reflections": {
+        "x0": {
+          "original_native_64_source_receiver_pairs_specular_on_true_finite_face": 64,
+          "physically_supported_first_bounce_G_signed": [
+            [
+              -0.019437658021379863,
+              0.004189497742462877
+            ],
+            [
+              0.018091945716611255,
+              -0.008178425817092891
+            ]
+          ],
+          "earliest_supported_original_native_pair_bounce_s": 0.01125,
+          "latest_supported_original_native_pair_bounce_s": 0.011755317945508749
+        },
+        "x4": {
+          "original_native_64_source_receiver_pairs_specular_on_true_finite_face": 64,
+          "physically_supported_first_bounce_G_signed": [
+            [
+              -0.019437750812869355,
+              0.0041895582938665694
+            ],
+            [
+              0.018092050704346177,
+              -0.008179426932339556
+            ]
+          ],
+          "earliest_supported_original_native_pair_bounce_s": 0.01156002331002331,
+          "latest_supported_original_native_pair_bounce_s": 0.01206520460822383
+        },
+        "y0": {
+          "original_native_64_source_receiver_pairs_specular_on_true_finite_face": 64,
+          "physically_supported_first_bounce_G_signed": [
+            [
+              -0.01914494236504073,
+              0.0023521292294374466
+            ],
+            [
+              0.018681405341539933,
+              -0.004659845494034171
+            ]
+          ],
+          "earliest_supported_original_native_pair_bounce_s": 0.011581234821900469,
+          "latest_supported_original_native_pair_bounce_s": 0.012193748398257199
+        },
+        "y4": {
+          "original_native_64_source_receiver_pairs_specular_on_true_finite_face": 64,
+          "physically_supported_first_bounce_G_signed": [
+            [
+              -0.019145131142653378,
+              0.0023522654223093317
+            ],
+            [
+              0.01868189849882831,
+              -0.00466191558928078
+            ]
+          ],
+          "earliest_supported_original_native_pair_bounce_s": 0.011882619194785395,
+          "latest_supported_original_native_pair_bounce_s": 0.012492764395373248
+        },
+        "z0": {
+          "original_native_64_source_receiver_pairs_specular_on_true_finite_face": 64,
+          "physically_supported_first_bounce_G_signed": [
+            [
+              -0.019144942365040735,
+              0.002352129229437446
+            ],
+            [
+              0.01868140534153993,
+              -0.004659845494034171
+            ]
+          ],
+          "earliest_supported_original_native_pair_bounce_s": 0.011581234821900469,
+          "latest_supported_original_native_pair_bounce_s": 0.0121937483982572
+        },
+        "true_sloping_roof": {
+          "original_native_64_source_receiver_pairs_specular_on_true_finite_face": 64,
+          "physically_supported_first_bounce_G_signed": [
+            [
+              -0.016306167992631015,
+              0.020049848342302445
+            ],
+            [
+              -0.005258127247307211,
+              -0.02525627780171658
+            ]
+          ],
+          "earliest_supported_original_native_pair_bounce_s": 0.00880550974477419,
+          "latest_supported_original_native_pair_bounce_s": 0.009541949171670977
+        }
+      },
+      "original_physical_8node_first_moments_unchanged": true,
+      "analytic_retarded_direct_only_is_not_full_250ms_room_response": true,
+      "full_original_native_q0_and_all_higher_modes_untouched": true
+    },
+    {
+      "ppw": 44,
+      "original_native_original_source_comms_HDF5_SHA256": "41c537b663ef11aa7404a248862f89398dec80fd3b6c794f4ecce4a0a8577ee4",
+      "original_native_original_room_voxel_HDF5_SHA256": "4a7cb6c30c013adc31d5b1910d50cef003cacbdd37a271ac3efa7a39956e505b",
+      "original_native_original_250ms_real_wave_HDF5_SHA256": "a5603179fa00ef7a82e5e5e486d864b1b2f08e3f432692d80631fcf406c0ce89",
+      "native_original_h_m": 0.078,
+      "native_original_Ts_s": 0.00013108475430009911,
+      "native_original_Nt": 1908,
+      "original_native_source_kick_l2_over_h": 4.264961538461538,
+      "original_native_source_HDF5_exact_eight_flat_indices": [
+        84630,
+        81030,
+        84570,
+        84629,
+        80970,
+        81029,
+        84569,
+        80969
+      ],
+      "original_native_receiver_HDF5_exact_eight_flat_indices": [
+        131430,
+        127830,
+        131370,
+        131429,
+        127770,
+        127829,
+        131369,
+        127769
+      ],
+      "original_native_source_HDF5_normalized_eight_coefficients": [
+        0.014533707581045602,
+        0.005354523845648348,
+        0.08852349163000249,
+        0.08852349163000248,
+        0.03261391796894809,
+        0.03261391796894809,
+        0.5391885399281814,
+        0.19864840944722353
+      ],
+      "original_native_receiver_HDF5_eight_coefficients": [
+        0.010964025017280075,
+        0.008924206409413877,
+        0.06678087965070398,
+        0.06678087965070399,
+        0.05435652994824658,
+        0.054356529948246586,
+        0.40675626696336703,
+        0.3310806824120378
+      ],
+      "original_native_eight_source_xyz_m": [
+        [
+          1.521,
+          2.0669999999999997,
+          2.0669999999999997
+        ],
+        [
+          1.443,
+          2.0669999999999997,
+          2.0669999999999997
+        ],
+        [
+          1.521,
+          1.9889999999999999,
+          2.0669999999999997
+        ],
+        [
+          1.521,
+          2.0669999999999997,
+          1.9889999999999999
+        ],
+        [
+          1.443,
+          1.9889999999999999,
+          2.0669999999999997
+        ],
+        [
+          1.443,
+          2.0669999999999997,
+          1.9889999999999999
+        ],
+        [
+          1.521,
+          1.9889999999999999,
+          1.9889999999999999
+        ],
+        [
+          1.443,
+          1.9889999999999999,
+          1.9889999999999999
+        ]
+      ],
+      "original_native_eight_receiver_xyz_m": [
+        [
+          2.5349999999999997,
+          2.0669999999999997,
+          2.0669999999999997
+        ],
+        [
+          2.457,
+          2.0669999999999997,
+          2.0669999999999997
+        ],
+        [
+          2.5349999999999997,
+          1.9889999999999999,
+          2.0669999999999997
+        ],
+        [
+          2.5349999999999997,
+          2.0669999999999997,
+          1.9889999999999999
+        ],
+        [
+          2.457,
+          1.9889999999999999,
+          2.0669999999999997
+        ],
+        [
+          2.457,
+          2.0669999999999997,
+          1.9889999999999999
+        ],
+        [
+          2.5349999999999997,
+          1.9889999999999999,
+          1.9889999999999999
+        ],
+        [
+          2.457,
+          1.9889999999999999,
+          1.9889999999999999
+        ]
+      ],
+      "original_source_first_moment_error_m": 0.0,
+      "original_receiver_first_moment_error_m": 0.0,
+      "exact_64_original_native_pairs_analytic_retarded_G_40_80": [
+        [
+          0.05925177702900662,
+          0.05317799618383325
+        ],
+        [
+          0.008559858935617984,
+          0.0789825288811623
+        ]
+      ],
+      "physical_continuum_single_true_Dirac_point_retarded_G_40_80": [
+        [
+          0.059176563968623044,
+          0.05320440070627218
+        ],
+        [
+          0.00843401349126098,
+          0.0791292701474956
+        ]
+      ],
+      "original_native_eightnode_analytic_retarded_vs_physical_point_complex_relative": 0.0018580448438405125,
+      "original_native_eightnode_analytic_retarded_vs_physical_point_per_bin_relative": [
+        0.0010017063237141234,
+        0.002429247975089362
+      ],
+      "original_native_eightnode_analytic_retarded_vs_physical_point_max_relative": 0.002429247975089362,
+      "original_native_eightnode_analytic_retarded_vs_physical_point_signed_phase_deg": [
+        -0.050319430770984094,
+        -0.10146502595930482
+      ],
+      "original_native_eightnode_analytic_direct_pressure_signed_40_80_without_amplitude_fitting": [
+        [
+          16.038105805800633,
+          -17.869914952940896
+        ],
+        [
+          47.64113903904061,
+          -5.163185269997261
+        ]
+      ],
+      "physical_point_analytic_direct_pressure_signed_40_80_without_amplitude_fitting": [
+        [
+          16.04606922215734,
+          -17.84723122833721
+        ],
+        [
+          47.729651285624506,
+          -5.087277086289158
+        ]
+      ],
+      "exact_original_full_250ms_PFFDTD_signed_room_P_over_Q_40_80": [
+        [
+          -64.44884936510273,
+          -11.312555997628882
+        ],
+        [
+          -83.61305811577175,
+          -224.3177326070579
+        ]
+      ],
+      "real_original_allmode_native_full250ms_signed_P_over_Q_40_80": [
+        [
+          -64.44884936510273,
+          -11.312555997628882
+        ],
+        [
+          -83.61305811577175,
+          -224.3177326070579
+        ]
+      ],
+      "original_eightnode_analytic_individual_finite_wall_first_reflections": {
+        "x0": {
+          "original_native_64_source_receiver_pairs_specular_on_true_finite_face": 64,
+          "physically_supported_first_bounce_G_signed": [
+            [
+              -0.019433841751558434,
+              0.004194877899686152
+            ],
+            [
+              0.01807186769116009,
+              -0.00818259390994732
+            ]
+          ],
+          "earliest_supported_original_native_pair_bounce_s": 0.011363636363636364,
+          "latest_supported_original_native_pair_bounce_s": 0.011822551639672683
+        },
+        "x4": {
+          "original_native_64_source_receiver_pairs_specular_on_true_finite_face": 64,
+          "physically_supported_first_bounce_G_signed": [
+            [
+              -0.019433942851893933,
+              0.0041949438482285556
+            ],
+            [
+              0.018071981506003296,
+              -0.00818368377686248
+            ]
+          ],
+          "earliest_supported_original_native_pair_bounce_s": 0.011491841491841494,
+          "latest_supported_original_native_pair_bounce_s": 0.011950709889288104
+        },
+        "y0": {
+          "original_native_64_source_receiver_pairs_specular_on_true_finite_face": 64,
+          "physically_supported_first_bounce_G_signed": [
+            [
+              -0.019148163662604172,
+              0.002350269702979373
+            ],
+            [
+              0.01869604190829365,
+              -0.004660339770066137
+            ]
+          ],
+          "earliest_supported_original_native_pair_bounce_s": 0.011907442634027031,
+          "latest_supported_original_native_pair_bounce_s": 0.012460681965338907
+        },
+        "y4": {
+          "original_native_64_source_receiver_pairs_specular_on_true_finite_face": 64,
+          "physically_supported_first_bounce_G_signed": [
+            [
+              -0.019148034373149648,
+              0.002350176429997547
+            ],
+            [
+              0.01869570400348439,
+              -0.004658921622336914
+            ]
+          ],
+          "earliest_supported_original_native_pair_bounce_s": 0.011590018377061527,
+          "latest_supported_original_native_pair_bounce_s": 0.01214550360896393
+        },
+        "z0": {
+          "original_native_64_source_receiver_pairs_specular_on_true_finite_face": 64,
+          "physically_supported_first_bounce_G_signed": [
+            [
+              -0.01914816366260417,
+              0.002350269702979374
+            ],
+            [
+              0.018696041908293645,
+              -0.004660339770066139
+            ]
+          ],
+          "earliest_supported_original_native_pair_bounce_s": 0.011907442634027031,
+          "latest_supported_original_native_pair_bounce_s": 0.012460681965338907
+        },
+        "true_sloping_roof": {
+          "original_native_64_source_receiver_pairs_specular_on_true_finite_face": 64,
+          "physically_supported_first_bounce_G_signed": [
+            [
+              -0.01631058590439006,
+              0.020049543376089766
+            ],
+            [
+              -0.005252472097258328,
+              -0.02527241668717175
+            ]
+          ],
+          "earliest_supported_original_native_pair_bounce_s": 0.008458523717680008,
+          "latest_supported_original_native_pair_bounce_s": 0.009130354417908961
+        }
+      },
+      "original_physical_8node_first_moments_unchanged": true,
+      "analytic_retarded_direct_only_is_not_full_250ms_room_response": true,
+      "full_original_native_q0_and_all_higher_modes_untouched": true
+    }
+  ],
+  "native_original_5grid_4pair_scores_and_analytic_direct_8node_diagnostic": [
+    {
+      "coarse_ppw": 28,
+      "fine_ppw": 32,
+      "original_true_FULL_250ms_room_q0_signed_original_frozen_scores": {
+        "complex_rms_relative": 1.246927070042666,
+        "magnitude_max_relative": 3.104123821253262,
+        "magnitude_max_db": 12.264409098974966,
+        "phase_max_deg": 87.12947751814937,
+        "mask_floor": 0.732571730378015,
+        "compared_frequency_count": 2,
+        "frequency_metrics": [
+          {
+            "frequency_hz": 40.0,
+            "masked_in": true,
+            "magnitude_absolute": 83.033991827103,
+            "magnitude_relative": 3.104123821253262,
+            "magnitude_db": 12.264409098974966,
+            "phase_deg": 74.67744374757285,
+            "complex_relative": 3.9591388290813776
+          },
+          {
+            "frequency_hz": 80.0,
+            "masked_in": true,
+            "magnitude_absolute": 79.32219233173205,
+            "magnitude_relative": 0.34240851286573704,
+            "magnitude_db": 3.6408763520166003,
+            "phase_deg": 87.12947751814937,
+            "complex_relative": 1.1690010127441177
+          }
+        ]
+      },
+      "original_true_room_original_all_3_gates_pass": false,
+      "independent_analytic_free_space_eightnode_geometric_only_scores_NOT_250ms_room": {
+        "complex_rms_relative": 0.002940600773825405,
+        "magnitude_max_relative": 0.0019483203596842194,
+        "magnitude_max_db": 0.016939402679028832,
+        "phase_max_deg": 0.17021794760330522,
+        "mask_floor": 0.0002517949016420566,
+        "compared_frequency_count": 2,
+        "frequency_metrics": [
+          {
+            "frequency_hz": 40.0,
+            "masked_in": true,
+            "magnitude_absolute": 0.000155134110933125,
+            "magnitude_relative": 0.0019483203596842194,
+            "magnitude_db": 0.016939402679028832,
+            "phase_deg": 0.08668509731828067,
+            "complex_relative": 0.002465863061892157
+          },
+          {
+            "frequency_hz": 80.0,
+            "masked_in": true,
+            "magnitude_absolute": 0.00012342461266857951,
+            "magnitude_relative": 0.0015560365623855622,
+            "magnitude_db": 0.013526088128807628,
+            "phase_deg": 0.17021794760330522,
+            "complex_relative": 0.003351647414849398
+          }
+        ]
+      },
+      "physically_full_room_true_original_green_not_known_from_single_bounce": true
+    },
+    {
+      "coarse_ppw": 32,
+      "fine_ppw": 36,
+      "original_true_FULL_250ms_room_q0_signed_original_frozen_scores": {
+        "complex_rms_relative": 0.7613047721569608,
+        "magnitude_max_relative": 0.5476926714692758,
+        "magnitude_max_db": 6.891327510406872,
+        "phase_max_deg": 63.65161559834691,
+        "mask_floor": 0.6514398263666002,
+        "compared_frequency_count": 2,
+        "frequency_metrics": [
+          {
+            "frequency_hz": 40.0,
+            "masked_in": true,
+            "magnitude_absolute": 32.39068895717154,
+            "magnitude_relative": 0.5476926714692758,
+            "magnitude_db": 6.891327510406872,
+            "phase_deg": 63.65161559834691,
+            "complex_relative": 0.8961520672161258
+          },
+          {
+            "frequency_hz": 80.0,
+            "masked_in": true,
+            "magnitude_absolute": 25.656160758222256,
+            "magnitude_relative": 0.12454243773201162,
+            "magnitude_db": 1.0195169877864259,
+            "phase_deg": 40.7654783516125,
+            "complex_relative": 0.7491090813120052
+          }
+        ]
+      },
+      "original_true_room_original_all_3_gates_pass": false,
+      "independent_analytic_free_space_eightnode_geometric_only_scores_NOT_250ms_room": {
+        "complex_rms_relative": 0.003884972298791853,
+        "magnitude_max_relative": 0.0025062701237644294,
+        "magnitude_max_db": 0.02174195146307192,
+        "phase_max_deg": 0.23758196868055848,
+        "mask_floor": 0.0002511654132706534,
+        "compared_frequency_count": 2,
+        "frequency_metrics": [
+          {
+            "frequency_hz": 40.0,
+            "masked_in": true,
+            "magnitude_absolute": 0.00019906170142242052,
+            "magnitude_relative": 0.0025062701237644294,
+            "magnitude_db": 0.02174195146307192,
+            "phase_deg": 0.11831183017596913,
+            "complex_relative": 0.0032490021475010183
+          },
+          {
+            "frequency_hz": 80.0,
+            "masked_in": true,
+            "magnitude_absolute": 0.0001235895158310102,
+            "magnitude_relative": 0.0015605470391481368,
+            "magnitude_db": 0.013544173943320609,
+            "phase_deg": 0.23758196868055848,
+            "complex_relative": 0.004433542987821669
+          }
+        ]
+      },
+      "physically_full_room_true_original_green_not_known_from_single_bounce": true
+    },
+    {
+      "coarse_ppw": 36,
+      "fine_ppw": 40,
+      "original_true_FULL_250ms_room_q0_signed_original_frozen_scores": {
+        "complex_rms_relative": 0.3673672932507214,
+        "magnitude_max_relative": 0.9820095441521739,
+        "magnitude_max_db": 5.942114829046117,
+        "phase_max_deg": 27.408370449371034,
+        "mask_floor": 0.5124807000500005,
+        "compared_frequency_count": 2,
+        "frequency_metrics": [
+          {
+            "frequency_hz": 40.0,
+            "masked_in": true,
+            "magnitude_absolute": 29.301727360852865,
+            "magnitude_relative": 0.9820095441521739,
+            "magnitude_db": 5.942114829046117,
+            "phase_deg": 27.408370449371034,
+            "complex_relative": 1.1871441546381585
+          },
+          {
+            "frequency_hz": 80.0,
+            "masked_in": true,
+            "magnitude_absolute": 43.94273408274992,
+            "magnitude_relative": 0.2711499697511383,
+            "magnitude_db": 2.0839358292257857,
+            "phase_deg": 6.8666843639229,
+            "complex_relative": 0.30291607398380554
+          }
+        ]
+      },
+      "original_true_room_original_all_3_gates_pass": false,
+      "independent_analytic_free_space_eightnode_geometric_only_scores_NOT_250ms_room": {
+        "complex_rms_relative": 0.001954519946602149,
+        "magnitude_max_relative": 0.0023984096794297553,
+        "magnitude_max_db": 0.020857344020556372,
+        "phase_max_deg": 0.048972107478903126,
+        "mask_floor": 0.0002514175207584413,
+        "compared_frequency_count": 2,
+        "frequency_metrics": [
+          {
+            "frequency_hz": 40.0,
+            "masked_in": true,
+            "magnitude_absolute": 7.972338765926956e-05,
+            "magnitude_relative": 0.0010027443076653089,
+            "magnitude_db": 0.008714096127255239,
+            "phase_deg": 0.02304113872892799,
+            "complex_relative": 0.0010803025335368837
+          },
+          {
+            "frequency_hz": 80.0,
+            "masked_in": true,
+            "magnitude_absolute": 0.00019040177918155932,
+            "magnitude_relative": 0.0023984096794297553,
+            "magnitude_db": 0.020857344020556372,
+            "phase_deg": 0.048972107478903126,
+            "complex_relative": 0.002545814364489448
+          }
+        ]
+      },
+      "physically_full_room_true_original_green_not_known_from_single_bounce": true
+    },
+    {
+      "coarse_ppw": 40,
+      "fine_ppw": 44,
+      "original_true_FULL_250ms_room_q0_signed_original_frozen_scores": {
+        "complex_rms_relative": 0.9587423413785209,
+        "magnitude_max_relative": 0.5439913897220687,
+        "magnitude_max_db": 6.820539139654738,
+        "phase_max_deg": 150.62981979481725,
+        "mask_floor": 0.7570309679890443,
+        "compared_frequency_count": 2,
+        "frequency_metrics": [
+          {
+            "frequency_hz": 40.0,
+            "masked_in": true,
+            "magnitude_absolute": 35.5956146986766,
+            "magnitude_relative": 0.5439913897220687,
+            "magnitude_db": 6.820539139654738,
+            "phase_deg": 150.62981979481725,
+            "complex_relative": 1.4151815280125104
+          },
+          {
+            "frequency_hz": 80.0,
+            "masked_in": true,
+            "magnitude_absolute": 77.33358490918297,
+            "magnitude_relative": 0.32303865796753367,
+            "magnitude_db": 3.3887226210191153,
+            "phase_deg": 62.7444492819896,
+            "complex_relative": 0.9155512944726406
+          }
+        ]
+      },
+      "original_true_room_original_all_3_gates_pass": false,
+      "independent_analytic_free_space_eightnode_geometric_only_scores_NOT_250ms_room": {
+        "complex_rms_relative": 0.0021850555149520727,
+        "magnitude_max_relative": 0.0013889038139972244,
+        "magnitude_max_db": 0.012072250785865109,
+        "phase_max_deg": 0.1367617722718819,
+        "mask_floor": 0.0002517672011844057,
+        "compared_frequency_count": 2,
+        "frequency_metrics": [
+          {
+            "frequency_hz": 40.0,
+            "masked_in": true,
+            "magnitude_absolute": 0.00011057865992254723,
+            "magnitude_relative": 0.0013889038139972244,
+            "magnitude_db": 0.012072250785865109,
+            "phase_deg": 0.06768406050875342,
+            "complex_relative": 0.0018228022551269032
+          },
+          {
+            "frequency_hz": 80.0,
+            "masked_in": true,
+            "magnitude_absolute": 5.834012258414123e-05,
+            "magnitude_relative": 0.0007343458818985159,
+            "magnitude_db": 0.006380790426773697,
+            "phase_deg": 0.1367617722718819,
+            "complex_relative": 0.002496512599248434
+          }
+        ]
+      },
+      "physically_full_room_true_original_green_not_known_from_single_bounce": true
+    }
+  ],
+  "original_real_room_PFFDTD_all_four_pairs_three_gates_pass": false,
+  "analytic_single_bounce_not_used_for_native_fullroom_convergence_acceptance": true,
+  "all_existing_true_original_q0_unmasked_high_modes_retained": true
+}

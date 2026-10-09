@@ -1,0 +1,97 @@
+name: R130D original q0 impulse independent high-spatial-modes 12 24 48
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/r130d-original-impulse-high-mode-count.yml'
+      - 'scripts/run_r130d_original_impulse_high_mode_count.py'
+      - 'backend/tests/test_r130d_original_impulse_high_mode_count.py'
+      - 'benchmarks/acoustics/r130d_high_mode_count_original_impulse_*'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  original-point-q0-modal:
+    runs-on: windows-2022
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Checkout original source and pre-registered modal counts
+        uses: actions/checkout@v4
+      - name: Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pinned eigensolver runtime and regression tests
+        run: |
+          python -m pip install --disable-pip-version-check numpy==1.26.4 scipy==1.14.1 pytest==8.4.2 pydantic==2.11.9
+          if($LASTEXITCODE -ne 0){throw 'eigensolver runtime missing'}
+          New-Item -ItemType Directory -Force scratch/tests | Out-Null
+          Copy-Item backend/tests/test_r130d_original_impulse_high_mode_count.py scratch/tests/
+          $env:PYTHONPATH=Join-Path $pwd 'backend/src'
+          python -m pytest -q scratch/tests/test_r130d_original_impulse_high_mode_count.py
+          if($LASTEXITCODE -ne 0){throw 'original q0 48-modal integrity failed'}
+      - name: Independently eigensolve 48 modes of FV and P2 and time-drive original q0
+        env:
+          PYTHONUTF8: '1'
+          PYTHONIOENCODING: utf-8
+        run: |
+          $env:PYTHONPATH=Join-Path $pwd 'backend/src'
+          python -u scripts/run_r130d_original_impulse_high_mode_count.py `
+            --plan benchmarks/acoustics/r130d_high_mode_count_original_impulse_plan_2026-10-09.json `
+            --systems benchmarks/acoustics/r130d_mfem_independent_sparse_systems `
+            --output scratch/ci_original_q0_48modes.json
+          if($LASTEXITCODE -ne 0){throw 'actual independent 48-mode q0 solve failed'}
+      - name: Require true eigen-residuals, original temporal q0 and all 12 24 48 cases
+        env:
+          PYTHONUTF8: '1'
+        run: |
+          @'
+          import json
+          import numpy as np
+          from pathlib import Path
+          a=json.loads(Path('scratch/ci_original_q0_48modes.json').read_text())
+          b=json.loads(Path('benchmarks/acoustics/r130d_high_mode_count_original_impulse_evidence_2026-10-09.json').read_text())
+          assert a['preregistered_plan']==b['preregistered_plan']
+          assert a['original_full_state_evidence_sha256']==b['original_full_state_evidence_sha256']
+          assert a['plan_sha256']==b['plan_sha256']
+          assert a['original_fullband_impulse']=='SELF_CONVERGENCE_FAILED'
+          assert a['point_impulse_candidate']=='NOT_QUALIFIED'
+          assert a['production_ready'] is False
+          assert a['physical_validation']=='NOT_VALIDATED'
+          assert len(a['cases'])==len(b['cases'])==2
+          for x,y in zip(a['cases'],b['cases']):
+              assert x['method']==y['method'] and x['dofs']==y['dofs']
+              assert x['same_spatial_point_functionals_as_full_state'] is True
+              assert x['temporal_q0_was_unchanged'] is True
+              assert len(x['solved_eigenmodes'])==48
+              assert [q['modes_including_zero'] for q in x['truncations']]==[12,24,48]
+              if x['method']=='independent_MFEM_P2':
+                  assert x['original_sparse_sha256']==y['original_sparse_sha256']
+              np.testing.assert_allclose(x['actual_full_state_original_q0_transfer_40_80_hz'],
+                                         y['actual_full_state_original_q0_transfer_40_80_hz'],
+                                         rtol=0,atol=0)
+              for m,n in zip(x['solved_eigenmodes'],y['solved_eigenmodes']):
+                  assert m['generalized_eigen_relative_residual']<1e-7
+                  np.testing.assert_allclose(m['lambda_radians2_s2'],
+                      n['lambda_radians2_s2'],rtol=2e-5,atol=1e-3)
+              for q,z in zip(x['truncations'],y['truncations']):
+                  np.testing.assert_allclose(q['finite_time_original_q0_transfer_40_80_hz'],
+                      z['finite_time_original_q0_transfer_40_80_hz'],rtol=2e-5,atol=1e-3)
+                  np.testing.assert_allclose(
+                      q['complex_magnitude_phase_relative_to_actual_full_wave']['normalized_complex_l2'],
+                      z['complex_magnitude_phase_relative_to_actual_full_wave']['normalized_complex_l2'],
+                      rtol=2e-5,atol=1e-5)
+              print(x['method'],'48-mode original q0 residual and signed complex PASS evidence integrity')
+          print('Replayed physics data verified; canonical fullband original impulse remains FAIL')
+          '@ | python -
+          if($LASTEXITCODE -ne 0){throw 'replayed original q0 modal evidence drifted'}
+      - name: Archive all-mode raw comparisons even if nonmonotone
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: r130d-original-q0-high-48-mode-evidence
+          path: scratch/ci_original_q0_48modes*.json
+          retention-days: 30
+          if-no-files-found: warn

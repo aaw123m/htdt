@@ -1,0 +1,103 @@
+{
+  "schema_version": "htdt.r130d.embedded-neumann-fv-bounded-eigen-evidence-1",
+  "operator": "exact cut-face aperture / volume weighted Neumann finite volume",
+  "fixture": "R130D 4x4m, roof z=4-y/4m, c=343.2m/s",
+  "physics_adoption": false,
+  "production_pffdtd_modified": false,
+  "cross_solver_eligible": false,
+  "external_reference": {
+    "mfem_refinement3_first_eigenfrequencies_hz": [
+      41.9606,
+      42.9007,
+      49.1127
+    ],
+    "note": "reference from pinned independent MFEM sparse eigen diagnostic, not a fit"
+  },
+  "runtime": {
+    "numpy": "1.26.4",
+    "python": "3.12.10",
+    "platform": "Windows-11-10.0.26200-SP0"
+  },
+  "levels": [
+    {
+      "cells_per_axis": 6,
+      "degrees_of_freedom": 204,
+      "grid_spacing_m": 0.6666666666666666,
+      "integrated_fluid_volume_m3": 56.0,
+      "first_positive_eigenfrequencies_hz": [
+        41.49405346425476,
+        42.41162337406435,
+        48.426589025611875,
+        59.33382062633344
+      ],
+      "neumann_constant_mode_max_abs_residual": 5.820766091346741e-11,
+      "symmetric_stiffness_max_abs_error": 0.0,
+      "undriven_midpoint_energy": {
+        "dt_s": 0.005,
+        "steps": 50,
+        "initial_energy": 994162.9284561997,
+        "max_relative_energy_drift": 2.2248778861092e-15
+      }
+    },
+    {
+      "cells_per_axis": 8,
+      "degrees_of_freedom": 480,
+      "grid_spacing_m": 0.5,
+      "integrated_fluid_volume_m3": 56.0,
+      "first_positive_eigenfrequencies_hz": [
+        41.707840426008026,
+        42.62487591408644,
+        48.732630263249185,
+        59.63576108085327
+      ],
+      "neumann_constant_mode_max_abs_residual": 2.9103830456733704e-11,
+      "symmetric_stiffness_max_abs_error": 0.0,
+      "undriven_midpoint_energy": {
+        "dt_s": 0.005,
+        "steps": 50,
+        "initial_energy": 1004185.6890842309,
+        "max_relative_energy_drift": 3.698169379077579e-14
+      }
+    },
+    {
+      "cells_per_axis": 12,
+      "degrees_of_freedom": 1584,
+      "grid_spacing_m": 0.3333333333333333,
+      "integrated_fluid_volume_m3": 56.000000000000014,
+      "first_positive_eigenfrequencies_hz": [
+        41.84753307583914,
+        42.777591600299516,
+        48.94311842935862,
+        59.84261330904139
+      ],
+      "neumann_constant_mode_max_abs_residual": 2.9103830456733704e-11,
+      "symmetric_stiffness_max_abs_error": 0.0,
+      "undriven_midpoint_energy": {
+        "dt_s": 0.005,
+        "steps": 50,
+        "initial_energy": 1011394.138234408,
+        "max_relative_energy_drift": 3.591238967768816e-14
+      }
+    },
+    {
+      "cells_per_axis": 16,
+      "degrees_of_freedom": 3712,
+      "grid_spacing_m": 0.25,
+      "integrated_fluid_volume_m3": 56.0,
+      "first_positive_eigenfrequencies_hz": [
+        41.896641821183714,
+        42.83111946122802,
+        49.016894619375925,
+        59.915218352222865
+      ],
+      "neumann_constant_mode_max_abs_residual": 1.4551915228366852e-11,
+      "symmetric_stiffness_max_abs_error": 0.0,
+      "undriven_midpoint_energy": {
+        "dt_s": 0.005,
+        "steps": 50,
+        "initial_energy": 1013926.8491330937,
+        "max_relative_energy_drift": 2.4605131513030227e-13
+      }
+    }
+  ]
+}

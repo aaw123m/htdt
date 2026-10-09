@@ -1,0 +1,124 @@
+{
+  "schema_version": "htdt.r130d.impulse-source-moment-placement-probe-plan-1",
+  "issue": 938,
+  "date": "2026-10-09",
+  "goal": "Isolate the effect of first midpoint impulse position on the fixed-grid dt-halving wave response by matching impulse zeroth and first moments, without claiming original source is preserved or retuning production gates.",
+  "source_authority": {
+    "original_coarse": {
+      "dt_s": 0.00025,
+      "samples": [
+        1,
+        0
+      ],
+      "steps": 1000,
+      "total_dt_weighted_volume_velocity": 0.00025,
+      "time_centroid_s": 0.000125
+    },
+    "original_fine": {
+      "dt_s": 0.000125,
+      "samples": [
+        1,
+        0
+      ],
+      "steps": 2000,
+      "total_dt_weighted_volume_velocity": 0.000125,
+      "time_centroid_s": 0.0000625
+    },
+    "matched_fine": {
+      "dt_s": 0.000125,
+      "samples": [
+        1,
+        1
+      ],
+      "steps": 2000,
+      "total_dt_weighted_volume_velocity": 0.00025,
+      "time_centroid_s": 0.000125
+    },
+    "both_midpoint_time_bin_source_fft": true,
+    "freq_hz": [
+      40,
+      80
+    ],
+    "duration_s": 0.25,
+    "explicit_source_shape_change_for_diagnostic": true
+  },
+  "cases": [
+    {
+      "method": "exact_sloped_cutcell_neumann_FV",
+      "level": 20
+    },
+    {
+      "method": "exact_sloped_cutcell_neumann_FV",
+      "level": 32
+    },
+    {
+      "method": "pinned_independent_MFEM_P2",
+      "level": 4
+    }
+  ],
+  "geometry": {
+    "volume_m3": 56,
+    "sloped_roof_plane": [
+      0,
+      0.25,
+      1,
+      4
+    ],
+    "c_m_s": 343.2,
+    "rho_kg_m3": 1.2,
+    "source_xyz_m": [
+      1.5,
+      2,
+      2
+    ],
+    "receiver_xyz_m": [
+      2.5,
+      2,
+      2
+    ],
+    "Neumann": true
+  },
+  "mfem_authority": {
+    "version": "d964264cdb9a13e94a201b6c236c7721e0c8765f",
+    "r4_hash_sha256": "e1c67d02db77a6e8775a0a59d8e75fa996434d58f8efae077f4cec2cf2c831ed",
+    "dofs": 35937,
+    "linear_rtol": 1e-11,
+    "linear_atol": 0,
+    "max_iters": 350,
+    "true_rel_residual_max": 1e-8
+  },
+  "frozen_reference_sources": [
+    "benchmarks/acoustics/r130d_exact_discrete_impulse_candidate_evidence_2026-10-09.json",
+    "benchmarks/acoustics/r130d_impulse_time_refinement_evidence_2026-10-09.json"
+  ],
+  "analysis": {
+    "all_40_80_bins_complex_MSE": true,
+    "metrics": [
+      "normalized_complex_l2",
+      "magnitude_relative_by_hz",
+      "phase_difference_deg_by_hz"
+    ],
+    "three_pair_comparisons": [
+      "coarse_raw_vs_fine_raw",
+      "coarse_raw_vs_fine_moment_aligned",
+      "fine_raw_vs_fine_moment_aligned"
+    ],
+    "no_pass_limits_or_threshold_relaxation": true,
+    "causal_proof_of_integrator_error": false
+  },
+  "limits": {
+    "max_n": 32,
+    "max_fem_dofs": 35937,
+    "max_solved_wave_steps": 2000,
+    "max_case_runtime_s": 300,
+    "max_json_bytes": 120000000
+  },
+  "gate": {
+    "product_NO_GO": true,
+    "original_fullband_impulse": "SELF_CONVERGENCE_FAILED",
+    "new_FV_independent_MFEM_impulse": "NOT_QUALIFIED",
+    "physical_measured": "NOT_VALIDATED",
+    "new_source_moment_replay": "DIAGNOSTIC_ONLY",
+    "production_enabled": false
+  }
+}

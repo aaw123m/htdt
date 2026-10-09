@@ -1,0 +1,587 @@
+{
+  "schema_version": "htdt.r130d.convex-multiplane-cutcell-numerical-study-1",
+  "method": "exact convex planar cut cell mass/face aperture + conservative rigid Neumann and implicit-midpoint actual source injection",
+  "physical_authority": "EXPERIMENTAL_ONLY",
+  "original_solver_modified": false,
+  "candidate_sloped_r130d_previous_success_untouched": true,
+  "general_cad_qualified": false,
+  "new_geometries_cross_solver_qualified": false,
+  "production_enabled": false,
+  "plan": {
+    "schema_version": "htdt.r130d.experimental-convex-multiplane-cutcell-plan-1",
+    "date": "2026-10-09",
+    "issue": 938,
+    "scope": "Experimental geometrical extension of independent new candidate solver from planar sloped prism to bounded convex planar CAD room domains; no production integration, no implied support for concave/multi-region CAD",
+    "algorithm": "Clip each cubic fluid voxel against every outward half-space; exact geometric polytope volume from triangulated oriented clipping surface; exact open neighbour face polygon areas from 2D plane intersection; conservative undamped rigid Neumann FV + existing implicit midpoint time integration",
+    "grid_room_box_m": [
+      4,
+      4,
+      4
+    ],
+    "geometry_cases": [
+      {
+        "name": "baseline_sloped",
+        "additional_planes": [
+          {
+            "normal": [
+              0,
+              0.25,
+              1
+            ],
+            "offset": 4
+          }
+        ],
+        "exact_volume_m3": 56,
+        "existing_legacy_analytical_builder_cross_check": true
+      },
+      {
+        "name": "planar_wedge",
+        "additional_planes": [
+          {
+            "normal": [
+              0,
+              0.25,
+              1
+            ],
+            "offset": 4
+          },
+          {
+            "normal": [
+              1,
+              1,
+              0
+            ],
+            "offset": 6
+          }
+        ],
+        "exact_volume_m3": 49.666666666666664,
+        "existing_legacy_analytical_builder_cross_check": false
+      },
+      {
+        "name": "three_axis_diagonal",
+        "additional_planes": [
+          {
+            "normal": [
+              1,
+              1,
+              1
+            ],
+            "offset": 8
+          }
+        ],
+        "exact_volume_m3": 53.333333333333336,
+        "existing_legacy_analytical_builder_cross_check": false
+      }
+    ],
+    "numerical_levels": [
+      6,
+      8,
+      12,
+      16,
+      20
+    ],
+    "source": [
+      1.5,
+      2,
+      2
+    ],
+    "receiver": [
+      2.5,
+      2,
+      2
+    ],
+    "medium": {
+      "sound_speed_m_s": 343.2,
+      "density_kg_m3": 1.2
+    },
+    "drive": {
+      "gaussian_center_s": 0.012,
+      "sigma_s": 0.003,
+      "actual_injected": true,
+      "dt_s": 0.00025,
+      "duration_s": 0.25,
+      "frequencies_hz": [
+        40,
+        80
+      ]
+    },
+    "expected_properties": [
+      "exact polyhedral fluid volumes to 5e-9 relative against independent half-space triple intersection convex hull and analytic volumes",
+      "symmetric positive-semi-definite rigid Neumann stiffness, constant potential zero residual below 1e-11 normalized",
+      "undriven implicit midpoint energy conservation relative drift <1e-9 at large dt",
+      "sloped prism generalized cut-cell stiffness and mass recover original exact-geometry solver within 2e-10 relative",
+      "reject non-finite, unbounded-domain, incompatible solid source/receiver stencils and near-zero cut-cell fractions without implicit voxel deletion"
+    ],
+    "exploratory_candidate_metric": "adjacent complex 40/80-Hz transfer differences for wedge or 3-axis diagonal geometry; report regardless of monotonicity. These are NOT accepted by original #938 frozen candidate limits until separately predeclared independent FEM reference.",
+    "resource_limits": {
+      "max_halfspaces": 8,
+      "max_cells": 30000,
+      "min_retained_cut_volume_fraction": 1e-12,
+      "max_matrix_nnz": 200000,
+      "max_numerical_wall_seconds_per_geometry": 300
+    },
+    "frozen_gate": {
+      "original_r130d_impulse": "SELF_CONVERGENCE_FAILED",
+      "candidate_sloped_gaussian_numerical": "EXPERIMENTAL_CANDIDATE_NUMERICAL_PASS_ONLY",
+      "new_geometries_independent_cross_solver": "BLOCKED",
+      "general_cad": "NOT_VALIDATED",
+      "production_enabled": false,
+      "physical_validation": "NOT_VALIDATED"
+    }
+  },
+  "runtime": {
+    "numpy": "1.26.4",
+    "platform": "Windows-11-10.0.26200-SP0",
+    "python": "3.12.10"
+  },
+  "cases": [
+    {
+      "name": "baseline_sloped",
+      "analytic_volume_m3": 56.0,
+      "levels": [
+        {
+          "n": 6,
+          "degrees_of_freedom": 204,
+          "exact_cut_cell_volume_m3": 56.0,
+          "minimum_cut_volume_fraction": 0.12500000000000053,
+          "fluid_interface_count": 506,
+          "null_max_normalized_by_diagonal": 1.23545120621618e-16,
+          "max_abs_stiffness_asymmetry": 0.0,
+          "relative_energy_drift_60_steps": 8.431116199992755e-15,
+          "smallest_positive_modal_frequency_hz": 41.494053464254776,
+          "actual_driven_transfer_40_80_hz": [
+            [
+              6.00700384319341,
+              58.96994611826014
+            ],
+            [
+              102.03865085323818,
+              -476.0203612515372
+            ]
+          ],
+          "wall_seconds": 0.11520439991727471,
+          "legacy_sloped_volume_max_abs_difference": 1.1102230246251565e-16,
+          "legacy_sloped_stiffness_fro_relative": 1.862675287571514e-16
+        },
+        {
+          "n": 8,
+          "degrees_of_freedom": 480,
+          "exact_cut_cell_volume_m3": 56.0,
+          "minimum_cut_volume_fraction": 0.125,
+          "fluid_interface_count": 1252,
+          "null_max_normalized_by_diagonal": 8.236341374774537e-17,
+          "max_abs_stiffness_asymmetry": 0.0,
+          "relative_energy_drift_60_steps": 4.1966686997682863e-14,
+          "smallest_positive_modal_frequency_hz": 41.70784042600802,
+          "actual_driven_transfer_40_80_hz": [
+            [
+              20.150426498156868,
+              47.304141578294264
+            ],
+            [
+              -123.67415986927881,
+              -119.18917542961225
+            ]
+          ],
+          "wall_seconds": 0.19250839995220304,
+          "legacy_sloped_volume_max_abs_difference": 4.163336342344337e-17,
+          "legacy_sloped_stiffness_fro_relative": 6.929474576933258e-17
+        },
+        {
+          "n": 12,
+          "degrees_of_freedom": 1584,
+          "exact_cut_cell_volume_m3": 56.0,
+          "minimum_cut_volume_fraction": 0.1250000000000002,
+          "fluid_interface_count": 4332,
+          "null_max_normalized_by_diagonal": 1.235451206216179e-16,
+          "max_abs_stiffness_asymmetry": 0.0,
+          "relative_energy_drift_60_steps": 2.5207735062223305e-14,
+          "smallest_positive_modal_frequency_hz": 41.84753307583926,
+          "actual_driven_transfer_40_80_hz": [
+            [
+              11.364481195132102,
+              41.97579738023286
+            ],
+            [
+              75.2550368802239,
+              -53.76938528110244
+            ]
+          ],
+          "wall_seconds": 0.6266359998844564,
+          "legacy_sloped_volume_max_abs_difference": 4.163336342344337e-17,
+          "legacy_sloped_stiffness_fro_relative": 5.57404105082366e-16
+        },
+        {
+          "n": 16,
+          "degrees_of_freedom": 3712,
+          "exact_cut_cell_volume_m3": 56.0,
+          "minimum_cut_volume_fraction": 0.1249999999999997,
+          "fluid_interface_count": 10392,
+          "null_max_normalized_by_diagonal": 8.236341374774537e-17,
+          "max_abs_stiffness_asymmetry": 0.0,
+          "relative_energy_drift_60_steps": 2.8818889452965875e-13,
+          "smallest_positive_modal_frequency_hz": 41.89664182118373,
+          "actual_driven_transfer_40_80_hz": [
+            [
+              13.211837213659999,
+              40.64784515580144
+            ],
+            [
+              96.59015080405534,
+              -106.48507995268729
+            ]
+          ],
+          "wall_seconds": 2.5353745999746025,
+          "legacy_sloped_volume_max_abs_difference": 4.7704895589362195e-18,
+          "legacy_sloped_stiffness_fro_relative": 6.764616806636823e-17
+        },
+        {
+          "n": 20,
+          "degrees_of_freedom": 7200,
+          "exact_cut_cell_volume_m3": 56.00000000000003,
+          "minimum_cut_volume_fraction": 0.12499999999999824,
+          "fluid_interface_count": 20440,
+          "null_max_normalized_by_diagonal": 1.544314007770223e-16,
+          "max_abs_stiffness_asymmetry": 0.0,
+          "relative_energy_drift_60_steps": 5.883263734663842e-14,
+          "smallest_positive_modal_frequency_hz": 41.91941627030701,
+          "actual_driven_transfer_40_80_hz": [
+            [
+              14.441925528745662,
+              41.08171350512959
+            ],
+            [
+              96.14980304170594,
+              -128.79047999211502
+            ]
+          ],
+          "wall_seconds": 8.667571699945256,
+          "legacy_sloped_volume_max_abs_difference": 1.734723475976807e-17,
+          "legacy_sloped_stiffness_fro_relative": 7.210883791821301e-16
+        }
+      ],
+      "adjacent_transfer": [
+        {
+          "coarse_n": 6,
+          "fine_n": 8,
+          "complex_l2_relative": 2.3572015945082048,
+          "magnitude_max_relative": 1.834391489277015,
+          "phase_max_deg": 58.15667017237335
+        },
+        {
+          "coarse_n": 8,
+          "fine_n": 12,
+          "complex_l2_relative": 2.0514140819222795,
+          "magnitude_max_relative": 0.8570539130966305,
+          "phase_max_deg": 100.51233120464441
+        },
+        {
+          "coarse_n": 12,
+          "fine_n": 16,
+          "complex_l2_relative": 0.37947047800569794,
+          "magnitude_max_relative": 0.35666141956875824,
+          "phase_max_deg": 12.243919483843781
+        },
+        {
+          "coarse_n": 16,
+          "fine_n": 20,
+          "complex_l2_relative": 0.13420725034364692,
+          "magnitude_max_relative": 0.10550114670554923,
+          "phase_max_deg": 5.46690261889969
+        }
+      ]
+    },
+    {
+      "name": "planar_wedge",
+      "analytic_volume_m3": 49.666666666666664,
+      "levels": [
+        {
+          "n": 6,
+          "degrees_of_freedom": 189,
+          "exact_cut_cell_volume_m3": 49.666666666666664,
+          "minimum_cut_volume_fraction": 0.08333333333333363,
+          "fluid_interface_count": 464,
+          "null_max_normalized_by_diagonal": 1.23545120621618e-16,
+          "max_abs_stiffness_asymmetry": 0.0,
+          "relative_energy_drift_60_steps": 9.985389648211369e-16,
+          "smallest_positive_modal_frequency_hz": 40.50176036314924,
+          "actual_driven_transfer_40_80_hz": [
+            [
+              -30.656195953542316,
+              34.359863063770156
+            ],
+            [
+              21.358860932318724,
+              -63.207853944525034
+            ]
+          ],
+          "wall_seconds": 0.16321850009262562
+        },
+        {
+          "n": 8,
+          "degrees_of_freedom": 438,
+          "exact_cut_cell_volume_m3": 49.666666666666664,
+          "minimum_cut_volume_fraction": 0.08333333333333333,
+          "fluid_interface_count": 1132,
+          "null_max_normalized_by_diagonal": 4.1181706873872686e-17,
+          "max_abs_stiffness_asymmetry": 0.0,
+          "relative_energy_drift_60_steps": 4.135692864930977e-14,
+          "smallest_positive_modal_frequency_hz": 40.65623138110629,
+          "actual_driven_transfer_40_80_hz": [
+            [
+              -30.72126883813978,
+              32.430462485903206
+            ],
+            [
+              1.6954246640098047,
+              -37.33619376530454
+            ]
+          ],
+          "wall_seconds": 0.31783569999970496
+        },
+        {
+          "n": 12,
+          "degrees_of_freedom": 1433,
+          "exact_cut_cell_volume_m3": 49.666666666666664,
+          "minimum_cut_volume_fraction": 0.08333333333333356,
+          "fluid_interface_count": 3894,
+          "null_max_normalized_by_diagonal": 1.235451206216179e-16,
+          "max_abs_stiffness_asymmetry": 0.0,
+          "relative_energy_drift_60_steps": 2.954682697983526e-14,
+          "smallest_positive_modal_frequency_hz": 40.76345399108898,
+          "actual_driven_transfer_40_80_hz": [
+            [
+              -34.69615894759411,
+              36.56420573036557
+            ],
+            [
+              23.117026973149585,
+              -47.95780188948602
+            ]
+          ],
+          "wall_seconds": 1.0676294001750648
+        },
+        {
+          "n": 16,
+          "degrees_of_freedom": 3342,
+          "exact_cut_cell_volume_m3": 49.666666666666664,
+          "minimum_cut_volume_fraction": 0.08333333333333304,
+          "fluid_interface_count": 9310,
+          "null_max_normalized_by_diagonal": 8.236341374774537e-17,
+          "max_abs_stiffness_asymmetry": 0.0,
+          "relative_energy_drift_60_steps": 2.6636618628076917e-13,
+          "smallest_positive_modal_frequency_hz": 40.80198450671389,
+          "actual_driven_transfer_40_80_hz": [
+            [
+              -33.759810585309765,
+              36.423632304091946
+            ],
+            [
+              16.891160220972445,
+              -59.556972645560045
+            ]
+          ],
+          "wall_seconds": 2.745766499778256
+        },
+        {
+          "n": 20,
+          "degrees_of_freedom": 6464,
+          "exact_cut_cell_volume_m3": 49.666666666666686,
+          "minimum_cut_volume_fraction": 0.08333333333333241,
+          "fluid_interface_count": 18277,
+          "null_max_normalized_by_diagonal": 1.544314007770223e-16,
+          "max_abs_stiffness_asymmetry": 0.0,
+          "relative_energy_drift_60_steps": 4.5539244056802155e-14,
+          "smallest_positive_modal_frequency_hz": 40.820042111360046,
+          "actual_driven_transfer_40_80_hz": [
+            [
+              -33.6177246046077,
+              37.71525945317806
+            ],
+            [
+              12.149752136019503,
+              -61.50331445140149
+            ]
+          ],
+          "wall_seconds": 6.971863599959761
+        }
+      ],
+      "adjacent_transfer": [
+        {
+          "coarse_n": 6,
+          "fine_n": 8,
+          "complex_l2_relative": 0.5589105350985024,
+          "magnitude_max_relative": 0.7851413497608212,
+          "phase_max_deg": 16.07086825467875
+        },
+        {
+          "coarse_n": 8,
+          "fine_n": 12,
+          "complex_l2_relative": 0.3353799815110202,
+          "magnitude_max_relative": 0.29797790000631313,
+          "phase_max_deg": 23.13539447990148
+        },
+        {
+          "coarse_n": 12,
+          "fine_n": 16,
+          "complex_l2_relative": 0.1663011496298451,
+          "magnitude_max_relative": 0.14000821265319727,
+          "phase_max_deg": 9.901340224659416
+        },
+        {
+          "coarse_n": 16,
+          "fine_n": 20,
+          "complex_l2_relative": 0.06567000933017211,
+          "magnitude_max_relative": 0.017027093983035133,
+          "phase_max_deg": 4.659361863064632
+        }
+      ]
+    },
+    {
+      "name": "three_axis_diagonal",
+      "analytic_volume_m3": 53.333333333333336,
+      "levels": [
+        {
+          "n": 6,
+          "degrees_of_freedom": 196,
+          "exact_cut_cell_volume_m3": 53.33333333333333,
+          "minimum_cut_volume_fraction": 0.1666666666666666,
+          "fluid_interface_count": 480,
+          "null_max_normalized_by_diagonal": 1.23545120621618e-16,
+          "max_abs_stiffness_asymmetry": 0.0,
+          "relative_energy_drift_60_steps": 1.0737742330179456e-14,
+          "smallest_positive_modal_frequency_hz": 41.05649868561264,
+          "actual_driven_transfer_40_80_hz": [
+            [
+              -34.97090109973722,
+              52.800627866588016
+            ],
+            [
+              69.64655765259073,
+              591.5333032356324
+            ]
+          ],
+          "wall_seconds": 0.15315870009362698
+        },
+        {
+          "n": 8,
+          "degrees_of_freedom": 456,
+          "exact_cut_cell_volume_m3": 53.333333333333336,
+          "minimum_cut_volume_fraction": 0.16666666666666666,
+          "fluid_interface_count": 1176,
+          "null_max_normalized_by_diagonal": 0.0,
+          "max_abs_stiffness_asymmetry": 0.0,
+          "relative_energy_drift_60_steps": 4.146363735999119e-14,
+          "smallest_positive_modal_frequency_hz": 41.24056465722286,
+          "actual_driven_transfer_40_80_hz": [
+            [
+              -25.008229178420944,
+              48.84030346360383
+            ],
+            [
+              752.603841568061,
+              480.1150664996151
+            ]
+          ],
+          "wall_seconds": 0.2844113998580724
+        },
+        {
+          "n": 12,
+          "degrees_of_freedom": 1508,
+          "exact_cut_cell_volume_m3": 53.33333333333333,
+          "minimum_cut_volume_fraction": 0.16666666666666682,
+          "fluid_interface_count": 4092,
+          "null_max_normalized_by_diagonal": 1.3898826069932015e-16,
+          "max_abs_stiffness_asymmetry": 0.0,
+          "relative_energy_drift_60_steps": 4.070053469073684e-14,
+          "smallest_positive_modal_frequency_hz": 41.372035565416404,
+          "actual_driven_transfer_40_80_hz": [
+            [
+              -29.41704450767549,
+              48.938419628495716
+            ],
+            [
+              1035.6197826337227,
+              -49.286712145264396
+            ]
+          ],
+          "wall_seconds": 0.9100903999060392
+        },
+        {
+          "n": 16,
+          "degrees_of_freedom": 3536,
+          "exact_cut_cell_volume_m3": 53.33333333333333,
+          "minimum_cut_volume_fraction": 0.16666666666666666,
+          "fluid_interface_count": 9840,
+          "null_max_normalized_by_diagonal": 0.0,
+          "max_abs_stiffness_asymmetry": 0.0,
+          "relative_energy_drift_60_steps": 2.834918915993394e-13,
+          "smallest_positive_modal_frequency_hz": 41.41802752814987,
+          "actual_driven_transfer_40_80_hz": [
+            [
+              -32.82598849320822,
+              48.05432441115044
+            ],
+            [
+              1004.4920035156276,
+              -270.5430522092103
+            ]
+          ],
+          "wall_seconds": 2.8024386998731643
+        },
+        {
+          "n": 20,
+          "degrees_of_freedom": 6860,
+          "exact_cut_cell_volume_m3": 53.33333333333336,
+          "minimum_cut_volume_fraction": 0.16666666666666619,
+          "fluid_interface_count": 19380,
+          "null_max_normalized_by_diagonal": 1.544314007770223e-16,
+          "max_abs_stiffness_asymmetry": 0.0,
+          "relative_energy_drift_60_steps": 5.095325170779416e-14,
+          "smallest_positive_modal_frequency_hz": 41.439303303187415,
+          "actual_driven_transfer_40_80_hz": [
+            [
+              -34.5713370485205,
+              49.600715976479776
+            ],
+            [
+              982.2339752134476,
+              -368.40135096944056
+            ]
+          ],
+          "wall_seconds": 7.466314299963415
+        }
+      ],
+      "adjacent_transfer": [
+        {
+          "coarse_n": 6,
+          "fine_n": 8,
+          "complex_l2_relative": 0.7737887693130793,
+          "magnitude_max_relative": 0.3327930829719188,
+          "phase_max_deg": 50.74958897012757
+        },
+        {
+          "coarse_n": 8,
+          "fine_n": 12,
+          "complex_l2_relative": 0.5781404393102549,
+          "magnitude_max_relative": 0.13897338488047012,
+          "phase_max_deg": 35.260113558912536
+        },
+        {
+          "coarse_n": 12,
+          "fine_n": 16,
+          "complex_l2_relative": 0.21447357733996922,
+          "magnitude_max_relative": 0.018843168221105336,
+          "phase_max_deg": 12.349223630892876
+        },
+        {
+          "coarse_n": 16,
+          "fine_n": 20,
+          "complex_l2_relative": 0.09553272193378702,
+          "magnitude_max_relative": 0.03744735512895102,
+          "phase_max_deg": 5.485337646387287
+        }
+      ]
+    }
+  ]
+}

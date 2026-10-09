@@ -1,0 +1,193 @@
+name: R130D two convex geometries independent MFEM P2
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/r130d-convex-independent-mfem.yml'
+      - 'benchmarks/acoustics/r130d_mfem_reference/convex_tet_system.cpp'
+      - 'benchmarks/acoustics/r130d_mfem_reference/CMakeLists.txt'
+      - 'benchmarks/acoustics/r130d_convex_independent_mfem_plan_2026-10-09.json'
+      - 'benchmarks/acoustics/r130d_convex_mfem_tetra_sources/**'
+      - 'scripts/run_r130d_convex_independent_mfem_drive.py'
+      - 'benchmarks/acoustics/r130d_convex_independent_mfem_all_level_driven_evidence_2026-10-09.json'
+      - 'benchmarks/acoustics/r130d_convex_independent_mfem_same_source_evidence_2026-10-09.json'
+  workflow_dispatch:
+
+concurrency:
+  group: r130d-independent-two-convex-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  independent-p2-tetra:
+    runs-on: windows-2022
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Checkout independent geometry and numerical plan
+        uses: actions/checkout@v4
+      - name: Setup pinned Python and sparse library
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install reference runtime
+        run: |
+          python -m pip install --disable-pip-version-check numpy==1.26.4 scipy==1.14.1
+          if ($LASTEXITCODE -ne 0) { throw 'Python pinned dependency installation failed' }
+          New-Item -ItemType Directory -Force scratch/independent_convex_mfem | Out-Null
+      - name: Verify prospective independent mesh and analytic volumes
+        run: |
+          python scripts/build_r130d_convex_independent_mfem_mesh.py `
+            --plan benchmarks/acoustics/r130d_convex_independent_mfem_plan_2026-10-09.json `
+            --out scratch/independent_convex_mfem/meshes `
+            --manifest scratch/independent_convex_mfem/mesh_provenance.json
+          if ($LASTEXITCODE -ne 0) { throw 'independent tetrahedral geometry failed' }
+          @'
+          import json,hashlib
+          from pathlib import Path
+          original=Path('benchmarks/acoustics/r130d_convex_mfem_tetra_mesh_provenance_2026-10-09.json')
+          x=json.loads(original.read_text())
+          y=json.loads(Path('scratch/independent_convex_mfem/mesh_provenance.json').read_text())
+          assert x==y,'meshing authority changed'
+          for room,metadata in x['rooms'].items():
+              original_bytes=(Path('benchmarks/acoustics/r130d_convex_mfem_tetra_sources')/(room+'.tet')).read_bytes().replace(bytes([13,10]),bytes([10]))
+              actual=(Path('scratch/independent_convex_mfem/meshes')/(room+'.tet')).read_bytes().replace(bytes([13,10]),bytes([10]))
+              assert hashlib.sha256(original_bytes).hexdigest()==metadata['sha256']
+              assert original_bytes==actual
+          print('PASS independent Qhull/halfspace geometry and byte-verified tetra input')
+          '@ | python -
+          if ($LASTEXITCODE -ne 0) { throw 'MFEM independent tetra manifest mismatch' }
+      - name: Fetch original independent MFEM version
+        run: |
+          git clone --filter=blob:none https://github.com/mfem/mfem.git _mfem-source
+          if ($LASTEXITCODE -ne 0) { throw 'MFEM checkout failed' }
+          git -C _mfem-source checkout d964264cdb9a13e94a201b6c236c7721e0c8765f
+          if ((git -C _mfem-source rev-parse HEAD).Trim() -ne 'd964264cdb9a13e94a201b6c236c7721e0c8765f') {
+            throw 'independent MFEM version mismatch'
+          }
+      - name: Build new constrained C++ tetra FEM reference
+        run: |
+          $mfemRoot = (Resolve-Path '_mfem-source').Path
+          cmake -S benchmarks/acoustics/r130d_mfem_reference -B _mfem-build -G "Visual Studio 17 2022" -A x64 "-DHTDT_MFEM_SOURCE_DIR=$mfemRoot"
+          if ($LASTEXITCODE -ne 0) { throw 'MFEM CMake configure failed' }
+          cmake --build _mfem-build --config Release --target r130d_mfem_convex_tet_system --parallel 4
+          if ($LASTEXITCODE -ne 0) { throw 'independent C++ FEM compile failed' }
+      - name: Assemble and actually drive wedge and diagonal MFEM r1-4
+        env:
+          PYTHONUTF8: '1'
+          PYTHONIOENCODING: utf-8
+        run: |
+          $roomVolume = @{ 'planar_wedge' = 49.666666666666664; 'three_axis_diagonal' = 53.333333333333336 }
+          foreach ($name in @('planar_wedge','three_axis_diagonal')) {
+            for ($ref = 1; $ref -le 4; $ref++) {
+              Write-Host "INDEPENDENT MFEM: room=$name refinement=$ref"
+              $outDir = "scratch/independent_convex_mfem/$name/ref$ref"
+              New-Item -ItemType Directory -Force $outDir | Out-Null
+              & _mfem-build/Release/r130d_mfem_convex_tet_system.exe `
+                --mesh "benchmarks/acoustics/r130d_convex_mfem_tetra_sources/$name.tet" `
+                --expected-volume $roomVolume[$name] `
+                --density 1.2 --sound-speed 343.2 `
+                --source-x 1.5 --source-y 2 --source-z 2 `
+                --receiver-x 2.5 --receiver-y 2 --receiver-z 2 `
+                --order 2 --uniform-refinements $ref `
+                --output "$outDir/system.json"
+              if ($LASTEXITCODE -ne 0) { throw "independent C++ assembly failed $name ref$ref" }
+              python scripts/run_r130d_convex_independent_mfem_drive.py `
+                --plan benchmarks/acoustics/r130d_convex_independent_mfem_plan_2026-10-09.json `
+                --mesh-provenance benchmarks/acoustics/r130d_convex_mfem_tetra_mesh_provenance_2026-10-09.json `
+                --room $name --refinement $ref `
+                --system "$outDir/system.json" `
+                --output "$outDir/result.json"
+              if ($LASTEXITCODE -ne 0) { throw "independent MFEM actual wave integration failed $name ref$ref" }
+              Remove-Item "$outDir/system.json" -Force
+            }
+          }
+      - name: Verify the same-source independent FV and FEM acceptance gates
+        env:
+          PYTHONUTF8: '1'
+        run: |
+          @'
+          import json
+          from pathlib import Path
+          root=Path('scratch/independent_convex_mfem')
+          evidence={}
+          for name in ('planar_wedge','three_axis_diagonal'):
+              evidence[name]=[json.loads((root/name/('ref'+str(r))/'result.json').read_text()) for r in (1,2,3,4)]
+          (root/'all_levels.json').write_text(json.dumps(evidence,indent=2)+'\n')
+          '@ | python -
+          python scripts/run_r130d_convex_independent_mfem_drive.py `
+            --plan benchmarks/acoustics/r130d_convex_independent_mfem_plan_2026-10-09.json `
+            --mesh-provenance benchmarks/acoustics/r130d_convex_mfem_tetra_mesh_provenance_2026-10-09.json `
+            --levels scratch/independent_convex_mfem/all_levels.json `
+            --fv-evidence benchmarks/acoustics/r130d_convex_multiplane_cutcell_evidence_2026-10-09.json `
+            --output scratch/independent_convex_mfem/fine_fine_evidence.json
+          if ($LASTEXITCODE -ne 0) { throw 'independent two-geometry cross solver metrics failed' }
+          @'
+          import json
+          p='scratch/independent_convex_mfem/fine_fine_evidence.json'
+          r=json.load(open(p))
+          assert r['production_enabled'] is False
+          assert r['original_r130d_impulse']=='SELF_CONVERGENCE_FAILED'
+          assert len(r['cases'])==2
+          for c in r['cases']:
+              assert len(c['mfem_refinements'])==4
+              print(c['room'], 'FEMself=', c['mfem_self_pass'],
+                    'FVlast=',c['fv_last_adjacent_pass'],
+                    'cross=',c['cross_pass'],
+                    'combined=',c['experimental_numeric_candidate_pass'],
+                    'complex L2=',c['cross_fv_n20_vs_mfem_r4']['normalized_complex_l2'])
+          '@ | python -
+          if ($LASTEXITCODE -ne 0) { throw 'incomplete two-geometry final evidence' }
+      - name: Bind independent 8-step outputs to persisted byte-hashed numerical evidence
+        env:
+          PYTHONUTF8: '1'
+        run: |
+          @'
+          import json,math
+          from pathlib import Path
+          from numpy import array,allclose
+          old=json.loads(Path('benchmarks/acoustics/r130d_convex_independent_mfem_all_level_driven_evidence_2026-10-09.json').read_text())
+          new=json.loads(Path('scratch/independent_convex_mfem/all_levels.json').read_text())
+          assert old.keys()==new.keys()
+          for room in old:
+              assert len(new[room])==len(old[room])==4
+              for actual,frozen in zip(new[room],old[room]):
+                  for key in ('room','uniform_refinements','dofs','elements','tetra_mesh_sha256'):
+                      assert actual[key]==frozen[key], (room,key)
+                  assert actual['actual_midpoint_injected_source'] is True
+                  assert actual['production_enabled'] is False
+                  assert actual['true_linear_relative_residual_max']<=1e-8
+                  assert actual['max_cg_iterations']<=350
+                  assert len(actual['system_sha256'])==64
+                  aa=array(actual['transfer_complex_40_80_hz'],dtype=float)
+                  bb=array(frozen['transfer_complex_40_80_hz'],dtype=float)
+                  assert aa.shape==bb.shape==(2,2)
+                  assert allclose(aa,bb,rtol=1e-7,atol=1e-5), (room,actual['uniform_refinements'],aa,bb)
+          a=json.loads(Path('scratch/independent_convex_mfem/fine_fine_evidence.json').read_text())
+          b=json.loads(Path('benchmarks/acoustics/r130d_convex_independent_mfem_same_source_evidence_2026-10-09.json').read_text())
+          assert a['plan']==b['plan']
+          assert a['original_r130d_impulse']=='SELF_CONVERGENCE_FAILED'
+          assert a['production_enabled'] is False
+          for x,y in zip(a['cases'],b['cases']):
+              assert x['room']==y['room']
+              assert x['experimental_numeric_candidate_pass'] is True
+              assert abs(x['mfem_adjacent'][-1]['normalized_complex_l2']-y['mfem_adjacent'][-1]['normalized_complex_l2'])<1e-6
+              assert abs(x['cross_fv_n20_vs_mfem_r4']['normalized_complex_l2']-y['cross_fv_n20_vs_mfem_r4']['normalized_complex_l2'])<1e-6
+          print('PASS: 8 full independent C++ P2 FEM actual-source records replay within frozen numerical tolerance')
+          '@ | python -
+          if ($LASTEXITCODE -ne 0) { throw 'pinned independent MFEM replay did not reproduce archived evidence' }
+      - name: Preserve actual per-step results even if threshold fails
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: r130d-convex-two-geometry-independent-mfem-actual-drive
+          path: |
+            scratch/independent_convex_mfem/**/result.json
+            scratch/independent_convex_mfem/fine_fine_evidence.json
+            scratch/independent_convex_mfem/all_levels.json
+            scratch/independent_convex_mfem/mesh_provenance.json
+          if-no-files-found: warn
+          retention-days: 30

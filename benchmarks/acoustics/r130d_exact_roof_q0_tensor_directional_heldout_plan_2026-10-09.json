@@ -1,0 +1,91 @@
+{
+  "schema_version": "htdt.r130d.exact-roof-directional-q0-heldout-multigrid-plan-1",
+  "date_jst": "2026-10-09",
+  "issue": 938,
+  "pr": 1055,
+  "purpose": "Preserve prior PPW40/44 outcomes without selecting winner; evaluate prospectively held-out PPW28/32/36 for all same five frozen conservative directional operators and all adjacent five-grid q0 transfers, no fitting.",
+  "status_of_preexisting_observations": {
+    "ppw40_and_44_were_observed_before_this_plan": true,
+    "previous_two_grid_evidence": "benchmarks/acoustics/r130d_exact_roof_q0_tensor_directional_dispersion_evidence_2026-10-09.json",
+    "previous_two_grid_plan_sha": "7b0f09a3212eda6e90296aeb3ea17b0cdb18b506",
+    "new_heldout_ppw": [
+      28,
+      32,
+      36
+    ],
+    "entire_refinement_grid": [
+      28,
+      32,
+      36,
+      40,
+      44
+    ],
+    "all_arms": [
+      "baseline",
+      "x_only",
+      "yz_only",
+      "x_plus_yz",
+      "full_kmk"
+    ],
+    "holdout_grid_outcomes_not_observed_before_plan": true
+  },
+  "frozen": {
+    "original_native_full_sha_evidence": "benchmarks/acoustics/r130d_original_point_quadratic_pffdtd_evidence_2026-10-09.json",
+    "archived_true_baseline_all5": "benchmarks/acoustics/r130d_native_grid_exact_roof_mass_fv_q0_evidence_2026-10-09.json",
+    "upstream_sha": "aa319f6c86517cb95aabfae8656277da62c3ead5",
+    "physical_source_xyz": [
+      1.5,
+      2,
+      2
+    ],
+    "physical_receiver_xyz": [
+      2.5,
+      2,
+      2
+    ],
+    "original_eight_node_q0_from_raw_hdf5": true,
+    "native_original_Ts_Nt": true,
+    "roof_exact_volume_m3": 56,
+    "record_s": 0.25,
+    "frequency_hz": [
+      40,
+      80
+    ],
+    "sound_speed_m_s": 343.2,
+    "rho": 1.2
+  },
+  "numerics": {
+    "use_exact_unmodified_original_point_coupling": true,
+    "use_previous_prospectively_frozen_five_operators_without_changing_alpha": true,
+    "alpha_fraction": 0.08333333333333333,
+    "all_native_eigenmodes_for_each_grid": true,
+    "actual_true_3d_sparse_neumann_operator_validation": true,
+    "implicit_average_accel_newmark_native_q0": true,
+    "original_full_250ms_signed_pressures": true,
+    "no_truncation_damping_smoothing_taper_or_mask": true,
+    "archived_true_CG_baseline_reconstruction_relative_limit": 0.00002,
+    "original_previous_40_44_transfers_match_relative_limit": 2e-8
+  },
+  "evaluation": {
+    "report_all_four_pairs_for_each_of_five_arms": true,
+    "original_complex_limit": 0.2,
+    "original_magnitude_limit": 0.25,
+    "original_phase_limit_deg": 15,
+    "monotonic_complex_magnitude_phase_required_for_refinement": true,
+    "save_all_unfavorable_raw_values": true,
+    "heldout_not_original_pffdtd_or_bras_qualification": true
+  },
+  "limits": {
+    "new_heldout_cases": 3,
+    "new_original_pffdtd_wave_runs": 0,
+    "new_GitHub_Actions_runs": 0,
+    "clean_scratch": false
+  },
+  "authority": {
+    "original_PFFDTD_q0": "SELF_CONVERGENCE_FAILED",
+    "independent_physical": "NOT_VALIDATED",
+    "product": "NO_GO",
+    "pr_draft": true,
+    "issue_open": true
+  }
+}

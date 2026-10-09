@@ -1,0 +1,868 @@
+{
+  "schema_version": "htdt.r130d.original-q0-causal-prefirst-corrected-Green-evidence-1",
+  "preobserved_original_wrong_analytic_evidence_SHA256": "d11954d6cb6cd9ee1085662624b630bd073bd60cb62771fe465eea865e1305f5",
+  "preobserved_wrong_analytic_absolute_comparison_INVALID": true,
+  "prior_preobserved_three_widths_s": [
+    0.0005,
+    0.0008,
+    0.0012
+  ],
+  "new_prospectively_registered_three_widths_s": [
+    0.00065,
+    0.001,
+    0.0015
+  ],
+  "preregistered_plan_sha256_lf": "8acc74a9e6f46bb488ceb6a99c08f50a5553d98b05e0d49e817cee337b737337",
+  "preregistered_plan": {
+    "schema_version": "htdt.r130d.original-q0-causal-prefirst-green-amplitude-correction-plan-1",
+    "created_jst": "2026-10-09",
+    "issue": 938,
+    "pr": 1055,
+    "diagnostic_erratum": "An already executed first preregistered source-to-Green weak test incorrectly multiplied expected weak pressure by c\u00b2. Original incorrect plan 0c405ce1233d060d343756a4c9771c958ec02a99 and first outcomes have been OBSERVED. Preserve historical first JSON untouched and explicitly mark its wave-vs-theory absolute ratios INVALID due to units. No retrospective claims that observed widths were prospectively correct. Apply rigorous wave-operator fundamental-solution normalization to NEW predeclared widths only.",
+    "original_preobserved_first_experiment": {
+      "preregistered_commit": "0c405ce1233d060d343756a4c9771c958ec02a99",
+      "prospectively_wrong_formula": "W=-rho*c\u00b2*sum_64 sw*rw*w_prime(r/c)/(4\u03c0r)",
+      "already_computed_widths_s": [
+        0.0005,
+        0.0008,
+        0.0012
+      ],
+      "already_observed_old_normalized_per_grid_values": true,
+      "first_evidence_keep_filename": "benchmarks/acoustics/r130d_original_q0_causal_prefirst_weak_evidence_2026-10-09.json",
+      "old_analytic_absolute_comparison_INVALID": true
+    },
+    "theoretical_correction": {
+      "original_leapfrog_injection": "native in_sigs[:,0] sums to c\u00b2*dt\u00b2/h\u00b3 and yields equivalent PDE [(1/c\u00b2)\u2202t\u00b2\u2212\u2207\u00b2] phi = delta_spatial * q(t) with q(t) a unit-height native one-sample source; native q pulse area dt",
+      "causal_fundamental_for_PDE_L": "L=(1/c\u00b2)\u2202t\u00b2\u2212\u2207\u00b2 has causal retarded G=\u03b4(t-r/c)/(4\u03c0r) for r>0",
+      "full_source_equation": "[\u2202t\u00b2\u2212c\u00b2\u2207\u00b2]phi=c\u00b2 delta_spatial q(t), and for source q0 sample approximation q(t)=1 on first dt and 0 afterwards; continuum short impulse gives phi\u2248dt*G (not dt*c\u00b2*G)",
+      "pressure_normalization": "p=rho*\u2202t phi; normalized source Q_T=dt; integrated pressure response weak \u222bp(t)*w(t) dt/Q_T = -rho*sum_64 sw_i rw_j w_prime(rij/c)/(4\u03c0rij), NO extra c\u00b2",
+      "no_fitted_amplitude": true,
+      "not_a_native_solver_kernel_change": true
+    },
+    "fixed_experiment": {
+      "new_not_previously_computed_widths_s": [
+        0.00065,
+        0.001,
+        0.0015
+      ],
+      "previous_widths_must_be_treated_as_exploratory": true,
+      "original_source_m": [
+        1.5,
+        2,
+        2
+      ],
+      "original_receiver_m": [
+        2.5,
+        2,
+        2
+      ],
+      "original_real_HDF5_sha_and_fullwave": "benchmarks/acoustics/r130d_original_point_quadratic_pffdtd_evidence_2026-10-09.json",
+      "previous_exact_all_original_modal_waves": "benchmarks/acoustics/r130d_original_pffdtd_native_full_modal_q0_evidence_2026-10-09.json",
+      "prior_true_single_point_green": "benchmarks/acoustics/r130d_original_q0_continuum_retarded_green_evidence_2026-10-09.json",
+      "PPW": [
+        28,
+        32,
+        36,
+        40,
+        44
+      ],
+      "native_original_q0_HDF5_8node_weights_and_indices_unchanged": true,
+      "original_full250ms_time_all_modes_preserved": true,
+      "physical_witness_center_s": 0.002913752913752914,
+      "physical_compact_support_radius_s": 0.0032,
+      "physical_witness_formula": "x/sigma exp(-x\u00b2/(2sigma\u00b2)) exp(1-1/(1-(x/R)\u00b2)) inside |x|<R, else zero. Analytic derivative exactly, fixed no time shift.",
+      "original_sampled_forward_center_backward_pressure_unchanged": true,
+      "original_rho": 1.2,
+      "original_c_m_s": 343.2,
+      "no_damping_taper_posthoc_phase_fit_or_modal_mask": true,
+      "original_complete_signed_40_80_frozen_three_gates": [
+        0.2,
+        0.25,
+        15
+      ],
+      "all_four_pairs_original_still_scored": true,
+      "all_previous_lowband_and_highband_original_full_time_metrics_kept": true,
+      "original_first_reflection_s": 0.0089668767033651,
+      "physical_witness_upper_end_s": 0.006113752913752914
+    },
+    "tests": {
+      "analytic_derived_corrected_green_vs_independent_source_leapfrog_dimension_test": true,
+      "gaussian_test_derivative_signed_validation_on_new_widths": true,
+      "analytic_8node_true_point_and_all_reflected_wall_causality": true,
+      "original_full_250ms_native_40_80_and_SHA_exact_replay": true,
+      "all_five_original_distributions_report_real_values_no_relative_gate_substitution": true,
+      "all_3_new_widths_and_original_three_gates_all_four_pairs": true,
+      "report_errors_even_if_uncorrected_and_corrected_differ_widely": true,
+      "original_first_wrong_absolute_scores_invalid_and_not_overwritten": true
+    },
+    "limits": {
+      "new_original_pffdtd_wave_runs": 0,
+      "new_github_actions_runs": 0,
+      "preserve_scratch": true,
+      "max_cases": 5,
+      "max_new_witness_widths": 3
+    },
+    "release": {
+      "original_PFFDTD": "SELF_CONVERGENCE_FAILED",
+      "physical_reference": "NOT_VALIDATED",
+      "product": "NO_GO",
+      "draft_pr": true,
+      "issue_open": true
+    }
+  },
+  "continuum_operator_injection_normalization": "[(1/c\u00b2)\u2202tt\u2212\u0394]G=\u03b4; native source sums c\u00b2dt\u00b2/h\u00b3; physical expected normalized witness = \u2212\u03c1 \u03a364 s_i r_j w_prime(rij/c)/(4\u03c0rij); NO c\u00b2",
+  "corrected_divisor_of_previous_analytic_amplitude": 117786.23999999999,
+  "fitted_numerical_gain": null,
+  "actual_new_weak_results_original_SHA_native_5grid": [
+    {
+      "ppw": 28,
+      "original_sha256_comms": "4404a9818a8f0c673c97e8ede8665367100aecb3d2f2f8481bc532bc45fd6b6c",
+      "original_sha256_voxels": "9d8b598fc1e2077840ba5a51e8f2db72c30ad4b6991ae88d3174bac72acf9fc8",
+      "original_sha256_full_real_250ms_native_wave": "6e8a94d695fe77e992d8bd66bbb9b63ed9eaf27abd86f5be94f7554d2ba97d6b",
+      "original_native_h_m": 0.12257142857142857,
+      "original_native_Ts_s": 0.00020599032818587005,
+      "original_native_Nt": 1214,
+      "original_native_q0_in_sigs_sum": 2.7140664335664337,
+      "unchanged_original_full_250ms_signed_40_80_recomputed": [
+        [
+          101.09876930666194,
+          42.79568096674776
+        ],
+        [
+          150.77953891006572,
+          -21.729992606786688
+        ]
+      ],
+      "unchanged_original_full_250ms_vs_preobserved_relative": 1.591093726964842e-15,
+      "original_native_original_full_250ms_PFFDTD_all_modes_unfiltered": true,
+      "causal_pre_first_reflection_auxiliary_test_not_original_acceptance": true,
+      "three_predeclared_compact_weak_distribution_tests": [
+        {
+          "physical_weak_test_width_s": 0.00065,
+          "native_unmodified_original_weak_result": {
+            "original_full_native_u_P_250ms_nonmodified": true,
+            "original_velocity_trace_Nt": 1214,
+            "native_receiver_point_p_peak_signed_pa": 171.831494887513,
+            "native_receiver_point_p_peak_abs_pa": 171.831494887513,
+            "native_original_direct_window_peak_signed_pa": -72.16247818359543,
+            "native_original_direct_window_peak_time_s": 0.003707825907345661,
+            "negative_control_native_abs_p_before_1p5ms_pa": 0.13404372904225179,
+            "negative_control_before_1p5ms_over_all_250ms_abs_peak": 0.0007800882436016841,
+            "original_q0_native_weak_pressure_over_unit_input": -112.07968598820682,
+            "physical_witness_nonzero_samples": 30,
+            "physical_witness_center_s": 0.002913752913752914,
+            "physical_witness_sigma_s": 0.00065,
+            "physical_witness_support_end_s": 0.006113752913752914
+          },
+          "analytic_all_original_64pair_continuum_direct": {
+            "original_64_native_pairs_continuum_causal_green_weak_distribution": -128.75465721520007,
+            "true_physical_source_to_receiver_point_continuum_weak_distribution": -146.91225516174956,
+            "analytic_original_8node_over_true_point_weak_relative": 0.12359484868405334,
+            "earliest_real_original_64node_single_wall_reflection_s": 0.008689176935985083,
+            "earliest_real_original_64node_single_wall_reflection_name": "true_sloping_roof",
+            "analytic_all_64_original_pair_wave_derivative_witness_nontruncated": true,
+            "historical_old_analytic_expected_with_extra_c_squared_INVALID": -15165526.955867287,
+            "pre_observed_analytic_c_squared_units_error_corrected": true,
+            "analytic_absolute_source_scale_fixed_by_PDE_not_fitted": true
+          },
+          "actual_native_over_assumed_continuum_source_model_signed_ratio": 0.8704903450667205,
+          "actual_native_vs_assumed_continuum_weak_relative": 0.12950965493327948,
+          "conditional_source_normalization_not_fitted_or_verified": true
+        },
+        {
+          "physical_weak_test_width_s": 0.001,
+          "native_unmodified_original_weak_result": {
+            "original_full_native_u_P_250ms_nonmodified": true,
+            "original_velocity_trace_Nt": 1214,
+            "native_receiver_point_p_peak_signed_pa": 171.831494887513,
+            "native_receiver_point_p_peak_abs_pa": 171.831494887513,
+            "native_original_direct_window_peak_signed_pa": -72.16247818359543,
+            "native_original_direct_window_peak_time_s": 0.003707825907345661,
+            "negative_control_native_abs_p_before_1p5ms_pa": 0.13404372904225179,
+            "negative_control_before_1p5ms_over_all_250ms_abs_peak": 0.0007800882436016841,
+            "original_q0_native_weak_pressure_over_unit_input": -86.88883159088917,
+            "physical_witness_nonzero_samples": 30,
+            "physical_witness_center_s": 0.002913752913752914,
+            "physical_witness_sigma_s": 0.001,
+            "physical_witness_support_end_s": 0.006113752913752914
+          },
+          "analytic_all_original_64pair_continuum_direct": {
+            "original_64_native_pairs_continuum_causal_green_weak_distribution": -89.5910220798026,
+            "true_physical_source_to_receiver_point_continuum_weak_distribution": -95.49296585513719,
+            "analytic_original_8node_over_true_point_weak_relative": 0.06180501068830393,
+            "earliest_real_original_64node_single_wall_reflection_s": 0.008689176935985083,
+            "earliest_real_original_64node_single_wall_reflection_name": "true_sloping_roof",
+            "analytic_all_64_original_pair_wave_derivative_witness_nontruncated": true,
+            "historical_old_analytic_expected_with_extra_c_squared_INVALID": -10552589.628536927,
+            "pre_observed_analytic_c_squared_units_error_corrected": true,
+            "analytic_absolute_source_scale_fixed_by_PDE_not_fitted": true
+          },
+          "actual_native_over_assumed_continuum_source_model_signed_ratio": 0.9698386018355001,
+          "actual_native_vs_assumed_continuum_weak_relative": 0.03016139816449992,
+          "conditional_source_normalization_not_fitted_or_verified": true
+        },
+        {
+          "physical_weak_test_width_s": 0.0015,
+          "native_unmodified_original_weak_result": {
+            "original_full_native_u_P_250ms_nonmodified": true,
+            "original_velocity_trace_Nt": 1214,
+            "native_receiver_point_p_peak_signed_pa": 171.831494887513,
+            "native_receiver_point_p_peak_abs_pa": 171.831494887513,
+            "native_original_direct_window_peak_signed_pa": -72.16247818359543,
+            "native_original_direct_window_peak_time_s": 0.003707825907345661,
+            "negative_control_native_abs_p_before_1p5ms_pa": 0.13404372904225179,
+            "negative_control_before_1p5ms_over_all_250ms_abs_peak": 0.0007800882436016841,
+            "original_q0_native_weak_pressure_over_unit_input": -61.62266943280093,
+            "physical_witness_nonzero_samples": 30,
+            "physical_witness_center_s": 0.002913752913752914,
+            "physical_witness_sigma_s": 0.0015,
+            "physical_witness_support_end_s": 0.006113752913752914
+          },
+          "analytic_all_original_64pair_continuum_direct": {
+            "original_64_native_pairs_continuum_causal_green_weak_distribution": -61.486069856438476,
+            "true_physical_source_to_receiver_point_continuum_weak_distribution": -63.66197723675813,
+            "analytic_original_8node_over_true_point_weak_relative": 0.03417907320452016,
+            "earliest_real_original_64node_single_wall_reflection_s": 0.008689176935985083,
+            "earliest_real_original_64node_single_wall_reflection_name": "true_sloping_roof",
+            "analytic_all_64_original_pair_wave_derivative_witness_nontruncated": true,
+            "historical_old_analytic_expected_with_extra_c_squared_INVALID": -7242212.980767228,
+            "pre_observed_analytic_c_squared_units_error_corrected": true,
+            "analytic_absolute_source_scale_fixed_by_PDE_not_fitted": true
+          },
+          "actual_native_over_assumed_continuum_source_model_signed_ratio": 1.0022216345374066,
+          "actual_native_vs_assumed_continuum_weak_relative": 0.002221634537406647,
+          "conditional_source_normalization_not_fitted_or_verified": true
+        }
+      ]
+    },
+    {
+      "ppw": 32,
+      "original_sha256_comms": "716199c1cb8f9d982cdafe7deaccdf630073a2b0d8cdec17fcaf3dff52f4b60b",
+      "original_sha256_voxels": "8f3ebd62703c40793d68fdf703e098bbecc568cc9beb227cfa126b8042954e3b",
+      "original_sha256_full_real_250ms_native_wave": "773601d4be74cef568739d8957082c9561912ccfd4fa860c415585409a1d84b7",
+      "original_native_h_m": 0.10725,
+      "original_native_Ts_s": 0.0001802415371626363,
+      "original_native_Nt": 1388,
+      "original_native_q0_in_sigs_sum": 3.10179020979021,
+      "unchanged_original_full_250ms_signed_40_80_recomputed": [
+        [
+          16.566281665940135,
+          -21.002334508771654
+        ],
+        [
+          -21.520688403756928,
+          -230.65774208886285
+        ]
+      ],
+      "unchanged_original_full_250ms_vs_preobserved_relative": 1.0850914818395571e-15,
+      "original_native_original_full_250ms_PFFDTD_all_modes_unfiltered": true,
+      "causal_pre_first_reflection_auxiliary_test_not_original_acceptance": true,
+      "three_predeclared_compact_weak_distribution_tests": [
+        {
+          "physical_weak_test_width_s": 0.00065,
+          "native_unmodified_original_weak_result": {
+            "original_full_native_u_P_250ms_nonmodified": true,
+            "original_velocity_trace_Nt": 1388,
+            "native_receiver_point_p_peak_signed_pa": -322.5780592959287,
+            "native_receiver_point_p_peak_abs_pa": 322.5780592959287,
+            "native_original_direct_window_peak_signed_pa": -62.20227915977642,
+            "native_original_direct_window_peak_time_s": 0.0034245892060900895,
+            "negative_control_native_abs_p_before_1p5ms_pa": 0.07996231577307923,
+            "negative_control_before_1p5ms_over_all_250ms_abs_peak": 0.00024788516598930524,
+            "original_q0_native_weak_pressure_over_unit_input": -115.22767073775829,
+            "physical_witness_nonzero_samples": 34,
+            "physical_witness_center_s": 0.002913752913752914,
+            "physical_witness_sigma_s": 0.00065,
+            "physical_witness_support_end_s": 0.006113752913752914
+          },
+          "analytic_all_original_64pair_continuum_direct": {
+            "original_64_native_pairs_continuum_causal_green_weak_distribution": -126.40118558037024,
+            "true_physical_source_to_receiver_point_continuum_weak_distribution": -146.91225516174956,
+            "analytic_original_8node_over_true_point_weak_relative": 0.13961442194728232,
+            "earliest_real_original_64node_single_wall_reflection_s": 0.008223737271334509,
+            "earliest_real_original_64node_single_wall_reflection_name": "true_sloping_roof",
+            "analytic_all_64_original_pair_wave_derivative_witness_nontruncated": true,
+            "historical_old_analytic_expected_with_extra_c_squared_INVALID": -14888320.381054027,
+            "pre_observed_analytic_c_squared_units_error_corrected": true,
+            "analytic_absolute_source_scale_fixed_by_PDE_not_fitted": true
+          },
+          "actual_native_over_assumed_continuum_source_model_signed_ratio": 0.9116027686662207,
+          "actual_native_vs_assumed_continuum_weak_relative": 0.0883972313337793,
+          "conditional_source_normalization_not_fitted_or_verified": true
+        },
+        {
+          "physical_weak_test_width_s": 0.001,
+          "native_unmodified_original_weak_result": {
+            "original_full_native_u_P_250ms_nonmodified": true,
+            "original_velocity_trace_Nt": 1388,
+            "native_receiver_point_p_peak_signed_pa": -322.5780592959287,
+            "native_receiver_point_p_peak_abs_pa": 322.5780592959287,
+            "native_original_direct_window_peak_signed_pa": -62.20227915977642,
+            "native_original_direct_window_peak_time_s": 0.0034245892060900895,
+            "negative_control_native_abs_p_before_1p5ms_pa": 0.07996231577307923,
+            "negative_control_before_1p5ms_over_all_250ms_abs_peak": 0.00024788516598930524,
+            "original_q0_native_weak_pressure_over_unit_input": -87.06128445188844,
+            "physical_witness_nonzero_samples": 34,
+            "physical_witness_center_s": 0.002913752913752914,
+            "physical_witness_sigma_s": 0.001,
+            "physical_witness_support_end_s": 0.006113752913752914
+          },
+          "analytic_all_original_64pair_continuum_direct": {
+            "original_64_native_pairs_continuum_causal_green_weak_distribution": -89.02845360226725,
+            "true_physical_source_to_receiver_point_continuum_weak_distribution": -95.49296585513719,
+            "analytic_original_8node_over_true_point_weak_relative": 0.06769621400885802,
+            "earliest_real_original_64node_single_wall_reflection_s": 0.008223737271334509,
+            "earliest_real_original_64node_single_wall_reflection_name": "true_sloping_roof",
+            "analytic_all_64_original_pair_wave_derivative_witness_nontruncated": true,
+            "historical_old_analytic_expected_with_extra_c_squared_INVALID": -10486326.802825514,
+            "pre_observed_analytic_c_squared_units_error_corrected": true,
+            "analytic_absolute_source_scale_fixed_by_PDE_not_fitted": true
+          },
+          "actual_native_over_assumed_continuum_source_model_signed_ratio": 0.9779040399918986,
+          "actual_native_vs_assumed_continuum_weak_relative": 0.022095960008101434,
+          "conditional_source_normalization_not_fitted_or_verified": true
+        },
+        {
+          "physical_weak_test_width_s": 0.0015,
+          "native_unmodified_original_weak_result": {
+            "original_full_native_u_P_250ms_nonmodified": true,
+            "original_velocity_trace_Nt": 1388,
+            "native_receiver_point_p_peak_signed_pa": -322.5780592959287,
+            "native_receiver_point_p_peak_abs_pa": 322.5780592959287,
+            "native_original_direct_window_peak_signed_pa": -62.20227915977642,
+            "native_original_direct_window_peak_time_s": 0.0034245892060900895,
+            "negative_control_native_abs_p_before_1p5ms_pa": 0.07996231577307923,
+            "negative_control_before_1p5ms_over_all_250ms_abs_peak": 0.00024788516598930524,
+            "original_q0_native_weak_pressure_over_unit_input": -60.54787663019127,
+            "physical_witness_nonzero_samples": 34,
+            "physical_witness_center_s": 0.002913752913752914,
+            "physical_witness_sigma_s": 0.0015,
+            "physical_witness_support_end_s": 0.006113752913752914
+          },
+          "analytic_all_original_64pair_continuum_direct": {
+            "original_64_native_pairs_continuum_causal_green_weak_distribution": -61.35432167669366,
+            "true_physical_source_to_receiver_point_continuum_weak_distribution": -63.66197723675813,
+            "analytic_original_8node_over_true_point_weak_relative": 0.03624856877257101,
+            "earliest_real_original_64node_single_wall_reflection_s": 0.008223737271334509,
+            "earliest_real_original_64node_single_wall_reflection_name": "true_sloping_roof",
+            "analytic_all_64_original_pair_wave_derivative_witness_nontruncated": true,
+            "historical_old_analytic_expected_with_extra_c_squared_INVALID": -7226694.858048241,
+            "pre_observed_analytic_c_squared_units_error_corrected": true,
+            "analytic_absolute_source_scale_fixed_by_PDE_not_fitted": true
+          },
+          "actual_native_over_assumed_continuum_source_model_signed_ratio": 0.9868559373738667,
+          "actual_native_vs_assumed_continuum_weak_relative": 0.013144062626133324,
+          "conditional_source_normalization_not_fitted_or_verified": true
+        }
+      ]
+    },
+    {
+      "ppw": 36,
+      "original_sha256_comms": "3cd05bcee5f8fed08da3dc94ff2ac90b92969b293daf2db77b4bac8d0c51a2f9",
+      "original_sha256_voxels": "433c1d334419006b1185a4ef275545d329244d0808b2a3c12a3200e7af4e3d50",
+      "original_sha256_full_real_250ms_native_wave": "8fad2511eee77d463b43a1aa5d6f7ae13047ed8bf5d27e0cb0b76ffb7b3bd486",
+      "original_native_h_m": 0.09533333333333333,
+      "original_native_Ts_s": 0.00016021469970012116,
+      "original_native_Nt": 1561,
+      "original_native_q0_in_sigs_sum": 3.4895139860139857,
+      "unchanged_original_full_250ms_signed_40_80_recomputed": [
+        [
+          57.86557590696425,
+          12.21253055210823
+        ],
+        [
+          119.4368140007726,
+          -167.8458584505423
+        ]
+      ],
+      "unchanged_original_full_250ms_vs_preobserved_relative": 1.0142767680232727e-15,
+      "original_native_original_full_250ms_PFFDTD_all_modes_unfiltered": true,
+      "causal_pre_first_reflection_auxiliary_test_not_original_acceptance": true,
+      "three_predeclared_compact_weak_distribution_tests": [
+        {
+          "physical_weak_test_width_s": 0.00065,
+          "native_unmodified_original_weak_result": {
+            "original_full_native_u_P_250ms_nonmodified": true,
+            "original_velocity_trace_Nt": 1561,
+            "native_receiver_point_p_peak_signed_pa": 118.84111866679044,
+            "native_receiver_point_p_peak_abs_pa": 118.84111866679044,
+            "native_original_direct_window_peak_signed_pa": -59.52934460512491,
+            "native_original_direct_window_peak_time_s": 0.0035247233934026655,
+            "negative_control_native_abs_p_before_1p5ms_pa": 0.010586172155065809,
+            "negative_control_before_1p5ms_over_all_250ms_abs_peak": 8.90783617137396e-05,
+            "original_q0_native_weak_pressure_over_unit_input": -121.85005342018951,
+            "physical_witness_nonzero_samples": 39,
+            "physical_witness_center_s": 0.002913752913752914,
+            "physical_witness_sigma_s": 0.00065,
+            "physical_witness_support_end_s": 0.006113752913752914
+          },
+          "analytic_all_original_64pair_continuum_direct": {
+            "original_64_native_pairs_continuum_causal_green_weak_distribution": -130.8349482292531,
+            "true_physical_source_to_receiver_point_continuum_weak_distribution": -146.91225516174956,
+            "analytic_original_8node_over_true_point_weak_relative": 0.10943475692205136,
+            "earliest_real_original_64node_single_wall_reflection_s": 0.008505007789776281,
+            "earliest_real_original_64node_single_wall_reflection_name": "true_sloping_roof",
+            "analytic_all_64_original_pair_wave_derivative_witness_nontruncated": true,
+            "historical_old_analytic_expected_with_extra_c_squared_INVALID": -15410556.61251838,
+            "pre_observed_analytic_c_squared_units_error_corrected": true,
+            "analytic_absolute_source_scale_fixed_by_PDE_not_fitted": true
+          },
+          "actual_native_over_assumed_continuum_source_model_signed_ratio": 0.9313264924191359,
+          "actual_native_vs_assumed_continuum_weak_relative": 0.0686735075808641,
+          "conditional_source_normalization_not_fitted_or_verified": true
+        },
+        {
+          "physical_weak_test_width_s": 0.001,
+          "native_unmodified_original_weak_result": {
+            "original_full_native_u_P_250ms_nonmodified": true,
+            "original_velocity_trace_Nt": 1561,
+            "native_receiver_point_p_peak_signed_pa": 118.84111866679044,
+            "native_receiver_point_p_peak_abs_pa": 118.84111866679044,
+            "native_original_direct_window_peak_signed_pa": -59.52934460512491,
+            "native_original_direct_window_peak_time_s": 0.0035247233934026655,
+            "negative_control_native_abs_p_before_1p5ms_pa": 0.010586172155065809,
+            "negative_control_before_1p5ms_over_all_250ms_abs_peak": 8.90783617137396e-05,
+            "original_q0_native_weak_pressure_over_unit_input": -88.85543408821977,
+            "physical_witness_nonzero_samples": 39,
+            "physical_witness_center_s": 0.002913752913752914,
+            "physical_witness_sigma_s": 0.001,
+            "physical_witness_support_end_s": 0.006113752913752914
+          },
+          "analytic_all_original_64pair_continuum_direct": {
+            "original_64_native_pairs_continuum_causal_green_weak_distribution": -90.36482238543663,
+            "true_physical_source_to_receiver_point_continuum_weak_distribution": -95.49296585513719,
+            "analytic_original_8node_over_true_point_weak_relative": 0.053701792836552575,
+            "earliest_real_original_64node_single_wall_reflection_s": 0.008505007789776281,
+            "earliest_real_original_64node_single_wall_reflection_name": "true_sloping_roof",
+            "analytic_all_64_original_pair_wave_derivative_witness_nontruncated": true,
+            "historical_old_analytic_expected_with_extra_c_squared_INVALID": -10643732.65704841,
+            "pre_observed_analytic_c_squared_units_error_corrected": true,
+            "analytic_absolute_source_scale_fixed_by_PDE_not_fitted": true
+          },
+          "actual_native_over_assumed_continuum_source_model_signed_ratio": 0.9832967270075649,
+          "actual_native_vs_assumed_continuum_weak_relative": 0.016703272992435125,
+          "conditional_source_normalization_not_fitted_or_verified": true
+        },
+        {
+          "physical_weak_test_width_s": 0.0015,
+          "native_unmodified_original_weak_result": {
+            "original_full_native_u_P_250ms_nonmodified": true,
+            "original_velocity_trace_Nt": 1561,
+            "native_receiver_point_p_peak_signed_pa": 118.84111866679044,
+            "native_receiver_point_p_peak_abs_pa": 118.84111866679044,
+            "native_original_direct_window_peak_signed_pa": -59.52934460512491,
+            "native_original_direct_window_peak_time_s": 0.0035247233934026655,
+            "negative_control_native_abs_p_before_1p5ms_pa": 0.010586172155065809,
+            "negative_control_before_1p5ms_over_all_250ms_abs_peak": 8.90783617137396e-05,
+            "original_q0_native_weak_pressure_over_unit_input": -61.16207889189546,
+            "physical_witness_nonzero_samples": 39,
+            "physical_witness_center_s": 0.002913752913752914,
+            "physical_witness_sigma_s": 0.0015,
+            "physical_witness_support_end_s": 0.006113752913752914
+          },
+          "analytic_all_original_64pair_continuum_direct": {
+            "original_64_native_pairs_continuum_causal_green_weak_distribution": -61.770205510052364,
+            "true_physical_source_to_receiver_point_continuum_weak_distribution": -63.66197723675813,
+            "analytic_original_8node_over_true_point_weak_relative": 0.029715880794438557,
+            "earliest_real_original_64node_single_wall_reflection_s": 0.008505007789776281,
+            "earliest_real_original_64node_single_wall_reflection_name": "true_sloping_roof",
+            "analytic_all_64_original_pair_wave_derivative_witness_nontruncated": true,
+            "historical_old_analytic_expected_with_extra_c_squared_INVALID": -7275680.25105635,
+            "pre_observed_analytic_c_squared_units_error_corrected": true,
+            "analytic_absolute_source_scale_fixed_by_PDE_not_fitted": true
+          },
+          "actual_native_over_assumed_continuum_source_model_signed_ratio": 0.9901550170808815,
+          "actual_native_vs_assumed_continuum_weak_relative": 0.009844982919118506,
+          "conditional_source_normalization_not_fitted_or_verified": true
+        }
+      ]
+    },
+    {
+      "ppw": 40,
+      "original_sha256_comms": "64a4f45cf19b92bb7a8a1ffd24af05e10877c99000e29bf985637b18e287763a",
+      "original_sha256_voxels": "c7c1894826c4774393987855e533081f615b22d510ec6042aacda12acbe0daaf",
+      "original_sha256_full_real_250ms_native_wave": "79763a63cedf667e98cbcf5867b848675d634a861e63fc3e1cf94ed9982596fa",
+      "original_native_h_m": 0.0858,
+      "original_native_Ts_s": 0.00014419322973010905,
+      "original_native_Nt": 1734,
+      "original_native_q0_in_sigs_sum": 3.877237762237762,
+      "unchanged_original_full_250ms_signed_40_80_recomputed": [
+        [
+          23.0817605749197,
+          18.909536564347956
+        ],
+        [
+          109.07263342140816,
+          -119.86161783862613
+        ]
+      ],
+      "unchanged_original_full_250ms_vs_preobserved_relative": 6.950130991884988e-15,
+      "original_native_original_full_250ms_PFFDTD_all_modes_unfiltered": true,
+      "causal_pre_first_reflection_auxiliary_test_not_original_acceptance": true,
+      "three_predeclared_compact_weak_distribution_tests": [
+        {
+          "physical_weak_test_width_s": 0.00065,
+          "native_unmodified_original_weak_result": {
+            "original_full_native_u_P_250ms_nonmodified": true,
+            "original_velocity_trace_Nt": 1734,
+            "native_receiver_point_p_peak_signed_pa": -265.137672692204,
+            "native_receiver_point_p_peak_abs_pa": 265.137672692204,
+            "native_original_direct_window_peak_signed_pa": -79.27433379402915,
+            "native_original_direct_window_peak_time_s": 0.0054793427297441435,
+            "negative_control_native_abs_p_before_1p5ms_pa": 0.0,
+            "negative_control_before_1p5ms_over_all_250ms_abs_peak": 0.0,
+            "original_q0_native_weak_pressure_over_unit_input": -131.50275325251545,
+            "physical_witness_nonzero_samples": 43,
+            "physical_witness_center_s": 0.002913752913752914,
+            "physical_witness_sigma_s": 0.00065,
+            "physical_witness_support_end_s": 0.006113752913752914
+          },
+          "analytic_all_original_64pair_continuum_direct": {
+            "original_64_native_pairs_continuum_causal_green_weak_distribution": -138.20843862110266,
+            "true_physical_source_to_receiver_point_continuum_weak_distribution": -146.91225516174956,
+            "analytic_original_8node_over_true_point_weak_relative": 0.05924499988829418,
+            "earliest_real_original_64node_single_wall_reflection_s": 0.00880550974477419,
+            "earliest_real_original_64node_single_wall_reflection_name": "true_sloping_roof",
+            "analytic_all_64_original_pair_wave_derivative_witness_nontruncated": true,
+            "historical_old_analytic_expected_with_extra_c_squared_INVALID": -16279052.321450464,
+            "pre_observed_analytic_c_squared_units_error_corrected": true,
+            "analytic_absolute_source_scale_fixed_by_PDE_not_fitted": true
+          },
+          "actual_native_over_assumed_continuum_source_model_signed_ratio": 0.9514813607946849,
+          "actual_native_vs_assumed_continuum_weak_relative": 0.04851863920531507,
+          "conditional_source_normalization_not_fitted_or_verified": true
+        },
+        {
+          "physical_weak_test_width_s": 0.001,
+          "native_unmodified_original_weak_result": {
+            "original_full_native_u_P_250ms_nonmodified": true,
+            "original_velocity_trace_Nt": 1734,
+            "native_receiver_point_p_peak_signed_pa": -265.137672692204,
+            "native_receiver_point_p_peak_abs_pa": 265.137672692204,
+            "native_original_direct_window_peak_signed_pa": -79.27433379402915,
+            "native_original_direct_window_peak_time_s": 0.0054793427297441435,
+            "negative_control_native_abs_p_before_1p5ms_pa": 0.0,
+            "negative_control_before_1p5ms_over_all_250ms_abs_peak": 0.0,
+            "original_q0_native_weak_pressure_over_unit_input": -91.61325547414017,
+            "physical_witness_nonzero_samples": 43,
+            "physical_witness_center_s": 0.002913752913752914,
+            "physical_witness_sigma_s": 0.001,
+            "physical_witness_support_end_s": 0.006113752913752914
+          },
+          "analytic_all_original_64pair_continuum_direct": {
+            "original_64_native_pairs_continuum_causal_green_weak_distribution": -92.79310204471146,
+            "true_physical_source_to_receiver_point_continuum_weak_distribution": -95.49296585513719,
+            "analytic_original_8node_over_true_point_weak_relative": 0.02827290770842133,
+            "earliest_real_original_64node_single_wall_reflection_s": 0.00880550974477419,
+            "earliest_real_original_64node_single_wall_reflection_name": "true_sloping_roof",
+            "analytic_all_64_original_pair_wave_derivative_witness_nontruncated": true,
+            "historical_old_analytic_expected_with_extra_c_squared_INVALID": -10929750.587782875,
+            "pre_observed_analytic_c_squared_units_error_corrected": true,
+            "analytic_absolute_source_scale_fixed_by_PDE_not_fitted": true
+          },
+          "actual_native_over_assumed_continuum_source_model_signed_ratio": 0.9872851909832394,
+          "actual_native_vs_assumed_continuum_weak_relative": 0.012714809016760587,
+          "conditional_source_normalization_not_fitted_or_verified": true
+        },
+        {
+          "physical_weak_test_width_s": 0.0015,
+          "native_unmodified_original_weak_result": {
+            "original_full_native_u_P_250ms_nonmodified": true,
+            "original_velocity_trace_Nt": 1734,
+            "native_receiver_point_p_peak_signed_pa": -265.137672692204,
+            "native_receiver_point_p_peak_abs_pa": 265.137672692204,
+            "native_original_direct_window_peak_signed_pa": -79.27433379402915,
+            "native_original_direct_window_peak_time_s": 0.0054793427297441435,
+            "negative_control_native_abs_p_before_1p5ms_pa": 0.0,
+            "negative_control_before_1p5ms_over_all_250ms_abs_peak": 0.0,
+            "original_q0_native_weak_pressure_over_unit_input": -62.62716734885799,
+            "physical_witness_nonzero_samples": 43,
+            "physical_witness_center_s": 0.002913752913752914,
+            "physical_witness_sigma_s": 0.0015,
+            "physical_witness_support_end_s": 0.006113752913752914
+          },
+          "analytic_all_original_64pair_continuum_direct": {
+            "original_64_native_pairs_continuum_causal_green_weak_distribution": -62.680141498354246,
+            "true_physical_source_to_receiver_point_continuum_weak_distribution": -63.66197723675813,
+            "analytic_original_8node_over_true_point_weak_relative": 0.015422639714007825,
+            "earliest_real_original_64node_single_wall_reflection_s": 0.00880550974477419,
+            "earliest_real_original_64node_single_wall_reflection_name": "true_sloping_roof",
+            "analytic_all_64_original_pair_wave_derivative_witness_nontruncated": true,
+            "historical_old_analytic_expected_with_extra_c_squared_INVALID": -7382858.189759112,
+            "pre_observed_analytic_c_squared_units_error_corrected": true,
+            "analytic_absolute_source_scale_fixed_by_PDE_not_fitted": true
+          },
+          "actual_native_over_assumed_continuum_source_model_signed_ratio": 0.9991548495547405,
+          "actual_native_vs_assumed_continuum_weak_relative": 0.0008451504452594572,
+          "conditional_source_normalization_not_fitted_or_verified": true
+        }
+      ]
+    },
+    {
+      "ppw": 44,
+      "original_sha256_comms": "41c537b663ef11aa7404a248862f89398dec80fd3b6c794f4ecce4a0a8577ee4",
+      "original_sha256_voxels": "4a7cb6c30c013adc31d5b1910d50cef003cacbdd37a271ac3efa7a39956e505b",
+      "original_sha256_full_real_250ms_native_wave": "a5603179fa00ef7a82e5e5e486d864b1b2f08e3f432692d80631fcf406c0ce89",
+      "original_native_h_m": 0.078,
+      "original_native_Ts_s": 0.00013108475430009911,
+      "original_native_Nt": 1908,
+      "original_native_q0_in_sigs_sum": 4.264961538461538,
+      "unchanged_original_full_250ms_signed_40_80_recomputed": [
+        [
+          -64.44884936510246,
+          -11.312555997628882
+        ],
+        [
+          -83.61305811577184,
+          -224.3177326070581
+        ]
+      ],
+      "unchanged_original_full_250ms_vs_preobserved_relative": 1.3944025047719968e-15,
+      "original_native_original_full_250ms_PFFDTD_all_modes_unfiltered": true,
+      "causal_pre_first_reflection_auxiliary_test_not_original_acceptance": true,
+      "three_predeclared_compact_weak_distribution_tests": [
+        {
+          "physical_weak_test_width_s": 0.00065,
+          "native_unmodified_original_weak_result": {
+            "original_full_native_u_P_250ms_nonmodified": true,
+            "original_velocity_trace_Nt": 1908,
+            "native_receiver_point_p_peak_signed_pa": -333.7286817265555,
+            "native_receiver_point_p_peak_abs_pa": 333.7286817265555,
+            "native_original_direct_window_peak_signed_pa": 73.1626603488705,
+            "native_original_direct_window_peak_time_s": 0.0048501359091036676,
+            "negative_control_native_abs_p_before_1p5ms_pa": 0.0,
+            "negative_control_before_1p5ms_over_all_250ms_abs_peak": 0.0,
+            "original_q0_native_weak_pressure_over_unit_input": -130.4354122152454,
+            "physical_witness_nonzero_samples": 47,
+            "physical_witness_center_s": 0.002913752913752914,
+            "physical_witness_sigma_s": 0.00065,
+            "physical_witness_support_end_s": 0.006113752913752914
+          },
+          "analytic_all_original_64pair_continuum_direct": {
+            "original_64_native_pairs_continuum_causal_green_weak_distribution": -134.92808001919417,
+            "true_physical_source_to_receiver_point_continuum_weak_distribution": -146.91225516174956,
+            "analytic_original_8node_over_true_point_weak_relative": 0.0815736926055684,
+            "earliest_real_original_64node_single_wall_reflection_s": 0.008458523717680008,
+            "earliest_real_original_64node_single_wall_reflection_name": "true_sloping_roof",
+            "analytic_all_64_original_pair_wave_derivative_witness_nontruncated": true,
+            "historical_old_analytic_expected_with_extra_c_squared_INVALID": -15892671.215880007,
+            "pre_observed_analytic_c_squared_units_error_corrected": true,
+            "analytic_absolute_source_scale_fixed_by_PDE_not_fitted": true
+          },
+          "actual_native_over_assumed_continuum_source_model_signed_ratio": 0.9667032406945266,
+          "actual_native_vs_assumed_continuum_weak_relative": 0.03329675930547338,
+          "conditional_source_normalization_not_fitted_or_verified": true
+        },
+        {
+          "physical_weak_test_width_s": 0.001,
+          "native_unmodified_original_weak_result": {
+            "original_full_native_u_P_250ms_nonmodified": true,
+            "original_velocity_trace_Nt": 1908,
+            "native_receiver_point_p_peak_signed_pa": -333.7286817265555,
+            "native_receiver_point_p_peak_abs_pa": 333.7286817265555,
+            "native_original_direct_window_peak_signed_pa": 73.1626603488705,
+            "native_original_direct_window_peak_time_s": 0.0048501359091036676,
+            "negative_control_native_abs_p_before_1p5ms_pa": 0.0,
+            "negative_control_before_1p5ms_over_all_250ms_abs_peak": 0.0,
+            "original_q0_native_weak_pressure_over_unit_input": -90.88426587215402,
+            "physical_witness_nonzero_samples": 47,
+            "physical_witness_center_s": 0.002913752913752914,
+            "physical_witness_sigma_s": 0.001,
+            "physical_witness_support_end_s": 0.006113752913752914
+          },
+          "analytic_all_original_64pair_continuum_direct": {
+            "original_64_native_pairs_continuum_causal_green_weak_distribution": -91.81239596285047,
+            "true_physical_source_to_receiver_point_continuum_weak_distribution": -95.49296585513719,
+            "analytic_original_8node_over_true_point_weak_relative": 0.03854283778210582,
+            "earliest_real_original_64node_single_wall_reflection_s": 0.008458523717680008,
+            "earliest_real_original_64node_single_wall_reflection_name": "true_sloping_roof",
+            "analytic_all_64_original_pair_wave_derivative_witness_nontruncated": true,
+            "historical_old_analytic_expected_with_extra_c_squared_INVALID": -10814236.905855335,
+            "pre_observed_analytic_c_squared_units_error_corrected": true,
+            "analytic_absolute_source_scale_fixed_by_PDE_not_fitted": true
+          },
+          "actual_native_over_assumed_continuum_source_model_signed_ratio": 0.9898910154673232,
+          "actual_native_vs_assumed_continuum_weak_relative": 0.010108984532676835,
+          "conditional_source_normalization_not_fitted_or_verified": true
+        },
+        {
+          "physical_weak_test_width_s": 0.0015,
+          "native_unmodified_original_weak_result": {
+            "original_full_native_u_P_250ms_nonmodified": true,
+            "original_velocity_trace_Nt": 1908,
+            "native_receiver_point_p_peak_signed_pa": -333.7286817265555,
+            "native_receiver_point_p_peak_abs_pa": 333.7286817265555,
+            "native_original_direct_window_peak_signed_pa": 73.1626603488705,
+            "native_original_direct_window_peak_time_s": 0.0048501359091036676,
+            "negative_control_native_abs_p_before_1p5ms_pa": 0.0,
+            "negative_control_before_1p5ms_over_all_250ms_abs_peak": 0.0,
+            "original_q0_native_weak_pressure_over_unit_input": -62.12862686398201,
+            "physical_witness_nonzero_samples": 47,
+            "physical_witness_center_s": 0.002913752913752914,
+            "physical_witness_sigma_s": 0.0015,
+            "physical_witness_support_end_s": 0.006113752913752914
+          },
+          "analytic_all_original_64pair_continuum_direct": {
+            "original_64_native_pairs_continuum_causal_green_weak_distribution": -62.36691778505717,
+            "true_physical_source_to_receiver_point_continuum_weak_distribution": -63.66197723675813,
+            "analytic_original_8node_over_true_point_weak_relative": 0.020342746297128848,
+            "earliest_real_original_64node_single_wall_reflection_s": 0.008458523717680008,
+            "earliest_real_original_64node_single_wall_reflection_name": "true_sloping_roof",
+            "analytic_all_64_original_pair_wave_derivative_witness_nontruncated": true,
+            "historical_old_analytic_expected_with_extra_c_squared_INVALID": -7345964.746291012,
+            "pre_observed_analytic_c_squared_units_error_corrected": true,
+            "analytic_absolute_source_scale_fixed_by_PDE_not_fitted": true
+          },
+          "actual_native_over_assumed_continuum_source_model_signed_ratio": 0.9961792095947981,
+          "actual_native_vs_assumed_continuum_weak_relative": 0.0038207904052018904,
+          "conditional_source_normalization_not_fitted_or_verified": true
+        }
+      ]
+    }
+  ],
+  "original_canonical_full250ms_all_adjacent": [
+    {
+      "coarse_ppw": 28,
+      "fine_ppw": 32,
+      "original_unchanged_three_gate_signed_full250ms": {
+        "complex_rms_relative": 1.2469270700426662,
+        "magnitude_max_relative": 3.1041238212532622,
+        "magnitude_max_db": 12.264409098974966,
+        "phase_max_deg": 87.12947751814937,
+        "mask_floor": 0.7325717303780155,
+        "compared_frequency_count": 2,
+        "frequency_metrics": [
+          {
+            "frequency_hz": 40.0,
+            "masked_in": true,
+            "magnitude_absolute": 83.03399182710316,
+            "magnitude_relative": 3.1041238212532622,
+            "magnitude_db": 12.264409098974966,
+            "phase_deg": 74.6774437475728,
+            "complex_relative": 3.959138829081376
+          },
+          {
+            "frequency_hz": 80.0,
+            "masked_in": true,
+            "magnitude_absolute": 79.32219233173214,
+            "magnitude_relative": 0.3424085128657372,
+            "magnitude_db": 3.640876352016603,
+            "phase_deg": 87.12947751814937,
+            "complex_relative": 1.169001012744118
+          }
+        ]
+      },
+      "original_full250ms_pass": false,
+      "auxiliary_correctly_normalized_weak_diagnostic_not_original_release": true
+    },
+    {
+      "coarse_ppw": 32,
+      "fine_ppw": 36,
+      "original_unchanged_three_gate_signed_full250ms": {
+        "complex_rms_relative": 0.7613047721569628,
+        "magnitude_max_relative": 0.5476926714692754,
+        "magnitude_max_db": 6.891327510406865,
+        "phase_max_deg": 63.65161559834692,
+        "mask_floor": 0.6514398263666002,
+        "compared_frequency_count": 2,
+        "frequency_metrics": [
+          {
+            "frequency_hz": 40.0,
+            "masked_in": true,
+            "magnitude_absolute": 32.39068895717156,
+            "magnitude_relative": 0.5476926714692754,
+            "magnitude_db": 6.891327510406865,
+            "phase_deg": 63.65161559834692,
+            "complex_relative": 0.8961520672161258
+          },
+          {
+            "frequency_hz": 80.0,
+            "masked_in": true,
+            "magnitude_absolute": 25.65616075822234,
+            "magnitude_relative": 0.12454243773201218,
+            "magnitude_db": 1.019516987786429,
+            "phase_deg": 40.765478351612614,
+            "complex_relative": 0.7491090813120069
+          }
+        ]
+      },
+      "original_full250ms_pass": false,
+      "auxiliary_correctly_normalized_weak_diagnostic_not_original_release": true
+    },
+    {
+      "coarse_ppw": 36,
+      "fine_ppw": 40,
+      "original_unchanged_three_gate_signed_full250ms": {
+        "complex_rms_relative": 0.36736729325072404,
+        "magnitude_max_relative": 0.982009544152205,
+        "magnitude_max_db": 5.942114829046252,
+        "phase_max_deg": 27.40837044937203,
+        "mask_floor": 0.5124807000499993,
+        "compared_frequency_count": 2,
+        "frequency_metrics": [
+          {
+            "frequency_hz": 40.0,
+            "masked_in": true,
+            "magnitude_absolute": 29.30172736085337,
+            "magnitude_relative": 0.982009544152205,
+            "magnitude_db": 5.942114829046252,
+            "phase_deg": 27.40837044937203,
+            "complex_relative": 1.1871441546382009
+          },
+          {
+            "frequency_hz": 80.0,
+            "masked_in": true,
+            "magnitude_absolute": 43.94273408275029,
+            "magnitude_relative": 0.271149969751141,
+            "magnitude_db": 2.083935829225804,
+            "phase_deg": 6.866684363922531,
+            "complex_relative": 0.30291607398380493
+          }
+        ]
+      },
+      "original_full250ms_pass": false,
+      "auxiliary_correctly_normalized_weak_diagnostic_not_original_release": true
+    },
+    {
+      "coarse_ppw": 40,
+      "fine_ppw": 44,
+      "original_unchanged_three_gate_signed_full250ms": {
+        "complex_rms_relative": 0.9587423413785162,
+        "magnitude_max_relative": 0.5439913897220735,
+        "magnitude_max_db": 6.820539139654827,
+        "phase_max_deg": 150.62981979481629,
+        "mask_floor": 0.757030967989045,
+        "compared_frequency_count": 2,
+        "frequency_metrics": [
+          {
+            "frequency_hz": 40.0,
+            "masked_in": true,
+            "magnitude_absolute": 35.59561469867676,
+            "magnitude_relative": 0.5439913897220735,
+            "magnitude_db": 6.820539139654827,
+            "phase_deg": 150.62981979481629,
+            "complex_relative": 1.4151815280125029
+          },
+          {
+            "frequency_hz": 80.0,
+            "masked_in": true,
+            "magnitude_absolute": 77.33358490918354,
+            "magnitude_relative": 0.3230386579675358,
+            "magnitude_db": 3.3887226210191406,
+            "phase_deg": 62.74444928198932,
+            "complex_relative": 0.9155512944726367
+          }
+        ]
+      },
+      "original_full250ms_pass": false,
+      "auxiliary_correctly_normalized_weak_diagnostic_not_original_release": true
+    }
+  ],
+  "authority_original_PFFDTD_q0": "SELF_CONVERGENCE_FAILED",
+  "independent_physical": "NOT_VALIDATED",
+  "product": "NO_GO",
+  "new_upstream_PFFDTD_wave_runs": 0,
+  "new_GitHub_Actions_runs": 0,
+  "original_full250ms_all_ppw_pass": false,
+  "original_upstream_nonconvergence_unchanged": true
+}

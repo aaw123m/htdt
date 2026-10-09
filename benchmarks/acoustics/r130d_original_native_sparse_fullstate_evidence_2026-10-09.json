@@ -1,0 +1,389 @@
+{
+  "schema_version": "htdt.r130d.original-native-sparse-fullstate-independent-evidence-1",
+  "plan_sha256_lf": "1da7ba2205acb352c543476cab59758cc78aa4d8327c1f2726f255bfc35f6644",
+  "preregistered_plan": {
+    "schema_version": "htdt.r130d.original-native-sparse-fullstate-independent-plan-1",
+    "date_jst": "2026-10-09",
+    "issue": 938,
+    "pr": 1055,
+    "goal": "Independently integrate exact original PFFDTD Cartesian rigid Neumann source-connected graph using scipy CSR sparse matrix-vector recurrence rather than upstream PFFDTD Numba air/boundary in/out kernels, to test full untruncated original 8-node q0 waveform against each raw SHA-pinned original upstream 8-node 0.25s output for PPW28/32/36/40/44. Do not modify any native solver or input.",
+    "original_inputs": {
+      "ppw": [
+        28,
+        32,
+        36,
+        40,
+        44
+      ],
+      "pffdtd_git_pin": "aa319f6c86517cb95aabfae8656277da62c3ead5",
+      "graph_evidence": "benchmarks/acoustics/r130d_original_pffdtd_neumann_graph_evidence_2026-10-09.json",
+      "full_original_wave_control_evidence": "benchmarks/acoustics/r130d_original_point_quadratic_pffdtd_evidence_2026-10-09.json",
+      "original_source": "exact 8 native in_ixyz and in_sigs[:,0], all later native in_sigs=0; original volume velocity q[0]=1",
+      "original_receiver": "exact 8 original out_ixyz/output node raw traces and original out_alpha from comms",
+      "original_time": "native Ts/Nt frozen 0.25s, 40/80Hz finite P_T/Q_T from same second order pressure derivative and rho=1.2",
+      "room_boundary": "unchanged original Neumann voxel-mask graph with exactly zero asymmetric edges and no halo connections",
+      "physical_source_receiver_xyz_m": [
+        [
+          1.5,
+          2,
+          2
+        ],
+        [
+          2.5,
+          2,
+          2
+        ]
+      ],
+      "frequencies_hz": [
+        40,
+        80
+      ]
+    },
+    "independent_solver": {
+      "method": "fully untruncated CSR matrix-vector leapfrog u_next=2*u_current-u_previous-l2*A@u_current; inject exact native in_sigs[:,n] after update; raw receiver node samples u_current before injection each n",
+      "L": "A=degree I minus adjacency, precomputed from original source-connected 6-neighbour graph; exact HDF5 pins",
+      "sampling": "native output raw 8xNt plus native 8 weights; check raw arrays and recombined potential and full original pressure transfer; no artificial taper",
+      "time_integrator": "native same second order recurrence but mathematically separate sparse CSR implementation; not independent physical solver and not a proof of spatial continuum convergence",
+      "energy_check": "for any n>=1 following q0 source, discrete homogeneous energy E_n=||u_n-u_(n-1)||^2/l2 + u_n^T A u_(n-1), at n=1, n=Nt/4, n=Nt/2, n=Nt-1; preserve actual signed drift",
+      "source_aliasing": "if multiple original native source nodes coincide, explicit numpy.add.at",
+      "max_raw_trace_relative_l2": 1e-08,
+      "max_recombined_trace_relative_l2": 1e-08,
+      "max_signed_transfer_relative_l2": 1e-08,
+      "max_discrete_energy_relative_drift": 1e-07,
+      "all_levels_and_negative_results_retained": true
+    },
+    "scope": {
+      "five_grids_mandatory": true,
+      "full_original_record_mandatory": true,
+      "do_not_change_thresholds": true,
+      "original_8_10_12_self_convergence": "SELF_CONVERGENCE_FAILED",
+      "changed_source_and_receiver_stencil_forbidden": true,
+      "github_actions_runs": 0,
+      "diagnostic_not_product_qualification": true
+    },
+    "resource": {
+      "max_grid_cells": 240000,
+      "max_active_room_nodes": 150000,
+      "max_wave_steps": 2000,
+      "max_solver_cases": 5,
+      "max_probe_energy_samples": 4
+    },
+    "release": {
+      "original_point_q0_self_convergence": "SELF_CONVERGENCE_FAILED",
+      "physical_validation": "NOT_VALIDATED",
+      "production": "NO_GO",
+      "draft_PR": true,
+      "issue_open": true
+    }
+  },
+  "pffdtd_original_upstream": "aa319f6c86517cb95aabfae8656277da62c3ead5",
+  "original_point_q0": "SELF_CONVERGENCE_FAILED",
+  "physical_validation": "NOT_VALIDATED",
+  "production": "NO_GO",
+  "native_full_state_comparisons": [
+    {
+      "ppw": 28,
+      "original_exact_vox_sha256": "9d8b598fc1e2077840ba5a51e8f2db72c30ad4b6991ae88d3174bac72acf9fc8",
+      "original_exact_source_comms_sha256": "4404a9818a8f0c673c97e8ede8665367100aecb3d2f2f8481bc532bc45fd6b6c",
+      "original_exact_raw_native_wave_sha256": "6e8a94d695fe77e992d8bd66bbb9b63ed9eaf27abd86f5be94f7554d2ba97d6b",
+      "original_graph_room_nodes": 31185,
+      "native_full_stencil_nonzeros": 212049,
+      "original_native_record_sample_count": 1214,
+      "native_time_step_s": 0.00020599032818587005,
+      "native_courant_squared": 0.332667,
+      "unmodified_native_input_total_q0": 2.7140664335664337,
+      "independent_full_room_wave_wall_seconds": 0.20693790004588664,
+      "all_eight_original_node_raw_trace_relative_l2": 8.017463335315103e-15,
+      "all_eight_original_node_raw_trace_max_abs": 2.3175905639050143e-15,
+      "original_weighted_receiver_potential_relative_l2": 7.677763973133514e-15,
+      "original_40_80_complex_pressure_transfer_relative_l2": 3.43669353748929e-14,
+      "native_exact_original_P_T_over_Q_T_40_80": [
+        [
+          101.0987693066617,
+          42.7956809667478
+        ],
+        [
+          150.77953891006572,
+          -21.729992606786517
+        ]
+      ],
+      "independent_full_state_CSR_P_T_over_Q_T_40_80": [
+        [
+          101.09876930665853,
+          42.79568096674841
+        ],
+        [
+          150.7795389100611,
+          -21.729992606789644
+        ]
+      ],
+      "discrete_homogeneous_energy_probes": [
+        {
+          "sample_n": 1,
+          "native_discrete_energy": 6.670676343767319
+        },
+        {
+          "sample_n": 303,
+          "native_discrete_energy": 6.67067634376732
+        },
+        {
+          "sample_n": 607,
+          "native_discrete_energy": 6.67067634376732
+        },
+        {
+          "sample_n": 1213,
+          "native_discrete_energy": 6.670676343767315
+        }
+      ],
+      "discrete_energy_relative_drift": 6.65733408374689e-16,
+      "independent_pinned_numba_kernels_not_called": true,
+      "native_source_receiver_and_wall_unchanged": true,
+      "original_8node_q0_diagnostic_no_promotion": true,
+      "independent_full_state_reproduction_within_frozen_bounds": true
+    },
+    {
+      "ppw": 32,
+      "original_exact_vox_sha256": "8f3ebd62703c40793d68fdf703e098bbecc568cc9beb227cfa126b8042954e3b",
+      "original_exact_source_comms_sha256": "716199c1cb8f9d982cdafe7deaccdf630073a2b0d8cdec17fcaf3dff52f4b60b",
+      "original_exact_raw_native_wave_sha256": "773601d4be74cef568739d8957082c9561912ccfd4fa860c415585409a1d84b7",
+      "original_graph_room_nodes": 44659,
+      "native_full_stencil_nonzeros": 304723,
+      "original_native_record_sample_count": 1388,
+      "native_time_step_s": 0.0001802415371626363,
+      "native_courant_squared": 0.332667,
+      "unmodified_native_input_total_q0": 3.10179020979021,
+      "independent_full_room_wave_wall_seconds": 0.48087320011109114,
+      "all_eight_original_node_raw_trace_relative_l2": 4.368023232255032e-15,
+      "all_eight_original_node_raw_trace_max_abs": 1.8318679906315083e-15,
+      "original_weighted_receiver_potential_relative_l2": 3.6531079371326195e-15,
+      "original_40_80_complex_pressure_transfer_relative_l2": 8.239593127247521e-15,
+      "native_exact_original_P_T_over_Q_T_40_80": [
+        [
+          16.56628166594011,
+          -21.00233450877161
+        ],
+        [
+          -21.520688403756687,
+          -230.6577420888628
+        ]
+      ],
+      "independent_full_state_CSR_P_T_over_Q_T_40_80": [
+        [
+          16.5662816659418,
+          -21.00233450877181
+        ],
+        [
+          -21.520688403755877,
+          -230.65774208886316
+        ]
+      ],
+      "discrete_homogeneous_energy_probes": [
+        {
+          "sample_n": 1,
+          "native_discrete_energy": 8.092347339992921
+        },
+        {
+          "sample_n": 347,
+          "native_discrete_energy": 8.092347339992923
+        },
+        {
+          "sample_n": 694,
+          "native_discrete_energy": 8.092347339992921
+        },
+        {
+          "sample_n": 1387,
+          "native_discrete_energy": 8.092347339992926
+        }
+      ],
+      "discrete_energy_relative_drift": 6.585321037647666e-16,
+      "independent_pinned_numba_kernels_not_called": true,
+      "native_source_receiver_and_wall_unchanged": true,
+      "original_8node_q0_diagnostic_no_promotion": true,
+      "independent_full_state_reproduction_within_frozen_bounds": true
+    },
+    {
+      "ppw": 36,
+      "original_exact_vox_sha256": "433c1d334419006b1185a4ef275545d329244d0808b2a3c12a3200e7af4e3d50",
+      "original_exact_source_comms_sha256": "3cd05bcee5f8fed08da3dc94ff2ac90b92969b293daf2db77b4bac8d0c51a2f9",
+      "original_exact_raw_native_wave_sha256": "8fad2511eee77d463b43a1aa5d6f7ae13047ed8bf5d27e0cb0b76ffb7b3bd486",
+      "original_graph_room_nodes": 64848,
+      "native_full_stencil_nonzeros": 443792,
+      "original_native_record_sample_count": 1561,
+      "native_time_step_s": 0.00016021469970012116,
+      "native_courant_squared": 0.332667,
+      "unmodified_native_input_total_q0": 3.4895139860139857,
+      "independent_full_room_wave_wall_seconds": 1.1655246000736952,
+      "all_eight_original_node_raw_trace_relative_l2": 1.5206882653770418e-14,
+      "all_eight_original_node_raw_trace_max_abs": 2.6506574712925612e-15,
+      "original_weighted_receiver_potential_relative_l2": 1.4928042705958113e-14,
+      "original_40_80_complex_pressure_transfer_relative_l2": 1.2550388813030162e-14,
+      "native_exact_original_P_T_over_Q_T_40_80": [
+        [
+          57.86557590696418,
+          12.212530552108216
+        ],
+        [
+          119.43681400077243,
+          -167.8458584505424
+        ]
+      ],
+      "independent_full_state_CSR_P_T_over_Q_T_40_80": [
+        [
+          57.86557590696354,
+          12.212530552108397
+        ],
+        [
+          119.43681400077479,
+          -167.84585845054352
+        ]
+      ],
+      "discrete_homogeneous_energy_probes": [
+        {
+          "sample_n": 1,
+          "native_discrete_energy": 5.888455353640015
+        },
+        {
+          "sample_n": 390,
+          "native_discrete_energy": 5.8884553536400155
+        },
+        {
+          "sample_n": 780,
+          "native_discrete_energy": 5.888455353640015
+        },
+        {
+          "sample_n": 1560,
+          "native_discrete_energy": 5.888455353640016
+        }
+      ],
+      "discrete_energy_relative_drift": 3.016677095636253e-16,
+      "independent_pinned_numba_kernels_not_called": true,
+      "native_source_receiver_and_wall_unchanged": true,
+      "original_8node_q0_diagnostic_no_promotion": true,
+      "independent_full_state_reproduction_within_frozen_bounds": true
+    },
+    {
+      "ppw": 40,
+      "original_exact_vox_sha256": "c7c1894826c4774393987855e533081f615b22d510ec6042aacda12acbe0daaf",
+      "original_exact_source_comms_sha256": "64a4f45cf19b92bb7a8a1ffd24af05e10877c99000e29bf985637b18e287763a",
+      "original_exact_raw_native_wave_sha256": "79763a63cedf667e98cbcf5867b848675d634a861e63fc3e1cf94ed9982596fa",
+      "original_graph_room_nodes": 89723,
+      "native_full_stencil_nonzeros": 615501,
+      "original_native_record_sample_count": 1734,
+      "native_time_step_s": 0.00014419322973010905,
+      "native_courant_squared": 0.332667,
+      "unmodified_native_input_total_q0": 3.877237762237762,
+      "independent_full_room_wave_wall_seconds": 2.1408160000573844,
+      "all_eight_original_node_raw_trace_relative_l2": 9.832853603349041e-15,
+      "all_eight_original_node_raw_trace_max_abs": 2.2343238370581275e-15,
+      "original_weighted_receiver_potential_relative_l2": 9.426369525597944e-15,
+      "original_40_80_complex_pressure_transfer_relative_l2": 7.625859652116353e-14,
+      "native_exact_original_P_T_over_Q_T_40_80": [
+        [
+          23.081760574920366,
+          18.909536564347828
+        ],
+        [
+          109.07263342140902,
+          -119.86161783862582
+        ]
+      ],
+      "independent_full_state_CSR_P_T_over_Q_T_40_80": [
+        [
+          23.081760574924303,
+          18.90953656434643
+        ],
+        [
+          109.07263342141829,
+          -119.86161783863321
+        ]
+      ],
+      "discrete_homogeneous_energy_probes": [
+        {
+          "sample_n": 1,
+          "native_discrete_energy": 20.90993395847759
+        },
+        {
+          "sample_n": 433,
+          "native_discrete_energy": 20.909933958477584
+        },
+        {
+          "sample_n": 867,
+          "native_discrete_energy": 20.9099339584776
+        },
+        {
+          "sample_n": 1733,
+          "native_discrete_energy": 20.9099339584776
+        }
+      ],
+      "discrete_energy_relative_drift": 6.796221711374867e-16,
+      "independent_pinned_numba_kernels_not_called": true,
+      "native_source_receiver_and_wall_unchanged": true,
+      "original_8node_q0_diagnostic_no_promotion": true,
+      "independent_full_state_reproduction_within_frozen_bounds": true
+    },
+    {
+      "ppw": 44,
+      "original_exact_vox_sha256": "4a7cb6c30c013adc31d5b1910d50cef003cacbdd37a271ac3efa7a39956e505b",
+      "original_exact_source_comms_sha256": "41c537b663ef11aa7404a248862f89398dec80fd3b6c794f4ecce4a0a8577ee4",
+      "original_exact_raw_native_wave_sha256": "a5603179fa00ef7a82e5e5e486d864b1b2f08e3f432692d80631fcf406c0ce89",
+      "original_graph_room_nodes": 116739,
+      "native_full_stencil_nonzeros": 802191,
+      "original_native_record_sample_count": 1908,
+      "native_time_step_s": 0.00013108475430009911,
+      "native_courant_squared": 0.332667,
+      "unmodified_native_input_total_q0": 4.264961538461538,
+      "independent_full_room_wave_wall_seconds": 2.9877158999443054,
+      "all_eight_original_node_raw_trace_relative_l2": 1.0484751987890322e-14,
+      "all_eight_original_node_raw_trace_max_abs": 1.762479051592436e-15,
+      "original_weighted_receiver_potential_relative_l2": 1.0011978091944807e-14,
+      "original_40_80_complex_pressure_transfer_relative_l2": 1.1329574615087448e-14,
+      "native_exact_original_P_T_over_Q_T_40_80": [
+        [
+          -64.44884936510273,
+          -11.312555997628882
+        ],
+        [
+          -83.61305811577175,
+          -224.3177326070579
+        ]
+      ],
+      "independent_full_state_CSR_P_T_over_Q_T_40_80": [
+        [
+          -64.44884936510459,
+          -11.312555997627257
+        ],
+        [
+          -83.61305811577114,
+          -224.3177326070567
+        ]
+      ],
+      "discrete_homogeneous_energy_probes": [
+        {
+          "sample_n": 1,
+          "native_discrete_energy": 19.04062137606466
+        },
+        {
+          "sample_n": 477,
+          "native_discrete_energy": 19.04062137606466
+        },
+        {
+          "sample_n": 954,
+          "native_discrete_energy": 19.040621376064653
+        },
+        {
+          "sample_n": 1907,
+          "native_discrete_energy": 19.040621376064664
+        }
+      ],
+      "discrete_energy_relative_drift": 5.59758047066652e-16,
+      "independent_pinned_numba_kernels_not_called": true,
+      "native_source_receiver_and_wall_unchanged": true,
+      "original_8node_q0_diagnostic_no_promotion": true,
+      "independent_full_state_reproduction_within_frozen_bounds": true
+    }
+  ],
+  "all_5_original_native_PFFDTD_8node_full_raw_waveforms_reproduced": true,
+  "source_receiver_geometry_time_resolution_unchanged": true,
+  "github_actions_launched_for_experiment": 0,
+  "canonical_original_selfconvergence_still_failed": true
+}

@@ -1,0 +1,97 @@
+name: R130D original-point operators continuous-time source midpoint order
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/r130d-continuous-source-time-order.yml'
+      - 'benchmarks/acoustics/r130d_continuous_time_source_*'
+      - 'scripts/run_r130d_continuous_time_source_refinement.py'
+      - 'backend/tests/test_r130d_continuous_time_source_refinement.py'
+  workflow_dispatch:
+concurrency:
+  group: r130d-continuous-time-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+jobs:
+  actual-fixed-spatial-timestep:
+    runs-on: windows-2022
+    timeout-minutes: 18
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Checkout prospective continuous forcing and numerical evidence
+        uses: actions/checkout@v4
+      - name: Pinned Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install numerical runtime
+        run: |
+          python -m pip install --disable-pip-version-check numpy==1.26.4 scipy==1.14.1 pytest==8.4.2 pydantic==2.11.9
+          if ($LASTEXITCODE -ne 0) { throw 'dependency install failed' }
+      - name: Fixed Gaussian time waveform integrity regression
+        run: |
+          New-Item -ItemType Directory -Force scratch/tests | Out-Null
+          Copy-Item backend/tests/test_r130d_continuous_time_source_refinement.py scratch/tests/
+          $env:PYTHONPATH = Join-Path $pwd 'backend/src'
+          python -m pytest -q scratch/tests/test_r130d_continuous_time_source_refinement.py
+          if ($LASTEXITCODE -ne 0) { throw 'continuous waveform regressed' }
+      - name: Re-integrate actual independent FV and FEM at 1000 2000 4000 steps each
+        env:
+          PYTHONUTF8: '1'
+          PYTHONIOENCODING: utf-8
+        run: |
+          $env:PYTHONPATH = Join-Path $pwd 'backend/src'
+          python -u scripts/run_r130d_continuous_time_source_refinement.py `
+            --plan benchmarks/acoustics/r130d_continuous_time_source_refinement_plan_2026-10-09.json `
+            --systems benchmarks/acoustics/r130d_mfem_independent_sparse_systems `
+            --output scratch/ci_continuous_time_order.json
+          if ($LASTEXITCODE -ne 0) { throw 'actual smooth continuous forcing failed' }
+      - name: Require same preregistration signed results and actual 2nd-order reduction not a product PASS
+        env:
+          PYTHONUTF8: '1'
+        run: |
+          @'
+          import json
+          import numpy as np
+          from pathlib import Path
+          a=json.loads(Path('scratch/ci_continuous_time_order.json').read_text())
+          b=json.loads(Path('benchmarks/acoustics/r130d_continuous_time_source_refinement_evidence_2026-10-09.json').read_text())
+          assert a['plan']==b['plan']
+          assert a['plan_sha256']==b['plan_sha256']
+          assert a['mfem_original_system_sha256']==b['mfem_original_system_sha256']
+          assert a['changed_to_continuous_source'] is True
+          assert a['original_impulse']=='SELF_CONVERGENCE_FAILED'
+          assert a['original_discrete_q0_candidate']=='NOT_QUALIFIED'
+          assert a['physical_validation']=='NOT_VALIDATED'
+          assert a['production_ready'] is False
+          for method in ('fv','mfem'):
+              assert [x['samples'] for x in a[method]]==[1000,2000,4000]
+              for x,y in zip(a[method],b[method]):
+                  assert x['sampled_original_q0_impulse'] is False
+                  assert len(x['source_sha256'])==len(y['source_sha256'])==64
+                  assert x['true_relative_linear_residual_max']<=1e-8
+                  for key in ('complex_40_80_hz','magnitude_40_80_hz','phase_deg_40_80_hz'):
+                      np.testing.assert_allclose(x[key],y[key],rtol=2e-6,atol=1e-4)
+              xx=a['comparisons'];yy=b['comparisons']
+              r=xx[method+'_order_reduction_ratio']
+              assert r<=0.4
+              assert xx[method+'_diagnostic_order_pass'] is False
+              assert yy[method+'_diagnostic_order_pass'] is False
+              np.testing.assert_allclose(r,yy[method+'_order_reduction_ratio'],rtol=2e-6)
+              for left,right in zip(xx[method+'_dt_adjacent'],yy[method+'_dt_adjacent']):
+                  for metric in ('normalized_complex_l2','magnitude_relative_by_hz','phase_difference_deg_by_hz'):
+                      np.testing.assert_allclose(left[metric],right[metric],rtol=2e-6,atol=1e-4)
+              print(method,'time-order reduction',r,'but absolute 0.01 preregistered bound FAIL')
+          print('PASS provenance, exactly reproduced diagnostic negative absolute threshold; NO_GO')
+          '@ | python -
+          if ($LASTEXITCODE -ne 0) { throw 'time integrator evidence drifted or acceptance changed' }
+      - name: Archive raw diagnostic, including failed frozen thresholds
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: r130d-continuous-source-time-refinement
+          path: scratch/ci_continuous_time_order.json
+          if-no-files-found: warn
+          retention-days: 30

@@ -1,0 +1,103 @@
+name: R130D original sampled impulse cross-solver numerical truth
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/r130d-exact-discrete-impulse-candidate.yml'
+      - 'backend/src/htdt/r130d_embedded_neumann_fv.py'
+      - 'backend/tests/test_r130d_discrete_source_wave.py'
+      - 'backend/tests/test_r130d_exact_discrete_impulse_evidence.py'
+      - 'scripts/run_r130d_exact_discrete_impulse_candidate.py'
+      - 'benchmarks/acoustics/r130d_exact_discrete_impulse_*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  actual-impulse:
+    runs-on: windows-2022
+    timeout-minutes: 18
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Pinned Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install numerical runtime and run archived source tests
+        shell: pwsh
+        env:
+          PYTHONUTF8: '1'
+        run: |
+          python -m pip install --disable-pip-version-check numpy==1.26.4 scipy==1.14.1 pydantic==2.11.9 pytest==8.4.2
+          if ($LASTEXITCODE -ne 0) { throw 'pinned dependency installation failed' }
+          New-Item -ItemType Directory -Force scratch/tests | Out-Null
+          Copy-Item backend/tests/test_r130d_discrete_source_wave.py scratch/tests/
+          Copy-Item backend/tests/test_r130d_exact_discrete_impulse_evidence.py scratch/tests/
+          $env:PYTHONPATH = Join-Path $pwd 'backend/src'
+          python -m pytest -q scratch/tests/test_r130d_discrete_source_wave.py scratch/tests/test_r130d_exact_discrete_impulse_evidence.py --tb=short
+          if ($LASTEXITCODE -ne 0) { throw 'frozen impulse source and evidence tests failed' }
+      - name: Actually drive FV 6 grids and independently stored MFEM P2 four grids
+        shell: pwsh
+        env:
+          PYTHONUTF8: '1'
+          PYTHONIOENCODING: utf-8
+        run: |
+          $env:PYTHONPATH = Join-Path $pwd 'backend/src'
+          python scripts/run_r130d_exact_discrete_impulse_candidate.py `
+            --plan benchmarks/acoustics/r130d_exact_discrete_impulse_new_solver_plan_2026-10-09.json `
+            --systems benchmarks/acoustics/r130d_mfem_independent_sparse_systems `
+            --output scratch/ci_original_unit_impulse.json
+          if ($LASTEXITCODE -ne 0) { throw 'actual original impulse re-execution failed' }
+      - name: Require frozen numerical evidence and honest FAIL status
+        shell: pwsh
+        env:
+          PYTHONUTF8: '1'
+        run: |
+          @'
+          import json
+          import numpy as np
+          a=json.load(open('scratch/ci_original_unit_impulse.json',encoding='utf-8'))
+          b=json.load(open('benchmarks/acoustics/r130d_exact_discrete_impulse_candidate_evidence_2026-10-09.json',encoding='utf-8'))
+          assert a['preregistered_plan']==b['preregistered_plan']
+          assert a['source_samples_sha256']==b['source_samples_sha256']
+          assert a['actual_time_domain_impulse_injection'] is True
+          assert a['no_smoothing_no_taper'] is True
+          assert a['production_ready'] is False
+          assert a['original_fullband_r130d']=='SELF_CONVERGENCE_FAILED'
+          assert [x['n'] for x in a['fv_levels']]==[12,16,20,24,28,32]
+          assert [x['r'] for x in a['mfem_levels']]==[1,2,3,4]
+          for x,y in zip(a['fv_levels']+a['mfem_levels'],b['fv_levels']+b['mfem_levels']):
+              if 'n' in x:
+                  assert x['n']==y['n'] and x['dofs']==y['dofs']
+              else:
+                  assert x['r']==y['r'] and x['dofs']==y['dofs']
+                  assert x['export_sha256']==y['export_sha256']
+                  assert x['worst_true_relative_linear_residual']<=1e-8
+              xx=np.array(x['complex_40_80_hz'],dtype=float)
+              yy=np.array(y['complex_40_80_hz'],dtype=float)
+              assert xx.shape==yy.shape==(2,2)
+              np.testing.assert_allclose(xx,yy,rtol=2e-6,atol=1e-4)
+          q=a['numerical_diagnostic']
+          assert q['fv_self_pass'] is False
+          assert q['mfem_self_pass'] is False
+          assert q['cross_method_pass'] is True
+          assert q['exact_unit_impulse_candidate_numerical_pass'] is False
+          assert q['production_ready'] is False
+          for key in ('fv_adjacent','mfem_adjacent'):
+              aa=q[key];bb=b['numerical_diagnostic'][key]
+              assert len(aa)==len(bb)
+              for x,y in zip(aa,bb):
+                  for metric in ('normalized_complex_l2','magnitude_relative_by_hz','phase_difference_deg_by_hz'):
+                      np.testing.assert_allclose(x[metric],y[metric],rtol=2e-6,atol=2e-5)
+          print('PASS integrity of true discrete impulse nonconvergence and NO_GO')
+          '@ | python -
+          if ($LASTEXITCODE -ne 0) { throw 'actual impulse numeric evidence changed, bad FAIL could be masked' }
+      - name: Archive replay
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: r130d-original-impulse-candidate-replay
+          path: scratch/ci_original_unit_impulse.json
+          if-no-files-found: warn
+          retention-days: 30

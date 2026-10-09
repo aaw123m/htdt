@@ -1,0 +1,2245 @@
+{
+  "schema_version": "htdt.r130d.native-exact-roof-full-xy-z-modal-finite-window-q0-evidence-1",
+  "plan_sha256_lf": "2cac2248c1e6911af7468b615ee57373c1598f104ecec451dce1c3d289bece36",
+  "preregistered_plan": {
+    "schema_version": "htdt.r130d.native-exact-roof-full-x-yz-eigenspectrum-finite-window-q0-plan-1",
+    "date_jst": "2026-10-09",
+    "issue": 938,
+    "pr": 1055,
+    "goal": "Exactly reconstruct the ORIGINAL physical point q0 250ms signed 40/80Hz wave transfer of native PPW40 and44 entire 3D exact-roof FV/Newmark from a COMPLETE x\u2297yz generalized Neumann eigenbasis; quantify high modal tail's signed grid-to-grid difference without changing numerical model or source.",
+    "pinned": {
+      "precomputed_exact_separability": "benchmarks/acoustics/r130d_native_exact_roof_xy_z_separable_modal_q0_evidence_2026-10-09.json",
+      "previous_spectrum_plan": "benchmarks/acoustics/r130d_native_exact_roof_xy_z_separable_modal_q0_plan_2026-10-09.json",
+      "unchanged_exact_roof_wave": "benchmarks/acoustics/r130d_native_grid_exact_roof_mass_fv_q0_evidence_2026-10-09.json",
+      "original_PFFDTD_HDF5_source": "benchmarks/acoustics/r130d_original_point_quadratic_pffdtd_evidence_2026-10-09.json",
+      "upstream_sha": "aa319f6c86517cb95aabfae8656277da62c3ead5",
+      "native_PPW": [
+        40,
+        44
+      ],
+      "source_xyz_m": [
+        1.5,
+        2,
+        2
+      ],
+      "receiver_xyz_m": [
+        2.5,
+        2,
+        2
+      ],
+      "temporal_source": "q[0]=1 and q[n>0]=0 on original Ts and Nt",
+      "full_record_s": 0.25,
+      "frequency_bins_hz": [
+        40,
+        80
+      ],
+      "rho": 1.2,
+      "c": 343.2,
+      "original_analytic_56m3_rigid_roof": true
+    },
+    "numerical": {
+      "M_K_full_tensor_exact_matrix_required": true,
+      "entire_full_x_generalized_symmetric_eigensystem": true,
+      "entire_full_yz_generalized_symmetric_eigensystem": true,
+      "yz_solver": "scipy.linalg.eigh full symmetric normalized mass-inverted Kyz dense; no eigenvalue truncation",
+      "all_original_native_3D_eigenmodes_exact_cartesian_product": true,
+      "analytical_250ms_NT_Fourier": "for each Newmark eigenvalue lambda with theta=2atan(dt*sqrt(lambda)/2), u[n]=dt\u00b2c\u00b2source-receiver-coupling/(1+dt\u00b2lambda/4)*sin(n theta)/sin theta, pressure original rho*2nd-order endpoint/interior derivative; calculate full finite-record sum analytically by geometric sine/cosine progression, including exact q0 source denominator, no taper or smoothing",
+      "finite_window_formula": "H= rho*amp/dt*(2-cos(theta) + 0.5*(G(N-2,omega*dt+theta)+G(N-2,omega*dt-theta)) + exp(i*omega*(N-1)*dt)*(R(N-1,theta)+(cos(theta)-2)*R(N-2,theta))), R(m,t)=sin(m*t)/sin(t), G(m,b)=m exp(i*(m+1)*b/2)*sinc(m*b/(2pi))/sinc(b/(2pi)); all modes summed signed",
+      "mode_amplitude_normalization": "amp=dt\u00b2*c\u00b2*(sx vx)*(rx vx)*(syz vyz)*(ryz vyz)/(1+dt\u00b2lambda/4)",
+      "check_low_384_against_archived_direct_time_P_TQ_T_each_bin": true,
+      "low_384_relative_max": 2e-09,
+      "full_exact_modal_vs_earlier_true_CG_wave_relative_max": 2e-05,
+      "true_mass_orthonormality_max": 5e-08,
+      "true_eigen_relative_residual_max": 2e-07,
+      "zero_neumann_frequency_hz_max": 0.01,
+      "save_full_mode_count": true
+    },
+    "decomposition": {
+      "semidiscrete_frequency_bands_hz": [
+        [
+          0,
+          100
+        ],
+        [
+          100,
+          200
+        ],
+        [
+          200,
+          400
+        ],
+        [
+          400,
+          800
+        ],
+        [
+          800,
+          1000000000
+        ]
+      ],
+      "band_boundaries": "[lo,hi) except last to infinity; ALL modes exactly one band",
+      "save_signed_two_bin_transfer_each_band_each_grid": true,
+      "save_signed_two_bin_adjacent_grid_deltas_each_band": true,
+      "compare_each_band_delta_L2_relative_to_full_signed_ppw40_44_delta": true,
+      "save_top_24_individual_modes_each_frequency_bin": true,
+      "retain_384_partial_direct_wave_control": true,
+      "save_all_x_and_yz_eigenfrequency_first_32_and_max": true,
+      "all_modes_included_even_singular_sliver_modes": true,
+      "no_filtering_for_qualification": true,
+      "show_baseline_fullPPW40_44_FAIL": true,
+      "absolute_original_acceptance": {
+        "complex": 0.2,
+        "magnitude": 0.25,
+        "phase_deg": 15
+      }
+    },
+    "limits": {
+      "max_cases": 2,
+      "max_xy_cross_section_nodes": 3500,
+      "max_total_native_mode_count": 150000,
+      "max_fft_bin_count": 2,
+      "max_modes_kept_in_individual_top": 24,
+      "max_saved_bytes": 12000000,
+      "run_github_actions": false
+    },
+    "release": {
+      "canonical_original_q0_self_convergence": "SELF_CONVERGENCE_FAILED",
+      "physical_validation": "NOT_VALIDATED",
+      "product": "NO_GO",
+      "pr_draft": true,
+      "issue_open": true
+    }
+  },
+  "canonical_original_selfconvergence": "SELF_CONVERGENCE_FAILED",
+  "physical_validation": "NOT_VALIDATED",
+  "product": "NO_GO",
+  "new_github_actions_runs": 0,
+  "actual_untruncated_3D_native_eigenmode_cases": [
+    {
+      "ppw": 40,
+      "original_native_voxel_sha256": "c7c1894826c4774393987855e533081f615b22d510ec6042aacda12acbe0daaf",
+      "original_native_comms_sha256": "64a4f45cf19b92bb7a8a1ffd24af05e10877c99000e29bf985637b18e287763a",
+      "original_record_nt": 1734,
+      "original_native_dt_s": 0.00014419322973010905,
+      "source_receiver_fixed_exact_xyz_and_q0": true,
+      "original_neumann_Kronecker_identity": {
+        "ordered_original_native_indices_exact": true,
+        "3D_original_full_mass_Kronecker_max_absolute": 0.0,
+        "3D_original_full_stiffness_Kronecker_max_absolute": 1.4551915228366852e-11,
+        "native_full_active_nodes": 91415,
+        "x_active_nodes": 47,
+        "yz_active_nodes": 1945,
+        "exact_total_fluid_volume_m3": 55.99999999999762,
+        "full_3D_stiffness_nnz": 627179
+      },
+      "total_full_untruncated_3D_native_modes": 91415,
+      "full_x_eigenmode_count": 47,
+      "full_yz_eigenmode_count": 1945,
+      "true_full_1D_x_mode_numerics": {
+        "highest_true_mass_normalized_eigen_residual": 6.754095528442546e-09,
+        "maximum_M_orthonormality_error": 4.094779171004343e-14,
+        "first_zero_neumann_eigen_frequency_hz": 0.0
+      },
+      "true_full_2D_yz_mode_numerics": {
+        "highest_true_mass_normalized_eigen_residual": 6.559302161579197e-09,
+        "maximum_M_orthonormality_error": 8.485399882740552e-13,
+        "first_zero_neumann_eigen_frequency_hz": 0.0
+      },
+      "first_32_yz_native_eigenfrequencies_hz": [
+        0.0,
+        41.95247738441409,
+        49.100630619148156,
+        66.009777725213,
+        85.61207744072213,
+        93.36894696993197,
+        98.54665444989288,
+        112.65106974723663,
+        126.15579223114355,
+        130.49258851922028,
+        138.99573625988884,
+        139.0827386415428,
+        157.61664886122708,
+        161.44633939663026,
+        170.86101403335581,
+        175.26075070066082,
+        177.6212489170721,
+        182.85441218094783,
+        191.22932755196976,
+        201.09143619105285,
+        206.3896280257519,
+        212.7317438961403,
+        216.51030121646681,
+        221.71217809869728,
+        223.9887343389585,
+        226.9281970569986,
+        234.92353045001826,
+        240.1187106664777,
+        249.67508266413992,
+        252.98049395220403,
+        255.68041858384734,
+        259.59627116495795
+      ],
+      "first_16_x_native_eigenfrequencies_hz": [
+        0.0,
+        42.89184398305818,
+        85.7347630680858,
+        128.47988836232776,
+        171.0784629238188,
+        213.4818975875915,
+        255.64182661347957,
+        297.5101630971222,
+        339.0391540867199,
+        380.1814353493732,
+        420.89008573245826,
+        461.1186810675524,
+        500.82134756699094,
+        539.952814666375,
+        578.4684672703759,
+        616.3243973642664
+      ],
+      "max_yz_native_eigenfrequency_hz": 2964.1218017845476,
+      "max_full_3D_native_eigenfrequency_hz": 3225.749841197141,
+      "archived_first_384_mode_signed_250ms_direct_time": [
+        [
+          23.798258296865523,
+          -0.2803404177911606
+        ],
+        [
+          53.42528433639832,
+          -217.2015378712299
+        ]
+      ],
+      "analytic_first_384_modal_signed_250ms_transfer": [
+        [
+          23.798258296872735,
+          -0.28034041778293783
+        ],
+        [
+          53.42528433644459,
+          -217.20153787121683
+        ]
+      ],
+      "analytic_384_vs_previous_actual_temporal_integration_rel": 2.1921767915250523e-13,
+      "all_original_Neumann_3D_modes_full_signed_P_T_over_Q_T": [
+        [
+          101.3017135684016,
+          -6.578474669659911
+        ],
+        [
+          130.56902419655611,
+          -230.0360310003703
+        ]
+      ],
+      "archived_direct_full_wave_250ms_signed_40_80": [
+        [
+          101.30171270677356,
+          -6.578475241552964
+        ],
+        [
+          130.56902480480593,
+          -230.03603580145864
+        ]
+      ],
+      "all_mode_analytic_vs_archived_true_CG_full_wave_rel": 1.746691778566189e-08,
+      "every_original_mode_in_one_signed_frequency_band": [
+        {
+          "frequency_band_hz": [
+            0,
+            100
+          ],
+          "included_native_3D_mode_count": 15,
+          "signed_full_q0_pressure_transfer_40_80": [
+            [
+              37.22858902789243,
+              2.395314861004212
+            ],
+            [
+              63.89470343196618,
+              -205.6037537898974
+            ]
+          ]
+        },
+        {
+          "frequency_band_hz": [
+            100,
+            200
+          ],
+          "included_native_3D_mode_count": 59,
+          "signed_full_q0_pressure_transfer_40_80": [
+            [
+              0.6496229047918094,
+              -7.91603088596943
+            ],
+            [
+              5.176674241797968,
+              -23.39863861256123
+            ]
+          ]
+        },
+        {
+          "frequency_band_hz": [
+            200,
+            400
+          ],
+          "included_native_3D_mode_count": 412,
+          "signed_full_q0_pressure_transfer_40_80": [
+            [
+              -13.201141353728811,
+              4.334294173218734
+            ],
+            [
+              -14.586120439385454,
+              9.899566321369148
+            ]
+          ]
+        },
+        {
+          "frequency_band_hz": [
+            400,
+            800
+          ],
+          "included_native_3D_mode_count": 3342,
+          "signed_full_q0_pressure_transfer_40_80": [
+            [
+              -8.738594079501242,
+              -4.024666050245251
+            ],
+            [
+              -9.466576764448044,
+              -8.205167806072415
+            ]
+          ]
+        },
+        {
+          "frequency_band_hz": [
+            800,
+            1000000000
+          ],
+          "included_native_3D_mode_count": 87587,
+          "signed_full_q0_pressure_transfer_40_80": [
+            [
+              85.36323706894741,
+              -1.3673867676681275
+            ],
+            [
+              85.55034372662476,
+              -2.7280371132085883
+            ]
+          ]
+        }
+      ],
+      "top24_individual_signed_250ms_wave_modes_each_original_bin": {
+        "40": [
+          {
+            "x_mode_index": 1,
+            "yz_mode_index": 0,
+            "native_3D_f_hz": 42.89184398305818,
+            "original_signed_q0_250ms_contribution": [
+              [
+                20.677862027662783,
+                23.139840928089587
+              ],
+              [
+                -1.146479014052386,
+                -2.4270645102712645
+              ]
+            ],
+            "bin_absolute_signed_contribution": 31.03266369830905
+          },
+          {
+            "x_mode_index": 0,
+            "yz_mode_index": 4,
+            "native_3D_f_hz": 85.61207744072213,
+            "original_signed_q0_250ms_contribution": [
+              [
+                7.751386582026031,
+                -9.626270618725703
+              ],
+              [
+                45.46455574549464,
+                -119.45165918429767
+              ]
+            ],
+            "bin_absolute_signed_contribution": 12.359169873780154
+          },
+          {
+            "x_mode_index": 5,
+            "yz_mode_index": 18,
+            "native_3D_f_hz": 286.6063089214496,
+            "original_signed_q0_250ms_contribution": [
+              [
+                -12.161119919904367,
+                1.5364100856874152
+              ],
+              [
+                -12.845934641663566,
+                3.268719021346
+              ]
+            ],
+            "bin_absolute_signed_contribution": 12.257789101534453
+          },
+          {
+            "x_mode_index": 3,
+            "yz_mode_index": 18,
+            "native_3D_f_hz": 230.381721127295,
+            "original_signed_q0_250ms_contribution": [
+              [
+                -10.819195813729655,
+                4.1837550256936815
+              ],
+              [
+                -11.734412493218057,
+                9.233555342500255
+              ]
+            ],
+            "bin_absolute_signed_contribution": 11.59994845552524
+          },
+          {
+            "x_mode_index": 8,
+            "yz_mode_index": 18,
+            "native_3D_f_hz": 389.25082365978,
+            "original_signed_q0_250ms_contribution": [
+              [
+                10.037435840510515,
+                -1.332446548536824
+              ],
+              [
+                10.305855150267973,
+                -2.7542860056722813
+              ]
+            ],
+            "bin_absolute_signed_contribution": 10.125489225566966
+          },
+          {
+            "x_mode_index": 3,
+            "yz_mode_index": 30,
+            "native_3D_f_hz": 286.1460434128132,
+            "original_signed_q0_250ms_contribution": [
+              [
+                -9.956220161605335,
+                0.5964084207909457
+              ],
+              [
+                -10.525868659021246,
+                1.2681033094034837
+              ]
+            ],
+            "bin_absolute_signed_contribution": 9.974067520863638
+          },
+          {
+            "x_mode_index": 2,
+            "yz_mode_index": 18,
+            "native_3D_f_hz": 209.56885578329462,
+            "original_signed_q0_250ms_contribution": [
+              [
+                9.625122454229054,
+                -1.5482760244819898
+              ],
+              [
+                10.761467216036534,
+                -3.4941202632832815
+              ]
+            ],
+            "bin_absolute_signed_contribution": 9.748853312410136
+          },
+          {
+            "x_mode_index": 0,
+            "yz_mode_index": 18,
+            "native_3D_f_hz": 191.22932755196976,
+            "original_signed_q0_250ms_contribution": [
+              [
+                -8.088314255143317,
+                -2.8398661619730565
+              ],
+              [
+                -9.542274530188827,
+                -6.587504842989522
+              ]
+            ],
+            "bin_absolute_signed_contribution": 8.572378159406767
+          },
+          {
+            "x_mode_index": 2,
+            "yz_mode_index": 4,
+            "native_3D_f_hz": 121.16054391614875,
+            "original_signed_q0_250ms_contribution": [
+              [
+                7.500437529060011,
+                -2.5093647831256556
+              ],
+              [
+                11.651184201550521,
+                -7.9360378950478605
+              ]
+            ],
+            "bin_absolute_signed_contribution": 7.90907546696345
+          },
+          {
+            "x_mode_index": 3,
+            "yz_mode_index": 43,
+            "native_3D_f_hz": 335.46644281848285,
+            "original_signed_q0_250ms_contribution": [
+              [
+                -7.686450848224789,
+                0.7091295082008723
+              ],
+              [
+                -7.991101167612485,
+                1.4827407080822583
+              ]
+            ],
+            "bin_absolute_signed_contribution": 7.7190926475575345
+          },
+          {
+            "x_mode_index": 8,
+            "yz_mode_index": 663,
+            "native_3D_f_hz": 1182.0729360520124,
+            "original_signed_q0_250ms_contribution": [
+              [
+                7.394263620645149,
+                -0.2100041618437785
+              ],
+              [
+                7.4047443736748475,
+                -0.4213364554754553
+              ]
+            ],
+            "bin_absolute_signed_contribution": 7.397245179091201
+          },
+          {
+            "x_mode_index": 3,
+            "yz_mode_index": 83,
+            "native_3D_f_hz": 455.35497965690143,
+            "original_signed_q0_250ms_contribution": [
+              [
+                -7.324239379348274,
+                0.5759905416205416
+              ],
+              [
+                -7.4670048364612,
+                1.1798053546002192
+              ]
+            ],
+            "bin_absolute_signed_contribution": 7.34685290379713
+          },
+          {
+            "x_mode_index": 3,
+            "yz_mode_index": 526,
+            "native_3D_f_hz": 1046.1119429153557,
+            "original_signed_q0_250ms_contribution": [
+              [
+                -6.889607997624675,
+                0.16138464000017724
+              ],
+              [
+                -6.9049361919467644,
+                0.3239403149930404
+              ]
+            ],
+            "bin_absolute_signed_contribution": 6.8914979041542095
+          },
+          {
+            "x_mode_index": 5,
+            "yz_mode_index": 51,
+            "native_3D_f_hz": 401.11845145749464,
+            "original_signed_q0_250ms_contribution": [
+              [
+                -6.702296222897423,
+                0.41330614252061487
+              ],
+              [
+                -6.880420643427252,
+                0.8522675535108274
+              ]
+            ],
+            "bin_absolute_signed_contribution": 6.715027671343606
+          },
+          {
+            "x_mode_index": 3,
+            "yz_mode_index": 89,
+            "native_3D_f_hz": 472.08112431691666,
+            "original_signed_q0_250ms_contribution": [
+              [
+                -6.642648509863232,
+                0.5135119754694117
+              ],
+              [
+                -6.76147519619153,
+                1.0500760299234342
+              ]
+            ],
+            "bin_absolute_signed_contribution": 6.662467543976384
+          },
+          {
+            "x_mode_index": 8,
+            "yz_mode_index": 43,
+            "native_3D_f_hz": 459.32363377854705,
+            "original_signed_q0_250ms_contribution": [
+              [
+                6.587871086662879,
+                -0.3876115003296961
+              ],
+              [
+                6.715897401112057,
+                -0.7934238721411448
+              ]
+            ],
+            "bin_absolute_signed_contribution": 6.599264211234203
+          },
+          {
+            "x_mode_index": 6,
+            "yz_mode_index": 18,
+            "native_3D_f_hz": 319.25131045972995,
+            "original_signed_q0_250ms_contribution": [
+              [
+                6.432061980910989,
+                -0.7636943213737668
+              ],
+              [
+                6.713941925789433,
+                -1.6047174379647529
+              ]
+            ],
+            "bin_absolute_signed_contribution": 6.477240951422074
+          },
+          {
+            "x_mode_index": 11,
+            "yz_mode_index": 526,
+            "native_3D_f_hz": 1135.9901203029995,
+            "original_signed_q0_250ms_contribution": [
+              [
+                -6.445806058986692,
+                0.1718788754341597
+              ],
+              [
+                -6.456599997830592,
+                0.34489225235572346
+              ]
+            ],
+            "bin_absolute_signed_contribution": 6.448097246311509
+          },
+          {
+            "x_mode_index": 5,
+            "yz_mode_index": 4,
+            "native_3D_f_hz": 230.00858332096024,
+            "original_signed_q0_250ms_contribution": [
+              [
+                -6.273261757115305,
+                1.301957708125759
+              ],
+              [
+                -6.852959267811942,
+                2.8741383810581818
+              ]
+            ],
+            "bin_absolute_signed_contribution": 6.406942090188851
+          },
+          {
+            "x_mode_index": 5,
+            "yz_mode_index": 43,
+            "native_3D_f_hz": 376.30462811569186,
+            "original_signed_q0_250ms_contribution": [
+              [
+                -6.252165801431017,
+                0.3718591519399817
+              ],
+              [
+                -6.444474356319605,
+                0.7700201180611392
+              ]
+            ],
+            "bin_absolute_signed_contribution": 6.263214545061112
+          },
+          {
+            "x_mode_index": 5,
+            "yz_mode_index": 30,
+            "native_3D_f_hz": 333.08707126637364,
+            "original_signed_q0_250ms_contribution": [
+              [
+                5.8508636407240235,
+                1.8783872009368783
+              ],
+              [
+                6.213885321459681,
+                3.9315606259252665
+              ]
+            ],
+            "bin_absolute_signed_contribution": 6.144993394544038
+          },
+          {
+            "x_mode_index": 2,
+            "yz_mode_index": 0,
+            "native_3D_f_hz": 85.7347630680858,
+            "original_signed_q0_250ms_contribution": [
+              [
+                3.052827668418912,
+                -5.255094103067726
+              ],
+              [
+                17.2024768910131,
+                -63.99388364633608
+              ]
+            ],
+            "bin_absolute_signed_contribution": 6.077480629764379
+          },
+          {
+            "x_mode_index": 13,
+            "yz_mode_index": 104,
+            "native_3D_f_hz": 730.1971756698374,
+            "original_signed_q0_250ms_contribution": [
+              [
+                -5.892285469387555,
+                0.2996633789390809
+              ],
+              [
+                -5.928234470268859,
+                0.6048740710149153
+              ]
+            ],
+            "bin_absolute_signed_contribution": 5.899900524028596
+          },
+          {
+            "x_mode_index": 13,
+            "yz_mode_index": 663,
+            "native_3D_f_hz": 1254.5508838659862,
+            "original_signed_q0_250ms_contribution": [
+              [
+                -5.841570777306074,
+                0.10822917800360278
+              ],
+              [
+                -5.848286588868514,
+                0.21687502689386215
+              ]
+            ],
+            "bin_absolute_signed_contribution": 5.842573294469452
+          }
+        ],
+        "80": [
+          {
+            "x_mode_index": 0,
+            "yz_mode_index": 4,
+            "native_3D_f_hz": 85.61207744072213,
+            "original_signed_q0_250ms_contribution": [
+              [
+                7.751386582026031,
+                -9.626270618725703
+              ],
+              [
+                45.46455574549464,
+                -119.45165918429767
+              ]
+            ],
+            "bin_absolute_signed_contribution": 127.81128553855014
+          },
+          {
+            "x_mode_index": 2,
+            "yz_mode_index": 0,
+            "native_3D_f_hz": 85.7347630680858,
+            "original_signed_q0_250ms_contribution": [
+              [
+                3.052827668418912,
+                -5.255094103067726
+              ],
+              [
+                17.2024768910131,
+                -63.99388364633608
+              ]
+            ],
+            "bin_absolute_signed_contribution": 66.26569516217755
+          },
+          {
+            "x_mode_index": 1,
+            "yz_mode_index": 3,
+            "native_3D_f_hz": 78.7210329937243,
+            "original_signed_q0_250ms_contribution": [
+              [
+                0.3551593873696191,
+                0.31309521098885895
+              ],
+              [
+                -8.155076561546661,
+                -13.804199835871175
+              ]
+            ],
+            "bin_absolute_signed_contribution": 16.033128416917066
+          },
+          {
+            "x_mode_index": 3,
+            "yz_mode_index": 18,
+            "native_3D_f_hz": 230.381721127295,
+            "original_signed_q0_250ms_contribution": [
+              [
+                -10.819195813729655,
+                4.1837550256936815
+              ],
+              [
+                -11.734412493218057,
+                9.233555342500255
+              ]
+            ],
+            "bin_absolute_signed_contribution": 14.93167709348173
+          },
+          {
+            "x_mode_index": 0,
+            "yz_mode_index": 5,
+            "native_3D_f_hz": 93.36894696993197,
+            "original_signed_q0_250ms_contribution": [
+              [
+                2.7533035519185827,
+                -1.878978667117979
+              ],
+              [
+                8.208918411937239,
+                -11.57300659809686
+              ]
+            ],
+            "bin_absolute_signed_contribution": 14.1887569298172
+          },
+          {
+            "x_mode_index": 2,
+            "yz_mode_index": 4,
+            "native_3D_f_hz": 121.16054391614875,
+            "original_signed_q0_250ms_contribution": [
+              [
+                7.500437529060011,
+                -2.5093647831256556
+              ],
+              [
+                11.651184201550521,
+                -7.9360378950478605
+              ]
+            ],
+            "bin_absolute_signed_contribution": 14.097190882232393
+          },
+          {
+            "x_mode_index": 5,
+            "yz_mode_index": 18,
+            "native_3D_f_hz": 286.6063089214496,
+            "original_signed_q0_250ms_contribution": [
+              [
+                -12.161119919904367,
+                1.5364100856874152
+              ],
+              [
+                -12.845934641663566,
+                3.268719021346
+              ]
+            ],
+            "bin_absolute_signed_contribution": 13.25528426169734
+          },
+          {
+            "x_mode_index": 3,
+            "yz_mode_index": 4,
+            "native_3D_f_hz": 154.39076888633076,
+            "original_signed_q0_250ms_contribution": [
+              [
+                1.0610887517021135,
+                4.674159870098712
+              ],
+              [
+                1.6096318616464849,
+                11.93148470707572
+              ]
+            ],
+            "bin_absolute_signed_contribution": 12.039569844691682
+          },
+          {
+            "x_mode_index": 0,
+            "yz_mode_index": 18,
+            "native_3D_f_hz": 191.22932755196976,
+            "original_signed_q0_250ms_contribution": [
+              [
+                -8.088314255143317,
+                -2.8398661619730565
+              ],
+              [
+                -9.542274530188827,
+                -6.587504842989522
+              ]
+            ],
+            "bin_absolute_signed_contribution": 11.595267278760796
+          },
+          {
+            "x_mode_index": 2,
+            "yz_mode_index": 18,
+            "native_3D_f_hz": 209.56885578329462,
+            "original_signed_q0_250ms_contribution": [
+              [
+                9.625122454229054,
+                -1.5482760244819898
+              ],
+              [
+                10.761467216036534,
+                -3.4941202632832815
+              ]
+            ],
+            "bin_absolute_signed_contribution": 11.314506310755053
+          },
+          {
+            "x_mode_index": 8,
+            "yz_mode_index": 18,
+            "native_3D_f_hz": 389.25082365978,
+            "original_signed_q0_250ms_contribution": [
+              [
+                10.037435840510515,
+                -1.332446548536824
+              ],
+              [
+                10.305855150267973,
+                -2.7542860056722813
+              ]
+            ],
+            "bin_absolute_signed_contribution": 10.667555567202221
+          },
+          {
+            "x_mode_index": 3,
+            "yz_mode_index": 30,
+            "native_3D_f_hz": 286.1460434128132,
+            "original_signed_q0_250ms_contribution": [
+              [
+                -9.956220161605335,
+                0.5964084207909457
+              ],
+              [
+                -10.525868659021246,
+                1.2681033094034837
+              ]
+            ],
+            "bin_absolute_signed_contribution": 10.601980806919327
+          },
+          {
+            "x_mode_index": 0,
+            "yz_mode_index": 7,
+            "native_3D_f_hz": 112.65106974723663,
+            "original_signed_q0_250ms_contribution": [
+              [
+                5.238034450692951,
+                -0.8345595550423593
+              ],
+              [
+                9.102435270604074,
+                -2.944377570710517
+              ]
+            ],
+            "bin_absolute_signed_contribution": 9.566801301084926
+          },
+          {
+            "x_mode_index": 3,
+            "yz_mode_index": 7,
+            "native_3D_f_hz": 170.87230679309323,
+            "original_signed_q0_250ms_contribution": [
+              [
+                4.372981681733974,
+                2.676262136047004
+              ],
+              [
+                5.444532262293222,
+                6.48415159766995
+              ]
+            ],
+            "bin_absolute_signed_contribution": 8.46682664855715
+          },
+          {
+            "x_mode_index": 2,
+            "yz_mode_index": 7,
+            "native_3D_f_hz": 141.56522565071404,
+            "original_signed_q0_250ms_contribution": [
+              [
+                4.5402955821587385,
+                -2.185812787367744
+              ],
+              [
+                6.007300570568247,
+                -5.914920097387219
+              ]
+            ],
+            "bin_absolute_signed_contribution": 8.430536157542106
+          },
+          {
+            "x_mode_index": 3,
+            "yz_mode_index": 43,
+            "native_3D_f_hz": 335.46644281848285,
+            "original_signed_q0_250ms_contribution": [
+              [
+                -7.686450848224789,
+                0.7091295082008723
+              ],
+              [
+                -7.991101167612485,
+                1.4827407080822583
+              ]
+            ],
+            "bin_absolute_signed_contribution": 8.127497639398113
+          },
+          {
+            "x_mode_index": 0,
+            "yz_mode_index": 8,
+            "native_3D_f_hz": 126.15579223114355,
+            "original_signed_q0_250ms_contribution": [
+              [
+                0.20440752619211244,
+                -2.5375083459203953
+              ],
+              [
+                0.14492836127459804,
+                -7.643290188014675
+              ]
+            ],
+            "bin_absolute_signed_contribution": 7.6446640951779665
+          },
+          {
+            "x_mode_index": 3,
+            "yz_mode_index": 83,
+            "native_3D_f_hz": 455.35497965690143,
+            "original_signed_q0_250ms_contribution": [
+              [
+                -7.324239379348274,
+                0.5759905416205416
+              ],
+              [
+                -7.4670048364612,
+                1.1798053546002192
+              ]
+            ],
+            "bin_absolute_signed_contribution": 7.559636360465912
+          },
+          {
+            "x_mode_index": 5,
+            "yz_mode_index": 4,
+            "native_3D_f_hz": 230.00858332096024,
+            "original_signed_q0_250ms_contribution": [
+              [
+                -6.273261757115305,
+                1.301957708125759
+              ],
+              [
+                -6.852959267811942,
+                2.8741383810581818
+              ]
+            ],
+            "bin_absolute_signed_contribution": 7.431266524608126
+          },
+          {
+            "x_mode_index": 8,
+            "yz_mode_index": 663,
+            "native_3D_f_hz": 1182.0729360520124,
+            "original_signed_q0_250ms_contribution": [
+              [
+                7.394263620645149,
+                -0.2100041618437785
+              ],
+              [
+                7.4047443736748475,
+                -0.4213364554754553
+              ]
+            ],
+            "bin_absolute_signed_contribution": 7.416721893679305
+          },
+          {
+            "x_mode_index": 5,
+            "yz_mode_index": 30,
+            "native_3D_f_hz": 333.08707126637364,
+            "original_signed_q0_250ms_contribution": [
+              [
+                5.8508636407240235,
+                1.8783872009368783
+              ],
+              [
+                6.213885321459681,
+                3.9315606259252665
+              ]
+            ],
+            "bin_absolute_signed_contribution": 7.35319928626839
+          },
+          {
+            "x_mode_index": 5,
+            "yz_mode_index": 51,
+            "native_3D_f_hz": 401.11845145749464,
+            "original_signed_q0_250ms_contribution": [
+              [
+                -6.702296222897423,
+                0.41330614252061487
+              ],
+              [
+                -6.880420643427252,
+                0.8522675535108274
+              ]
+            ],
+            "bin_absolute_signed_contribution": 6.933004270391532
+          },
+          {
+            "x_mode_index": 3,
+            "yz_mode_index": 526,
+            "native_3D_f_hz": 1046.1119429153557,
+            "original_signed_q0_250ms_contribution": [
+              [
+                -6.889607997624675,
+                0.16138464000017724
+              ],
+              [
+                -6.9049361919467644,
+                0.3239403149930404
+              ]
+            ],
+            "bin_absolute_signed_contribution": 6.912530733568862
+          },
+          {
+            "x_mode_index": 6,
+            "yz_mode_index": 18,
+            "native_3D_f_hz": 319.25131045972995,
+            "original_signed_q0_250ms_contribution": [
+              [
+                6.432061980910989,
+                -0.7636943213737668
+              ],
+              [
+                6.713941925789433,
+                -1.6047174379647529
+              ]
+            ],
+            "bin_absolute_signed_contribution": 6.903052530481083
+          }
+        ]
+      },
+      "full_3D_neumann_0_1_2_frequency_band_no_mask": true,
+      "original_full_waveform_temporal_q0_without_taper": true,
+      "experiment_not_the_canonical_PFFDTD_source_solver": true,
+      "elapsed_seconds": 1.780831600073725
+    },
+    {
+      "ppw": 44,
+      "original_native_voxel_sha256": "4a7cb6c30c013adc31d5b1910d50cef003cacbdd37a271ac3efa7a39956e505b",
+      "original_native_comms_sha256": "41c537b663ef11aa7404a248862f89398dec80fd3b6c794f4ecce4a0a8577ee4",
+      "original_record_nt": 1908,
+      "original_native_dt_s": 0.00013108475430009911,
+      "source_receiver_fixed_exact_xyz_and_q0": true,
+      "original_neumann_Kronecker_identity": {
+        "ordered_original_native_indices_exact": true,
+        "3D_original_full_mass_Kronecker_max_absolute": 0.0,
+        "3D_original_full_stiffness_Kronecker_max_absolute": 1.4551915228366852e-11,
+        "native_full_active_nodes": 123032,
+        "x_active_nodes": 52,
+        "yz_active_nodes": 2366,
+        "exact_total_fluid_volume_m3": 55.99999999999887,
+        "full_3D_stiffness_nnz": 845676
+      },
+      "total_full_untruncated_3D_native_modes": 123032,
+      "full_x_eigenmode_count": 52,
+      "full_yz_eigenmode_count": 2366,
+      "true_full_1D_x_mode_numerics": {
+        "highest_true_mass_normalized_eigen_residual": 8.048333187437882e-09,
+        "maximum_M_orthonormality_error": 3.0228337014618007e-14,
+        "first_zero_neumann_eigen_frequency_hz": 7.308166061411103e-06
+      },
+      "true_full_2D_yz_mode_numerics": {
+        "highest_true_mass_normalized_eigen_residual": 1.9464043176154264e-08,
+        "maximum_M_orthonormality_error": 1.7742890490168861e-12,
+        "first_zero_neumann_eigen_frequency_hz": 3.375106763667199e-05
+      },
+      "first_32_yz_native_eigenfrequencies_hz": [
+        3.375106763667199e-05,
+        41.95384376696449,
+        49.10258794734175,
+        66.01280401621318,
+        85.62368414469043,
+        93.3809025907785,
+        98.55909305366723,
+        112.67114426408921,
+        126.18525971168152,
+        130.52678715808872,
+        139.03760286021097,
+        139.119144836831,
+        157.66357168689007,
+        161.50375179109525,
+        170.9528246687075,
+        175.3343750622068,
+        177.70427628299964,
+        182.94927163893115,
+        191.31166601453484,
+        201.18540004751856,
+        206.51478030216174,
+        212.90161592881427,
+        216.66751327948083,
+        221.87614637940808,
+        224.13596741642286,
+        227.10877211363731,
+        235.09321659341109,
+        240.28247310616916,
+        249.87294215979577,
+        253.20815253538814,
+        255.978997288632,
+        259.8800850118366
+      ],
+      "first_16_x_native_eigenfrequencies_hz": [
+        7.308166061411103e-06,
+        42.8933381528379,
+        85.74671255546555,
+        128.52019611249494,
+        171.1739349960932,
+        213.66818517440387,
+        255.96334881313368,
+        298.02001050732093,
+        339.79897329968986,
+        381.2612944411439,
+        422.3683208479077,
+        463.0817242084892,
+        503.3635356919942,
+        543.1761802073092,
+        582.4825101602116,
+        621.2458386524785
+      ],
+      "max_yz_native_eigenfrequency_hz": 6191.210266181773,
+      "max_full_3D_native_eigenfrequency_hz": 6383.792414675974,
+      "archived_first_384_mode_signed_250ms_direct_time": [
+        [
+          13.019795440902044,
+          2.31011003695831
+        ],
+        [
+          39.557321722315024,
+          -212.4627803360426
+        ]
+      ],
+      "analytic_first_384_modal_signed_250ms_transfer": [
+        [
+          13.019795440199694,
+          2.3101100512283583
+        ],
+        [
+          39.557321721567234,
+          -212.4627803287718
+        ]
+      ],
+      "analytic_384_vs_previous_actual_temporal_integration_rel": 7.412042866461018e-11,
+      "all_original_Neumann_3D_modes_full_signed_P_T_over_Q_T": [
+        [
+          -23.43872217558516,
+          5.715537793208619
+        ],
+        [
+          2.762765026455231,
+          -205.60610552239302
+        ]
+      ],
+      "archived_direct_full_wave_250ms_signed_40_80": [
+        [
+          -23.438724548586478,
+          5.7155377669852925
+        ],
+        [
+          2.762763408170244,
+          -205.60610766006334
+        ]
+      ],
+      "all_mode_analytic_vs_archived_true_CG_full_wave_rel": 1.729438446961315e-08,
+      "every_original_mode_in_one_signed_frequency_band": [
+        {
+          "frequency_band_hz": [
+            0,
+            100
+          ],
+          "included_native_3D_mode_count": 15,
+          "signed_full_q0_pressure_transfer_40_80": [
+            [
+              36.045679040734214,
+              2.1006557066561085
+            ],
+            [
+              59.96320652071668,
+              -207.00828507940838
+            ]
+          ]
+        },
+        {
+          "frequency_band_hz": [
+            100,
+            200
+          ],
+          "included_native_3D_mode_count": 59,
+          "signed_full_q0_pressure_transfer_40_80": [
+            [
+              -2.3837007179344485,
+              -7.467200251450707
+            ],
+            [
+              1.6950819347455708,
+              -22.501944764093704
+            ]
+          ]
+        },
+        {
+          "frequency_band_hz": [
+            200,
+            400
+          ],
+          "included_native_3D_mode_count": 410,
+          "signed_full_q0_pressure_transfer_40_80": [
+            [
+              -35.98877473889584,
+              8.409909629344394
+            ],
+            [
+              -37.817961147196584,
+              18.51471654419071
+            ]
+          ]
+        },
+        {
+          "frequency_band_hz": [
+            400,
+            800
+          ],
+          "included_native_3D_mode_count": 3243,
+          "signed_full_q0_pressure_transfer_40_80": [
+            [
+              33.898882385314295,
+              1.2195067774952963
+            ],
+            [
+              34.149079963953064,
+              2.473959238105904
+            ]
+          ]
+        },
+        {
+          "frequency_band_hz": [
+            800,
+            1000000000
+          ],
+          "included_native_3D_mode_count": 119305,
+          "signed_full_q0_pressure_transfer_40_80": [
+            [
+              -55.01080814480404,
+              1.4526659311635257
+            ],
+            [
+              -55.2266422457598,
+              2.9154485388121105
+            ]
+          ]
+        }
+      ],
+      "top24_individual_signed_250ms_wave_modes_each_original_bin": {
+        "40": [
+          {
+            "x_mode_index": 1,
+            "yz_mode_index": 0,
+            "native_3D_f_hz": 42.89333815285118,
+            "original_signed_q0_250ms_contribution": [
+              [
+                20.686666838112654,
+                23.04111442586332
+              ],
+              [
+                -1.1312545908269533,
+                -2.4190120311153596
+              ]
+            ],
+            "bin_absolute_signed_contribution": 30.964998609023002
+          },
+          {
+            "x_mode_index": 8,
+            "yz_mode_index": 1104,
+            "native_3D_f_hz": 1419.2736845635266,
+            "original_signed_q0_250ms_contribution": [
+              [
+                12.874456995107252,
+                -0.05587725457070988
+              ],
+              [
+                12.882796852905084,
+                -0.11191650050260592
+              ]
+            ],
+            "bin_absolute_signed_contribution": 12.874578252760143
+          },
+          {
+            "x_mode_index": 3,
+            "yz_mode_index": 30,
+            "native_3D_f_hz": 286.43094780712437,
+            "original_signed_q0_250ms_contribution": [
+              [
+                -12.504769276019685,
+                1.9006011746614166
+              ],
+              [
+                -13.227841836918609,
+                4.043917734959616
+              ]
+            ],
+            "bin_absolute_signed_contribution": 12.648380903167418
+          },
+          {
+            "x_mode_index": 0,
+            "yz_mode_index": 4,
+            "native_3D_f_hz": 85.62368414469076,
+            "original_signed_q0_250ms_contribution": [
+              [
+                7.1261547228905755,
+                -9.73285561028352
+              ],
+              [
+                43.326822980896246,
+                -120.4188124658196
+              ]
+            ],
+            "bin_absolute_signed_contribution": 12.062775777788588
+          },
+          {
+            "x_mode_index": 8,
+            "yz_mode_index": 30,
+            "native_3D_f_hz": 425.42753708289365,
+            "original_signed_q0_250ms_contribution": [
+              [
+                9.580610503388598,
+                -1.0017618022525896
+              ],
+              [
+                9.810973297940462,
+                -2.059331902949874
+              ]
+            ],
+            "bin_absolute_signed_contribution": 9.632840927062603
+          },
+          {
+            "x_mode_index": 2,
+            "yz_mode_index": 18,
+            "native_3D_f_hz": 209.64887852627916,
+            "original_signed_q0_250ms_contribution": [
+              [
+                9.360666092134123,
+                -2.0507971232976403
+              ],
+              [
+                10.480166834349355,
+                -4.627865444936487
+              ]
+            ],
+            "bin_absolute_signed_contribution": 9.582684307090336
+          },
+          {
+            "x_mode_index": 0,
+            "yz_mode_index": 18,
+            "native_3D_f_hz": 191.31166601453498,
+            "original_signed_q0_250ms_contribution": [
+              [
+                -9.083920890491571,
+                -2.33791879584791
+              ],
+              [
+                -10.64582704173292,
+                -5.421379177873806
+              ]
+            ],
+            "bin_absolute_signed_contribution": 9.37995112144451
+          },
+          {
+            "x_mode_index": 5,
+            "yz_mode_index": 18,
+            "native_3D_f_hz": 286.8000120449444,
+            "original_signed_q0_250ms_contribution": [
+              [
+                -8.495759690601231,
+                2.521794173468126
+              ],
+              [
+                -8.99480448896076,
+                5.365040744392372
+              ]
+            ],
+            "bin_absolute_signed_contribution": 8.862131717244024
+          },
+          {
+            "x_mode_index": 21,
+            "yz_mode_index": 1104,
+            "native_3D_f_hz": 1614.064578146226,
+            "original_signed_q0_250ms_contribution": [
+              [
+                -8.248622483441087,
+                0.04130020130158158
+              ],
+              [
+                -8.25306477795976,
+                0.08270871623139335
+              ]
+            ],
+            "bin_absolute_signed_contribution": 8.248725876216119
+          },
+          {
+            "x_mode_index": 5,
+            "yz_mode_index": 104,
+            "native_3D_f_hz": 537.6150669058696,
+            "original_signed_q0_250ms_contribution": [
+              [
+                -8.110217528520144,
+                0.5670960943341068
+              ],
+              [
+                -8.224567464800085,
+                1.1538267623576313
+              ]
+            ],
+            "bin_absolute_signed_contribution": 8.130020070093577
+          },
+          {
+            "x_mode_index": 3,
+            "yz_mode_index": 51,
+            "native_3D_f_hz": 363.6965921627354,
+            "original_signed_q0_250ms_contribution": [
+              [
+                -7.998396323036902,
+                0.7860677685407165
+              ],
+              [
+                -8.265750043772202,
+                1.6326094109825668
+              ]
+            ],
+            "bin_absolute_signed_contribution": 8.0369301525588
+          },
+          {
+            "x_mode_index": 2,
+            "yz_mode_index": 30,
+            "native_3D_f_hz": 269.95878531168995,
+            "original_signed_q0_250ms_contribution": [
+              [
+                7.936794809392153,
+                -0.8306703718785825
+              ],
+              [
+                8.446357095720604,
+                -1.781796588308317
+              ]
+            ],
+            "bin_absolute_signed_contribution": 7.980145682449107
+          },
+          {
+            "x_mode_index": 2,
+            "yz_mode_index": 4,
+            "native_3D_f_hz": 121.17720082828842,
+            "original_signed_q0_250ms_contribution": [
+              [
+                7.39111382406101,
+                -2.6477177716037095
+              ],
+              [
+                11.515640416154037,
+                -8.370808007886074
+              ]
+            ],
+            "bin_absolute_signed_contribution": 7.851049162901216
+          },
+          {
+            "x_mode_index": 8,
+            "yz_mode_index": 649,
+            "native_3D_f_hz": 1202.5819576605902,
+            "original_signed_q0_250ms_contribution": [
+              [
+                7.291387514743047,
+                -0.06293479079833868
+              ],
+              [
+                7.301828106516744,
+                -0.12625306924925922
+              ]
+            ],
+            "bin_absolute_signed_contribution": 7.291659116966701
+          },
+          {
+            "x_mode_index": 16,
+            "yz_mode_index": 360,
+            "native_3D_f_hz": 1113.8409797641466,
+            "original_signed_q0_250ms_contribution": [
+              [
+                7.03164969703996,
+                -0.031846587469662714
+              ],
+              [
+                7.03985094795175,
+                -0.06384890409454498
+              ]
+            ],
+            "bin_absolute_signed_contribution": 7.031721813824522
+          },
+          {
+            "x_mode_index": 11,
+            "yz_mode_index": 270,
+            "native_3D_f_hz": 912.2734395119736,
+            "original_signed_q0_250ms_contribution": [
+              [
+                -6.905418654809924,
+                0.10243306729148356
+              ],
+              [
+                -6.927940324657629,
+                0.20603965536260083
+              ]
+            ],
+            "bin_absolute_signed_contribution": 6.90617834489319
+          },
+          {
+            "x_mode_index": 11,
+            "yz_mode_index": 30,
+            "native_3D_f_hz": 529.1218483003709,
+            "original_signed_q0_250ms_contribution": [
+              [
+                -6.891554922818689,
+                0.409977243762049
+              ],
+              [
+                -6.990091454314926,
+                0.8345796196788868
+              ]
+            ],
+            "bin_absolute_signed_contribution": 6.903738885171515
+          },
+          {
+            "x_mode_index": 8,
+            "yz_mode_index": 83,
+            "native_3D_f_hz": 554.3310993294842,
+            "original_signed_q0_250ms_contribution": [
+              [
+                6.87358273210916,
+                -0.3957855304162647
+              ],
+              [
+                6.962260186217245,
+                -0.8044314945951633
+              ]
+            ],
+            "bin_absolute_signed_contribution": 6.884968101686173
+          },
+          {
+            "x_mode_index": 0,
+            "yz_mode_index": 30,
+            "native_3D_f_hz": 255.9789972886321,
+            "original_signed_q0_250ms_contribution": [
+              [
+                -6.761641281421781,
+                -1.1303414708561617
+              ],
+              [
+                -7.384489558741854,
+                -2.4449994863837325
+              ]
+            ],
+            "bin_absolute_signed_contribution": 6.855469689187201
+          },
+          {
+            "x_mode_index": 3,
+            "yz_mode_index": 18,
+            "native_3D_f_hz": 230.472545788107,
+            "original_signed_q0_250ms_contribution": [
+              [
+                -4.996567824263764,
+                4.624659454934788
+              ],
+              [
+                -5.4660113417412655,
+                10.204521405069334
+              ]
+            ],
+            "bin_absolute_signed_contribution": 6.8083158781438495
+          },
+          {
+            "x_mode_index": 5,
+            "yz_mode_index": 83,
+            "native_3D_f_hz": 487.31275253581714,
+            "original_signed_q0_250ms_contribution": [
+              [
+                -6.769030521342498,
+                0.40437729706625686
+              ],
+              [
+                -6.884254432618331,
+                0.8257737898136396
+              ]
+            ],
+            "bin_absolute_signed_contribution": 6.781098376903914
+          },
+          {
+            "x_mode_index": 8,
+            "yz_mode_index": 18,
+            "native_3D_f_hz": 389.95319694648003,
+            "original_signed_q0_250ms_contribution": [
+              [
+                -6.5276424103465684,
+                -1.3840576955412256
+              ],
+              [
+                -6.778424232366953,
+                -2.860417991146959
+              ]
+            ],
+            "bin_absolute_signed_contribution": 6.67276038397469
+          },
+          {
+            "x_mode_index": 10,
+            "yz_mode_index": 1104,
+            "native_3D_f_hz": 1441.2735506817874,
+            "original_signed_q0_250ms_contribution": [
+              [
+                6.57886841060654,
+                -0.055371063780282184
+              ],
+              [
+                6.585011922438895,
+                -0.11098237382760319
+              ]
+            ],
+            "bin_absolute_signed_contribution": 6.579101421834199
+          },
+          {
+            "x_mode_index": 11,
+            "yz_mode_index": 360,
+            "native_3D_f_hz": 1010.0685736336119,
+            "original_signed_q0_250ms_contribution": [
+              [
+                -6.55354983364555,
+                0.2440641821863941
+              ],
+              [
+                -6.574907855250891,
+                0.4905994081520292
+              ]
+            ],
+            "bin_absolute_signed_contribution": 6.558092919980773
+          }
+        ],
+        "80": [
+          {
+            "x_mode_index": 0,
+            "yz_mode_index": 4,
+            "native_3D_f_hz": 85.62368414469076,
+            "original_signed_q0_250ms_contribution": [
+              [
+                7.1261547228905755,
+                -9.73285561028352
+              ],
+              [
+                43.326822980896246,
+                -120.4188124658196
+              ]
+            ],
+            "bin_absolute_signed_contribution": 127.97618522715915
+          },
+          {
+            "x_mode_index": 2,
+            "yz_mode_index": 0,
+            "native_3D_f_hz": 85.74671255547219,
+            "original_signed_q0_250ms_contribution": [
+              [
+                2.6796145139003493,
+                -5.286352986418539
+              ],
+              [
+                15.941325762641462,
+                -64.18574148770195
+              ]
+            ],
+            "bin_absolute_signed_contribution": 66.13573374051852
+          },
+          {
+            "x_mode_index": 1,
+            "yz_mode_index": 3,
+            "native_3D_f_hz": 78.72438473545964,
+            "original_signed_q0_250ms_contribution": [
+              [
+                0.3650508203723775,
+                0.31038283366679653
+              ],
+              [
+                -8.269936832566897,
+                -13.784200157021422
+              ]
+            ],
+            "bin_absolute_signed_contribution": 16.074701527041675
+          },
+          {
+            "x_mode_index": 0,
+            "yz_mode_index": 5,
+            "native_3D_f_hz": 93.38090259077879,
+            "original_signed_q0_250ms_contribution": [
+              [
+                2.636195656764935,
+                -1.9169188422663963
+              ],
+              [
+                7.9821197078113935,
+                -11.793115692851476
+              ]
+            ],
+            "bin_absolute_signed_contribution": 14.240499035315118
+          },
+          {
+            "x_mode_index": 2,
+            "yz_mode_index": 4,
+            "native_3D_f_hz": 121.17720082828842,
+            "original_signed_q0_250ms_contribution": [
+              [
+                7.39111382406101,
+                -2.6477177716037095
+              ],
+              [
+                11.515640416154037,
+                -8.370808007886074
+              ]
+            ],
+            "bin_absolute_signed_contribution": 14.236586701139075
+          },
+          {
+            "x_mode_index": 3,
+            "yz_mode_index": 30,
+            "native_3D_f_hz": 286.43094780712437,
+            "original_signed_q0_250ms_contribution": [
+              [
+                -12.504769276019685,
+                1.9006011746614166
+              ],
+              [
+                -13.227841836918609,
+                4.043917734959616
+              ]
+            ],
+            "bin_absolute_signed_contribution": 13.832175183594778
+          },
+          {
+            "x_mode_index": 8,
+            "yz_mode_index": 1104,
+            "native_3D_f_hz": 1419.2736845635266,
+            "original_signed_q0_250ms_contribution": [
+              [
+                12.874456995107252,
+                -0.05587725457070988
+              ],
+              [
+                12.882796852905084,
+                -0.11191650050260592
+              ]
+            ],
+            "bin_absolute_signed_contribution": 12.88328296888281
+          },
+          {
+            "x_mode_index": 3,
+            "yz_mode_index": 4,
+            "native_3D_f_hz": 154.43074854219893,
+            "original_signed_q0_250ms_contribution": [
+              [
+                2.9244199965455864,
+                4.579928730481519
+              ],
+              [
+                3.7867523126345706,
+                11.687029218527035
+              ]
+            ],
+            "bin_absolute_signed_contribution": 12.285200243868552
+          },
+          {
+            "x_mode_index": 0,
+            "yz_mode_index": 18,
+            "native_3D_f_hz": 191.31166601453498,
+            "original_signed_q0_250ms_contribution": [
+              [
+                -9.083920890491571,
+                -2.33791879584791
+              ],
+              [
+                -10.64582704173292,
+                -5.421379177873806
+              ]
+            ],
+            "bin_absolute_signed_contribution": 11.94675627912345
+          },
+          {
+            "x_mode_index": 3,
+            "yz_mode_index": 18,
+            "native_3D_f_hz": 230.472545788107,
+            "original_signed_q0_250ms_contribution": [
+              [
+                -4.996567824263764,
+                4.624659454934788
+              ],
+              [
+                -5.4660113417412655,
+                10.204521405069334
+              ]
+            ],
+            "bin_absolute_signed_contribution": 11.576248835204018
+          },
+          {
+            "x_mode_index": 2,
+            "yz_mode_index": 18,
+            "native_3D_f_hz": 209.64887852627916,
+            "original_signed_q0_250ms_contribution": [
+              [
+                9.360666092134123,
+                -2.0507971232976403
+              ],
+              [
+                10.480166834349355,
+                -4.627865444936487
+              ]
+            ],
+            "bin_absolute_signed_contribution": 11.456484428140833
+          },
+          {
+            "x_mode_index": 5,
+            "yz_mode_index": 18,
+            "native_3D_f_hz": 286.8000120449444,
+            "original_signed_q0_250ms_contribution": [
+              [
+                -8.495759690601231,
+                2.521794173468126
+              ],
+              [
+                -8.99480448896076,
+                5.365040744392372
+              ]
+            ],
+            "bin_absolute_signed_contribution": 10.47330749971655
+          },
+          {
+            "x_mode_index": 0,
+            "yz_mode_index": 7,
+            "native_3D_f_hz": 112.67114426408943,
+            "original_signed_q0_250ms_contribution": [
+              [
+                5.678556844058237,
+                -0.9426125339357828
+              ],
+              [
+                9.730601379467128,
+                -3.3249523025315653
+              ]
+            ],
+            "bin_absolute_signed_contribution": 10.28299134591669
+          },
+          {
+            "x_mode_index": 8,
+            "yz_mode_index": 30,
+            "native_3D_f_hz": 425.42753708289365,
+            "original_signed_q0_250ms_contribution": [
+              [
+                9.580610503388598,
+                -1.0017618022525896
+              ],
+              [
+                9.810973297940462,
+                -2.059331902949874
+              ]
+            ],
+            "bin_absolute_signed_contribution": 10.02477156544766
+          },
+          {
+            "x_mode_index": 3,
+            "yz_mode_index": 7,
+            "native_3D_f_hz": 170.91584934865858,
+            "original_signed_q0_250ms_contribution": [
+              [
+                5.439509180403326,
+                2.4723537305095906
+              ],
+              [
+                6.65068089175555,
+                5.988376027013267
+              ]
+            ],
+            "bin_absolute_signed_contribution": 8.94942477284823
+          },
+          {
+            "x_mode_index": 2,
+            "yz_mode_index": 30,
+            "native_3D_f_hz": 269.95878531168995,
+            "original_signed_q0_250ms_contribution": [
+              [
+                7.936794809392153,
+                -0.8306703718785825
+              ],
+              [
+                8.446357095720604,
+                -1.781796588308317
+              ]
+            ],
+            "bin_absolute_signed_contribution": 8.632250417506256
+          },
+          {
+            "x_mode_index": 3,
+            "yz_mode_index": 51,
+            "native_3D_f_hz": 363.6965921627354,
+            "original_signed_q0_250ms_contribution": [
+              [
+                -7.998396323036902,
+                0.7860677685407165
+              ],
+              [
+                -8.265750043772202,
+                1.6326094109825668
+              ]
+            ],
+            "bin_absolute_signed_contribution": 8.425439886139419
+          },
+          {
+            "x_mode_index": 5,
+            "yz_mode_index": 104,
+            "native_3D_f_hz": 537.6150669058696,
+            "original_signed_q0_250ms_contribution": [
+              [
+                -8.110217528520144,
+                0.5670960943341068
+              ],
+              [
+                -8.224567464800085,
+                1.1538267623576313
+              ]
+            ],
+            "bin_absolute_signed_contribution": 8.305108438821302
+          },
+          {
+            "x_mode_index": 21,
+            "yz_mode_index": 1104,
+            "native_3D_f_hz": 1614.064578146226,
+            "original_signed_q0_250ms_contribution": [
+              [
+                -8.248622483441087,
+                0.04130020130158158
+              ],
+              [
+                -8.25306477795976,
+                0.08270871623139335
+              ]
+            ],
+            "bin_absolute_signed_contribution": 8.253479203399051
+          },
+          {
+            "x_mode_index": 2,
+            "yz_mode_index": 7,
+            "native_3D_f_hz": 141.58843690022442,
+            "original_signed_q0_250ms_contribution": [
+              [
+                4.05423273933625,
+                -2.2899499507569097
+              ],
+              [
+                5.4299629174607436,
+                -6.194974007293033
+              ]
+            ],
+            "bin_absolute_signed_contribution": 8.237851676015724
+          },
+          {
+            "x_mode_index": 0,
+            "yz_mode_index": 30,
+            "native_3D_f_hz": 255.9789972886321,
+            "original_signed_q0_250ms_contribution": [
+              [
+                -6.761641281421781,
+                -1.1303414708561617
+              ],
+              [
+                -7.384489558741854,
+                -2.4449994863837325
+              ]
+            ],
+            "bin_absolute_signed_contribution": 7.77873437852098
+          },
+          {
+            "x_mode_index": 0,
+            "yz_mode_index": 8,
+            "native_3D_f_hz": 126.18525971168172,
+            "original_signed_q0_250ms_contribution": [
+              [
+                -0.3905037207443908,
+                -2.5422990199600304
+              ],
+              [
+                -0.6192904835057244,
+                -7.654029866322157
+              ]
+            ],
+            "bin_absolute_signed_contribution": 7.679042511766186
+          },
+          {
+            "x_mode_index": 8,
+            "yz_mode_index": 18,
+            "native_3D_f_hz": 389.95319694648003,
+            "original_signed_q0_250ms_contribution": [
+              [
+                -6.5276424103465684,
+                -1.3840576955412256
+              ],
+              [
+                -6.778424232366953,
+                -2.860417991146959
+              ]
+            ],
+            "bin_absolute_signed_contribution": 7.357243108530309
+          },
+          {
+            "x_mode_index": 8,
+            "yz_mode_index": 649,
+            "native_3D_f_hz": 1202.5819576605902,
+            "original_signed_q0_250ms_contribution": [
+              [
+                7.291387514743047,
+                -0.06293479079833868
+              ],
+              [
+                7.301828106516744,
+                -0.12625306924925922
+              ]
+            ],
+            "bin_absolute_signed_contribution": 7.302919521301926
+          }
+        ]
+      },
+      "full_3D_neumann_0_1_2_frequency_band_no_mask": true,
+      "original_full_waveform_temporal_q0_without_taper": true,
+      "experiment_not_the_canonical_PFFDTD_source_solver": true,
+      "elapsed_seconds": 3.4267529998905957
+    }
+  ],
+  "all_original_3D_modes_signed_PP40_minus_PP44_adjacent_fourier_difference_by_band": [
+    {
+      "physical_semidiscrete_band_hz": [
+        0,
+        100
+      ],
+      "PPW40_mode_count": 15,
+      "PPW44_mode_count": 15,
+      "signed_adjacent_PP40_minus_PP44_complex_40_80": [
+        [
+          1.1829099871582187,
+          0.2946591543481034
+        ],
+        [
+          3.9314969112494964,
+          1.4045312895109703
+        ]
+      ],
+      "two_bin_difference_norm_relative_to_complete_original": 0.02407223415918261,
+      "complex_cancellation_means_not_additive_fraction": true
+    },
+    {
+      "physical_semidiscrete_band_hz": [
+        100,
+        200
+      ],
+      "PPW40_mode_count": 59,
+      "PPW44_mode_count": 59,
+      "signed_adjacent_PP40_minus_PP44_complex_40_80": [
+        [
+          3.033323622726258,
+          -0.44883063451872296
+        ],
+        [
+          3.481592307052397,
+          -0.8966938484675246
+        ]
+      ],
+      "two_bin_difference_norm_relative_to_complete_original": 0.026153698876586293,
+      "complex_cancellation_means_not_additive_fraction": true
+    },
+    {
+      "physical_semidiscrete_band_hz": [
+        200,
+        400
+      ],
+      "PPW40_mode_count": 412,
+      "PPW44_mode_count": 410,
+      "signed_adjacent_PP40_minus_PP44_complex_40_80": [
+        [
+          22.78763338516703,
+          -4.07561545612566
+        ],
+        [
+          23.23184070781113,
+          -8.61515022282156
+        ]
+      ],
+      "two_bin_difference_norm_relative_to_complete_original": 0.1876825276629034,
+      "complex_cancellation_means_not_additive_fraction": true
+    },
+    {
+      "physical_semidiscrete_band_hz": [
+        400,
+        800
+      ],
+      "PPW40_mode_count": 3342,
+      "PPW44_mode_count": 3243,
+      "signed_adjacent_PP40_minus_PP44_complex_40_80": [
+        [
+          -42.637476464815535,
+          -5.244172827740548
+        ],
+        [
+          -43.615656728401106,
+          -10.679127044178319
+        ]
+      ],
+      "two_bin_difference_norm_relative_to_complete_original": 0.34395692349753126,
+      "complex_cancellation_means_not_additive_fraction": true
+    },
+    {
+      "physical_semidiscrete_band_hz": [
+        800,
+        1000000000
+      ],
+      "PPW40_mode_count": 87587,
+      "PPW44_mode_count": 119305,
+      "signed_adjacent_PP40_minus_PP44_complex_40_80": [
+        [
+          140.37404521375146,
+          -2.8200526988316534
+        ],
+        [
+          140.77698597238455,
+          -5.643485652020699
+        ]
+      ],
+      "two_bin_difference_norm_relative_to_complete_original": 1.1009090881857047,
+      "complex_cancellation_means_not_additive_fraction": true
+    }
+  ],
+  "all_mode_reconstructed_original_PP40_44_exact_roof_full_8_8_complex_metric": {
+    "complex_rms_relative": 0.8726662877937885,
+    "magnitude_max_relative": 3.2077874021153407,
+    "magnitude_max_db": 12.481075780610349,
+    "phase_max_deg": 170.01140009413749,
+    "mask_floor": 0.6502422894481473,
+    "compared_frequency_count": 2,
+    "frequency_metrics": [
+      {
+        "frequency_hz": 40.0,
+        "masked_in": true,
+        "magnitude_absolute": 77.38956267441577,
+        "magnitude_relative": 3.2077874021153407,
+        "magnitude_db": 12.481075780610349,
+        "phase_deg": 170.01140009413749,
+        "complex_relative": 5.1955258380710045
+      },
+      {
+        "frequency_hz": 80.0,
+        "masked_in": true,
+        "magnitude_absolute": 58.884020701986316,
+        "magnitude_relative": 0.2863665224924325,
+        "magnitude_db": 2.1872945819744647,
+        "phase_deg": 28.809505062088988,
+        "complex_relative": 0.6328043312426692
+      }
+    ]
+  },
+  "exact_full_3D_signed_delta_from_band_sum": [
+    [
+      124.74043574398743,
+      -12.29401246286848
+    ],
+    [
+      127.80625917009647,
+      -24.429925477977136
+    ]
+  ],
+  "higher_modes_not_truncated_from_final_250ms_q0_result": true,
+  "original_full_canonical_q0_not_requalified": true
+}

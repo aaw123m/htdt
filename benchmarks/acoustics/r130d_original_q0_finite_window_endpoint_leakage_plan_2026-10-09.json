@@ -1,0 +1,106 @@
+{
+  "schema_version": "htdt.r130d.original-q0-finite-window-endpoint-leakage-plan-1",
+  "date_jst": "2026-10-09",
+  "issue": 938,
+  "pr": 1055,
+  "objective": "Unmodified ORIGINAL PFFDTD true native 8point q[0]=1 and full native 250ms p-derived signed 40/80Hz transfer. Exactly split pressure finite-record DFT into startup boundary n=0, centered interior n=1..Nt-2, and final backward derivative n=Nt-1; separately split by all eigenfrequency bands and compute signed grid refinement drift, no masking or artificial corrected transfer.",
+  "frozen": {
+    "upstream_sha": "aa319f6c86517cb95aabfae8656277da62c3ead5",
+    "original_full_modal_plan": "benchmarks/acoustics/r130d_original_pffdtd_native_full_kronecker_modal_q0_plan_2026-10-09.json",
+    "original_full_modal_evidence": "benchmarks/acoustics/r130d_original_pffdtd_native_full_modal_q0_evidence_2026-10-09.json",
+    "original_real_native_evidence": "benchmarks/acoustics/r130d_original_point_quadratic_pffdtd_evidence_2026-10-09.json",
+    "original_graph_plan": "benchmarks/acoustics/r130d_original_pffdtd_neumann_graph_plan_2026-10-09.json",
+    "original_graph_evidence": "benchmarks/acoustics/r130d_original_pffdtd_neumann_graph_evidence_2026-10-09.json",
+    "ppw": [
+      28,
+      32,
+      36,
+      40,
+      44
+    ],
+    "source_xyz_m": [
+      1.5,
+      2,
+      2
+    ],
+    "receiver_xyz_m": [
+      2.5,
+      2,
+      2
+    ],
+    "original_native_eight_point_q0": true,
+    "native_dt_nt_and_h_from_sha_pinned_hdf5": true,
+    "original_solver": "explicit original PFFDTD 6-neighbor Neumann graph exact per mode leapfrog, no K geometry replacement",
+    "original_record_seconds": 0.25,
+    "frequency_hz": [
+      40,
+      80
+    ],
+    "sound_speed_m_s": 343.2,
+    "density_kg_m3": 1.2,
+    "original_frozen_complex_limit": 0.2,
+    "original_frozen_magnitude_limit": 0.25,
+    "original_frozen_phase_deg": 15
+  },
+  "decomposition": {
+    "time_terms": [
+      "start_forward_n0",
+      "centered_interior_n1_to_Nminus2",
+      "end_backward_nNminus1"
+    ],
+    "start": "rho*amplitude/dt*(2-cos(theta))",
+    "interior": "rho*amplitude/dt*sum_{n=1..N-2} exp(i*omega_bin*dt*n)*cos(n*theta)",
+    "end": "rho*amplitude/dt*exp(i*omega_bin*dt*(N-1))*(R(N-1,theta)+(cos(theta)-2)*R(N-2,theta)), where R(m,theta)=sin(m*theta)/sin(theta)",
+    "full_equals_signed_sum_without_taper": true,
+    "neumann_semidiscrete_frequency_bands_hz": [
+      [
+        0,
+        100
+      ],
+      [
+        100,
+        200
+      ],
+      [
+        200,
+        400
+      ],
+      [
+        400,
+        800
+      ],
+      [
+        800,
+        1000000000
+      ]
+    ],
+    "all_3d_original_modes_no_exclusion": true,
+    "original_native_leapfrog_theta": "2 asin(0.5 sqrt(l2*(lambda_x+lambda_yz)))",
+    "original_q0_amplitude": "sum(in_sigs[:,0])*unchanged_exact_original_8node_source_receiver_modal_coupling",
+    "no_other_numerical_scheme_or_source": true
+  },
+  "verification": {
+    "each_grid_full_signed_mode_sum_matches_archived_raw_native_full_wave_relative_max": 0.000002,
+    "each_grid_exact_three_time_terms_recombine_finite_record_relative_max": 2e-10,
+    "all_band_mode_counts_equal_original_connected_graph": true,
+    "spectral_band_and_time_term_sum_match_full_relative_max": 2e-10,
+    "all_four_adjacent_pairs_scored_original_metrics": true,
+    "store_all_frequency_bin_signed_component_deltas_and_full_metric": true,
+    "include_per_band_high_freq_contribution_and_complex_cancellation": true,
+    "do_not_score_time_components_as_alternate_original_solvers": true,
+    "noncausal_infinite_steady_state_not_claimed": true
+  },
+  "limits": {
+    "new_native_pffdtd_runs": 0,
+    "new_github_actions_runs": 0,
+    "max_grid_cases": 5,
+    "clean_scratch": false
+  },
+  "authority": {
+    "canonical_original_q0": "SELF_CONVERGENCE_FAILED",
+    "independent_physics": "NOT_VALIDATED",
+    "product": "NO_GO",
+    "pr_draft": true,
+    "issue_open": true
+  }
+}

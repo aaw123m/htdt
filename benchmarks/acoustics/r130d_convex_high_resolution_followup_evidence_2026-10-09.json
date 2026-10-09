@@ -1,0 +1,311 @@
+{
+  "schema_version": "htdt.r130d.experimental-convex-high-fv-evidence-1",
+  "plan": {
+    "schema_version": "htdt.r130d.convex-high-resolution-preregistered-followup-1",
+    "issue": 938,
+    "reference_first_study": "benchmarks/acoustics/r130d_convex_multiplane_cutcell_evidence_2026-10-09.json",
+    "purpose": "Refine independent cut-cell FV convex multi-plane Gaussian source wave solution n20->24->28->32 to compare with pinned independent MFEM r4; report all bins and all shapes",
+    "cases": [
+      {
+        "name": "planar_wedge",
+        "planes": [
+          [
+            0,
+            0.25,
+            1,
+            4
+          ],
+          [
+            1,
+            1,
+            0,
+            6
+          ]
+        ],
+        "volume_m3": 49.666666666666664
+      },
+      {
+        "name": "three_axis_diagonal",
+        "planes": [
+          [
+            1,
+            1,
+            1,
+            8
+          ]
+        ],
+        "volume_m3": 53.333333333333336
+      }
+    ],
+    "fv_refinement": [
+      20,
+      24,
+      28,
+      32
+    ],
+    "new_grid_levels": [
+      24,
+      28,
+      32
+    ],
+    "source_xyz_m": [
+      1.5,
+      2,
+      2
+    ],
+    "receiver_xyz_m": [
+      2.5,
+      2,
+      2
+    ],
+    "c_m_s": 343.2,
+    "rho_kg_m3": 1.2,
+    "Gaussian_q": {
+      "center_s": 0.012,
+      "sigma_s": 0.003,
+      "dt_s": 0.00025,
+      "steps": 1000,
+      "duration_s": 0.25,
+      "frequencies_hz": [
+        40,
+        80
+      ],
+      "time_integrated_actual": true
+    },
+    "metrics": [
+      "complex_l2_relative",
+      "magnitude_max_relative",
+      "phase_max_deg"
+    ],
+    "limits_unchanged": {
+      "fv_complex_rms_relative_max": 0.2,
+      "fv_magnitude_max_relative": 0.25,
+      "fv_phase_max_deg": 15,
+      "cross_complex_relative_max": 0.35,
+      "cross_magnitude_relative_max": 0.4,
+      "cross_magnitude_max_db": 3,
+      "cross_phase_max_deg": 25
+    },
+    "max_total_voxels": 40000,
+    "empty_or_tiny_cut_cell": "reject if resolvable air volume below 1e-12 fraction, never delete",
+    "fail_closed": {
+      "production_enabled": false,
+      "original_r130d_impulse": "SELF_CONVERGENCE_FAILED",
+      "wedge_diagonal_independent_cross_solver": "PENDING_MFEM_R4",
+      "general_cad": "NOT_VALIDATED",
+      "external_measurement": "NOT_VALIDATED"
+    }
+  },
+  "original_evidence_name": "r130d_convex_multiplane_cutcell_evidence_2026-10-09.json",
+  "actual_time_domain_source": true,
+  "cases": [
+    {
+      "name": "planar_wedge",
+      "history": [
+        {
+          "n": 20,
+          "dofs": 6464,
+          "complex_transfer_40_80_hz": [
+            [
+              -33.6177246046077,
+              37.71525945317806
+            ],
+            [
+              12.149752136019503,
+              -61.50331445140149
+            ]
+          ],
+          "air_volume_m3": 49.666666666666686,
+          "previously_executed_frozen_level": true
+        },
+        {
+          "n": 24,
+          "dofs": 11096,
+          "complex_transfer_40_80_hz": [
+            [
+              -33.341704624679586,
+              37.461096751339134
+            ],
+            [
+              9.446543196332842,
+              -63.87462022320624
+            ]
+          ],
+          "air_volume_m3": 49.66666666666666,
+          "minimum_fluid_fraction": 0.08333333333333291,
+          "normalized_neumann_residual": 1.235451206216179e-16,
+          "seconds": 11.903563200030476,
+          "previously_executed_frozen_level": false
+        },
+        {
+          "n": 28,
+          "dofs": 17537,
+          "complex_transfer_40_80_hz": [
+            [
+              -33.32062713966172,
+              38.02161491796106
+            ],
+            [
+              7.511952874317249,
+              -63.91503308803071
+            ]
+          ],
+          "air_volume_m3": 49.66666666666668,
+          "minimum_fluid_fraction": 0.08333333333333401,
+          "normalized_neumann_residual": 1.441359740585543e-16,
+          "seconds": 24.779358300147578,
+          "previously_executed_frozen_level": false
+        },
+        {
+          "n": 32,
+          "dofs": 26084,
+          "complex_transfer_40_80_hz": [
+            [
+              -33.183890596062284,
+              37.84690589127683
+            ],
+            [
+              6.342757481182373,
+              -64.84896117710615
+            ]
+          ],
+          "air_volume_m3": 49.666666666666664,
+          "minimum_fluid_fraction": 0.08333333333333333,
+          "normalized_neumann_residual": 8.236341374774537e-17,
+          "seconds": 40.18031130009331,
+          "previously_executed_frozen_level": false
+        }
+      ],
+      "adjacent": [
+        {
+          "coarse_n": 20,
+          "fine_n": 24,
+          "complex_l2_relative": 0.04422145509325015,
+          "magnitude_max_relative": 0.02907689632202377,
+          "phase_max_deg": 2.7620837712925614
+        },
+        {
+          "coarse_n": 24,
+          "fine_n": 28,
+          "complex_l2_relative": 0.024617770842539737,
+          "magnitude_max_relative": 0.008034198845098983,
+          "phase_max_deg": 1.7093674621005002
+        },
+        {
+          "coarse_n": 28,
+          "fine_n": 32,
+          "complex_l2_relative": 0.018373129576068153,
+          "magnitude_max_relative": 0.012330710191881646,
+          "phase_max_deg": 1.1170116541233095
+        }
+      ],
+      "complex_l2_monotone": true
+    },
+    {
+      "name": "three_axis_diagonal",
+      "history": [
+        {
+          "n": 20,
+          "dofs": 6860,
+          "complex_transfer_40_80_hz": [
+            [
+              -34.5713370485205,
+              49.600715976479776
+            ],
+            [
+              982.2339752134476,
+              -368.40135096944056
+            ]
+          ],
+          "air_volume_m3": 53.33333333333336,
+          "previously_executed_frozen_level": true
+        },
+        {
+          "n": 24,
+          "dofs": 11800,
+          "complex_transfer_40_80_hz": [
+            [
+              -35.14882922622788,
+              49.51615758152965
+            ],
+            [
+              955.7573172543741,
+              -419.2627658346717
+            ]
+          ],
+          "air_volume_m3": 53.33333333333332,
+          "minimum_fluid_fraction": 0.16666666666666624,
+          "normalized_neumann_residual": 1.235451206216179e-16,
+          "seconds": 13.558396399952471,
+          "previously_executed_frozen_level": false
+        },
+        {
+          "n": 28,
+          "dofs": 18676,
+          "complex_transfer_40_80_hz": [
+            [
+              -35.65017238934948,
+              50.27850769909948
+            ],
+            [
+              944.272391218778,
+              -449.7238618261737
+            ]
+          ],
+          "air_volume_m3": 53.333333333333336,
+          "minimum_fluid_fraction": 0.16666666666666646,
+          "normalized_neumann_residual": 1.6215297081587361e-16,
+          "seconds": 23.705945199821144,
+          "previously_executed_frozen_level": false
+        },
+        {
+          "n": 32,
+          "dofs": 27808,
+          "complex_transfer_40_80_hz": [
+            [
+              -35.77428323229162,
+              50.20538938249394
+            ],
+            [
+              931.3463756309627,
+              -468.52748655343476
+            ]
+          ],
+          "air_volume_m3": 53.333333333333336,
+          "minimum_fluid_fraction": 0.16666666666666666,
+          "normalized_neumann_residual": 3.088628015540451e-17,
+          "seconds": 42.32510820007883,
+          "previously_executed_frozen_level": false
+        }
+      ],
+      "adjacent": [
+        {
+          "coarse_n": 20,
+          "fine_n": 24,
+          "complex_l2_relative": 0.05485084390048278,
+          "magnitude_max_relative": 0.00515074085961921,
+          "phase_max_deg": 3.1263570393734446
+        },
+        {
+          "coarse_n": 24,
+          "fine_n": 28,
+          "complex_l2_relative": 0.031083991393976374,
+          "magnitude_max_relative": 0.014794499168403656,
+          "phase_max_deg": 1.7811689378451123
+        },
+        {
+          "coarse_n": 28,
+          "fine_n": 32,
+          "complex_l2_relative": 0.021848794342432754,
+          "magnitude_max_relative": 0.0032047594530748807,
+          "phase_max_deg": 1.2385302884785232
+        }
+      ],
+      "complex_l2_monotone": true
+    }
+  ],
+  "production_enabled": false,
+  "original_r130d_impulse": "SELF_CONVERGENCE_FAILED",
+  "independent_cross_solver_new_geometries": "PENDING_MFEM_R4",
+  "physical_validation": "NOT_VALIDATED"
+}

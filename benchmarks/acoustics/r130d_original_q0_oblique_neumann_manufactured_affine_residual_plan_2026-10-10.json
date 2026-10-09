@@ -1,0 +1,74 @@
+{
+  "schema_version": "htdt.r130d.original-native-oblique-roof-affine-harmonic-operator-consistency-plan-1",
+  "created_jst": "2026-10-10",
+  "issue": 938,
+  "pr": 1055,
+  "goal": "Independent manufactured harmonic exact true-roof Neumann consistency comparison: apply untouched ORIGINAL PFFDTD HDF5 boundary stencil (6 Cartesian axes) to true physical roof-tangential affine u(y,z)=y-0.25*z with Δu=0 and n_roof·grad u=0; independently apply exact physical cut-Cartesian-Q1 weak stiffness Kyz to SAME affine nodal values at genuine near-roof FE basis DOFs with supports only touching inclined roof. Report actual native h-scaled strong residual of original staircase near roof vs small true-cut Q1 weak residual on 5 original PPW28/32/36/40/44. NOT identical norms/units; compare their individually correct consistency properties, not magnitude as though comparable physical fluxes. Maintain original 250ms q0 full signed gates unchanged.",
+  "original": {
+    "pffdtd_pin": "aa319f6c86517cb95aabfae8656277da62c3ead5",
+    "ppw": [
+      28,
+      32,
+      36,
+      40,
+      44
+    ],
+    "original_HDF5_evidence": "benchmarks/acoustics/r130d_original_point_quadratic_pffdtd_evidence_2026-10-09.json",
+    "original_roof_first_reflection_evidence": "benchmarks/acoustics/r130d_original_q0_first_roof_echo_causal_weak_evidence_2026-10-09.json",
+    "original_full_Q1_cut_evidence": "benchmarks/acoustics/r130d_original_q0_exact_roof_cut_Q1_variational_evidence_2026-10-09.json",
+    "unchanged_real_8_source_8_receiver_native_weights_indices_SHA": true,
+    "unchanged_full_250ms_q0_40_80_signed": true,
+    "original_40_80_full250ms_frozen_gates": [
+      0.2,
+      0.25,
+      15
+    ],
+    "preserve_original_physical_room_56m3": true,
+    "no_native_pffdtd_rerun": true
+  },
+  "manufactured": {
+    "true_physical_room_2D": "0<y<4, 0<z<4−0.25y; x∈[0,4]",
+    "affine_roof_tangent_u": "u=y−0.25z, grad_yz=(1,−.25), Δu=0, true roof n=(.25,1)/sqrt(1.0625), n·grad=0",
+    "original_native_6direction_adjacency_order": [
+      "+x",
+      "-x",
+      "+y",
+      "-y",
+      "+z",
+      "-z"
+    ],
+    "original_native_active_roof_node_selection": "from actual vox_out.h5 bn_ixyz/adj_bn. x at least 1 interior layer from halo, native resident physical point wet, y∈(2h,4−2h), z>2h, roof distance 0≤4−.25y−z≤2h, missing +y/+z neighbor beyond true roof, at least 1 such neighbor",
+    "strong_native_PFFDTD_axial_graph_laplacian_residual": "[adj(+y)−adj(−y)−.25*(adj(+z)−adj(−z))]/h, since each neighbor axial difference in u is +/-h or +/-0.25h; interior finite difference Δu=0. This yields residual in 1/m. No physical flux-face integral claim.",
+    "true_roof_Q1_fem": "The same y,z original Cartesian coordinates and original bilinear Q1 physical cut polygon (no small-cell removal, exact positive degree4 triangle quadrature); Kyz=c²∫true wet ∇Ni·∇Nj; apply affine u[y,z] directly to ALL active roof Q1 nodes. For nodes within original stencil selection, their bilinear shape support is strictly interior to y=0/4 and z=0 boundaries so the weak normal flux residual must be zero by Green identity; no computed correction fit.",
+    "report_original_native_strong_laplacian_residual_RMS_peak_and_1over_h_scaled": true,
+    "report_exact_cutQ1_manufactured_weak_residual_abs_RMS_peak": true,
+    "original_native_road_guard": "Don't equate strong pointwise discrete Laplacian (1/m) to FEM weighted stiffness row (c²×m). Results show mathematical consistency individually.",
+    "report_no_canonical_actual_full_wave_CAUSAL_PROOF": true
+  },
+  "validation": {
+    "positive_56m3_physical_cut_Q1_volume": true,
+    "actual_SHA_original_raw_Neumann_boundary_graph_and_native_q0_full_wave": true,
+    "actual_original_native_h_ts_Nt_each_ppw": true,
+    "manufactured_gradient_normal_exact_zero": true,
+    "independent_Q1_affine_reproduction_not_merely_K1": true,
+    "strict_original_roof_nearfield_node_localization_and_control_interior_residual_zero": true,
+    "all_five_grid_counterexamples_without_best_choice": true,
+    "unchanged_original_complete_250ms_signed_40_80_recomputed_each_original_HDF5": true,
+    "all_four_original_250ms_pairs_frozen_3gates_fail": true,
+    "no_new_wave_runs_no_github_actions": true
+  },
+  "limits": {
+    "max_ppws": 5,
+    "max_active_yz_nodes": 3300,
+    "no_new_pffdtd_wave_runs": 0,
+    "no_github_actions": 0,
+    "preserve_scratch": true
+  },
+  "release": {
+    "canonical_original": "SELF_CONVERGENCE_FAILED",
+    "independent_physics": "NOT_VALIDATED",
+    "product": "NO_GO",
+    "PR_draft": true,
+    "issue_open": true
+  }
+}

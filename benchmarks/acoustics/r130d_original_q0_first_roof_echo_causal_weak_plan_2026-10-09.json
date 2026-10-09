@@ -1,0 +1,93 @@
+{
+  "schema_version": "htdt.r130d.original-q0-first-roof-echo-causal-weak-plan-1",
+  "created_jst": "2026-10-09",
+  "issue": 938,
+  "pr": 1055,
+  "hypothesis": "First true sloping-roof Neumann image arrival in original unmodified PFFDTD q0 wave shows larger or nonmonotonic grid sensitivity than independently validated pre-echo direct arrival, potentially localizing broadband late-room nonconvergence near staircase sloped-boundary reflection; diagnostic only, never replace original full 250ms signed 40/80Hz three gates.",
+  "previously_observed": {
+    "corrected_direct_causal_evidence": "benchmarks/acoustics/r130d_original_q0_causal_prefirst_green_normalization_evidence_2026-10-09.json",
+    "direct_causal_previously_observed_before_this_plan": true,
+    "previous_wrong_c_squared_analytic_experiment_invalid": true,
+    "preexisting_exact_roof_first_image_reference": "benchmarks/acoustics/r130d_original_q0_continuum_retarded_green_evidence_2026-10-09.json"
+  },
+  "unchanged_original": {
+    "original_PFFDTD_pin": "aa319f6c86517cb95aabfae8656277da62c3ead5",
+    "ppw": [
+      28,
+      32,
+      36,
+      40,
+      44
+    ],
+    "source_xyz": [
+      1.5,
+      2,
+      2
+    ],
+    "receiver_xyz": [
+      2.5,
+      2,
+      2
+    ],
+    "original_eight_source_and_eight_receiver_SHA_HDF5_indices_weights_unchanged": true,
+    "q0_first_native_sample_one_and_all_later_zero": true,
+    "original_native_h_dt_Nt_and_comms": true,
+    "c": 343.2,
+    "rho": 1.2,
+    "original_full_record_s": 0.25,
+    "original_signed_bins_hz": [
+      40,
+      80
+    ],
+    "full_original_complex_gate": 0.2,
+    "full_original_magnitude_gate": 0.25,
+    "full_original_phase_deg_gate": 15,
+    "unchanged_full_original_upstream_PFFDTD_self_convergence_failed": true
+  },
+  "diagnostic": {
+    "roof_face_plane": "z=4−0.25y true physical Neumann finite planar wall, mirrored source and finite-foot specular hit required for each original 8x8 pair",
+    "true_physical_source_receiver_earliest_roof_echo_s": 0.0089668767033651,
+    "unmodified_physical_point_direct_s": 0.002913752913752914,
+    "nonroof_earliest_point_first_wall_reflection_s": 0.011655011655011656,
+    "physical_support_center_s": 0.0089668767033651,
+    "physical_support_radius_s": 0.0011,
+    "expected_support_upper_s": 0.0100668767033651,
+    "new_widths_s": [
+      0.00035,
+      0.0006,
+      0.00085
+    ],
+    "same_compact_Cinfty_odd_witness": "w=(t-roof_tau)/sigma*exp(-0.5*((t-roof_tau)/sigma)**2)*exp(1-1/(1-((t-roof_tau)/R)**2)) for |t-roof_tau|<R else 0; derivative exact",
+    "true_neumann_roof_reflection_sign": "+1",
+    "causal_analytic_8node_roof": "-rho * sum_i_j sw_i rw_j w'(distance(image_roof(src_i),rec_j)/c)/(4π distance), but only valid specular feet within the original TRUE finite roof face",
+    "normalize_original_q0_no_fit": "native q_n=[1,0,..], normalized W = sum_n p_n w(n*dt), since original dt factors cancel, continuum fundamental for ((1/c²)∂t²−Δ) has NO extra c²",
+    "original_raw_pressure": "same native 8 u_out channels, same original out_alpha, same pressure forward/center/backward native derivative, exact all original 250ms raw p unmodified",
+    "physical_interpretation_limitation": "native waveform near roof echo may retain a numerical dispersive tail of direct arrival and edge/multibounce contributions; do not assert full waveform decomposes exactly into one image",
+    "check_all_other_nonroof_finite_specular_64pair_reflections_arrive_strictly_after_upper_support": true,
+    "full_unmodified_250ms_original_signed_40_80_replay_2e_minus6": true,
+    "negative_control_earlier_before_1p5ms_optional": true,
+    "retain_all_true_high_frequency_native_modes_and_unfavorable_results": true
+  },
+  "comparison": {
+    "report_5grid_per_width_native_vs_analytic_roof_signed_ratios_and_errors": true,
+    "report_5grid_8node_direct_test_as_existing_observed_control_not_recomputed_fit": true,
+    "all_four_grid_pairs_original_full250ms_complex_magnitude_phase_frozen": true,
+    "report_nonroof_earliest_finitewall_64pair_s": true,
+    "report_original_eightnode_source_receiver_geometric_shas": true,
+    "no_new_numerical_method_qualified_or_product_release": true
+  },
+  "limits": {
+    "max_ppw_cases": 5,
+    "max_roof_weak_widths": 3,
+    "new_native_upstream_PFFDTD_wave_runs": 0,
+    "new_GitHub_Actions_runs": 0,
+    "preserve_scratch": true
+  },
+  "authority": {
+    "original_UPSTREAM_PFFDTD_q0": "SELF_CONVERGENCE_FAILED",
+    "independent_BRAS_MFEM_room": "NOT_VALIDATED",
+    "product": "NO_GO",
+    "pr_draft": true,
+    "issue_open": true
+  }
+}

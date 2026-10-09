@@ -1,0 +1,76 @@
+name: R130D original pinned PFFDTD rigid-Neumann room-graph symmetry audit
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/r130d-original-pffdtd-neumann-graph-audit.yml'
+      - 'benchmarks/acoustics/r130d_original_pffdtd_neumann_graph*'
+      - 'scripts/run_r130d_original_pffdtd_neumann_graph_audit.py'
+      - 'backend/tests/test_r130d_original_pffdtd_neumann_graph.py'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  original-neumann-graph-provenance-no-go:
+    runs-on: windows-2022
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+        name: Checkout preregistered original graph and numerical evidence
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install independent graph and HDF5 test dependencies
+        run: |
+          python -m pip install --disable-pip-version-check numpy==1.26.4 scipy==1.14.1 h5py==3.11.0 pytest==8.4.2 pydantic==2.11.9
+          if ($LASTEXITCODE -ne 0) { throw 'original boundary evidence test dependencies failed' }
+      - name: Fail-closed original room graph completeness and synthetic asymmetry tests
+        env:
+          PYTHONUTF8: '1'
+        run: |
+          New-Item -ItemType Directory -Force scratch/tests | Out-Null
+          Copy-Item backend/tests/test_r130d_original_pffdtd_neumann_graph.py scratch/tests/
+          $env:PYTHONPATH = Join-Path $pwd 'backend/src'
+          python -m pytest -q scratch/tests/test_r130d_original_pffdtd_neumann_graph.py --tb=short
+          if ($LASTEXITCODE -ne 0) { throw 'original raw Neumann graph provenance or asymmetry-detection failure' }
+      - name: Validate all five full saved native PFFDTD graph numerical checks
+        run: |
+          @'
+          import json,hashlib,math
+          from pathlib import Path
+          root=Path('benchmarks/acoustics')
+          planraw=(root/'r130d_original_pffdtd_neumann_graph_plan_2026-10-09.json').read_bytes()
+          plan=json.loads(planraw)
+          d=json.loads((root/'r130d_original_pffdtd_neumann_graph_evidence_2026-10-09.json').read_text())
+          other=json.loads((root/'r130d_original_point_quadratic_pffdtd_evidence_2026-10-09.json').read_text())
+          assert d['plan_sha256_lf']==hashlib.sha256(planraw.replace(b'\r\n',b'\n')).hexdigest()
+          assert d['preregistered_plan']==plan
+          assert d['pinned_unmodified_upstream']==plan['geometry_source']['pin_upstream_sha']
+          assert len(d['actual_original_voxel_grid_audits'])==5
+          assert [x['ppw'] for x in d['actual_original_voxel_grid_audits']]==[28,32,36,40,44]
+          for row,ctrl in zip(d['actual_original_voxel_grid_audits'],other['actual_native_wave_cases']):
+              assert row['ppw']==ctrl['ppw']
+              assert row['original_exact_voxel_sha256']==ctrl['original_solver_geometry_sha256']
+              assert row['source_connected_room_nodes']>30000
+              assert row['source_connected_boundary_nodes']>5000
+              assert row['unreciprocated_directed_room_edge_count']==0
+              assert row['max_native_constant_field_row_sum_abs']==0
+              assert row['max_original_numba_vs_independent_boundary_row_action_abs']<1e-10
+              assert row['native_operator_relative_bilinear_skew']<1e-10
+              assert row['any_operator_self_adjointness_defect']=={
+                  'unreciprocated_room_edges':False,
+                  'nonzero_native_kernel_difference':False,
+                  'nonzero_relative_bilinear_skew':False}
+          assert d['all_five_native_original_room_graphs_have_zero_unreciprocated_edges'] is True
+          assert d['all_five_native_kernel_probe_reconstructions_match'] is True
+          assert d['original_fullband_q0']=='SELF_CONVERGENCE_FAILED'
+          assert d['physical_validation']=='NOT_VALIDATED'
+          assert d['production_ready'] is False
+          assert d['upstream_pffdtd_source_changed'] is False
+          print('PASS archived five actual original PFFDTD raw mask graph numerical audits, preserve canonical original nonconvergence')
+          '@ | python -
+          if ($LASTEXITCODE -ne 0) { throw 'original pinned raw PFFDTD graph evidence or NO_GO drift' }
+      # Exact original five HDF5 voxel masks are external preexisting assets.
+      # This CI tests archived raw SHA-bound values, not real HDF5 kernel rerun.

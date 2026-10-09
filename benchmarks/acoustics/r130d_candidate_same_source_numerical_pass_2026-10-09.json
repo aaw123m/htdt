@@ -1,0 +1,67 @@
+{
+  "gate": {
+    "candidate_numerical_evidence_state": "EXPERIMENTAL_CANDIDATE_NUMERICAL_PASS_ONLY",
+    "cross_solver_fine_fine_metrics": {
+      "complex_rms_relative": 0.0772155932015406,
+      "magnitude_max_db": 0.41986041255177653,
+      "magnitude_max_relative": 0.047188523848351746,
+      "phase_max_deg": 3.7356110173683494
+    },
+    "cross_solver_state": "CROSS_SOLVER_PASS_CANDIDATE_ONLY",
+    "fv_adjacent_metrics": [
+      {
+        "coarse": 20,
+        "complex_rms_relative": 0.06881918302799149,
+        "fine": 24,
+        "magnitude_max_db": 0.4229180865345791,
+        "magnitude_max_relative": 0.04752388087523236,
+        "phase_max_deg": 3.0811797911460475
+      },
+      {
+        "coarse": 24,
+        "complex_rms_relative": 0.037274670760885295,
+        "fine": 28,
+        "magnitude_max_db": 0.23817614511356947,
+        "magnitude_max_relative": 0.027048498235233295,
+        "phase_max_deg": 1.5814539162776278
+      },
+      {
+        "coarse": 28,
+        "complex_rms_relative": 0.025719470492134203,
+        "fine": 32,
+        "magnitude_max_db": 0.1410866601848685,
+        "magnitude_max_relative": 0.016111992603019227,
+        "phase_max_deg": 1.204616599064745
+      }
+    ],
+    "fv_self_state": "SELF_CONVERGENCE_PASS_CANDIDATE_ONLY",
+    "immutable_production_gate": {
+      "canonical_r130d_impulse": "SELF_CONVERGENCE_FAILED",
+      "physical_validation": "NOT_VALIDATED",
+      "production_enabled": false
+    },
+    "mfem_adjacent_metrics": [
+      {
+        "coarse": 2,
+        "complex_rms_relative": 0.18141276858099634,
+        "fine": 3,
+        "magnitude_max_db": 0.6738063351504014,
+        "magnitude_max_relative": 0.08066308588223597,
+        "phase_max_deg": 9.255942248265105
+      },
+      {
+        "coarse": 3,
+        "complex_rms_relative": 0.006040411515050781,
+        "fine": 4,
+        "magnitude_max_db": 0.06191981903547195,
+        "magnitude_max_relative": 0.007154252872381452,
+        "phase_max_deg": 0.48576486767698185
+      }
+    ],
+    "mfem_self_state": "SELF_CONVERGENCE_PASS_CANDIDATE_ONLY"
+  },
+  "original_frozen_r130d_still_failed": true,
+  "plan": "r130d_candidate_same_source_numerical_acceptance_plan_2026-10-09.json",
+  "production_ready": false,
+  "schema_version": "htdt.r130d.candidate-same-source-numerical-gate-evidence-1"
+}
