@@ -617,9 +617,12 @@ def write_handoff_package(
     }
     # #989 export preflight: members the review excluded are dropped
     # before the manifest is rendered, so the manifest's digests always
-    # describe exactly the shipped set — never a withheld file.
+    # describe exactly the shipped set — never a withheld file. They
+    # leave the filename map too: staged/promote iterate it, so a key
+    # still listed there would KeyError on its missing content.
     for excluded_key in exclude_members:
         member_contents.pop(excluded_key, None)
+        member_filenames.pop(excluded_key, None)
     manifest_content = render_handoff_manifest_json(
         handoff,
         files={

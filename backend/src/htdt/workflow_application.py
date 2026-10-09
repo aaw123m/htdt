@@ -2556,7 +2556,9 @@ class WorkflowApplicationComposition:
             destination=selected,
             written_members=list(write_plan.member_names()),
         )
-        self._last_export_preflight = (preflight, scope, selected)
+        self._last_export_preflight = (
+            preflight, scope, selected, list(write_plan.member_names())
+        )
         # Runs on the bundle worker pool — a large project's snapshot
         # + zip walk used to freeze the UI thread for tens of seconds
         # (#REV19). The pool relays the completion onto the UI thread, so
@@ -2661,15 +2663,16 @@ class WorkflowApplicationComposition:
 
         if not preflight_state:
             return []
-        preflight, scope, destination = preflight_state
-        lines: list[str] = []
-        try:
+        preflight, scope, destination, expected = preflight_state
+        if expected is None:
             payload = preflight.payload
             expected = (
                 list(payload.member_names())
                 if hasattr(payload, 'member_names')
                 else preflight.expected_member_names()
             )
+        lines: list[str] = []
+        try:
             inspection = inspect_exported(
                 Path(destination), expected_members=expected
             )
@@ -5683,7 +5686,11 @@ class WorkflowApplicationComposition:
                 self.shell, "設置ハンドオフを書き出せませんでした", exc
             )
             return
-        self._last_export_preflight = (*self._last_export_preflight, directory)
+        self._last_export_preflight = (
+            *self._last_export_preflight,
+            directory,
+            [path.name for path in outputs.values()],
+        )
         box = QMessageBox(self.shell)
         box.setWindowTitle("設置ハンドオフを書き出しました")
         box.setIcon(QMessageBox.Icon.Information)
@@ -6153,13 +6160,19 @@ class WorkflowApplicationComposition:
             )
         preflight_state = getattr(self, '_analysis_export_preflight', None)
         if preflight_state:
-            preflight, directory = preflight_state
+            preflight, _directory = preflight_state
+            scope = (
+                self._last_export_preflight[1]
+                if isinstance(self._last_export_preflight, tuple)
+                else 'external_review'
+            )
+            # Inspect the generation dir itself — the writer nests
+            # output under <chosen>/analysis-N/, and the chosen parent
+            # mixes other exports.
+            generation_dir = result.written[0].parent
             self._last_export_preflight = (
-                preflight,
-                getattr(self, '_last_export_preflight', (None, None))[1]
-                if isinstance(getattr(self, '_last_export_preflight', None), tuple)
-                else 'external_review',
-                directory,
+                preflight, scope, generation_dir,
+                [path.name for path in result.written],
             )
             details.extend(
                 self._export_postcheck(self._last_export_preflight)

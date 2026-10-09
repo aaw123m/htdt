@@ -263,12 +263,96 @@ def test_inspection_member_mismatch(tmp_path):
     extra = tmp_path / 'dir' / 'a.txt'
     extra.parent.mkdir()
     extra.write_text('ok', encoding='utf-8')
-    (tmp_path / 'dir' / 'unexpected.bin').write_bytes(b'\x00\x01')
     result = inspect_exported(
-        tmp_path / 'dir', expected_members=['a.txt'], scan_text=False
+        tmp_path / 'dir', expected_members=['a.txt', 'missing.txt'],
+        scan_text=False,
     )
     assert result['verdict'] == 'member_mismatch'
-    assert 'unexpected.bin' in result['unexpected_members']
+    assert 'missing.txt' in result['missing_members']
+
+
+def test_inspection_ignores_unrelated_dir_contents(tmp_path):
+    """A chosen export dir mixes prior exports — only the declared
+    member set is attributable, so unrelated files never mismatch."""
+    directory = tmp_path / 'shared'
+    directory.mkdir()
+    (directory / 'export.csv').write_text('a,b', encoding='utf-8')
+    (directory / 'other-project-backup.zip').write_bytes(b'\x00')
+    result = inspect_exported(
+        directory, expected_members=['export.csv'], scan_text=False
+    )
+    assert result['verdict'] == 'ok'
+
+
+def test_handoff_write_package_with_exclusion(tmp_path):
+    """#989 regression: excluding a member must not KeyError in the
+    staged/promote loop, and the manifest digests describe the shipped
+    set only."""
+    from htdt.cad_scene import quaternion_from_euler_deg
+    from htdt.cad_system_variant import (
+        ChannelRoleBinding,
+        ProposedEntitySpec,
+        build_system_variant,
+    )
+    from htdt.cad_system_variant_repository import (
+        CadSystemVariantRepository,
+    )
+    from htdt.installation_handoff import (
+        build_installation_handoff,
+        write_handoff_package,
+    )
+    from htdt.installation_output_authority import (
+        InstallationReportService,
+    )
+
+    repository, head = _seed(tmp_path)
+    changed = head.document.entity('speaker-fl').model_copy(
+        update={
+            'orientation': quaternion_from_euler_deg(
+                yaw_deg=12.0, pitch_deg=-4.0, roll_deg=0.0
+            )
+        }
+    )
+    variant = build_system_variant(
+        baseline=head,
+        name='install variant',
+        role_bindings=(
+            ChannelRoleBinding(role_id='FL', display_name='Front Left'),
+        ),
+        proposed_entities=(
+            ProposedEntitySpec(
+                spec_id='speaker-fl-pose',
+                entity=changed,
+                role_binding_id='FL',
+            ),
+        ),
+        created_at_utc='2026-10-09T00:00:00+00:00',
+    )
+    variant_repository = CadSystemVariantRepository(repository)
+    variant_repository.save_variant(variant)
+    service = InstallationReportService(
+        scene_repository=repository,
+        system_variant_repository=variant_repository,
+    )
+    handoff = build_installation_handoff(
+        service,
+        scene_revision_id=head.revision_id,
+        system_variant_id=variant.variant_id,
+        generated_at_utc='2026-10-09T01:00:00+00:00',
+    )
+    outputs = write_handoff_package(
+        handoff, tmp_path / 'handoff',
+        exclude_members=frozenset({'report'}),
+    )
+    names = {path.name for path in outputs.values()}
+    assert 'installation_report.html' not in names
+    assert 'handoff_manifest.json' in names
+    manifest = json.loads(
+        outputs['manifest'].read_text(encoding='utf-8')
+    )
+    shipped = {entry['name'] for entry in manifest['files']}
+    assert 'installation_report.html' not in shipped
+    assert 'dimension_sheets.csv' in shipped
 
 
 # -- dialog -------------------------------------------------------------------

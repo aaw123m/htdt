@@ -740,14 +740,19 @@ def inspect_exported(
                                     {'member': name, 'flags': list(flags)}
                                 )
         elif destination.is_dir():
+            # A chosen export directory mixes previous outputs — only
+            # the writer's declared member set is attributable to this
+            # export, so expected_members IS the member list: verify
+            # presence and scan those files; unrelated files in the
+            # directory are not "unexpected".
             actual = sorted(
-                str(child.relative_to(destination)).replace('\\', '/')
-                for child in destination.rglob('*')
-                if child.is_file()
+                name for name in expected_members
+                if (destination / name).is_file()
             )
             if scan_text:
-                for child in destination.rglob('*'):
-                    if child.is_file() and child.suffix in (
+                for name in actual:
+                    child = destination / name
+                    if child.suffix in (
                         '.jsonl', '.json', '.csv', '.html', '.txt'
                     ):
                         text = child.read_text(
