@@ -313,6 +313,7 @@ from .system_expansion_workflow import SystemExpansionWorkflowService
 from .system_expansion_widgets import SystemExpansionRoomPanel
 from .standards_workspace import StandardsCriterionPanel
 from .installation_panel import InstallationPanel
+from .rack_workspace import RackWorkspacePanel
 from .length_spinbox import MetricSpinBox, PendingTextSpinBox
 from .room_lighting_panel import RoomLightingPreviewPanel
 from .room_lighting_preview import build_lighting_scene_preview
@@ -4354,6 +4355,12 @@ class RoomWorkspace(QWidget):
             self.system_expansion.equipment_repository,
             document_id,
         )
+        # #1012: ラック配置ワークスペース — the #562 rack authority's 2D RU
+        # elevation + fit surface; lives with the equipment-assignment
+        # context like the installation writers above it.
+        self.rack_workspace_panel = RackWorkspacePanel(
+            repository, document_id
+        )
         placement_body = QWidget()
         placement_layout = QVBoxLayout(placement_body)
         placement_layout.setContentsMargins(0, 0, 0, 0)
@@ -4365,6 +4372,7 @@ class RoomWorkspace(QWidget):
         placement_layout.addWidget(self.seat_priority_panel)
         placement_layout.addWidget(self.standards_panel)
         placement_layout.addWidget(self.installation_panel)
+        placement_layout.addWidget(self.rack_workspace_panel)
         placement_layout.addStretch(1)
         # Narrow-column safety: every combo in this column shrinks to a short
         # minimum, every line edit and spin box may squeeze below its size
@@ -5963,6 +5971,7 @@ class RoomWorkspace(QWidget):
             self.standards_panel.refresh_targets()
             self.standards_panel.refresh()
             self.installation_panel.refresh()
+            self.rack_workspace_panel.refresh()
             self._sync_constraints_panel()
             self._sync_video_panel()
             self._sync_seat_priority_panel()
