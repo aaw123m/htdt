@@ -4611,6 +4611,10 @@ class WorkflowApplicationComposition:
                     focused=False,
                     message='対象のリビジョンが履歴にありません',
                 )
+            if target.kind is NavigationTargetKind.MEASUREMENT_CAMPAIGN:
+                # #1006: 「3Dで測定位置を確認」 — arm the read-only campaign
+                # overlay (design id or a selected cell's target entity).
+                return workspace.focus_campaign_overlay(target)
             entity_id = target.primary_id
             if target.kind is NavigationTargetKind.INSTALLED_EQUIPMENT_INSTANCE:
                 # Instances are their own authority; focus the bound scene
@@ -4656,6 +4660,7 @@ class WorkflowApplicationComposition:
                 NavigationTargetKind.SCENE_ENTITY,
                 NavigationTargetKind.SCENE_REVISION,
                 NavigationTargetKind.INSTALLED_EQUIPMENT_INSTANCE,
+                NavigationTargetKind.MEASUREMENT_CAMPAIGN,
             }),
             focus_target=focus_target,
         )

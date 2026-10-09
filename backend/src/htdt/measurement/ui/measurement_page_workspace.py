@@ -158,6 +158,7 @@ from ...ui_theme import (
     set_surface_role,
     set_typography_role,
 )
+from ...navigation_target import NavigationTargetKind
 from ...workflow_navigation import WorkspaceDeepLink, WorkspaceId
 from ...workflow_shell import WorkspaceFactory, WorkspaceMount
 from ...workspace_dirty_state import DirtyResolutionAction, WorkspaceDirtyState
@@ -3818,6 +3819,17 @@ class MeasurementPageWorkspace(QWidget):
         set_primary_action(self.campaign_open_button)
         self.campaign_open_button.clicked.connect(self._open_campaign_run)
         plan_row.addWidget(self.campaign_open_button)
+        # #1006: deep link into the room acoustics context — read-only
+        # markers for the sealed spatial design + executor progress.
+        self.campaign_3d_button = QPushButton("3Dで測定位置を確認", plan_card)
+        self.campaign_3d_button.setObjectName("campaign3dButton")
+        self.campaign_3d_button.setAccessibleName("測定位置を3Dで確認")
+        self.campaign_3d_button.setToolTip(
+            "空間キャンペーン計画の測定点・ホールドアウトと実行進捗を"
+            "部屋の3Dビューに表示します（読み取り専用）"
+        )
+        self.campaign_3d_button.clicked.connect(self._open_campaign_3d_view)
+        plan_row.addWidget(self.campaign_3d_button)
         plan_layout.addLayout(plan_row)
 
         builder_row = QHBoxLayout()
@@ -4831,6 +4843,63 @@ class MeasurementPageWorkspace(QWidget):
             return None
         value = item.data(Qt.ItemDataRole.UserRole)
         return int(value) if value is not None else None
+
+    def _open_campaign_3d_view(self) -> None:
+        """#1006 「3Dで測定位置を確認」 deep link → ROOM acoustics context.
+
+        Carries the selected cell's target entity so its joined marker is
+        emphasized (bounded marker↔cell sync); with no selection the
+        newest spatial design drives instead. Unknown/empty cases stay
+        honest — the room overlay surfaces its own notices.
+        """
+        focus_id: str | None = None
+        cell_index = self._selected_campaign_cell()
+        if cell_index is not None and self._campaign_run_id is not None:
+            plan = self.controller.runner_plan_for_run(self._campaign_run_id)
+            if plan is not None:
+                try:
+                    focus_id = plan.cell(cell_index).target_entity_id
+                except (KeyError, IndexError):
+                    focus_id = None
+        if focus_id is None:
+            try:
+                if self._spatial_campaign_repository is None:
+                    from ...cad_spatial_campaign_repository import (
+                        CadSpatialCampaignRepository,
+                    )
+
+                    self._spatial_campaign_repository = (
+                        CadSpatialCampaignRepository(
+                            self.controller.scene_repository
+                        )
+                    )
+                designs = self._spatial_campaign_repository.list_designs(
+                    self.controller.document_id
+                )
+                if designs:
+                    focus_id = designs[-1].design_id
+            except EXPECTED_OPERATION_ERRORS:
+                focus_id = None
+        if self._on_navigate is None:
+            self._set_notice(
+                "3D表示へのナビゲーションはこの環境では利用できません",
+                SemanticState.WARNING,
+            )
+            return
+        handled = self._on_navigate(
+            WorkspaceDeepLink(
+                WorkspaceId.ROOM,
+                'acoustics',
+                entity_id=focus_id,
+                kind=NavigationTargetKind.MEASUREMENT_CAMPAIGN,
+                intent='inspect',
+            )
+        )
+        if not handled:
+            self._set_notice(
+                "部屋3Dビューを開けませんでした",
+                SemanticState.WARNING,
+            )
 
     def _commit_campaign_cell(self) -> None:
         cell_index = self._selected_campaign_cell()

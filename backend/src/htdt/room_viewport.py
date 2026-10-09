@@ -1402,6 +1402,7 @@ class RoomViewport3D(QFrame):
         'treatment-overlay-',
         'cable-route-',
         'abdiff-',
+        'campaign-overlay-',
     )
 
     def _remove_overlay_actors(self) -> None:
@@ -2896,6 +2897,188 @@ class RoomViewport3D(QFrame):
                     border=False,
                     background_opacity=0.55,
                     name=f'{self._INSTALL_FEASIBILITY_PREFIX}legend',
+                )
+            finally:
+                self.plotter.suppress_rendering = False
+        self._render()
+
+    # -- 測定キャンペーン空間オーバーレイ (issue #1006) ----------------------
+    #
+    # Read-only read/select surface: SpatialCampaignDesign points at their
+    # exact declared XYZ on the CURRENT SceneRevision. Marker SHAPE carries
+    # the primary role (spatial holdout is a cube — it can never visually
+    # merge with the optimization sphere); a flat halo ring carries the
+    # executor progress channel; a stale-revision design draws dimmed
+    # wireframe with all progress/validity claims withheld (lapsed).
+    # Every actor is non-pickable — markers are an explanation surface,
+    # never an input device.
+
+    _CAMPAIGN_MARKER_RADIUS_M = 0.055
+    _CAMPAIGN_FOCUS_RADIUS_M = 0.08
+    _CAMPAIGN_LAPSED_COLOR = '#B09BC6'
+    _CAMPAIGN_FOCUS_COLOR = '#F2F5F8'
+
+    def clear_campaign_overlay(self) -> None:
+        """Drop every ``campaign-overlay-*`` actor."""
+        renderer = getattr(self.plotter, 'renderer', None)
+        actors = getattr(renderer, 'actors', None)
+        if not actors:
+            return
+        removed = False
+        for name in tuple(actors):
+            if isinstance(name, str) and name.startswith('campaign-overlay-'):
+                self.plotter.remove_actor(name)
+                removed = True
+        if removed:
+            self._render()
+
+    def _campaign_marker_mesh(self, marker, radius: float):
+        from .room_campaign_overlay import CAMPAIGN_ROLE_GLYPH
+
+        center = domain_to_render(marker.position)
+        if marker.glyph == 'cube':
+            return pv.Cube(
+                center=center,
+                x_length=radius * 2,
+                y_length=radius * 2,
+                z_length=radius * 2,
+            )
+        if marker.glyph == 'cone':
+            return pv.Cone(
+                center=center,
+                direction=(0.0, 0.0, 1.0),
+                height=radius * 2,
+                radius=radius,
+            )
+        if marker.glyph == 'disc':
+            return pv.Disc(
+                center=center,
+                inner=radius * 0.3,
+                outer=radius,
+                normal=(0.0, 0.0, 1.0),
+            )
+        if marker.glyph == 'cylinder':
+            return pv.Cylinder(
+                center=center,
+                direction=(0.0, 0.0, 1.0),
+                radius=radius * 0.55,
+                height=radius * 2,
+            )
+        if marker.glyph == 'diamond':
+            # Rotated cube ≈ octahedron silhouette — no exotic pv class.
+            mesh = pv.Cube(
+                center=center,
+                x_length=radius * 2,
+                y_length=radius * 2,
+                z_length=radius * 2,
+            )
+            mesh = mesh.rotate_z(45.0, point=center, inplace=False)
+            return mesh.rotate_x(54.7356, point=center, inplace=False)
+        # 'sphere' (optimization) and 'wireframe_sphere' (diagnostic)
+        return pv.Sphere(radius=radius, center=center)
+
+    def render_campaign_overlay(self, scene) -> None:
+        """Draw the read-only campaign spatial overlay (#1006).
+
+        ``scene`` is a ``CampaignOverlayScene`` — the Qt-free resolution
+        produced against the current head. ``None`` clears the overlay.
+        """
+        from .room_campaign_overlay import (
+            CAMPAIGN_PROGRESS_COLORS,
+            CAMPAIGN_ROLE_COLORS,
+        )
+
+        self.clear_campaign_overlay()
+        if scene is None:
+            return
+
+        for index, marker in enumerate(scene.markers):
+            center = domain_to_render(marker.position)
+            radius = (
+                self._CAMPAIGN_FOCUS_RADIUS_M
+                if marker.focused
+                else self._CAMPAIGN_MARKER_RADIUS_M
+            )
+            mesh = self._campaign_marker_mesh(marker, radius)
+            if scene.lapsed:
+                color = self._CAMPAIGN_LAPSED_COLOR
+                style = 'wireframe'
+            else:
+                color = CAMPAIGN_ROLE_COLORS.get(marker.primary_role, '#98A2AD')
+                style = 'wireframe' if marker.glyph == 'wireframe_sphere' else 'surface'
+            self.plotter.add_mesh(
+                mesh,
+                color=color,
+                opacity=0.55 if scene.lapsed else 0.92,
+                lighting=style == 'surface',
+                style=style,
+                line_width=2,
+                pickable=False,
+                name=f'campaign-overlay-marker-{index}',
+                render=False,
+            )
+            # Progress channel: a flat halo ring in the progress color.
+            # Lapsed designs keep the ring but in the lapsed hue — the
+            # markers stay legible as a stale cluster, never as live
+            # progress.
+            ring_color = (
+                self._CAMPAIGN_LAPSED_COLOR
+                if scene.lapsed
+                else CAMPAIGN_PROGRESS_COLORS.get(
+                    marker.progress, CAMPAIGN_PROGRESS_COLORS['unknown']
+                )
+            )
+            self.plotter.add_mesh(
+                pv.Disc(
+                    center=center,
+                    inner=radius * 1.08,
+                    outer=radius * 1.38,
+                    normal=(0.0, 0.0, 1.0),
+                ),
+                color=ring_color,
+                opacity=0.45 if scene.lapsed else 0.85,
+                lighting=False,
+                pickable=False,
+                name=f'campaign-overlay-progress-{index}',
+                render=False,
+            )
+            if marker.focused and not scene.lapsed:
+                self.plotter.add_mesh(
+                    pv.Disc(
+                        center=center,
+                        inner=radius * 1.5,
+                        outer=radius * 1.75,
+                        normal=(0.0, 0.0, 1.0),
+                    ),
+                    color=self._CAMPAIGN_FOCUS_COLOR,
+                    opacity=0.9,
+                    lighting=False,
+                    pickable=False,
+                    name=f'campaign-overlay-focus-{index}',
+                    render=False,
+                )
+
+        if scene.viewport_lines:
+            self.plotter.add_text(
+                '\n'.join(scene.viewport_lines),
+                name='campaign-overlay-status',
+                position='upper_left',
+                font_size=9,
+                color=DARK_THEME.text.secondary.hex,
+                render=False,
+            )
+        if scene.legend:
+            self.plotter.suppress_rendering = True
+            try:
+                self.plotter.add_legend(
+                    labels=list(scene.legend),
+                    loc='upper right',
+                    face='rectangle',
+                    size=(0.19, 0.035 * len(scene.legend) + 0.02),
+                    bcolor=DARK_THEME.text.secondary.hex,
+                    border=False,
+                    background_opacity=0.55,
+                    name='campaign-overlay-legend',
                 )
             finally:
                 self.plotter.suppress_rendering = False

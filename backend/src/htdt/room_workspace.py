@@ -279,6 +279,7 @@ from .room_viewport import (
     RoomViewport3D,
 )
 from .room_field_overlay import FieldOverlay3DRequest, RoomFieldOverlayController
+from .room_campaign_overlay import RoomCampaignOverlayController
 from .room_treatment_overlay import RoomTreatmentOverlayController
 from .room_viewport import (
     UnderlayRenderItem,
@@ -4170,6 +4171,23 @@ class RoomWorkspace(QWidget):
             self.controller.treatment_repository,
             document_id,
         )
+        # #1006 campaign spatial overlay: armed ONLY through the
+        # measurement-page deep link (read/select surface) — the same
+        # current_head staleness discipline as #999/#1009 lapses a design
+        # pinned to a superseded revision on the next render.
+        from .cad_spatial_campaign_repository import (
+            CadSpatialCampaignRepository,
+        )
+        from .measurement.persistence.cad_measurement_runner_repository import (
+            CadMeasurementRunnerRepository,
+        )
+
+        self.campaign_overlay = RoomCampaignOverlayController(
+            repository,
+            document_id,
+            spatial_repository=CadSpatialCampaignRepository(repository),
+            runner_repository=CadMeasurementRunnerRepository(repository),
+        )
         # Esc exits probe mode only — armed while 3D probing so normal Esc
         # behaviour elsewhere is untouched.
         self._field_probe_esc = QShortcut(
@@ -6152,6 +6170,36 @@ class RoomWorkspace(QWidget):
         self.field3DProbeDisarmed.emit()
         self._render()
 
+    def focus_campaign_overlay(self, target) -> 'TargetFocusResult':
+        """#1006 deep link: arm the read-only campaign overlay.
+
+        ``target.primary_id`` is either a design id (``spatial-campaign:*``),
+        a scene entity id (bounded cell→marker sync: the marker joined to
+        that entity's acoustic reference position is emphasized), or empty —
+        then the newest design and the executor's next-incomplete cell
+        drive the emphasis. Unknown ids still arm the overlay; the resolver
+        surfaces an honest notice instead of guessing.
+        """
+        from .workflow_shell import TargetFocusResult
+
+        primary = target.primary_id
+        design_id = (
+            primary
+            if isinstance(primary, str) and primary.startswith('spatial-campaign:')
+            else None
+        )
+        focus_entity_id = primary if design_id is None else None
+        self.campaign_overlay.arm(
+            design_id=design_id,
+            focus_entity_id=focus_entity_id,
+        )
+        if self.current_context != 'acoustics':
+            self.set_context('acoustics')
+        elif not self.overlay_controls.acoustics.isChecked():
+            self.overlay_controls.acoustics.setChecked(True)
+        self._render()
+        return TargetFocusResult(focused=True)
+
     def _field_probe_at(self, display_position) -> None:
         if display_position is None:
             return
@@ -8076,6 +8124,29 @@ class RoomWorkspace(QWidget):
                         render_treatment(overlay)
                 else:
                     self.viewport.clear_treatment_overlay()
+            # #1006: campaign spatial markers — acoustics context + overlay
+            # ON + armed request + CURRENT head; the resolve runs per render
+            # so a superseded revision lapses immediately.
+            render_campaign = getattr(
+                self.viewport, 'render_campaign_overlay', None
+            )
+            if callable(render_campaign):
+                if (
+                    self.current_context == 'acoustics'
+                    and overlays.acoustics
+                    and self.campaign_overlay.armed
+                ):
+                    campaign_scene = self.campaign_overlay.resolve()
+                    if campaign_scene is None:
+                        self.viewport.clear_campaign_overlay()
+                    else:
+                        render_campaign(campaign_scene)
+                        if campaign_scene.notices:
+                            self._set_status(
+                                ' / '.join(campaign_scene.notices)
+                            )
+                else:
+                    self.viewport.clear_campaign_overlay()
 
     def _current_lighting_scene(self):
         """Current persisted LightingScene for this document, or None.
@@ -8440,12 +8511,18 @@ def build_room_workspace_mount(
         viewport_factory=viewport_factory,
         on_navigate=on_navigate,
     )
+    from .navigation_target import NavigationTargetKind
+
     return WorkspaceMount.from_widget(
         workspace,
         on_activate=workspace.activate,
         before_deactivate=workspace.before_deactivate,
         on_context_changed=workspace.set_context,
         on_entity_requested=workspace.select_entity,
+        # #1006: the measurement-page 「3Dで測定位置を確認」 deep link lands
+        # here — the overlay is armed by the workspace, never auto-shown.
+        focus_kinds={NavigationTargetKind.MEASUREMENT_CAMPAIGN},
+        focus_target=workspace.focus_campaign_overlay,
     )
 
 
