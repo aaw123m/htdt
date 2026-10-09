@@ -1111,3 +1111,17 @@ entries:
   - docs/issues/issue-1002-etc-correspondence.md
   - backend/tests/test_issue_1002_etc_correspondence.py
   close_when_gates_clear: true
+
+- issue: 1000
+  lifecycle: acceptance_remaining
+  landed:
+    prs: [1069]
+    commits: [6a9c7315]
+  remaining_gates:
+  - kind: manual
+    description: 'オペレータ受入 — 実機材データでのバルーン向き/周波数選択/UNKNOWN表示・aim矢印の実機確認 (子が実GUI Mesa GL で検証済)'
+  evidence_refs:
+  - docs/issues/issue-1000-directivity-balloon.md
+  - backend/tests/test_issue_1000_directivity_balloon.py
+  - backend/src/htdt/room_directivity_overlay.py
+  close_when_gates_clear: true
