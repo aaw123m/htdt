@@ -1,0 +1,525 @@
+{
+  "schema_version": "htdt.r130d.original-unit-impulse-time-refinement-evidence-1",
+  "preregistered_plan": {
+    "schema_version": "htdt.r130d.original-unit-impulse-time-refinement-1",
+    "issued_on": "2026-10-09",
+    "issue": 938,
+    "goal": "Determine relative size of temporal-discretization+impulse-midpoint-placement and spatial-discretization error in the actually injected original unit discrete impulse, without weakening any frozen original acceptance gate.",
+    "prerequisite": "benchmarks/acoustics/r130d_exact_discrete_impulse_candidate_evidence_2026-10-09.json",
+    "spatial_cases": [
+      {
+        "method": "exact_sloped_cutcell_neumann_FV",
+        "level": 20
+      },
+      {
+        "method": "exact_sloped_cutcell_neumann_FV",
+        "level": 28
+      },
+      {
+        "method": "exact_sloped_cutcell_neumann_FV",
+        "level": 32
+      },
+      {
+        "method": "pinned_independent_MFEM_P2",
+        "level": 3
+      },
+      {
+        "method": "pinned_independent_MFEM_P2",
+        "level": 4
+      }
+    ],
+    "timestep_s": [
+      0.00025,
+      0.000125
+    ],
+    "new_executions_only_dt_s": 0.000125,
+    "record_length_s": 0.25,
+    "sample_counts": [
+      1000,
+      2000
+    ],
+    "source": {
+      "q_samples": "q[0]=1 m3/s, q[n>0]=0",
+      "exact_shape_per_timestep": true,
+      "always_first_midpoint": true,
+      "units": "m3/s",
+      "no_Gaussian_no_taper": true,
+      "identical_source_receiver_m": [
+        [
+          1.5,
+          2,
+          2
+        ],
+        [
+          2.5,
+          2,
+          2
+        ]
+      ],
+      "frequency_hz": [
+        40,
+        80
+      ],
+      "kernel": "P_T/Q_T, exp(+i\u03c9t), every midpoint pressure and source sample",
+      "c_m_s": 343.2,
+      "rho_kg_m3": 1.2,
+      "volume_m3": 56,
+      "rigid_neumann": true
+    },
+    "preserved_independent_mfem": {
+      "pin": "d964264cdb9a13e94a201b6c236c7721e0c8765f",
+      "ref3_sha256": "6a43a624223fa512152059d103c4d841723fa1266ea8a22842322fb50db42511",
+      "ref4_sha256": "e1c67d02db77a6e8775a0a59d8e75fa996434d58f8efae077f4cec2cf2c831ed",
+      "linear_rtol": 1e-11,
+      "linear_atol": 0,
+      "linear_max_iter": 350,
+      "true_residual_max": 1e-08
+    },
+    "metrics": {
+      "temporal_fixed_spatial": "normalized_complex_L2 norm(T_dt/2-T_dt)/norm(T_dt/2), max 40/80Hz magnitude rel and phase degrees",
+      "spatial_fixed_dt": "normalized_complex_L2 norm(T_fine-T_coarse)/norm(T_fine), magnitude and phase",
+      "comparison": "temporal_n32_vs_spatial_n28_to_n32 at dt=0.000125 and independent MFEM r3_to_r4 at dt=0.000125; preserve all values and distinguish source placement from temporal truncation"
+    },
+    "reference_previous_gates": {
+      "fv_self_limit": 0.2,
+      "mfem_self_limit": 0.05,
+      "cross_limit": 0.35
+    },
+    "limits": {
+      "max_n": 32,
+      "max_mfem_dofs": 35937,
+      "max_steps": 2000,
+      "max_runtime_per_case_s": 300,
+      "max_sparse_json_bytes": 120000000,
+      "max_cases": 5
+    },
+    "interpretation": {
+      "source_pulse_start_moves_from_dt_0_00025_half_to_dt_0_000125_half": true,
+      "strict_isolation_of_temporal_truncation": false,
+      "diagnostic_only": true,
+      "never_promote_numerical_acceptance_on_temporal_result_alone": true,
+      "original_fullband_impulse_self": "SELF_CONVERGENCE_FAILED",
+      "new_candidate_impulse_numeric": "NOT_QUALIFIED",
+      "production_ready": false,
+      "physical_validation": "NOT_VALIDATED"
+    }
+  },
+  "original_evidence_name": "r130d_exact_discrete_impulse_candidate_evidence_2026-10-09.json",
+  "cases": [
+    {
+      "method": "exact_sloped_cutcell_neumann_FV",
+      "level": 20,
+      "record_legacy_dt_s": 0.00025,
+      "new_dt_s": 0.000125,
+      "coarse_dt_transfer_40_80_hz": [
+        [
+          52.030562791782515,
+          16.3371569040829
+        ],
+        [
+          124.2371212808564,
+          -148.15183831200267
+        ]
+      ],
+      "fine_dt_transfer_40_80_hz": [
+        [
+          58.85549318457963,
+          4.127721568516774
+        ],
+        [
+          125.23700328837269,
+          -184.5801800672204
+        ]
+      ],
+      "fixed_grid_halved_dt_metrics": {
+        "normalized_complex_l2": 0.16917910959259494,
+        "complex_relative_by_hz": [
+          0.23707592415357945,
+          0.16337600864533205
+        ],
+        "magnitude_relative_by_hz": [
+          0.07567644088741572,
+          0.13318336217230448
+        ],
+        "phase_difference_deg_by_hz": [
+          13.42008271979074,
+          5.825759181712121
+        ]
+      },
+      "source_moments_not_identical_due_midpoint_shift": true,
+      "actual_fine_result": {
+        "method": "exact_sloped_cutcell_neumann_FV",
+        "level": 20,
+        "dofs": 7200,
+        "air_volume_m3": 56.00000000000003,
+        "complex_40_80_hz": [
+          [
+            58.85549318457963,
+            4.127721568516774
+          ],
+          [
+            125.23700328837269,
+            -184.5801800672204
+          ]
+        ],
+        "source_samples": [
+          1,
+          0
+        ],
+        "step_count": 2000,
+        "elapsed_s": 8.576066200155765
+      }
+    },
+    {
+      "method": "exact_sloped_cutcell_neumann_FV",
+      "level": 28,
+      "record_legacy_dt_s": 0.00025,
+      "new_dt_s": 0.000125,
+      "coarse_dt_transfer_40_80_hz": [
+        [
+          55.23269316057336,
+          4.107297073344543
+        ],
+        [
+          115.0355809664172,
+          -191.72666726734283
+        ]
+      ],
+      "fine_dt_transfer_40_80_hz": [
+        [
+          44.83563428064828,
+          3.3432342715957257
+        ],
+        [
+          93.32194227204451,
+          -203.40108932681773
+        ]
+      ],
+      "fixed_grid_halved_dt_metrics": {
+        "normalized_complex_l2": 0.11726439338981645,
+        "complex_relative_by_hz": [
+          0.2318743523526304,
+          0.11016273224435266
+        ],
+        "magnitude_relative_by_hz": [
+          0.23187424415368016,
+          0.0008858403328637872
+        ],
+        "phase_difference_deg_by_hz": [
+          0.011563579033709115,
+          6.317652928703627
+        ]
+      },
+      "source_moments_not_identical_due_midpoint_shift": true,
+      "actual_fine_result": {
+        "method": "exact_sloped_cutcell_neumann_FV",
+        "level": 28,
+        "dofs": 19600,
+        "air_volume_m3": 55.99999999999996,
+        "complex_40_80_hz": [
+          [
+            44.83563428064828,
+            3.3432342715957257
+          ],
+          [
+            93.32194227204451,
+            -203.40108932681773
+          ]
+        ],
+        "source_samples": [
+          1,
+          0
+        ],
+        "step_count": 2000,
+        "elapsed_s": 38.83386090002023
+      }
+    },
+    {
+      "method": "exact_sloped_cutcell_neumann_FV",
+      "level": 32,
+      "record_legacy_dt_s": 0.00025,
+      "new_dt_s": 0.000125,
+      "coarse_dt_transfer_40_80_hz": [
+        [
+          101.11318810769707,
+          3.0063944731411776
+        ],
+        [
+          158.12097801167783,
+          -197.6113044166866
+        ]
+      ],
+      "fine_dt_transfer_40_80_hz": [
+        [
+          21.374026860622028,
+          -0.16113625223749758
+        ],
+        [
+          61.58711856156607,
+          -213.2261864260952
+        ]
+      ],
+      "fixed_grid_halved_dt_metrics": {
+        "normalized_complex_l2": 0.5660781339566097,
+        "complex_relative_by_hz": [
+          3.7334930963519986,
+          0.4406037340639231
+        ],
+        "magnitude_relative_by_hz": [
+          3.732613039209826,
+          0.1403230001475964
+        ],
+        "phase_difference_deg_by_hz": [
+          2.1350093267887402,
+          22.55490182317292
+        ]
+      },
+      "source_moments_not_identical_due_midpoint_shift": true,
+      "actual_fine_result": {
+        "method": "exact_sloped_cutcell_neumann_FV",
+        "level": 32,
+        "dofs": 29184,
+        "air_volume_m3": 56.0,
+        "complex_40_80_hz": [
+          [
+            21.374026860622028,
+            -0.16113625223749758
+          ],
+          [
+            61.58711856156607,
+            -213.2261864260952
+          ]
+        ],
+        "source_samples": [
+          1,
+          0
+        ],
+        "step_count": 2000,
+        "elapsed_s": 72.10287770000286
+      }
+    },
+    {
+      "method": "pinned_independent_MFEM_P2",
+      "level": 3,
+      "record_legacy_dt_s": 0.00025,
+      "new_dt_s": 0.000125,
+      "coarse_dt_transfer_40_80_hz": [
+        [
+          118.28063818572429,
+          1.9755548256506732
+        ],
+        [
+          156.787712798592,
+          -213.0454315894987
+        ]
+      ],
+      "fine_dt_transfer_40_80_hz": [
+        [
+          41.55036907695327,
+          0.36259631387838287
+        ],
+        [
+          56.5123583942661,
+          -220.71972418628172
+        ]
+      ],
+      "fixed_grid_halved_dt_metrics": {
+        "normalized_complex_l2": 0.546239102573258,
+        "complex_relative_by_hz": [
+          1.84701844765751,
+          0.44140101035418977
+        ],
+        "magnitude_relative_by_hz": [
+          1.8469694397026877,
+          0.16099192775347254
+        ],
+        "phase_difference_deg_by_hz": [
+          0.45689184189727094,
+          21.989361980646308
+        ]
+      },
+      "source_moments_not_identical_due_midpoint_shift": true,
+      "actual_fine_result": {
+        "r": 3,
+        "dofs": 4913,
+        "export_sha256": "6a43a624223fa512152059d103c4d841723fa1266ea8a22842322fb50db42511",
+        "actual_time_domain_discrete_unit_impulse": true,
+        "complex_40_80_hz": [
+          [
+            41.55036907695327,
+            0.36259631387838287
+          ],
+          [
+            56.5123583942661,
+            -220.71972418628172
+          ]
+        ],
+        "worst_true_relative_linear_residual": 9.99824018413871e-12,
+        "maximum_cg_iterations": 44,
+        "method": "pinned_independent_MFEM_P2",
+        "level": 3,
+        "step_count": 2000,
+        "elapsed_s": 12.752732299966738
+      }
+    },
+    {
+      "method": "pinned_independent_MFEM_P2",
+      "level": 4,
+      "record_legacy_dt_s": 0.00025,
+      "new_dt_s": 0.000125,
+      "coarse_dt_transfer_40_80_hz": [
+        [
+          73.36501973071158,
+          -1.694541960075574
+        ],
+        [
+          107.1926801821992,
+          -218.9261820829705
+        ]
+      ],
+      "fine_dt_transfer_40_80_hz": [
+        [
+          211.3195246117842,
+          13.276910385669666
+        ],
+        [
+          235.13406739621365,
+          -192.07691535125375
+        ]
+      ],
+      "fixed_grid_halved_dt_metrics": {
+        "normalized_complex_l2": 0.5150424383816985,
+        "complex_relative_by_hz": [
+          0.655365085928622,
+          0.43057367643421696
+        ],
+        "magnitude_relative_by_hz": [
+          0.653415016684932,
+          0.19713890871716833
+        ],
+        "phase_difference_deg_by_hz": [
+          4.918237124767386,
+          24.66748789126531
+        ]
+      },
+      "source_moments_not_identical_due_midpoint_shift": true,
+      "actual_fine_result": {
+        "r": 4,
+        "dofs": 35937,
+        "export_sha256": "e1c67d02db77a6e8775a0a59d8e75fa996434d58f8efae077f4cec2cf2c831ed",
+        "actual_time_domain_discrete_unit_impulse": true,
+        "complex_40_80_hz": [
+          [
+            211.3195246117842,
+            13.276910385669666
+          ],
+          [
+            235.13406739621365,
+            -192.07691535125375
+          ]
+        ],
+        "worst_true_relative_linear_residual": 9.99690734607684e-12,
+        "maximum_cg_iterations": 37,
+        "method": "pinned_independent_MFEM_P2",
+        "level": 4,
+        "step_count": 2000,
+        "elapsed_s": 104.14834480010904
+      }
+    }
+  ],
+  "spatial_at_halved_dt": [
+    {
+      "method": "exact_sloped_cutcell_neumann_FV",
+      "coarse": 20,
+      "fine": 28,
+      "dt_s": 0.000125,
+      "metrics": {
+        "normalized_complex_l2": 0.17358682552765026,
+        "complex_relative_by_hz": [
+          0.312316640696762,
+          0.16556435224422433
+        ],
+        "magnitude_relative_by_hz": [
+          0.3122757762929841,
+          0.0032684377310475267
+        ],
+        "phase_difference_deg_by_hz": [
+          0.2526861074874337,
+          9.510742840099995
+        ]
+      }
+    },
+    {
+      "method": "exact_sloped_cutcell_neumann_FV",
+      "coarse": 28,
+      "fine": 32,
+      "dt_s": 0.000125,
+      "metrics": {
+        "normalized_complex_l2": 0.18307939889345737,
+        "complex_relative_by_hz": [
+          1.1098145900906466,
+          0.14968283362222012
+        ],
+        "magnitude_relative_by_hz": [
+          1.103432860804402,
+          0.008315359958108294
+        ],
+        "phase_difference_deg_by_hz": [
+          4.696389034382932,
+          8.535459644085506
+        ]
+      }
+    },
+    {
+      "method": "pinned_independent_MFEM_P2",
+      "coarse": 3,
+      "fine": 4,
+      "dt_s": 0.000125,
+      "metrics": {
+        "normalized_complex_l2": 0.6711372864122808,
+        "complex_relative_by_hz": [
+          0.8041121122282329,
+          0.5958339462025187
+        ],
+        "magnitude_relative_by_hz": [
+          0.8037560349395841,
+          0.24957552639855415
+        ],
+        "phase_difference_deg_by_hz": [
+          3.09509965531773,
+          36.39390151943184
+        ]
+      }
+    }
+  ],
+  "fv_n32_mfem_r4_halved_dt_cross": {
+    "normalized_complex_l2": 0.6983765484868918,
+    "complex_relative_by_hz": [
+      0.8993278211136271,
+      0.5758323772267764
+    ],
+    "magnitude_relative_by_hz": [
+      0.899050637638874,
+      0.26899893702453276
+    ],
+    "phase_difference_deg_by_hz": [
+      4.027026161028312,
+      34.64466176012299
+    ]
+  },
+  "diagnostic": {
+    "FV_n28_to_32_new_dt_complex": 0.18307939889345737,
+    "FEM_r3_to_r4_new_dt_complex": 0.6711372864122808,
+    "FV_n32_to_FEM_r4_new_dt_complex": 0.6983765484868918,
+    "FV_self_under_frozen_complex_limit": true,
+    "FEM_self_under_frozen_complex_limit": false,
+    "cross_under_frozen_complex_limit": false,
+    "overall_original_fullband_impulse": "SELF_CONVERGENCE_FAILED",
+    "not_full_spatial_monotonicity_gate": true,
+    "not_temporal_only_because_midpoint_source_move": true,
+    "production_ready": false
+  },
+  "source_waveform": "q[0]=1, others zero for both dt values",
+  "physical_validation": "NOT_VALIDATED",
+  "production_ready": false
+}
