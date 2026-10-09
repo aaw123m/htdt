@@ -317,6 +317,8 @@ from .rack_workspace import RackWorkspacePanel
 from .length_spinbox import MetricSpinBox, PendingTextSpinBox
 from .room_lighting_panel import RoomLightingPreviewPanel
 from .room_lighting_preview import build_lighting_scene_preview
+from .room_operational_clearance import build_operational_clearance_preview
+from .room_operational_clearance_panel import RoomOperationalClearancePanel
 from .room_objects_panel import RoomObjectsPanel
 from .room_constraints_panel import RoomConstraintsPanel
 from .room_measure_input import RoomMeasureController, RoomMeasurePanel
@@ -4342,6 +4344,10 @@ class RoomWorkspace(QWidget):
         self.lighting_panel.previewToggled.connect(
             lambda _checked=False: self._render()
         )
+        # #1010: read-only 「運用クリアランス」 layer — declared zone XY
+        # footprints + conflict highlights; never authors geometry.
+        self.clearance_panel = RoomOperationalClearancePanel()
+        self.clearance_panel.changed.connect(lambda: self._render())
         # UX140B: リスニング集団 (seat-priority profile authoring) — the
         # legacy TheaterEditorWindow dock's workflow mount; it edits the
         # same seats the placement context owns.
@@ -4369,6 +4375,7 @@ class RoomWorkspace(QWidget):
         placement_layout.addWidget(self.constraints_panel)
         placement_layout.addWidget(self.video_panel)
         placement_layout.addWidget(self.lighting_panel)
+        placement_layout.addWidget(self.clearance_panel)
         placement_layout.addWidget(self.seat_priority_panel)
         placement_layout.addWidget(self.standards_panel)
         placement_layout.addWidget(self.installation_panel)
@@ -7845,6 +7852,15 @@ class RoomWorkspace(QWidget):
                 getattr(self, 'lighting_panel', None) is not None
                 and self.lighting_panel.preview_enabled
             ),
+            operational_clearance=(
+                getattr(self, 'clearance_panel', None) is not None
+                and self.clearance_panel.preview_enabled
+            ),
+            operational_zone_kinds=(
+                self.clearance_panel.enabled_kinds
+                if getattr(self, 'clearance_panel', None) is not None
+                else frozenset()
+            ),
         )
         self._sync_aux_render_state()
         # The document rebuild plus each overlay renderer used to trigger a
@@ -7895,6 +7911,30 @@ class RoomWorkspace(QWidget):
             if lighting_panel is not None:
                 lighting_panel.show_preview(
                     lighting_preview if overlays.lighting_scene else None
+                )
+            render_opclear = getattr(
+                self.viewport, 'render_operational_clearance_overlay', None
+            )
+            # #1010: conflicts are recomputed on every render from
+            # ``controller.document`` — which returns the live preview
+            # document during drags — so stale-revision results can never
+            # paint on screen.
+            opclear_preview = (
+                build_operational_clearance_preview(
+                    document=self.controller.document,
+                    enabled_kinds=overlays.operational_zone_kinds,
+                )
+                if overlays.operational_clearance
+                else None
+            )
+            if callable(render_opclear):
+                render_opclear(opclear_preview)
+            clearance_panel = getattr(self, 'clearance_panel', None)
+            if clearance_panel is not None:
+                clearance_panel.show_preview(
+                    opclear_preview
+                    if overlays.operational_clearance
+                    else None
                 )
             if self.current_context == "placement" and self._proposed_variant_id is not None:
                 try:

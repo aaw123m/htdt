@@ -47,6 +47,13 @@ from .room_lighting_preview import (
     LightingScenePreview,
     stage_bead_label,
 )
+from .room_operational_clearance import (
+    OPERATIONAL_CONFLICT_COLOR,
+    OPERATIONAL_UNDECLARED_COLOR,
+    OPERATIONAL_UNKNOWN_ZONE_COLOR,
+    OPERATIONAL_ZONE_KIND_VOCAB,
+    OperationalClearancePreview,
+)
 from .ui_theme import DARK_THEME, SurfaceRole, set_surface_role
 
 if TYPE_CHECKING:
@@ -115,6 +122,11 @@ class RoomOverlayState:
     # measured state glyphs on exact-bound fixtures). Explanation symbols
     # only — never a photometric render.
     lighting_scene: bool = False
+    # #1010: read-only 運用クリアランス layer — declared operational-zone
+    # XY footprints + operational_clearance_conflicts highlights.
+    operational_clearance: bool = False
+    # Zone-kind filter for the clearance layer; defaults to every kind.
+    operational_zone_kinds: frozenset[str] = frozenset(OPERATIONAL_ZONE_KIND_VOCAB)
 
 
 @dataclass(frozen=True, slots=True)
@@ -328,6 +340,114 @@ def _planar_polygon_mesh(geometry, surface) -> pv.PolyData | None:
     if not faces:
         return None
     return pv.PolyData(points, np.asarray(faces, dtype=np.int64))
+
+
+def _iter_polygon_members(geometry) -> tuple:
+    """Polygon members of any shapely geometry (collections recursed)."""
+
+    if geometry is None or getattr(geometry, 'is_empty', True):
+        return ()
+    geom_type = geometry.geom_type
+    if geom_type == 'Polygon':
+        return (geometry,)
+    if geom_type in ('MultiPolygon', 'GeometryCollection'):
+        members: list = []
+        for member in geometry.geoms:
+            members.extend(_iter_polygon_members(member))
+        return tuple(members)
+    return ()
+
+
+def _iter_linear_members(geometry) -> tuple:
+    """LineString members of any shapely geometry (collections recursed)."""
+
+    if geometry is None or getattr(geometry, 'is_empty', True):
+        return ()
+    geom_type = geometry.geom_type
+    if geom_type == 'LineString':
+        return (geometry,)
+    if geom_type in ('MultiLineString', 'GeometryCollection'):
+        members: list = []
+        for member in geometry.geoms:
+            members.extend(_iter_linear_members(member))
+        return tuple(members)
+    return ()
+
+
+def _iter_point_members(geometry) -> tuple:
+    """Point members of any shapely geometry (collections recursed)."""
+
+    if geometry is None or getattr(geometry, 'is_empty', True):
+        return ()
+    geom_type = geometry.geom_type
+    if geom_type == 'Point':
+        return (geometry,)
+    if geom_type in ('MultiPoint', 'GeometryCollection'):
+        members: list = []
+        for member in geometry.geoms:
+            members.extend(_iter_point_members(member))
+        return tuple(members)
+    return ()
+
+
+def _shapely_xy_fill_mesh(geometry, z_m: float) -> pv.PolyData | None:
+    """Triangulated render mesh for a domain-XY shapely (multi)polygon.
+
+    Mirrors ``_planar_polygon_mesh``: shapely triangulation can leak a
+    triangle outside a concave ring, so each candidate must be covered by
+    the source polygon. Domain +Y rear maps to render -Y.
+    """
+
+    points: list[tuple[float, float, float]] = []
+    faces: list[int] = []
+    for poly in _iter_polygon_members(geometry):
+        for triangle in triangulate(poly):
+            if not poly.covers(triangle.representative_point()):
+                continue
+            base = len(points)
+            for x, y, *_ in list(triangle.exterior.coords)[:-1]:
+                points.append((float(x), -float(y), z_m))
+            faces.extend((3, base, base + 1, base + 2))
+    if not faces:
+        return None
+    return pv.PolyData(
+        np.asarray(points, dtype=float), np.asarray(faces, dtype=np.int64)
+    )
+
+
+def _xy_segments(coords) -> list:
+    """Consecutive-pair segments of one ring/line coordinate sequence."""
+
+    pts = [(float(x), float(y)) for x, y, *_ in coords]
+    return list(zip(pts, pts[1:]))
+
+
+def _segments_render_mesh(segments, z_m: float) -> pv.PolyData | None:
+    """vtk lines for (a, b) domain-XY segment pairs at a fixed z."""
+
+    if not segments:
+        return None
+    points: list[tuple[float, float, float]] = []
+    lines: list[int] = []
+    for (ax, ay), (bx, by) in segments:
+        base = len(points)
+        points.extend(((ax, -ay, z_m), (bx, -by, z_m)))
+        lines.extend((2, base, base + 1))
+    mesh = pv.PolyData(np.asarray(points, dtype=float))
+    mesh.lines = np.asarray(lines, dtype=np.int64)
+    return mesh
+
+
+def _shapely_xy_outline_mesh(geometry, z_m: float) -> pv.PolyData | None:
+    """Ring linework for (multi)polygons plus bare line members."""
+
+    segments: list = []
+    for poly in _iter_polygon_members(geometry):
+        for ring in (poly.exterior, *poly.interiors):
+            segments.extend(_xy_segments(ring.coords))
+    for line in _iter_linear_members(geometry):
+        segments.extend(_xy_segments(line.coords))
+    return _segments_render_mesh(segments, z_m)
 
 
 def _room_authoring_surface_meshes(
@@ -1219,6 +1339,7 @@ class RoomViewport3D(QFrame):
         'guidance-',
         'acoustic-field-',
         'lighting-',
+        'opclear-',
     )
 
     def _remove_overlay_actors(self) -> None:
@@ -1799,6 +1920,262 @@ class RoomViewport3D(QFrame):
             )
         finally:
             self.plotter.suppress_rendering = False
+        self._render()
+
+    # -- 運用クリアランス layer (issue #1010) ----------------------------------
+    #
+    # Read-only display of the persisted ``operational_zones`` authority:
+    # each declared zone renders as the XY footprint
+    # ``operational_zone_footprint`` produced — a shaded floor fill plus an
+    # outline — and every ``operational_clearance_conflicts`` record
+    # highlights BOTH sides (the owning zone plus the conflicting entity,
+    # other zone, or room boundary). Zones that cannot be evaluated draw
+    # dim UNKNOWN markers; physical entities that declare no zones draw
+    # dim 未宣言 badges — neither is ever presented as "no interference".
+    # Zones with a declared height get a faint prism; zones without stay
+    # flat and earn no "clear in height" claim anywhere.
+
+    _OPCLEAR_FLOOR_Z_M = 0.012
+    _OPCLEAR_CLASH_Z_M = 0.018
+    _OPCLEAR_OUTLINE_Z_M = 0.024
+
+    def clear_operational_clearance_overlay(self) -> None:
+        """Drop every ``opclear-*`` actor (toggle off / refresh)."""
+        renderer = getattr(self.plotter, 'renderer', None)
+        actors = getattr(renderer, 'actors', None)
+        if not actors:
+            return
+        removed = False
+        for name in tuple(actors):
+            if isinstance(name, str) and name.startswith('opclear-'):
+                self.plotter.remove_actor(name)
+                removed = True
+        if removed:
+            self._render()
+
+    def render_operational_clearance_overlay(
+        self,
+        preview: OperationalClearancePreview | None,
+    ) -> None:
+        """Draw the read-only 運用クリアランス layer (#1010).
+
+        ``None`` clears the overlay. Every actor is non-pickable — this is
+        an explanation surface, never an input device; zone authoring
+        stays on the approved entity-edit path.
+        """
+        self.clear_operational_clearance_overlay()
+        if preview is None:
+            return
+
+        for zone in preview.zones:
+            kind_color = OPERATIONAL_ZONE_KIND_VOCAB.get(
+                zone.kind, ('?', '#9aa3b2')
+            )[1]
+            outline_color = (
+                OPERATIONAL_CONFLICT_COLOR if zone.in_conflict else kind_color
+            )
+            fill = _shapely_xy_fill_mesh(zone.footprint, self._OPCLEAR_FLOOR_Z_M)
+            if fill is not None:
+                self.plotter.add_mesh(
+                    fill,
+                    color=kind_color,
+                    opacity=0.16 if zone.in_conflict else 0.10,
+                    lighting=False,
+                    pickable=False,
+                    name=f'opclear-zone-{zone.entity_id}-{zone.zone_id}',
+                    render=False,
+                )
+            outline = _shapely_xy_outline_mesh(
+                zone.footprint, self._OPCLEAR_OUTLINE_Z_M
+            )
+            if outline is not None:
+                self.plotter.add_mesh(
+                    outline,
+                    color=outline_color,
+                    line_width=3 if zone.in_conflict else 2,
+                    opacity=0.9,
+                    pickable=False,
+                    name=f'opclear-zone-outline-{zone.entity_id}-{zone.zone_id}',
+                    render=False,
+                )
+            # A declared height renders a faint prism — the only volume
+            # the layer ever draws. Zones without height data stay flat;
+            # the disclaimer refuses the 'clear in height' claim for them.
+            if zone.height_max_m is not None:
+                thickness = float(zone.height_max_m) - float(zone.height_min_m)
+                prism = _shapely_xy_fill_mesh(
+                    zone.footprint, float(zone.height_min_m)
+                )
+                if thickness > 0 and prism is not None:
+                    volume = prism.extrude((0.0, 0.0, thickness), capping=True)
+                    self.plotter.add_mesh(
+                        volume,
+                        color=kind_color,
+                        opacity=0.07,
+                        lighting=False,
+                        pickable=False,
+                        name=(
+                            f'opclear-zone-volume-{zone.entity_id}-{zone.zone_id}'
+                        ),
+                        render=False,
+                    )
+
+        for conflict in preview.conflicts:
+            region_mesh = _shapely_xy_fill_mesh(
+                conflict.region, self._OPCLEAR_CLASH_Z_M
+            )
+            if region_mesh is not None:
+                self.plotter.add_mesh(
+                    region_mesh,
+                    color=OPERATIONAL_CONFLICT_COLOR,
+                    opacity=0.42,
+                    lighting=False,
+                    pickable=False,
+                    name=f'opclear-clash-{conflict.entity_id}-{conflict.zone_id}',
+                    render=False,
+                )
+            # Room-boundary highlight for leaves_room — the wall section
+            # the zone covers, plus any tangent point contacts.
+            boundary_mesh = _segments_render_mesh(
+                [
+                    segment
+                    for line in _iter_linear_members(conflict.boundary_geometry)
+                    for segment in _xy_segments(line.coords)
+                ],
+                self._OPCLEAR_OUTLINE_Z_M,
+            )
+            if boundary_mesh is not None:
+                self.plotter.add_mesh(
+                    boundary_mesh,
+                    color=OPERATIONAL_CONFLICT_COLOR,
+                    line_width=4,
+                    opacity=0.95,
+                    pickable=False,
+                    name=(
+                        f'opclear-boundary-{conflict.entity_id}-{conflict.zone_id}'
+                    ),
+                    render=False,
+                )
+            for point_index, point in enumerate(
+                _iter_point_members(conflict.boundary_geometry)
+            ):
+                self.plotter.add_mesh(
+                    pv.Sphere(
+                        radius=0.05,
+                        center=(point.x, -point.y, self._OPCLEAR_OUTLINE_Z_M),
+                    ),
+                    color=OPERATIONAL_CONFLICT_COLOR,
+                    opacity=0.9,
+                    lighting=False,
+                    pickable=False,
+                    name=(
+                        f'opclear-boundary-pt-{conflict.entity_id}-'
+                        f'{conflict.zone_id}-{point_index}'
+                    ),
+                    render=False,
+                )
+            # The conflicting side's own geometry — dual highlight.
+            other_mesh = _shapely_xy_outline_mesh(
+                conflict.other_footprint, self._OPCLEAR_OUTLINE_Z_M
+            )
+            if other_mesh is not None:
+                self.plotter.add_mesh(
+                    other_mesh,
+                    color=OPERATIONAL_CONFLICT_COLOR,
+                    line_width=3,
+                    opacity=0.95,
+                    pickable=False,
+                    name=f'opclear-conflict-entity-{conflict.other_entity_id}',
+                    render=False,
+                )
+            other_zone_mesh = _shapely_xy_outline_mesh(
+                conflict.other_zone_footprint, self._OPCLEAR_OUTLINE_Z_M
+            )
+            if other_zone_mesh is not None:
+                self.plotter.add_mesh(
+                    other_zone_mesh,
+                    color=OPERATIONAL_CONFLICT_COLOR,
+                    line_width=3,
+                    opacity=0.95,
+                    pickable=False,
+                    name=(
+                        f'opclear-conflict-zone-{conflict.other_entity_id}-'
+                        f'{conflict.other_zone_id}'
+                    ),
+                    render=False,
+                )
+
+        # UNDECLARED physical entities — clearance undetermined, never
+        # conflated with a verified 'no interference' state.
+        for marker in preview.undeclared:
+            x, y, _z = marker.position
+            self.plotter.add_mesh(
+                pv.Disc(
+                    center=(x, -y, marker.top_z_m + 0.02),
+                    inner=0.05,
+                    outer=0.085,
+                    normal=(0.0, 0.0, 1.0),
+                ),
+                color=OPERATIONAL_UNDECLARED_COLOR,
+                opacity=0.4,
+                lighting=False,
+                pickable=False,
+                name=f'opclear-undeclared-{marker.entity_id}',
+                render=False,
+            )
+
+        # UNKNOWN zones — footprint could not be evaluated. A dim
+        # wireframe bead on the owning entity, visually distinct from any
+        # clear or conflict state.
+        for zone in preview.undefined_zones:
+            if zone.marker_position is None:
+                continue
+            x, y, top_z = zone.marker_position
+            self.plotter.add_mesh(
+                pv.Sphere(radius=0.06, center=(x, -y, top_z + 0.05)),
+                color=OPERATIONAL_UNKNOWN_ZONE_COLOR,
+                style='wireframe',
+                line_width=2,
+                opacity=0.8,
+                lighting=False,
+                pickable=False,
+                name=f'opclear-unknown-{zone.entity_id}-{zone.zone_id}',
+                render=False,
+            )
+
+        self.plotter.add_text(
+            preview.summary,
+            name='opclear-summary',
+            position='upper_right',
+            font_size=9,
+            color=DARK_THEME.text.secondary.hex,
+            render=False,
+        )
+        self.plotter.add_text(
+            preview.disclaimer,
+            name='opclear-disclaimer',
+            position='left_edge',
+            font_size=8,
+            color=DARK_THEME.text.secondary.hex,
+            render=False,
+        )
+        if preview.kind_legend:
+            # add_legend has no render kwarg and renders internally;
+            # suppress so the compositing render ends in a single draw.
+            self.plotter.suppress_rendering = True
+            try:
+                self.plotter.add_legend(
+                    labels=list(preview.kind_legend),
+                    loc='lower left',
+                    face='rectangle',
+                    size=(0.19, 0.035 * len(preview.kind_legend) + 0.02),
+                    bcolor=DARK_THEME.text.secondary.hex,
+                    border=False,
+                    background_opacity=0.55,
+                    name='opclear-legend',
+                )
+            finally:
+                self.plotter.suppress_rendering = False
         self._render()
 
     def _render_labels(self, document: SceneDocument, selected_id: str | None) -> None:
