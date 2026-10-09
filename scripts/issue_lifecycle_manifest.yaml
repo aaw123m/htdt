@@ -1015,3 +1015,16 @@ entries:
   - backend/tests/test_issue_1011_cable_routes.py
   - backend/src/htdt/cad_cable_run_geometry.py
   close_when_gates_clear: true
+
+- issue: 1007
+  lifecycle: acceptance_remaining
+  landed:
+    prs: [1063]
+    commits: [bc9f110b]
+  remaining_gates:
+  - kind: manual
+    description: 'オペレータ受入 — 実デザイン案での A/B ゴースト重畳・移動矢印・差分理由カードの実機確認 (子が実GUI Mesa GL で3モード全カテゴリ検証済)'
+  evidence_refs:
+  - docs/issues/issue-1007-design-ab-ghost.md
+  - backend/tests/test_issue_1007_ab_overlay.py
+  close_when_gates_clear: true
