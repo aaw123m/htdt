@@ -1,0 +1,97 @@
+name: R130D diagnostic impulse source moment alignment FV MFEM P2
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/r130d-impulse-source-moment-probe.yml'
+      - 'scripts/run_r130d_impulse_source_moment_probe.py'
+      - 'backend/tests/test_r130d_impulse_source_moment_evidence.py'
+      - 'benchmarks/acoustics/r130d_impulse_source_moment_*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: r130d-moment-source-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  matched-source:
+    runs-on: windows-2022
+    timeout-minutes: 16
+    steps:
+      - name: Checkout bound independent FEM/FV experiment
+        uses: actions/checkout@v4
+      - name: Pinned Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pinned numerical runtime
+        shell: pwsh
+        env:
+          PYTHONUTF8: '1'
+        run: |
+          python -m pip install --disable-pip-version-check numpy==1.26.4 scipy==1.14.1 pydantic==2.11.9 pytest==8.4.2
+          if ($LASTEXITCODE -ne 0) { throw 'pinned solver dependencies unavailable' }
+          New-Item -ItemType Directory -Force scratch/tests | Out-Null
+          Copy-Item backend/tests/test_r130d_impulse_source_moment_evidence.py scratch/tests/
+          $env:PYTHONPATH = Join-Path $pwd 'backend/src'
+          python -m pytest -q scratch/tests/test_r130d_impulse_source_moment_evidence.py --tb=short
+          if ($LASTEXITCODE -ne 0) { throw 'frozen source-centroid evidence not self-consistent' }
+      - name: Re-execute actual source first moment matched FV20 FV32 and P2 MFEM-r4
+        shell: pwsh
+        env:
+          PYTHONUTF8: '1'
+          PYTHONIOENCODING: utf-8
+        run: |
+          $env:PYTHONPATH = Join-Path $pwd 'backend/src'
+          python scripts/run_r130d_impulse_source_moment_probe.py `
+            --plan benchmarks/acoustics/r130d_impulse_source_moment_matching_plan_2026-10-09.json `
+            --original benchmarks/acoustics/r130d_exact_discrete_impulse_candidate_evidence_2026-10-09.json `
+            --time-evidence benchmarks/acoustics/r130d_impulse_time_refinement_evidence_2026-10-09.json `
+            --systems benchmarks/acoustics/r130d_mfem_independent_sparse_systems `
+            --output scratch/ci_source_moment_actual.json
+          if ($LASTEXITCODE -ne 0) { throw 'actual moment-matched 2000-step wave integration failed' }
+      - name: Confirm physical source shape and nonproduction authority
+        shell: pwsh
+        env:
+          PYTHONUTF8: '1'
+        run: |
+          @'
+          import json
+          import numpy as np
+          def read(f):return json.load(open(f,encoding='utf-8'))
+          actual=read('scratch/ci_source_moment_actual.json')
+          old=read('benchmarks/acoustics/r130d_impulse_source_moment_evidence_2026-10-09.json')
+          assert actual['preregistered_plan']==old['preregistered_plan']
+          assert actual['production_enabled'] is False
+          assert actual['original_fullband_impulse']=='SELF_CONVERGENCE_FAILED'
+          assert actual['changed_source_is_not_original_unit_impulse'] is True
+          assert actual['temporal_integrator_error_purely_isolated'] is False
+          assert len(actual['cases'])==len(old['cases'])==3
+          for a,b in zip(actual['cases'],old['cases']):
+              assert a['method']==b['method'] and a['level']==b['level']
+              assert a['matched_solver_row']['steps']==2000
+              assert a['matched_solver_row']['matched_discrete_source_first_two_samples']==[1,1]
+              if a['method']=='pinned_independent_MFEM_P2':
+                  assert a['matched_solver_row']['export_sha256']==b['matched_solver_row']['export_sha256']
+                  assert a['matched_solver_row']['worst_true_relative_linear_residual']<=1e-8
+              for k in ('coarse_raw_vs_fine_raw','coarse_raw_vs_fine_moment_aligned','fine_raw_vs_fine_moment_aligned'):
+                  assert abs(a[k]['normalized_complex_l2']-b[k]['normalized_complex_l2'])<2e-5
+              x=np.array(a['fine_moment_aligned_complex'],dtype=float)
+              y=np.array(b['fine_moment_aligned_complex'],dtype=float)
+              assert x.shape==y.shape==(2,2)
+              np.testing.assert_allclose(x,y,rtol=2e-6,atol=2e-4)
+          print('PASS: 3 actual source-moment-matched wave diagnostics; original impulse qualification remains FAIL')
+          '@ | python -
+          if ($LASTEXITCODE -ne 0) { throw 'real source-moment numerical comparison changed' }
+      - name: Preserve actual matched-source replay
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: r130d-impulse-moment-source-three-wave-replay
+          path: |
+            scratch/ci_source_moment_actual.json
+            scratch/ci_source_moment_actual_partial.json
+          if-no-files-found: warn
+          retention-days: 30
