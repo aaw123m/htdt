@@ -307,6 +307,9 @@ def test_no_installation_context_renders_unknown(tmp_path: Path):
     assert balloon.vertices == ()
     assert balloon.faces == ()
     assert balloon.dataset_id is None
+    # marker still needs a position: the viewport must be able to draw
+    # the gray wireframe at the unbound speaker (#1000 issue spec)
+    assert balloon.origin is not None
 
 
 def test_context_without_dataset_renders_unknown(tmp_path: Path):

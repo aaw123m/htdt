@@ -506,11 +506,15 @@ def _resolve_balloon(
     document_id: str,
 ) -> DirectivityBalloonViewModel:
     entity = snap.entity
+    # The acoustic reference position never depends on aim/equipment — an
+    # UNKNOWN marker still needs it so the gray wireframe + label draw at
+    # the speaker (the panel/status honesty also needs the 3D marker).
+    origin = acoustic_reference_position(entity) or entity.position
     base = dict(
         speaker_entity_id=entity.entity_id,
         speaker_name=entity.name,
         speaker_role=entity.speaker_role,
-        origin=None,
+        origin=origin,
         frequency_hz=request.frequency_hz,
         frequency_grid_hz=(),
         grid_classification=None,
@@ -604,8 +608,6 @@ def _resolve_balloon(
         )
 
     # 4. installed aim/transform from the SceneDocument — never guessed.
-    origin = acoustic_reference_position(entity) or entity.position
-    base['origin'] = origin
     if entity.aim_xyz is None:
         return finish(
             'unknown',
