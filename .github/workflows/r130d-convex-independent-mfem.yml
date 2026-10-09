@@ -8,7 +8,13 @@ on:
       - 'benchmarks/acoustics/r130d_convex_independent_mfem_plan_2026-10-09.json'
       - 'benchmarks/acoustics/r130d_convex_mfem_tetra_sources/**'
       - 'scripts/run_r130d_convex_independent_mfem_drive.py'
+      - 'benchmarks/acoustics/r130d_convex_independent_mfem_all_level_driven_evidence_2026-10-09.json'
+      - 'benchmarks/acoustics/r130d_convex_independent_mfem_same_source_evidence_2026-10-09.json'
   workflow_dispatch:
+
+concurrency:
+  group: r130d-independent-two-convex-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -135,6 +141,44 @@ jobs:
                     'complex L2=',c['cross_fv_n20_vs_mfem_r4']['normalized_complex_l2'])
           '@ | python -
           if ($LASTEXITCODE -ne 0) { throw 'incomplete two-geometry final evidence' }
+      - name: Bind independent 8-step outputs to persisted byte-hashed numerical evidence
+        env:
+          PYTHONUTF8: '1'
+        run: |
+          @'
+          import json,math
+          from pathlib import Path
+          from numpy import array,allclose
+          old=json.loads(Path('benchmarks/acoustics/r130d_convex_independent_mfem_all_level_driven_evidence_2026-10-09.json').read_text())
+          new=json.loads(Path('scratch/independent_convex_mfem/all_levels.json').read_text())
+          assert old.keys()==new.keys()
+          for room in old:
+              assert len(new[room])==len(old[room])==4
+              for actual,frozen in zip(new[room],old[room]):
+                  for key in ('room','uniform_refinements','dofs','elements','tetra_mesh_sha256'):
+                      assert actual[key]==frozen[key], (room,key)
+                  assert actual['actual_midpoint_injected_source'] is True
+                  assert actual['production_enabled'] is False
+                  assert actual['true_linear_relative_residual_max']<=1e-8
+                  assert actual['max_cg_iterations']<=350
+                  assert len(actual['system_sha256'])==64
+                  aa=array(actual['transfer_complex_40_80_hz'],dtype=float)
+                  bb=array(frozen['transfer_complex_40_80_hz'],dtype=float)
+                  assert aa.shape==bb.shape==(2,2)
+                  assert allclose(aa,bb,rtol=1e-7,atol=1e-5), (room,actual['uniform_refinements'],aa,bb)
+          a=json.loads(Path('scratch/independent_convex_mfem/fine_fine_evidence.json').read_text())
+          b=json.loads(Path('benchmarks/acoustics/r130d_convex_independent_mfem_same_source_evidence_2026-10-09.json').read_text())
+          assert a['plan']==b['plan']
+          assert a['original_r130d_impulse']=='SELF_CONVERGENCE_FAILED'
+          assert a['production_enabled'] is False
+          for x,y in zip(a['cases'],b['cases']):
+              assert x['room']==y['room']
+              assert x['experimental_numeric_candidate_pass'] is True
+              assert abs(x['mfem_adjacent'][-1]['normalized_complex_l2']-y['mfem_adjacent'][-1]['normalized_complex_l2'])<1e-6
+              assert abs(x['cross_fv_n20_vs_mfem_r4']['normalized_complex_l2']-y['cross_fv_n20_vs_mfem_r4']['normalized_complex_l2'])<1e-6
+          print('PASS: 8 full independent C++ P2 FEM actual-source records replay within frozen numerical tolerance')
+          '@ | python -
+          if ($LASTEXITCODE -ne 0) { throw 'pinned independent MFEM replay did not reproduce archived evidence' }
       - name: Preserve actual per-step results even if threshold fails
         if: always()
         uses: actions/upload-artifact@v4
