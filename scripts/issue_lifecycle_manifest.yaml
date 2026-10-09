@@ -1366,3 +1366,29 @@ entries:
   - docs/issues/issue-982-geom-inspector.md
   - backend/tests/test_issue_982_geom_inspector.py
   close_when_gates_clear: true
+
+- issue: 989
+  lifecycle: acceptance_remaining
+  landed:
+    prs: [1088]
+    commits: [ff1cd7508359a44c43e5e4a4081a2a62896304cd]
+  remaining_gates:
+  - kind: manual
+    description: 'オペレータ受入 — プレフライト対話 (分類/除外理由/degraded表示) と presentation 面の実GUI確認 (子は bundle/handoff/analysis で検証)'
+  evidence_refs:
+  - docs/issues/issue-989-export-preflight.md
+  - backend/tests/test_issue_989_export_preflight.py
+  close_when_gates_clear: true
+
+- issue: 979
+  lifecycle: acceptance_remaining
+  landed:
+    prs: [1089]
+    commits: [27cb155d379b48fb2dec9d4604e7a1d6a89df436]
+  remaining_gates:
+  - kind: manual
+    description: 'オペレータ受入 — owned-Windows マウス/VTK/DPI 4条件の実機確認 (#804 レーン)、HUD角度とインスペクタ yaw の符号規約差は要 follow-up'
+  evidence_refs:
+  - docs/issues/issue-979-snap-hud.md
+  - backend/tests/test_issue_979_snap_hud.py
+  close_when_gates_clear: true
