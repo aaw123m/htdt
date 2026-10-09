@@ -1,0 +1,94 @@
+{
+  "schema_version": "htdt.r130d.original-point-q0-matched-newmark-spatial-ab-plan-1",
+  "date_jst": "2026-10-09",
+  "issue": 938,
+  "pr": 1055,
+  "question": "Does exact sloped-room roof cut-volume/aperture spatial FV improve original physical eight-node point q0 nonconvergence independently of changed temporal integration? Apply exactly same native-grid implicit Newmark beta=1/4 to original staircase Cartesian graph (control) and preregistered exact-roof-cutcell graph (treatment), holding original source receiver time and frequency invariant.",
+  "preregistered_treatment": {
+    "plan": "benchmarks/acoustics/r130d_native_grid_exact_roof_mass_fv_q0_plan_2026-10-09.json",
+    "evidence": "benchmarks/acoustics/r130d_native_grid_exact_roof_mass_fv_q0_evidence_2026-10-09.json",
+    "data": "exact room 56m3 mass FV native nodes; preregistered and executed before this control"
+  },
+  "native_control": {
+    "source_original": "benchmarks/acoustics/r130d_original_point_quadratic_pffdtd_evidence_2026-10-09.json",
+    "geometry": "benchmarks/acoustics/r130d_original_pffdtd_neumann_graph_evidence_2026-10-09.json",
+    "original_unmodified_PFFDTD": "rigid Neumann source-connected original native graph exact original vox_out.h5; symmetric graph A=degree minus adjacency as verified; each room vertex original nodal mass h^3 (staircase room), stiffness c^2*h*A (original full-voronoi face h^2 and spacing h); source original eight native unit q0 weights, same original 8 receiver weights",
+    "pinned_upstream": "aa319f6c86517cb95aabfae8656277da62c3ead5",
+    "ppw": [
+      28,
+      32,
+      36,
+      40,
+      44
+    ],
+    "source_xyz_m": [
+      1.5,
+      2,
+      2
+    ],
+    "receiver_xyz_m": [
+      2.5,
+      2,
+      2
+    ],
+    "density_kg_m3": 1.2,
+    "original_q0": "q[0]=1 and zero later, no temporal smoothing or spectral taper",
+    "record_s": 0.25,
+    "compare_bins_hz": [
+      40,
+      80
+    ],
+    "timing": "native original Ts, Nt; same source injection before native sample n+1, observation before update at sample n"
+  },
+  "matched_time": {
+    "scheme": "exact same backend htdt.r130d_native_grid_exact_roof_fv.implicit_newmark_original_q0 source q0 and beta1/4 implicit step as exact roof treatment; only M and K (geometry) differ",
+    "rtol": 1e-10,
+    "atol": 1e-12,
+    "maxiter": 500,
+    "true_relative_residual_max": 5e-10,
+    "max_relative_energy_drift": 0.000001,
+    "physical_point_receiver_original_8node": true
+  },
+  "acceptance": {
+    "frozen_adjacent_original_complex_max": 0.2,
+    "frozen_adjacent_original_magnitude_max": 0.25,
+    "frozen_adjacent_original_phase_deg_max": 15,
+    "strictly_decreasing_three_metrics_required": true,
+    "adjacent": [
+      [
+        28,
+        32
+      ],
+      [
+        32,
+        36
+      ],
+      [
+        36,
+        40
+      ],
+      [
+        40,
+        44
+      ]
+    ],
+    "store_all_unfavorable_original_and_ab_complex_results": true,
+    "intervention_not_product_qualification": true,
+    "no_causal_claim_if_both_nonconvergent": true
+  },
+  "limits": {
+    "max_active_native_graph_nodes": 150000,
+    "max_native_steps": 2000,
+    "max_num_wave_integrations": 5,
+    "max_CG_iterations": 500,
+    "max_wall_sec_per_case": 300,
+    "run_github_actions": false
+  },
+  "authority": {
+    "original_point_q0": "SELF_CONVERGENCE_FAILED",
+    "BRAS": "NOT_VALIDATED",
+    "product": "NO_GO",
+    "pr_draft": true,
+    "issue_open": true
+  }
+}
