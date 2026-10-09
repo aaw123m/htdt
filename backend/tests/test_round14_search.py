@@ -371,6 +371,19 @@ def test_field_explorer_plane_switch_repopulates_coordinates(
     assert panel.open_for_run(modes.run_id) is True
     panel.mode_combo.setCurrentIndex(0)
     panel._build_session()
+    # The build runs on the worker pool (#995) — pump events until the
+    # session lands before asserting on its derived state.
+    import time
+    deadline = time.monotonic() + 30.0
+    while time.monotonic() < deadline:
+        app.processEvents()
+        if (
+            not panel._build_busy
+            and len(panel._pool) == 0
+            and panel._session is not None
+        ):
+            break
+        time.sleep(0.005)
     session = panel._session
     assert session is not None
 
