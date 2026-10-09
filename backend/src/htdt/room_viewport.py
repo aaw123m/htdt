@@ -209,6 +209,27 @@ def _domain_to_render_tuple(point: tuple[float, float, float]) -> tuple[float, f
     return (point[0], -point[1], point[2])
 
 
+def _cjk_label_font_file() -> str | None:
+    """Windows JA UI font for VTK point labels (#1011).
+
+    VTK's default label font has no CJK coverage — Japanese route-state
+    labels and endpoint names render as nothing at all under it. Point
+    pyvista at an installed JA font when one exists; other platforms
+    keep the default.
+    """
+
+    import os
+
+    fonts_dir = os.path.join(
+        os.environ.get('WINDIR', r'C:\Windows'), 'Fonts'
+    )
+    for name in ('YuGothM.ttc', 'msgothic.ttc', 'meiryo.ttc'):
+        candidate = os.path.join(fonts_dir, name)
+        if os.path.isfile(candidate):
+            return candidate
+    return None
+
+
 _SELECTION_FORWARD_RAY_LENGTH_M = 0.6
 _SELECTION_AIM_RAY_LENGTH_M = 1.2
 
@@ -1546,6 +1567,7 @@ class RoomViewport3D(QFrame):
             'bound': DARK_THEME.semantic.success.hex,
             'missing': DARK_THEME.semantic.error.hex,
         }
+        label_font = _cjk_label_font_file()
         for item in items:
             bound_positions: list[tuple[float, float, float]] = []
             for side, endpoint in (
@@ -1574,6 +1596,7 @@ class RoomViewport3D(QFrame):
                     font_size=10,
                     point_size=0,
                     always_visible=True,
+                    font_file=label_font,
                     name=f"cable-route-endpoint-label-{item.run_id}-{side}",
                     render=False,
                 )
@@ -1625,6 +1648,7 @@ class RoomViewport3D(QFrame):
                     font_size=10,
                     point_size=0,
                     always_visible=True,
+                    font_file=label_font,
                     name=f"cable-route-state-{item.run_id}",
                     render=False,
                 )
