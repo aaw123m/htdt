@@ -263,6 +263,10 @@ def test_multi_candidate_pick_opens_chooser(_app) -> None:
 
     assert picked == ["e1"]
     assert viewport.pick_candidates_active
+    # The chooser is a real top-level (ToolTip) window — an alien child of
+    # the interactor would lose clicks to the VTK render HWND (found on the
+    # real Windows GUI: row clicks picked entities behind the popover).
+    assert viewport._pick_popover.isWindow()
     assert viewport.pick_candidate_ids() == ("e1", "e2", "e3")
     assert viewport._pick_popover.header.text() == "重なり候補 1/3"
     rows = _row_texts(viewport)

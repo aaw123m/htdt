@@ -1088,13 +1088,26 @@ class _PickCandidatePopover(QFrame):
     confirm/dismiss. Rows are rebuilt per update so window, highlight and
     reason text always match the live entry list. ``activated`` carries the
     entity id of a row that was clicked (menu semantics: click = confirm).
+
+    It is a real ``Qt::ToolTip`` window, not an alien child of the
+    interactor: the VTK render HWND swallows clicks aimed at plain child
+    widgets on Windows (verified on the real GUI — row clicks picked
+    entities *behind* the popover). ToolTip windows sit on top and never
+    activate, so keyboard focus stays on the interactor where the chooser's
+    key filter lives, and clicks outside still reach the viewport as
+    normal picks (which then re-anchor or dismiss the chooser).
     """
 
     activated = Signal(object)
+    step_requested = Signal(int)
     _MAX_ROWS = 8
 
     def __init__(self, parent: QWidget) -> None:
-        super().__init__(parent)
+        super().__init__(
+            parent,
+            Qt.WindowType.ToolTip | Qt.WindowType.FramelessWindowHint,
+        )
+        self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
         self.setObjectName('pickCandidatePopover')
         set_surface_role(self, SurfaceRole.RAISED)
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
@@ -1181,6 +1194,16 @@ class _PickCandidatePopover(QFrame):
             self._rows.append(row)
         self._layout.addWidget(self.hint)
         self.adjustSize()
+
+    def wheelEvent(self, event) -> None:  # noqa: N802
+        # Wheel over the popover itself goes to this window (the interactor
+        # filter covers wheel over the viewport); same scroll direction.
+        delta = event.angleDelta().y()
+        if delta:
+            self.step_requested.emit(-1 if delta > 0 else 1)
+            event.accept()
+            return
+        super().wheelEvent(event)
 
 
 class _PickCandidateKeyFilter(QObject):
@@ -5492,6 +5515,9 @@ class RoomViewport3D(QFrame):
         if self._pick_popover is None:
             self._pick_popover = _PickCandidatePopover(self.interactor)
             self._pick_popover.activated.connect(self._confirm_pick_candidate)
+            self._pick_popover.step_requested.connect(
+                self._step_pick_candidates
+            )
         self._pick_popover.set_entries(self._pick_entries, self._pick_index)
         popover = self._pick_popover
         popover.adjustSize()
@@ -5501,7 +5527,14 @@ class RoomViewport3D(QFrame):
         # Keep the chooser inside the viewport — flip left/up near edges.
         max_x = max(4, self.interactor.width() - popover.width() - 4)
         max_y = max(4, self.interactor.height() - popover.height() - 4)
-        popover.move(max(4, min(x, max_x)), max(4, min(y, max_y)))
+        # A ToolTip window positions in global screen coordinates.
+        popover.move(
+            self.interactor.mapToGlobal(
+                QPointF(
+                    max(4, min(x, max_x)), max(4, min(y, max_y))
+                ).toPoint()
+            )
+        )
         popover.show()
         popover.raise_()
         if self._pick_key_filter is None:
