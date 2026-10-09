@@ -1,0 +1,113 @@
+{
+  "schema_version": "htdt.r130d.original-q0-hybrid-modal-endpoint-attribution-plan-1",
+  "date_jst": "2026-10-10",
+  "issue": 938,
+  "pr": 1055,
+  "hypothesis": "Observed 40Hz PPW32-to36 variation could arise from retained high eigenmodes and/or full 250ms finite-record endpoint coherent cancellation rather than the local first roof Neumann flux. Report favorable/unfavorable contributions symmetrically without changing original gate.",
+  "preregistration": "Commit and push this fixed diagnostic plan before any new eigenspectrum decomposition numeric execution.",
+  "original": {
+    "upstream_PFFDTD_sha": "aa319f6c86517cb95aabfae8656277da62c3ead5",
+    "ppw": [
+      28,
+      32,
+      36,
+      40,
+      44
+    ],
+    "original_source_xyz_m": [
+      1.5,
+      2,
+      2
+    ],
+    "original_receiver_xyz_m": [
+      2.5,
+      2,
+      2
+    ],
+    "source_receiver": "exact original SHA-pinned vox_out.h5/comms_out.h5 native 8x8 indices and weights",
+    "q0": "exact original 8 sample native impulse in_sigs[:,0]; all later samples 0",
+    "native_dt_h_Nt_unchanged": true,
+    "record_length_s": 0.25,
+    "c_m_s": 343.2,
+    "rho_kg_m3": 1.2,
+    "signed_bins_hz": [
+      40,
+      80
+    ],
+    "all_four_pairs_and_strict_monotonicity": true,
+    "three_gates": {
+      "complex_rms_relative": 0.2,
+      "magnitude_max_relative": 0.25,
+      "phase_max_deg": 15
+    },
+    "native_evidence": "benchmarks/acoustics/r130d_original_point_quadratic_pffdtd_evidence_2026-10-09.json",
+    "hybrid_plan": "benchmarks/acoustics/r130d_original_q0_cartesian_flux_true_cut_roof_hybrid_plan_2026-10-10.json",
+    "hybrid_evidence": "benchmarks/acoustics/r130d_original_q0_cartesian_flux_true_roof_hybrid_evidence_2026-10-10.json"
+  },
+  "method": {
+    "fixed_operator": "same symmetric conservative Cartesian full wet 5point + physical roof cut-Q1 flux, full consistent mass, x P1 tensor operators, no changes",
+    "frequency_bands_hz": [
+      [
+        0,
+        100
+      ],
+      [
+        100,
+        200
+      ],
+      [
+        200,
+        400
+      ],
+      [
+        400,
+        800
+      ],
+      [
+        800,
+        1600
+      ],
+      [
+        1600,
+        3200
+      ],
+      [
+        3200,
+        null
+      ]
+    ],
+    "band_membership": "sqrt(lambda)/(2*pi) physical semidiscrete eigenfrequency, disjoint half-open bands with last upper infinite; no excluded modes",
+    "endpoint_parts": [
+      "first_forward_derivative_sample_n0",
+      "interior_centered_derivative_samples_n1_to_N_minus_2",
+      "last_backward_derivative_sample_nN_minus_1"
+    ],
+    "endpoint_formula": "exact algebraic original finite 250ms signed P_T/Q_T Newmark modal sum; do not modify samples, gate, or input waveform",
+    "nyquist_partition": "delta_t*sqrt(lambda)>pi diagnostic only; both sides retained and summed",
+    "all_mode_frozen_signed_reference": "previously committed unchanged full hybrid 40/80Hz signed values; require relative agreement 2e-8",
+    "all_modal_band_partition_tolerance_relative": 2e-8,
+    "all_endpoint_partition_tolerance_relative": 2e-8,
+    "all_nyquist_partition_tolerance_relative": 2e-8,
+    "independent_direct_small_mode_fourier_verification": true,
+    "pair_signed_difference_projection": "Re(conj(full coarse-fine difference)*one band coarse-fine difference)/abs(full coarse-fine difference)^2; signed and can exceed 1 or negative; all partition fractions must sum to 1",
+    "endpoint_contribution_semantics": "algebraic decomposition of original pressure Fourier ratio; not physical single-boundary causal attribution",
+    "report_all_bands_all_grids_both_signed_bins_all_endpoint_components": true,
+    "no_high_mode_cut_no_source_smoothing_no_extra_window_no_amplitude_phase_fitting": true,
+    "recompute_and_compare_frozen_all_four_three_gates": true
+  },
+  "caps": {
+    "max_active_yz_nodes": 3300,
+    "max_modes": 180000,
+    "max_ppw_cases": 5,
+    "new_native_PFFDTD_runs": 0,
+    "new_GitHub_Actions_runs": 0,
+    "retain_scratch": true
+  },
+  "authority": {
+    "original_PFFDTD": "SELF_CONVERGENCE_FAILED",
+    "independent_physics": "NOT_VALIDATED",
+    "product": "NO_GO",
+    "PR_draft": true,
+    "issue_open": true
+  }
+}
