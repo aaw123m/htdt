@@ -1056,3 +1056,17 @@ entries:
   - backend/tests/test_issue_1006_campaign_3d.py
   - backend/src/htdt/room_campaign_overlay.py
   close_when_gates_clear: true
+
+- issue: 1003
+  lifecycle: acceptance_remaining
+  landed:
+    prs: [1065]
+    commits: [33494b4c]
+  remaining_gates:
+  - kind: manual
+    description: 'オペレータ受入 — 実スクリーン計測セットでの9点品質マップ・量/視点切替・未測定セル表現の実機確認 (子が実GUI Mesa GL で検証済)'
+  evidence_refs:
+  - docs/issues/issue-1003-screen-quality-map.md
+  - backend/tests/test_issue_1003_screen_quality.py
+  - backend/src/htdt/room_screen_quality_map.py
+  close_when_gates_clear: true
