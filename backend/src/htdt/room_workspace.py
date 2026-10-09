@@ -279,6 +279,7 @@ from .room_viewport import (
     RoomViewport3D,
 )
 from .room_field_overlay import FieldOverlay3DRequest, RoomFieldOverlayController
+from .room_treatment_overlay import RoomTreatmentOverlayController
 from .room_viewport import (
     UnderlayRenderItem,
 )
@@ -4153,6 +4154,14 @@ class RoomWorkspace(QWidget):
         # #999 3D field overlay: armed request + current-head staleness live
         # in the controller; resolve() runs inside _render's deferred block.
         self.field_overlay = RoomFieldOverlayController(repository)
+        # #1009 treatment coverage overlay: same current-head resolve
+        # discipline — footprints are re-derived per render and a scene
+        # edit can never leave a stale patch drawn.
+        self.treatment_overlay = RoomTreatmentOverlayController(
+            repository,
+            self.controller.treatment_repository,
+            document_id,
+        )
         # Esc exits probe mode only — armed while 3D probing so normal Esc
         # behaviour elsewhere is untouched.
         self._field_probe_esc = QShortcut(
@@ -5964,6 +5973,11 @@ class RoomWorkspace(QWidget):
             clear_field = getattr(self.viewport, 'clear_field_overlay', None)
             if callable(clear_field):
                 clear_field()
+            clear_treatment = getattr(
+                self.viewport, 'clear_treatment_overlay', None
+            )
+            if callable(clear_treatment):
+                clear_treatment()
         self._update_responsive_layout()
         if context_id == "geometry" and self._geometry_page is not None:
             self.right_stack.setCurrentWidget(self._geometry_page)
@@ -7983,6 +7997,26 @@ class RoomWorkspace(QWidget):
                             self.field3DProbeDisarmed.emit()
                 else:
                     self.viewport.clear_field_overlay()
+            # #1009: treatment coverage — acoustics context + overlay ON,
+            # resolved against the CURRENT head every render. A scene edit
+            # re-mints the head, so a stale patch cannot survive one render.
+            render_treatment = getattr(
+                self.viewport, 'render_treatment_overlay', None
+            )
+            if callable(render_treatment):
+                if (
+                    self.current_context == 'acoustics'
+                    and overlays.acoustics
+                ):
+                    overlay = self.treatment_overlay.resolve()
+                    if overlay is None or (
+                        not overlay.patches and not overlay.notices
+                    ):
+                        self.viewport.clear_treatment_overlay()
+                    else:
+                        render_treatment(overlay)
+                else:
+                    self.viewport.clear_treatment_overlay()
 
     def _current_lighting_scene(self):
         """Current persisted LightingScene for this document, or None.

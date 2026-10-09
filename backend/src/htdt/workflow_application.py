@@ -4278,6 +4278,9 @@ class WorkflowApplicationComposition:
             )
         material_panel = _self.SurfaceMaterialPanel(workspace.controller)
         treatment_panel = _self.RoomTreatmentPanel(workspace.controller)
+        # #1009: the 被覆 section renders the resolved overlay scene —
+        # the same authority the viewport draws from.
+        treatment_panel.coverage_provider = workspace.treatment_overlay.resolve
         # #876/REV36: persisted R150 path artifacts replay into ranked
         # reflection guidance — a read-only dock tab next to prediction.
         guidance_panel = _self.ReflectionGuidancePanel(workspace.controller)

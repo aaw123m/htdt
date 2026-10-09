@@ -1340,6 +1340,7 @@ class RoomViewport3D(QFrame):
         'acoustic-field-',
         'lighting-',
         'opclear-',
+        'treatment-overlay-',
     )
 
     def _remove_overlay_actors(self) -> None:
@@ -2776,6 +2777,129 @@ class RoomViewport3D(QFrame):
             return None
         t = (value - near[axis]) / depth
         return tuple(near[i] + t * (far[i] - near[i]) for i in range(3))
+
+    # -- Treatment coverage overlay (issue #1009) ----------------------------
+    #
+    # Read-only: actors under ``treatment-overlay-`` are derived patches of
+    # exact-bound placements — the clipped effective footprint only, never
+    # the authored rectangle. Signature-skipped renders drop them via
+    # ``_remove_overlay_actors`` and the compositor re-resolves; a stale
+    # scene therefore cannot keep a superseded patch on screen.
+
+    _TREATMENT_PATCH_LIFECYCLE_COLORS = {
+        'proposed': DARK_THEME.accent.primary.hex,
+        'installed': DARK_THEME.semantic.success.hex,
+    }
+
+    @staticmethod
+    def _treatment_patch_mesh(
+        ring: tuple[tuple[float, float, float], ...],
+    ) -> pv.PolyData | None:
+        """Triangulate one planar render-space ring (shapely ear clipping).
+
+        The clipped patch may be concave when the host surface carries
+        openings, so a single n-gon face is not safe; triangulation in the
+        ring's dominant projection matches ``_planar_polygon_mesh``.
+        """
+
+        if len(ring) < 3:
+            return None
+        points = np.asarray(ring, dtype=float)
+        normal = _newell_normal(points)
+        drop = int(np.argmax(np.abs(normal)))
+        keep = [axis for axis in range(3) if axis != drop]
+        poly2d = Polygon(points[:, keep])
+        if not poly2d.is_valid or poly2d.area <= 1e-12:
+            return None
+        faces: list[int] = []
+        for triangle in triangulate(poly2d):
+            if not poly2d.covers(triangle.representative_point()):
+                continue
+            coords = np.asarray(triangle.exterior.coords[:-1])
+            indices = []
+            for x, y in coords:
+                distance = np.hypot(
+                    points[:, keep[0]] - x, points[:, keep[1]] - y
+                )
+                indices.append(int(np.argmin(distance)))
+            if len(indices) == 3:
+                faces.extend((3, *indices))
+        if not faces:
+            return None
+        return pv.PolyData(points, np.asarray(faces, dtype=np.int64))
+
+    def render_treatment_overlay(self, scene) -> None:
+        """Draw one resolved TreatmentOverlayScene (#1009).
+
+        Must run inside ``deferred_render()`` from the compositor so the
+        whole frame still ends in a single ``plotter.render()``.
+        """
+
+        for patch in scene.patches:
+            key = patch.placement.placement_sha256[:12]
+            fill = self._TREATMENT_PATCH_LIFECYCLE_COLORS.get(
+                patch.lifecycle, DARK_THEME.accent.primary.hex
+            )
+            edge = (
+                DARK_THEME.semantic.warning.hex
+                if patch.warning
+                else fill
+            )
+            for index, ring in enumerate(patch.render_polygons):
+                mesh = self._treatment_patch_mesh(ring)
+                if mesh is None:
+                    continue
+                patch_actor = self.plotter.add_mesh(
+                    mesh,
+                    color=fill,
+                    opacity=0.45,
+                    pickable=False,
+                    lighting=False,
+                    name=f'treatment-overlay-patch-{key}-{index}',
+                    render=False,
+                )
+                outline = pv.lines_from_points(
+                    np.asarray(ring, dtype=float), close=True
+                )
+                outline_actor = self.plotter.add_mesh(
+                    outline,
+                    color=edge,
+                    line_width=3,
+                    pickable=False,
+                    lighting=False,
+                    name=f'treatment-overlay-edge-{key}-{index}',
+                    render=False,
+                )
+                # The patch lies exactly on the host surface plane; polygon
+                # offset keeps it legible over coplanar translucent walls
+                # without moving the geometry off the surface.
+                for actor in (patch_actor, outline_actor):
+                    mapper = actor.GetMapper()
+                    mapper.SetResolveCoincidentTopologyToPolygonOffset()
+                    mapper.SetResolveCoincidentTopologyPolygonOffsetParameters(
+                        -2.0, -2.0
+                    )
+        self.plotter.add_text(
+            '\n'.join(scene.viewport_lines),
+            position='lower_left',
+            font_size=9,
+            color=DARK_THEME.text.secondary.hex,
+            name='treatment-overlay-status',
+            render=False,
+        )
+        self._render()
+
+    def clear_treatment_overlay(self) -> None:
+        """Remove every treatment-overlay actor and its status text."""
+
+        renderer = getattr(self.plotter, 'renderer', None)
+        actors = getattr(renderer, 'actors', None)
+        if actors:
+            for name in tuple(actors):
+                if isinstance(name, str) and name.startswith(
+                    'treatment-overlay-'
+                ):
+                    self.plotter.remove_actor(name)
 
     def pick_actor_candidates(self, position: QPointF) -> tuple[str, ...]:
         """Entity ids under a Qt display point, ordered front-to-back."""
