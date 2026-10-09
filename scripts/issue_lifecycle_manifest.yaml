@@ -987,3 +987,17 @@ entries:
   - backend/tests/test_issue_1010_operational_clearance.py
   - backend/src/htdt/room_operational_clearance.py
   close_when_gates_clear: true
+
+- issue: 1009
+  lifecycle: acceptance_remaining
+  landed:
+    prs: [1061]
+    commits: [45f03c56]
+  remaining_gates:
+  - kind: manual
+    description: 'オペレータ受入 — 実配置での壁面被覆 overlay・実効面積/失効語彙の実機確認 (子が実GUI Mesa GL で clip 済みパッチ描画を検証済)'
+  evidence_refs:
+  - docs/issues/issue-1009-absorption-coverage.md
+  - backend/tests/test_issue_1009_treatment_overlay.py
+  - backend/src/htdt/room_treatment_overlay.py
+  close_when_gates_clear: true
