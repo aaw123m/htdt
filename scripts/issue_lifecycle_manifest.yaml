@@ -99,14 +99,14 @@ entries:
   - docs/issues/issue-804-golden-path.md
   close_when_gates_clear: true
 - issue: 805
-  lifecycle: structural_followup_remaining
+  lifecycle: acceptance_remaining
   landed:
     prs:
     - 835
     commits: []
   remaining_gates:
-  - kind: structural
-    description: 標準カバレッジ拡張の残件（#839 ソースマトリクスで追跡）
+  - kind: acceptance
+    description: メイン受理 — ギャップマトリクス権威・builtin 行列・ソースマトリクス (#839) の維持者レビュー
   evidence_refs:
   - docs/issues/issue-805-standards-coverage.md
   close_when_gates_clear: true
