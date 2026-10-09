@@ -1,0 +1,152 @@
+{
+  "schema_version": "htdt.r130d.convex-fv-n32-vs-independent-mfem-r4-supplemental-1",
+  "cases": [
+    {
+      "room": "planar_wedge",
+      "fine_reference_source": "pinned independent P2 MFEM r4 actually driven in separate CI",
+      "comparisons": [
+        {
+          "fv_n": 20,
+          "mfem_r": 4,
+          "complex_relative": 0.1344899136185062,
+          "relative_magnitude_by_hz": [
+            0.00027524338006786736,
+            0.04503859203413789
+          ],
+          "phase_abs_deg_by_hz": [
+            1.0680942859496412,
+            9.568561889965023
+          ],
+          "magnitude_max_db": 0.4002835766209229
+        },
+        {
+          "fv_n": 24,
+          "mfem_r": 4,
+          "complex_relative": 0.09494819939899576,
+          "relative_magnitude_by_hz": [
+            0.007663457075257264,
+            0.016439711498932672
+          ],
+          "phase_abs_deg_by_hz": [
+            1.0259026604270038,
+            6.806478118672462
+          ],
+          "magnitude_max_db": 0.14398028660897508
+        },
+        {
+          "fv_n": 28,
+          "mfem_r": 4,
+          "complex_relative": 0.07176991141095122,
+          "relative_magnitude_by_hz": [
+            0.0003737445075326407,
+            0.01970582216739201
+          ],
+          "phase_abs_deg_by_hz": [
+            0.5857186253772136,
+            5.097110656571963
+          ],
+          "magnitude_max_db": 0.17287153436084804
+        },
+        {
+          "fv_n": 32,
+          "mfem_r": 4,
+          "complex_relative": 0.05556704092304179,
+          "relative_magnitude_by_hz": [
+            0.004009425282424416,
+            0.007467187703024528
+          ],
+          "phase_abs_deg_by_hz": [
+            0.5997339478537618,
+            3.9800990024486524
+          ],
+          "magnitude_max_db": 0.06510253837074564
+        }
+      ],
+      "fv_complex_l2_strict_decrease": true,
+      "fv_magnitude_max_strict_decrease": false,
+      "fv_magnitude_adjacent": [
+        0.02907689632202377,
+        0.008034198845098983,
+        0.012330710191881646
+      ],
+      "n20_registered_candidate_pass": true,
+      "n32_supplemental_cross_validation_only": true
+    },
+    {
+      "room": "three_axis_diagonal",
+      "fine_reference_source": "pinned independent P2 MFEM r4 actually driven in separate CI",
+      "comparisons": [
+        {
+          "fv_n": 20,
+          "mfem_r": 4,
+          "complex_relative": 0.17728141194584265,
+          "relative_magnitude_by_hz": [
+            0.037766911924346266,
+            0.009826794761107484
+          ],
+          "phase_abs_deg_by_hz": [
+            0.3857090288147354,
+            10.123191342924997
+          ],
+          "magnitude_max_db": 0.33439426395485183
+        },
+        {
+          "fv_n": 24,
+          "mfem_r": 4,
+          "complex_relative": 0.12220747180121104,
+          "relative_magnitude_by_hz": [
+            0.0335798266279093,
+            0.004652092180212937
+          ],
+          "phase_abs_deg_by_hz": [
+            0.10694736727700904,
+            6.996834303551554
+          ],
+          "magnitude_max_db": 0.2966802604535308
+        },
+        {
+          "fv_n": 28,
+          "mfem_r": 4,
+          "complex_relative": 0.09140033680741613,
+          "relative_magnitude_by_hz": [
+            0.019067420394678312,
+            0.006793576557821054
+          ],
+          "phase_abs_deg_by_hz": [
+            0.07677170638244649,
+            5.2156653657064425
+          ],
+          "magnitude_max_db": 0.1672168210368004
+        },
+        {
+          "fv_n": 32,
+          "mfem_r": 4,
+          "complex_relative": 0.06949886185854064,
+          "relative_magnitude_by_hz": [
+            0.018871538670908485,
+            0.003577352550343479
+          ],
+          "phase_abs_deg_by_hz": [
+            0.210175540315639,
+            3.977135077227914
+          ],
+          "magnitude_max_db": 0.16548251511569706
+        }
+      ],
+      "fv_complex_l2_strict_decrease": true,
+      "fv_magnitude_max_strict_decrease": false,
+      "fv_magnitude_adjacent": [
+        0.00515074085961921,
+        0.014794499168403656,
+        0.0032047594530748807
+      ],
+      "n20_registered_candidate_pass": true,
+      "n32_supplemental_cross_validation_only": true
+    }
+  ],
+  "original_r130d_impulse": "SELF_CONVERGENCE_FAILED",
+  "physical_validation": "NOT_VALIDATED",
+  "production_ready": false,
+  "new_geometries_high_resolution_full_monotonicity_gate": "NOT_QUALIFIED",
+  "comment": "Recorded high-FV n32 comparison is exploratory; wedge/diagonal max-magnitude sequences are nonmonotone and must not be silently passed."
+}

@@ -1,0 +1,487 @@
+{
+  "schema_version": "htdt.r130d.convex-independent-same-source-evidence-1",
+  "authority": "EXPERIMENTAL_ONLY",
+  "plan": {
+    "schema_version": "htdt.r130d.convex-independent-mfem-plan-1",
+    "date": "2026-10-09",
+    "issue": 938,
+    "goal": "Actually drive independent pinned MFEM P2 tetra reference for predeclared new wedge and three-axis diagonal shapes under EXACT existing FV source/time contract, compare self and cross using UNMODIFIED existing numeric limits",
+    "geometry_cases": [
+      {
+        "name": "planar_wedge",
+        "planes": [
+          [
+            0,
+            0.25,
+            1,
+            4
+          ],
+          [
+            1,
+            1,
+            0,
+            6
+          ]
+        ],
+        "exact_volume_m3": 49.666666666666664
+      },
+      {
+        "name": "three_axis_diagonal",
+        "planes": [
+          [
+            1,
+            1,
+            1,
+            8
+          ]
+        ],
+        "exact_volume_m3": 53.333333333333336
+      }
+    ],
+    "independent_tet_mesher": "scipy.spatial HalfspaceIntersection (strict interior), ConvexHull, Delaunay; use independent closed tetra mesh source checked for exact volume, signed Jacobian, no uncovered hull facets; immutable committed mesh input",
+    "mfem_pin": "d964264cdb9a13e94a201b6c236c7721e0c8765f",
+    "mfem_order": 2,
+    "refinements": [
+      1,
+      2,
+      3,
+      4
+    ],
+    "physical": {
+      "L_m": 4,
+      "c_m_s": 343.2,
+      "rho_kg_m3": 1.2,
+      "source_xyz_m": [
+        1.5,
+        2,
+        2
+      ],
+      "receiver_xyz_m": [
+        2.5,
+        2,
+        2
+      ],
+      "rigid_neumann": true
+    },
+    "waveform": {
+      "q": "exp(-.5*((t-.012)/.003)^2) m3/s",
+      "dt_s": 0.00025,
+      "steps": 1000,
+      "duration_s": 0.25,
+      "bins_hz": [
+        40,
+        80
+      ],
+      "kernel": "midpoint exp(+i2\u03c0ft) finite-record P_T/Q_T",
+      "actual_injected": true
+    },
+    "linear_solver": {
+      "rtol": 1e-11,
+      "atol": 0,
+      "maxiter": 350,
+      "preconditioner": "Jacobi diagonal A=M+dt^2/4K",
+      "true_residual_relative_max": 1e-08
+    },
+    "unchanged_self_limits": {
+      "complex_rms_relative_max": 0.05,
+      "magnitude_max_relative": 0.08,
+      "phase_max_deg": 5
+    },
+    "unchanged_cross_limits": {
+      "complex_rms_relative_max": 0.35,
+      "magnitude_max_relative": 0.4,
+      "magnitude_max_db": 3,
+      "phase_max_deg": 25
+    },
+    "refinement_pass_logic": "MFEM r2->r3 and r3->r4 all three relative/phase metrics must shrink, finest all thresholds pass, then FV new geometry n16->20 (not yet independently n28->32) must pass original candidate FV thresholds, and FV n20 vs MFEM r4 cross must pass all original cross criteria. Missing any evidence BLOCKED and never change product gate.",
+    "resource_limits": {
+      "max_tet_mesh_initial_elements": 64,
+      "max_dofs_ref4": 70000,
+      "max_nnz_per_matrix": 3000000,
+      "max_tet_export_json_bytes": 300000000,
+      "max_runtime_s": 1200
+    },
+    "frozen": {
+      "canonical_original_impulse": "SELF_CONVERGENCE_FAILED",
+      "new_sloped_candidate": "EXPERIMENTAL_CANDIDATE_NUMERICAL_PASS_ONLY",
+      "new_geometries": "CROSS_SOLVER_BLOCKED",
+      "production_enabled": false,
+      "physical_validation": "NOT_VALIDATED"
+    }
+  },
+  "mesh_provenance": {
+    "mfem_pin": "d964264cdb9a13e94a201b6c236c7721e0c8765f",
+    "rooms": {
+      "planar_wedge": {
+        "analytic_volume_m3": 49.666666666666664,
+        "bounds_m": 4,
+        "hull_volume_m3": 49.66666666666667,
+        "mesh_origin": "independent scipy.spatial.HalfspaceIntersection+Qhull Delaunay",
+        "path": "planar_wedge.tet",
+        "sha256": "5ce39370b424c6a2bc66b444ce64c816e59476348cfa62dfc00f4e74cdacf51f",
+        "tetra_min_volume_m3": 3.9999999999999987,
+        "tetra_sum_volume_m3": 49.666666666666664,
+        "tetrahedra": 9,
+        "vertices": 10
+      },
+      "three_axis_diagonal": {
+        "analytic_volume_m3": 53.333333333333336,
+        "bounds_m": 4,
+        "hull_volume_m3": 53.33333333333332,
+        "mesh_origin": "independent scipy.spatial.HalfspaceIntersection+Qhull Delaunay",
+        "path": "three_axis_diagonal.tet",
+        "sha256": "24e6e3fca8120c55a15411e7eedd78b906fead2af94d60b15978c8be5f206376",
+        "tetra_min_volume_m3": 10.666666666666663,
+        "tetra_sum_volume_m3": 53.333333333333314,
+        "tetrahedra": 5,
+        "vertices": 7
+      }
+    },
+    "schema_version": "htdt.r130d.convex-independent-mfem-tetra-mesh-provenance-1"
+  },
+  "cases": [
+    {
+      "room": "planar_wedge",
+      "mfem_refinements": [
+        {
+          "room": "planar_wedge",
+          "uniform_refinements": 1,
+          "dofs": 175,
+          "elements": 72,
+          "system_sha256": "2b5d1ae8d996c0bc8e17eea46d0ae9c086db26181b07889100276a92a76b2da2",
+          "tetra_mesh_sha256": "5ce39370b424c6a2bc66b444ce64c816e59476348cfa62dfc00f4e74cdacf51f",
+          "transfer_complex_40_80_hz": [
+            [
+              -30.164948339439114,
+              39.681523367050694
+            ],
+            [
+              -27.98918761560689,
+              24.192723880015674
+            ]
+          ],
+          "true_linear_relative_residual_max": 9.999211260728964e-12,
+          "max_cg_iterations": 41,
+          "elapsed_s": 0.7022578999999496,
+          "actual_midpoint_injected_source": true,
+          "production_enabled": false
+        },
+        {
+          "room": "planar_wedge",
+          "uniform_refinements": 2,
+          "dofs": 1053,
+          "elements": 576,
+          "system_sha256": "90cf87d5ed30a654dd071790c2a31ae188161a5722b890cfd0817e1bbe6e36f8",
+          "tetra_mesh_sha256": "5ce39370b424c6a2bc66b444ce64c816e59476348cfa62dfc00f4e74cdacf51f",
+          "transfer_complex_40_80_hz": [
+            [
+              -32.72247166892001,
+              35.94803040776336
+            ],
+            [
+              -7.100882074176638,
+              -69.12653330486569
+            ]
+          ],
+          "true_linear_relative_residual_max": 9.979153912725617e-12,
+          "max_cg_iterations": 41,
+          "elapsed_s": 1.258153400000083,
+          "actual_midpoint_injected_source": true,
+          "production_enabled": false
+        },
+        {
+          "room": "planar_wedge",
+          "uniform_refinements": 3,
+          "dofs": 7225,
+          "elements": 4608,
+          "system_sha256": "20465a168b1a02ede6d4475c188a55ff02a8fbcdbe3a19bfc458421eedbab1ec",
+          "tetra_mesh_sha256": "5ce39370b424c6a2bc66b444ce64c816e59476348cfa62dfc00f4e74cdacf51f",
+          "transfer_complex_40_80_hz": [
+            [
+              -32.90188853621607,
+              38.55408452438169
+            ],
+            [
+              1.2370224365997269,
+              -65.20004240033289
+            ]
+          ],
+          "true_linear_relative_residual_max": 9.999597087641204e-12,
+          "max_cg_iterations": 35,
+          "elapsed_s": 4.688798600000155,
+          "actual_midpoint_injected_source": true,
+          "production_enabled": false
+        },
+        {
+          "room": "planar_wedge",
+          "uniform_refinements": 4,
+          "dofs": 53361,
+          "elements": 36864,
+          "system_sha256": "9dc46d5fe58ad42f0370e8a760386eef465ac526ea24cd3ac93ae85d1518dedf",
+          "tetra_mesh_sha256": "5ce39370b424c6a2bc66b444ce64c816e59476348cfa62dfc00f4e74cdacf51f",
+          "transfer_complex_40_80_hz": [
+            [
+              -32.917905702866,
+              38.345918112867665
+            ],
+            [
+              1.8400350777083783,
+              -65.62282832674494
+            ]
+          ],
+          "true_linear_relative_residual_max": 9.99723698545e-12,
+          "max_cg_iterations": 35,
+          "elapsed_s": 44.694648400000005,
+          "actual_midpoint_injected_source": true,
+          "production_enabled": false
+        }
+      ],
+      "mfem_adjacent": [
+        {
+          "r0": 1,
+          "r1": 2,
+          "normalized_complex_l2": 1.1288871430004592,
+          "complex_relative_by_hz": [
+            0.09309579631012749,
+            1.376141570931904
+          ],
+          "magnitude_relative_by_hz": [
+            0.025391821636358003,
+            0.4676132390052002
+          ],
+          "phase_difference_deg_by_hz": [
+            5.069474538307118,
+            124.97379101071708
+          ]
+        },
+        {
+          "r0": 2,
+          "r1": 3,
+          "normalized_complex_l2": 0.1159818116482275,
+          "complex_relative_by_hz": [
+            0.051538557898625985,
+            0.14132693523698692
+          ],
+          "magnitude_relative_by_hz": [
+            0.04091781337014279,
+            0.06560949740455285
+          ],
+          "phase_difference_deg_by_hz": [
+            1.8334081276031726,
+            6.9519471467693945
+          ]
+        },
+        {
+          "r0": 3,
+          "r1": 4,
+          "normalized_complex_l2": 0.00923962474412397,
+          "complex_relative_by_hz": [
+            0.004131256768269558,
+            0.011218198034918673
+          ],
+          "magnitude_relative_by_hz": [
+            0.0029232455193863405,
+            0.006654274754403982
+          ],
+          "phase_difference_deg_by_hz": [
+            0.16701582224646855,
+            0.5192008498647822
+          ]
+        }
+      ],
+      "mfem_self_pass": true,
+      "fv_last_adjacent_pass": true,
+      "cross_fv_n20_vs_mfem_r4": {
+        "normalized_complex_l2": 0.1344899136185062,
+        "complex_relative_by_hz": [
+          0.018640958599565216,
+          0.16911675738044232
+        ],
+        "magnitude_relative_by_hz": [
+          0.00027524338006786736,
+          0.04503859203413789
+        ],
+        "phase_difference_deg_by_hz": [
+          1.0680942859496412,
+          9.568561889965023
+        ]
+      },
+      "cross_max_magnitude_db": 0.4002835766209229,
+      "cross_pass": true,
+      "experimental_numeric_candidate_pass": true
+    },
+    {
+      "room": "three_axis_diagonal",
+      "mfem_refinements": [
+        {
+          "room": "three_axis_diagonal",
+          "uniform_refinements": 1,
+          "dofs": 105,
+          "elements": 40,
+          "system_sha256": "6d84aa97fb9439b7b19756ea01be422bd0edc9d2a0ed670f5f3852640c4230be",
+          "tetra_mesh_sha256": "24e6e3fca8120c55a15411e7eedd78b906fead2af94d60b15978c8be5f206376",
+          "transfer_complex_40_80_hz": [
+            [
+              -15.161116524633224,
+              46.37351396303723
+            ],
+            [
+              -2.827634540847742,
+              -281.1123308998765
+            ]
+          ],
+          "true_linear_relative_residual_max": 9.999615681698715e-12,
+          "max_cg_iterations": 39,
+          "elapsed_s": 0.6238895999999841,
+          "actual_midpoint_injected_source": true,
+          "production_enabled": false
+        },
+        {
+          "room": "three_axis_diagonal",
+          "uniform_refinements": 2,
+          "dofs": 609,
+          "elements": 320,
+          "system_sha256": "a4a220ae17b7205d13d74f121604aadc988188feafb903573562bbea4bec7eaa",
+          "tetra_mesh_sha256": "24e6e3fca8120c55a15411e7eedd78b906fead2af94d60b15978c8be5f206376",
+          "transfer_complex_40_80_hz": [
+            [
+              -33.28383963389266,
+              45.98809215816055
+            ],
+            [
+              699.9101777384172,
+              -722.9959208012797
+            ]
+          ],
+          "true_linear_relative_residual_max": 9.995246103987424e-12,
+          "max_cg_iterations": 44,
+          "elapsed_s": 0.9857732999998916,
+          "actual_midpoint_injected_source": true,
+          "production_enabled": false
+        },
+        {
+          "room": "three_axis_diagonal",
+          "uniform_refinements": 3,
+          "dofs": 4097,
+          "elements": 2560,
+          "system_sha256": "4431c87134effa927e22379c72a6b402d35b719d2318c9aa0dcba299effd41a3",
+          "tetra_mesh_sha256": "24e6e3fca8120c55a15411e7eedd78b906fead2af94d60b15978c8be5f206376",
+          "transfer_complex_40_80_hz": [
+            [
+              -36.44568339389188,
+              52.07995148698852
+            ],
+            [
+              882.9499715719312,
+              -543.9682842924216
+            ]
+          ],
+          "true_linear_relative_residual_max": 9.999542258671717e-12,
+          "max_cg_iterations": 37,
+          "elapsed_s": 2.831268999999793,
+          "actual_midpoint_injected_source": true,
+          "production_enabled": false
+        },
+        {
+          "room": "three_axis_diagonal",
+          "uniform_refinements": 4,
+          "dofs": 29953,
+          "elements": 20480,
+          "system_sha256": "6677608171654776ce58711750a8421422e2e9e36e905b20048d7cba03f85ecf",
+          "tetra_mesh_sha256": "24e6e3fca8120c55a15411e7eedd78b906fead2af94d60b15978c8be5f206376",
+          "transfer_complex_40_80_hz": [
+            [
+              -36.274431103882286,
+              51.30447488607877
+            ],
+            [
+              893.4111646548619,
+              -530.0994983085612
+            ]
+          ],
+          "true_linear_relative_residual_max": 9.99686435405031e-12,
+          "max_cg_iterations": 32,
+          "elapsed_s": 21.702968200000214,
+          "actual_midpoint_injected_source": true,
+          "production_enabled": false
+        }
+      ],
+      "mfem_adjacent": [
+        {
+          "r0": 1,
+          "r1": 2,
+          "normalized_complex_l2": 0.8238283460059049,
+          "complex_relative_by_hz": [
+            0.31930848223451486,
+            0.8249416198723547
+          ],
+          "magnitude_relative_by_hz": [
+            0.14057034653226375,
+            0.7206276180700081
+          ],
+          "phase_difference_deg_by_hz": [
+            17.790734084201805,
+            44.646797754342394
+          ]
+        },
+        {
+          "r0": 2,
+          "r1": 3,
+          "normalized_complex_l2": 0.2465115025225209,
+          "complex_relative_by_hz": [
+            0.10797518024452026,
+            0.2468854431798284
+          ],
+          "magnitude_relative_by_hz": [
+            0.10692533463756597,
+            0.02968497960443324
+          ],
+          "phase_difference_deg_by_hz": [
+            0.9106778316195332,
+            14.293091992834643
+          ]
+        },
+        {
+          "r0": 3,
+          "r1": 4,
+          "normalized_complex_l2": 0.016709241134005834,
+          "complex_relative_by_hz": [
+            0.012639234099007525,
+            0.016722311928127943
+          ],
+          "magnitude_relative_by_hz": [
+            0.01166274962331196,
+            0.0017096147665135023
+          ],
+          "phase_difference_deg_by_hz": [
+            0.27749726795299307,
+            0.9539243471829422
+          ]
+        }
+      ],
+      "mfem_self_pass": true,
+      "fv_last_adjacent_pass": true,
+      "cross_fv_n20_vs_mfem_r4": {
+        "normalized_complex_l2": 0.17728141194584265,
+        "complex_relative_by_hz": [
+          0.038339878888811386,
+          0.17759024959058864
+        ],
+        "magnitude_relative_by_hz": [
+          0.037766911924346266,
+          0.009826794761107484
+        ],
+        "phase_difference_deg_by_hz": [
+          0.3857090288147354,
+          10.123191342924997
+        ]
+      },
+      "cross_max_magnitude_db": 0.33439426395485183,
+      "cross_pass": true,
+      "experimental_numeric_candidate_pass": true
+    }
+  ],
+  "production_enabled": false,
+  "original_r130d_impulse": "SELF_CONVERGENCE_FAILED",
+  "physical_validation": "NOT_VALIDATED"
+}

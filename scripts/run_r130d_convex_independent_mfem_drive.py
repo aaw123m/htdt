@@ -35,7 +35,15 @@ def _csr(doc:dict, n:int, *, max_nnz:int) -> sparse.csr_matrix:
 
 
 def _complex(row):
-    return np.array([complex(*v) for v in row["transfer_complex_40_80_hz"]])
+    # Independent MFEM and independently executed FV evidence intentionally
+    # carry different schema keys; never silently fabricate a missing bin.
+    key=("actual_driven_transfer_40_80_hz" if
+         "actual_driven_transfer_40_80_hz" in row else
+         "transfer_complex_40_80_hz")
+    arr=np.asarray(row[key],dtype=float)
+    if arr.shape!=(2,2) or not np.all(np.isfinite(arr)):
+        raise ValueError("missing or nonfinite frozen 40/80-Hz complex bins")
+    return arr[:,0]+1j*arr[:,1]
 
 
 def solve_one(plan:dict, name:str, level:int, system_path:Path,
@@ -134,6 +142,16 @@ def solve_one(plan:dict, name:str, level:int, system_path:Path,
 
 
 def evaluate(plan,mesh,levels:dict, fv:dict) -> dict:
+    if (plan['unchanged_self_limits']!={
+           'complex_rms_relative_max':.05,
+           'magnitude_max_relative':.08,'phase_max_deg':5}
+        or plan['unchanged_cross_limits']!={
+           'complex_rms_relative_max':.35,
+           'magnitude_max_relative':.4,'magnitude_max_db':3,
+           'phase_max_deg':25}
+        or plan['frozen']['production_enabled'] is not False
+        or plan['frozen']['canonical_original_impulse']!='SELF_CONVERGENCE_FAILED'):
+        raise ValueError('independent convex numeric limits or frozen authority changed')
     if [x["name"] for x in fv["cases"]]!=["baseline_sloped","planar_wedge","three_axis_diagonal"]:
         raise ValueError("FV geometries changed")
     rows=[]
