@@ -120,7 +120,7 @@ from .cad_repository import SceneRepository
 from .cad_roomsim_repository import CadRoomSimRepository
 from .cad_search_repository import CadSearchRepository
 from .cad_system_variant_repository import CadSystemVariantRepository
-from .export_io import claim_export_stem, write_export_files
+from .export_io import write_export_generation
 from .availability_reasons import availability_reason
 from .accessible_labels import wire_label_buddies
 from .command_palette import (
@@ -698,29 +698,24 @@ class _AnalysisExportWriteResult:
 def _write_analysis_export(
     target: Path, export: AnalysisExportBundle
 ) -> tuple[Path, ...]:
-    """Claim one ``analysis-N`` stem and publish the three members atomically.
+    """Publish the three members as one ``analysis-N/`` generation dir.
 
     One generation per stem: re-exporting into the same folder never
     overwrites or mixes with a previous export — a fresh ``analysis-N``
-    stem is claimed and the three members are published atomically or not
-    at all.
+    directory is reserved, staged and published as a whole or not at
+    all (see :func:`htdt.export_io.write_export_generation`).
     """
-    stem = claim_export_stem(
+    generation = write_export_generation(
         target,
         'analysis',
-        ('_export.csv', '_export.json', '_report.html'),
+        {
+            'export.csv': render_analysis_csv(export),
+            'export.json': render_analysis_json(export),
+            'report.html': render_analysis_html(export),
+        },
+        bom_suffixes=('.csv',),
     )
-    return tuple(
-        write_export_files(
-            target,
-            {
-                f'{stem}_export.csv': render_analysis_csv(export),
-                f'{stem}_export.json': render_analysis_json(export),
-                f'{stem}_report.html': render_analysis_html(export),
-            },
-            bom_suffixes=('.csv',),
-        ).values()
-    )
+    return generation.members
 
 
 class WorkflowApplicationComposition:
@@ -5445,21 +5440,16 @@ class WorkflowApplicationComposition:
             return
         target = Path(directory)
         try:
-            stem = claim_export_stem(
+            written = write_export_generation(
                 target,
                 'calibration',
-                ('_settings.json', '_settings.csv'),
-            )
-            written = tuple(
-                write_export_files(
-                    target,
-                    {
-                        f'{stem}_settings.json': result.json_text,
-                        f'{stem}_settings.csv': result.csv_text,
-                    },
-                    bom_suffixes=('.csv',),
-                ).values()
-            )
+                {
+                    'settings.json': result.json_text,
+                    'settings.csv': result.csv_text,
+                },
+                bom_suffixes=('.csv',),
+                manifest_extra={'export_id': result.export.export_id},
+            ).members
         except EXPECTED_OPERATION_ERRORS as exc:
             warn_user(
                 self.shell, "校正設定を書き出せませんでした", exc

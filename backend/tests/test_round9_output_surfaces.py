@@ -43,9 +43,8 @@ from htdt.cad_repository import SceneRepository
 from htdt.cad_scene import F1_DOCUMENT_ID, make_f1_scene
 from htdt.deliverables_catalog import DeliverablesCatalogService
 from htdt.export_io import (
-    claim_export_stem,
     write_bytes_atomic,
-    write_export_files,
+    write_export_generation,
     write_text_atomic,
 )
 from htdt.measurement_page_workspace import MeasurementPageWorkspace
@@ -166,31 +165,36 @@ def test_atomic_writers_leave_no_tmp_and_preserve_bytes(tmp_path) -> None:
     assert leftovers == []
 
 
-def test_claim_export_stem_skips_occupied_names(tmp_path) -> None:
-    suffixes = ('_export.csv', '_export.json', '_report.html')
-    assert claim_export_stem(tmp_path, 'analysis', suffixes) == 'analysis'
-    (tmp_path / 'analysis_export.json').write_text('{}', encoding='utf-8')
-    # Any claimed member — not just the first — bumps the stem.
-    assert claim_export_stem(tmp_path, 'analysis', suffixes) == 'analysis-2'
-    (tmp_path / 'analysis-2_report.html').write_text('x', encoding='utf-8')
-    assert claim_export_stem(tmp_path, 'analysis', suffixes) == 'analysis-3'
-
-
-def test_write_export_files_is_all_or_nothing(tmp_path) -> None:
-    (tmp_path / 'b.csv').write_text('kept', encoding='utf-8')
-    with pytest.raises(FileExistsError):
-        write_export_files(
-            tmp_path, {'a.csv': '1', 'b.csv': '2', 'c.csv': '3'}
-        )
-    # The pre-existing file is untouched and nothing new leaked.
-    assert (tmp_path / 'b.csv').read_text(encoding='utf-8') == 'kept'
-    assert not (tmp_path / 'a.csv').exists()
-    assert not (tmp_path / 'c.csv').exists()
-
-    written = write_export_files(
-        tmp_path / 'sub', {'x.txt': 'xx', 'y.txt': 'yy'}
+def test_export_generation_skips_occupied_stems(tmp_path) -> None:
+    first = write_export_generation(
+        tmp_path, 'analysis', {'export.csv': 'a'}
     )
-    assert sorted(p.name for p in written.values()) == ['x.txt', 'y.txt']
+    assert first.stem == 'analysis'
+    # A legacy flat member still bumps the stem — no overwrites.
+    second = write_export_generation(
+        tmp_path, 'analysis', {'export.csv': 'b'}
+    )
+    assert second.stem == 'analysis-2'
+    assert (tmp_path / 'analysis' / 'export.csv').read_text(
+        encoding='utf-8'
+    ) == 'a'
+    assert (tmp_path / 'analysis-2' / 'export.csv').read_text(
+        encoding='utf-8'
+    ) == 'b'
+
+
+def test_export_generation_member_bom_and_bytes(tmp_path) -> None:
+    generation = write_export_generation(
+        tmp_path / 'sub',
+        'calibration',
+        {'settings.csv': 'x,y\n1,2\n', 'blob.bin': b'\x00\xff'},
+        bom_suffixes=('.csv',),
+    )
+    assert generation.stem == 'calibration'
+    assert (tmp_path / 'sub' / 'calibration' / 'settings.csv').read_bytes().startswith(
+        b'\xef\xbb\xbf'
+    )
+    assert (tmp_path / 'sub' / 'calibration' / 'blob.bin').read_bytes() == b'\x00\xff'
 
 
 # ---------------------------------------------------------------------
