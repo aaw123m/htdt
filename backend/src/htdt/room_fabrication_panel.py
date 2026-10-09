@@ -78,7 +78,7 @@ class FabricationPreviewDialog(QDialog):
     ``clear_fabrication_preview``. Signals stay the public surface so the
     dialog is testable with any stub host."""
 
-    previewRequested = Signal(object, object)
+    previewRequested = Signal(object, object, bool)
     previewViewChanged = Signal(object, object)
     previewSelectionChanged = Signal(object)
     previewCleared = Signal()
@@ -94,8 +94,12 @@ class FabricationPreviewDialog(QDialog):
         self._host = host
         if host is not None:
             self.previewRequested.connect(
-                lambda package, placement_id: host.show_fabrication_preview(
-                    package, placement_instance_id=placement_id
+                lambda package, placement_id, neutral: (
+                    host.show_fabrication_preview(
+                        package,
+                        placement_instance_id=placement_id,
+                        force_neutral=neutral,
+                    )
                 )
             )
             self.previewViewChanged.connect(
@@ -381,7 +385,12 @@ class FabricationPreviewDialog(QDialog):
         )
         self.placement_combo.blockSignals(True)
         self.placement_combo.clear()
-        self.placement_combo.addItem('なし (中立アンカー)', None)
+        self.placement_combo.addItem(
+            '自動 (canonicalな配置があれば参考表示)', None
+        )
+        self.placement_combo.addItem(
+            'なし (中立アンカー — 配置を使わない)', '__neutral__'
+        )
         self._placements = ()
         if definition is not None and revision is not None:
             placements = tuple(
@@ -463,8 +472,10 @@ class FabricationPreviewDialog(QDialog):
             return
         self._package = package
         self._populate(package)
-        placement_id = self.placement_combo.currentData()
-        self.previewRequested.emit(package, placement_id)
+        data = self.placement_combo.currentData()
+        neutral = data == '__neutral__'
+        placement_id = None if neutral or data is None else data
+        self.previewRequested.emit(package, placement_id, neutral)
 
     def _populate(self, package) -> None:
         tol = package.tolerances
@@ -527,7 +538,7 @@ class FabricationPreviewDialog(QDialog):
                 str(well.well_index),
                 str(well.period_index),
                 str(well.residue),
-                f'{well.depth_m:.3f} m ({well.depth_m * 1000.0:.0f} mm)',
+                f'{well.depth_m:.3f} m ({well.depth_m * 1000.0:g} mm)',
             )
             for column, text in enumerate(cells):
                 self.well_table.setItem(row, column, QTableWidgetItem(text))

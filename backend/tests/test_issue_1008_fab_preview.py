@@ -290,6 +290,15 @@ def test_canonical_placement_draws_reference_geometry(
     assert 'panel-ref' in text
     assert any('取付向き' in line for line in scene.summary_ja)
 
+    # Explicit neutral skips even a canonical placement — the combo
+    # label must mean what it says.
+    controller.arm(package, force_neutral=True)
+    neutral = controller.resolve()
+    assert neutral is not None
+    assert neutral.anchor.source == 'neutral'
+    assert neutral.reference is None
+    assert any('neutral anchor requested' in n for n in neutral.notices)
+
 
 def test_lapsed_placement_falls_back_to_neutral(tmp_path: Path) -> None:
     fixture = _fixture(tmp_path)
@@ -361,7 +370,7 @@ def test_export_report_matches_preview_numbering(tmp_path: Path) -> None:
     assert '## Well table' in qrd_report
     for row in qrd.well_table:
         assert f'| {row.well_index} |' in qrd_report
-        assert f'{row.depth_m * 1000.0:.0f} |' in qrd_report
+        assert f'{row.depth_m * 1000.0:g} |' in qrd_report
     # Kerf/depth tolerances show exactly where the package grounds them:
     # fin cut groups carry well_depth_mm, the backing carries overall.
     for entry in qrd.cut_list:
@@ -511,8 +520,12 @@ class _RecordingHost:
     def __init__(self) -> None:
         self.calls: list = []
 
-    def show_fabrication_preview(self, package, *, placement_instance_id):
-        self.calls.append(('show', package, placement_instance_id))
+    def show_fabrication_preview(
+        self, package, *, placement_instance_id, force_neutral
+    ):
+        self.calls.append(
+            ('show', package, placement_instance_id, force_neutral)
+        )
 
     def update_fabrication_preview_view(
         self, *, section_fraction, exploded_fraction
@@ -554,6 +567,7 @@ def test_dialog_issues_and_reports_parity(tmp_path: Path) -> None:
         assert host.calls[0][0] == 'show'
         assert host.calls[0][1].package_sha256 == package.package_sha256
         assert host.calls[0][2] is None  # no placement pinned
+        assert host.calls[0][3] is False  # auto anchor, not forced
         # Tables mirror the sealed package 1:1.
         assert dialog.parts_table.rowCount() == len(package.parts)
         assert dialog.cut_table.rowCount() == len(package.cut_list)

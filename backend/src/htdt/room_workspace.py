@@ -6508,12 +6508,18 @@ class RoomWorkspace(QWidget):
     # -- fabrication package preview (#1008) ---------------------------------
 
     def show_fabrication_preview(
-        self, package, *, placement_instance_id: str | None = None
+        self,
+        package,
+        *,
+        placement_instance_id: str | None = None,
+        force_neutral: bool = False,
     ) -> None:
         """Arm the read-only preview on an ISSUED sealed package."""
 
         self.fabrication_preview.arm(
-            package, placement_instance_id=placement_instance_id
+            package,
+            placement_instance_id=placement_instance_id,
+            force_neutral=force_neutral,
         )
         if self.current_context != 'acoustics':
             self.set_context('acoustics')

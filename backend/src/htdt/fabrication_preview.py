@@ -196,6 +196,7 @@ def _resolve_anchor(
     document_id: str,
     package: TreatmentFabricationPackage,
     placement_instance_id: str | None,
+    force_neutral: bool = False,
 ) -> tuple[PreviewAnchor, PreviewReference | None, tuple[str, ...]]:
     """Resolve the assembly anchor against the CURRENT head.
 
@@ -209,7 +210,12 @@ def _resolve_anchor(
     head = scene_repository.current_head(document_id)
     notices: list[str] = []
     placement: AcousticTreatmentPlacement | None = None
-    if head is not None:
+    if force_neutral:
+        notices.append(
+            'neutral anchor requested - no mount reference even when a '
+            'canonical placement exists'
+        )
+    elif head is not None:
         try:
             candidates = tuple(
                 p
@@ -568,7 +574,7 @@ def build_fabrication_report(package: TreatmentFabricationPackage) -> str:
             lines.append(
                 f'| {row.well_index} | {row.period_index} | '
                 f'{row.residue} | {_fmt_m(row.depth_m)} | '
-                f'{row.depth_m * 1000.0:.0f} |'
+                f'{row.depth_m * 1000.0:g} |'
             )
     if package.bom_fragments:
         lines += ['', '## BOM fragments']
@@ -662,6 +668,7 @@ class FabricationPreviewController:
         self._section_fraction: float | None = None
         self._exploded_fraction = 0.0
         self._selected_key: str | None = None
+        self._force_neutral = False
         self._cache_key: tuple | None = None
         self._cache: FabricationPreviewScene | None = None
 
@@ -678,15 +685,18 @@ class FabricationPreviewController:
         package: TreatmentFabricationPackage,
         *,
         placement_instance_id: str | None = None,
+        force_neutral: bool = False,
     ) -> None:
         self._package = package
         self._placement_instance_id = placement_instance_id
+        self._force_neutral = force_neutral
         self._selected_key = None
         self.invalidate()
 
     def disarm(self) -> None:
         self._package = None
         self._placement_instance_id = None
+        self._force_neutral = False
         self._selected_key = None
         self.invalidate()
 
@@ -724,6 +734,7 @@ class FabricationPreviewController:
             None if head is None else head.content_hash,
             package.package_sha256,
             self._placement_instance_id,
+            self._force_neutral,
             self._section_fraction,
             self._exploded_fraction,
             self._selected_key,
@@ -745,6 +756,7 @@ class FabricationPreviewController:
             self.document_id,
             package,
             self._placement_instance_id,
+            self._force_neutral,
         )
         if family not in SUPPORTED_FAMILIES:
             return FabricationPreviewScene(
@@ -931,7 +943,7 @@ class FabricationPreviewController:
                     part_kind='air_gap',
                     cut_group='air-gap',
                     description=(
-                        f'air gap {gap * 1000.0:.0f} mm — installation '
+                        f'air gap {gap * 1000.0:g} mm — installation '
                         'space, not a cut part'
                     ),
                     center=_add(
@@ -951,7 +963,7 @@ class FabricationPreviewController:
                     quantity=package.panel_count,
                     selected=False,
                     derived=True,
-                    label=f'air gap {gap * 1000.0:.0f}mm (not a cut part)',
+                    label=f'air gap {gap * 1000.0:g}mm (not a cut part)',
                 )
             )
             offset += gap
@@ -1137,7 +1149,7 @@ class FabricationPreviewController:
                     ),
                     label=(
                         f'W{row.well_index} '
-                        f'd={float(row.depth_m) * 1000.0:.0f}mm'
+                        f'd={float(row.depth_m) * 1000.0:g}mm'
                     ),
                 )
             )
