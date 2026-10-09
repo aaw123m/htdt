@@ -94,6 +94,7 @@ class ProjectEntry:
     created_at_utc: str
     revision_count: int
     archived: bool = False
+    last_opened_at_utc: str | None = None
 
 
 class ProjectLibraryService:
@@ -142,6 +143,7 @@ class ProjectLibraryService:
                     else heads[entry.document_id][1]
                 ),
                 archived=entry.archived,
+                last_opened_at_utc=entry.last_opened_at_utc,
             )
             for entry in self._project_library.list_projects(
                 include_archived=True
@@ -1042,6 +1044,65 @@ def _deletion_plan_lines(plan: ProjectDeletionPlan) -> list[str]:
     return lines
 
 
+#: #986 shared project-list sort/filter vocabulary — used identically by
+#: the Projects page table and the menu switch picker so an operator sees
+#: the same ordering and identity semantics in both places.
+PROJECT_SORT_RECENT = 'recent'
+PROJECT_SORT_CREATED = 'created'
+PROJECT_SORT_NAME = 'name'
+PROJECT_FILTER_ACTIVE = 'active'
+PROJECT_FILTER_ARCHIVED = 'archived'
+PROJECT_FILTER_ALL = 'all'
+
+
+def filter_project_entries(
+    entries: tuple,
+    *,
+    text: str = '',
+    sort: str = PROJECT_SORT_RECENT,
+    state: str = PROJECT_FILTER_ALL,
+) -> tuple:
+    """Search/state-filter/sort project entries without touching identity.
+
+    Duck-typed over the fields both entry models share (``display_name``,
+    ``archived``, ``created_at_utc``, ``last_opened_at_utc``); the returned
+    objects are the same instances — ``project_id`` authority is never
+    resolved by display text anywhere downstream.
+    """
+
+    needle = text.strip().casefold()
+    items = []
+    for entry in entries:
+        if state == PROJECT_FILTER_ACTIVE and entry.archived:
+            continue
+        if state == PROJECT_FILTER_ARCHIVED and not entry.archived:
+            continue
+        if needle and needle not in (entry.display_name or '').casefold():
+            continue
+        items.append(entry)
+    if sort == PROJECT_SORT_NAME:
+        items.sort(
+            key=lambda e: ((e.display_name or '').casefold(), e.project_id)
+        )
+    elif sort == PROJECT_SORT_CREATED:
+        items.sort(
+            key=lambda e: (e.created_at_utc or '', e.project_id),
+            reverse=True,
+        )
+    else:
+        # 最近使った順 — opened projects first (never-opened last), then
+        # created date as the deterministic tiebreak.
+        items.sort(
+            key=lambda e: (
+                e.last_opened_at_utc or '',
+                e.created_at_utc or '',
+                e.project_id,
+            ),
+            reverse=True,
+        )
+    return tuple(items)
+
+
 class ProjectLibraryPage(QWidget):
     """Project library: open/switch, archive/restore, delete documents.
 
@@ -1072,13 +1133,48 @@ class ProjectLibraryPage(QWidget):
             "保存済みのプロジェクトです。開くとそのプロジェクトに切り替わります。"
             "アーカイブ済みのプロジェクトは開けず、削除は確認のうえ実行されます。",
         )
-        self.table = QTableWidget(0, 5)
+
+        controls = QHBoxLayout()
+        self.search_edit = QLineEdit(self)
+        self.search_edit.setObjectName("projectLibrarySearch")
+        self.search_edit.setPlaceholderText("プロジェクト名で検索…")
+        self.search_edit.setAccessibleName("プロジェクト名で検索")
+        self.search_edit.setToolTip("表示名の部分一致で一覧を絞り込みます")
+        self.search_edit.textChanged.connect(self.refresh)
+        controls.addWidget(self.search_edit, 1)
+        self.sort_combo = QComboBox(self)
+        self.sort_combo.setObjectName("projectLibrarySort")
+        for _label, _key in (
+            ("最近使った順", PROJECT_SORT_RECENT),
+            ("作成日時", PROJECT_SORT_CREATED),
+            ("名前", PROJECT_SORT_NAME),
+        ):
+            self.sort_combo.addItem(_label, _key)
+        self.sort_combo.setToolTip("一覧の並べ替え方法を選びます")
+        self.sort_combo.currentIndexChanged.connect(lambda _i: self.refresh())
+        controls.addWidget(self.sort_combo)
+        self.state_combo = QComboBox(self)
+        self.state_combo.setObjectName("projectLibraryState")
+        for _label, _key in (
+            ("全件", PROJECT_FILTER_ALL),
+            ("作業中", PROJECT_FILTER_ACTIVE),
+            ("アーカイブ済み", PROJECT_FILTER_ARCHIVED),
+        ):
+            self.state_combo.addItem(_label, _key)
+        self.state_combo.setToolTip("作業中 / アーカイブ済みで絞り込みます")
+        self.state_combo.currentIndexChanged.connect(lambda _i: self.refresh())
+        controls.addWidget(self.state_combo)
+        layout.addLayout(controls)
+
+        self.table = QTableWidget(0, 7)
         self.table.setAccessibleName("プロジェクト一覧")
         self.table.setToolTip(
             "保存済みプロジェクトの一覧です。列の見出しにカーソルを合わせると各列の説明が表示されます。"
         )
+        # Columns 0-4 keep the pre-#986 layout (state stays at index 4);
+        # the new columns append at the tail.
         self.table.setHorizontalHeaderLabels(
-            ("プロジェクト", "作成日時", "リビジョン数", "現在", "状態")
+            ("プロジェクト", "作成日時", "リビジョン数", "現在", "状態", "最終アクセス", "ID")
         )
         for _col, _tip in enumerate((
             "プロジェクトの表示名",
@@ -1086,6 +1182,8 @@ class ProjectLibraryPage(QWidget):
             "保存されている版（リビジョン）の数",
             "現在開いているプロジェクトには ● が付きます",
             "アクティブ / アーカイブ済み の状態",
+            "最後に開いた日時（未オープンは空欄）",
+            "プロジェクトIDの先頭（同名案件の区別用）",
         )):
             self.table.horizontalHeaderItem(_col).setToolTip(_tip)
         self.table.horizontalHeader().setSectionResizeMode(
@@ -1156,14 +1254,28 @@ class ProjectLibraryPage(QWidget):
         self.new_button.setWhatsThis("新しいプロジェクトの作成を開始します（作成ウィザードが開きます）")
         self.new_button.clicked.connect(lambda: self.commission_requested.emit())
         layout.addWidget(self.new_button)
+
+        self.selection_status = QLabel("", self)
+        self.selection_status.setObjectName("projectSelectionStatus")
+        self.selection_status.setWordWrap(True)
+        set_typography_role(self.selection_status, TypographyRole.SECONDARY)
+        layout.addWidget(self.selection_status)
         self.refresh()
 
     def refresh(self) -> None:
-        entries = self.service.list_projects()
-        self._entries = {entry.project_id: entry for entry in entries}
+        selected = self._selected_project_id()
+        all_entries = self.service.list_projects()
+        self._entries = {entry.project_id: entry for entry in all_entries}
+        entries = filter_project_entries(
+            all_entries,
+            text=self.search_edit.text(),
+            sort=self.sort_combo.currentData(),
+            state=self.state_combo.currentData(),
+        )
         current = self._current_document_id()
         self.table.setRowCount(0)
-        self.empty_label.setVisible(not entries)
+        self.empty_label.setVisible(not all_entries)
+        restore_row: int | None = None
         for entry in entries:
             row = self.table.rowCount()
             self.table.insertRow(row)
@@ -1173,12 +1285,18 @@ class ProjectLibraryPage(QWidget):
                 str(entry.revision_count),
                 "●" if entry.document_id == current else "",
                 "アーカイブ済み" if entry.archived else "",
+                entry.last_opened_at_utc or "",
+                entry.project_id[:8],
             )
             for column, value in enumerate(values):
                 item = QTableWidgetItem(value)
                 if column == 0:
                     item.setData(Qt.ItemDataRole.UserRole, entry.project_id)
                 self.table.setItem(row, column, item)
+            if selected is not None and entry.project_id == selected:
+                restore_row = row
+        if restore_row is not None:
+            self.table.selectRow(restore_row)
         self._sync_buttons()
 
     def _selected_entry(self) -> ProjectEntry | None:
@@ -1201,6 +1319,24 @@ class ProjectLibraryPage(QWidget):
             entry is not None and entry.archived
         )
         self.delete_button.setEnabled(entry is not None and not is_current)
+        # #986: name the exact reason the selected row cannot be opened —
+        # never silently redirect the operator to a different project.
+        if entry is None:
+            self.selection_status.setText("")
+        elif is_current:
+            self.selection_status.setText(
+                "このプロジェクトは現在開いています。"
+            )
+        elif entry.archived:
+            self.selection_status.setText(
+                "アーカイブ済みのため開けません（アーカイブ解除は可能です）。"
+            )
+        elif entry.head_revision_id is None:
+            self.selection_status.setText(
+                "開けるリビジョンがありません。"
+            )
+        else:
+            self.selection_status.setText("")
         if is_current:
             tip = "現在開いているプロジェクトは変更できません"
             self.archive_button.setToolTip(tip)

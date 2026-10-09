@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
     QFormLayout,
+    QHBoxLayout,
     QInputDialog,
     QLabel,
     QLineEdit,
@@ -1840,12 +1841,74 @@ class WorkflowApplicationComposition:
         dialog = QDialog(self.shell)
         dialog.setWindowTitle(title)
         layout = QVBoxLayout(dialog)
+        # #986: same search/sort/state vocabulary as the Projects page —
+        # rows stay pinned to stable project_id in UserRole; the display
+        # name is never the identity.
+        from .application_pages import (
+            PROJECT_FILTER_ALL,
+            PROJECT_FILTER_ARCHIVED,
+            PROJECT_SORT_CREATED,
+            PROJECT_SORT_NAME,
+            PROJECT_SORT_RECENT,
+            filter_project_entries,
+        )
+
+        search_edit = QLineEdit(dialog)
+        search_edit.setPlaceholderText("プロジェクト名で検索…")
+        search_edit.setAccessibleName("プロジェクト名で検索")
+        search_edit.setToolTip("表示名の部分一致で一覧を絞り込みます")
+        layout.addWidget(search_edit)
+        controls = QHBoxLayout()
+        sort_combo = QComboBox(dialog)
+        for _label, _key in (
+            ("最近使った順", PROJECT_SORT_RECENT),
+            ("作成日時", PROJECT_SORT_CREATED),
+            ("名前", PROJECT_SORT_NAME),
+        ):
+            sort_combo.addItem(_label, _key)
+        sort_combo.setToolTip("一覧の並べ替え方法を選びます")
+        controls.addWidget(sort_combo)
+        state_combo = QComboBox(dialog)
+        for _label, _key in (
+            ("全件", PROJECT_FILTER_ALL),
+            ("アーカイブ済み", PROJECT_FILTER_ARCHIVED),
+        ):
+            state_combo.addItem(_label, _key)
+        state_combo.setToolTip("アーカイブ済みのみ表示します")
+        controls.addWidget(state_combo)
+        layout.addLayout(controls)
         listing = QListWidget(dialog)
-        for entry in entries:
-            item = QListWidgetItem(entry.display_name)
-            item.setData(Qt.ItemDataRole.UserRole, entry.project_id)
-            listing.addItem(item)
-        listing.setCurrentRow(0)
+
+        def _refill() -> None:
+            current_id = None
+            item = listing.currentItem()
+            if item is not None:
+                current_id = item.data(Qt.ItemDataRole.UserRole)
+            listing.clear()
+            restore_row = 0
+            for row, entry in enumerate(
+                filter_project_entries(
+                    entries,
+                    text=search_edit.text(),
+                    sort=sort_combo.currentData(),
+                    state=state_combo.currentData(),
+                )
+            ):
+                item = QListWidgetItem(
+                    entry.display_name
+                    + ("（アーカイブ済み）" if entry.archived else "")
+                )
+                item.setData(Qt.ItemDataRole.UserRole, entry.project_id)
+                listing.addItem(item)
+                if current_id is not None and entry.project_id == current_id:
+                    restore_row = row
+            if listing.count():
+                listing.setCurrentRow(restore_row)
+
+        search_edit.textChanged.connect(lambda *_a: _refill())
+        sort_combo.currentIndexChanged.connect(lambda *_a: _refill())
+        state_combo.currentIndexChanged.connect(lambda *_a: _refill())
+        _refill()
         # Enter/Return or double-click on a row accepts the dialog — the
         # picker's primary gesture, matching the command palette's list.
         listing.itemActivated.connect(lambda *_item: dialog.accept())
