@@ -209,6 +209,19 @@ PERSISTED_DATA_REGISTRY: tuple[PersistedDataComponent, ...] = (
         portable=PortableProjectPolicy.NOT_PROJECT_DATA,
     ),
     PersistedDataComponent(
+        name='restore_drill_journal',
+        path='restore-drill-results.jsonl',
+        lifecycle=PersistedDataLifecycle.OPERATIONAL,
+        scope='root',
+        backup=BackupPolicy.EXCLUDE,
+        relocation=RelocationPolicy.CARRY,
+        portable=PortableProjectPolicy.NOT_PROJECT_DATA,
+        notes=(
+            'Isolated restore drill journal (#992); operational evidence '
+            'about backup restorability, never bundled into backups.'
+        ),
+    ),
+    PersistedDataComponent(
         name='upgrade_events',
         path='upgrade-events.jsonl',
         lifecycle=PersistedDataLifecycle.OPERATIONAL,

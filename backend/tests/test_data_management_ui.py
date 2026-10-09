@@ -29,6 +29,7 @@ class _FakeController(QObject):
     backup_created = Signal(object)
     restore_preview_ready = Signal(object)
     restore_completed = Signal(object)
+    restore_drill_completed = Signal(object)
     relocation_completed = Signal(object)
     storage_scan_completed = Signal(object)
     storage_gc_completed = Signal(object)
@@ -50,6 +51,7 @@ class _FakeController(QObject):
         self.preview_requests: list[Path] = []
         self.restore_requests: list[object] = []
         self.relocate_requests: list[Path] = []
+        self.drill_requests: list[tuple[Path, Path]] = []
         self.storage_scan_requests = 0
         self.storage_gc_requests = 0
         self.revalidate_calls = 0
@@ -80,6 +82,10 @@ class _FakeController(QObject):
         self.relocate_requests.append(Path(destination))
         return "relocate-op"
 
+    def restore_drill(self, backup_path: Path, sandbox: Path) -> str:
+        self.drill_requests.append((Path(backup_path), Path(sandbox)))
+        return "drill-op"
+
     def scan_storage(self) -> str:
         self.storage_scan_requests += 1
         return "storage-scan-op"
@@ -107,10 +113,12 @@ class _Dialogs:
         backup_path: Path | None = None,
         restore_path: Path | None = None,
         relocation_path: Path | None = None,
+        drill_sandbox: Path | None = None,
     ) -> None:
         self.backup_path = backup_path
         self.restore_path = restore_path
         self.relocation_path = relocation_path
+        self.drill_sandbox = drill_sandbox
         self.suggested_names: list[str] = []
 
     def choose_backup_destination(
@@ -127,6 +135,9 @@ class _Dialogs:
 
     def choose_relocation_destination(self, parent) -> Path | None:
         return self.relocation_path
+
+    def choose_drill_sandbox(self, parent) -> Path | None:
+        return self.drill_sandbox
 
 
 @pytest.fixture(scope="module")

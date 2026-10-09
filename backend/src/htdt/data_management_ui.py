@@ -45,6 +45,7 @@ from .automatic_backup import (
 )
 from .data_relocation import ManagedDataRelocationPlan
 from .legacy_data import inspect_legacy_store
+from .restore_drill import RestoreDrillResult, latest_drill_result
 from .storage_maintenance import (
     StorageGcResult,
     StorageReport,
@@ -77,6 +78,8 @@ class DataManagementDialogProvider(Protocol):
     def choose_restore_file(self, parent: QWidget) -> Path | None: ...
 
     def choose_relocation_destination(self, parent: QWidget) -> Path | None: ...
+
+    def choose_drill_sandbox(self, parent: QWidget) -> Path | None: ...
 
 
 class QtDataManagementDialogProvider:
@@ -118,6 +121,15 @@ class QtDataManagementDialogProvider:
             parent,
             "データの移動先フォルダーを選択",
             'data.relocate',
+            default_dir=str(Path.home()),
+        )
+        return None if not selected else Path(selected)
+
+    def choose_drill_sandbox(self, parent: QWidget) -> Path | None:
+        selected = file_dialog_memory.get_existing_directory(
+            parent,
+            "復元テスト用の隔離フォルダーを選択（本番データは変更されません）",
+            'data.drill_sandbox',
             default_dir=str(Path.home()),
         )
         return None if not selected else Path(selected)
@@ -601,7 +613,63 @@ class DataManagementWidget(QWidget):
             self._preview_selected_generation
         )
         generations_layout.addWidget(self.generation_restore_button)
+        self.drill_button = QPushButton(
+            "このバックアップを復元テスト…", self.generations_row
+        )
+        self.drill_button.setObjectName("dataManagementDrillButton")
+        self.drill_button.setToolTip(
+            '選択したバックアップを隔離フォルダーへ実際に復元して検証します'
+            '（本番データは変更されません）'
+        )
+        set_control_size(self.drill_button, ControlSize.STANDARD)
+        self.drill_button.clicked.connect(self._run_restore_drill)
+        generations_layout.addWidget(self.drill_button)
         operations_layout.addWidget(self.generations_row)
+
+        self.last_drill_label = QLabel(operations_card)
+        self.last_drill_label.setObjectName("dataManagementLastDrillLabel")
+        self.last_drill_label.setWordWrap(True)
+        self.last_drill_label.setAccessibleName("前回の復元テスト結果")
+        set_typography_role(self.last_drill_label, TypographyRole.SECONDARY)
+        self.last_drill_label.hide()
+        operations_layout.addWidget(self.last_drill_label)
+
+        self.drill_result_card = QFrame(operations_card)
+        self.drill_result_card.setObjectName("dataManagementDrillResultCard")
+        set_surface_role(self.drill_result_card, SurfaceRole.RAISED)
+        drill_layout = QVBoxLayout(self.drill_result_card)
+        drill_layout.setContentsMargins(14, 12, 14, 12)
+        drill_layout.setSpacing(8)
+        self.drill_verdict_label = QLabel(self.drill_result_card)
+        self.drill_verdict_label.setObjectName(
+            "dataManagementDrillVerdict"
+        )
+        self.drill_verdict_label.setWordWrap(True)
+        set_typography_role(
+            self.drill_verdict_label, TypographyRole.SECTION_TITLE
+        )
+        drill_layout.addWidget(self.drill_verdict_label)
+        self.drill_checks_label = QLabel(self.drill_result_card)
+        self.drill_checks_label.setObjectName(
+            "dataManagementDrillChecks"
+        )
+        self.drill_checks_label.setWordWrap(True)
+        self.drill_checks_label.setAccessibleName(
+            "復元テストの検証項目"
+        )
+        set_typography_role(self.drill_checks_label, TypographyRole.BODY)
+        drill_layout.addWidget(self.drill_checks_label)
+        self.drill_claims_label = QLabel(self.drill_result_card)
+        self.drill_claims_label.setObjectName(
+            "dataManagementDrillClaims"
+        )
+        self.drill_claims_label.setWordWrap(True)
+        set_typography_role(
+            self.drill_claims_label, TypographyRole.SECONDARY
+        )
+        drill_layout.addWidget(self.drill_claims_label)
+        self.drill_result_card.hide()
+        operations_layout.addWidget(self.drill_result_card)
         layout.addWidget(operations_card)
 
         # Round9-prefs deferred item: the automatic-backup policy already
@@ -801,6 +869,9 @@ class DataManagementWidget(QWidget):
         controller.backup_created.connect(self._on_backup_created)
         controller.restore_preview_ready.connect(self._on_restore_preview_ready)
         controller.restore_completed.connect(self._on_restore_completed)
+        controller.restore_drill_completed.connect(
+            self._on_drill_completed
+        )
         controller.relocation_completed.connect(self._on_relocation_completed)
         controller.storage_scan_completed.connect(self._on_storage_scan_completed)
         controller.storage_gc_completed.connect(self._on_storage_gc_completed)
@@ -808,6 +879,7 @@ class DataManagementWidget(QWidget):
         controller.operation_cancelled.connect(self._on_operation_cancelled)
 
         self._refresh_generations()
+        self._refresh_last_drill()
         if self._restart_required:
             self._show_restart_required(
                 "データを安全に読み直せませんでした。HTDTを再起動してください。"
@@ -965,6 +1037,103 @@ class DataManagementWidget(QWidget):
         self.result_metadata.hide()
         self.pre_restore_label.hide()
         self.controller.preview_restore(Path(selected))
+
+    def _run_restore_drill(self) -> None:
+        """#992: start an isolated restore rehearsal for the selected
+        backup — the drill only ever writes inside the chosen sandbox."""
+        if self._busy or self._restart_required:
+            return
+        selected = self.generations_combo.currentData()
+        if not selected:
+            return
+        sandbox = self.dialogs.choose_drill_sandbox(self)
+        if sandbox is None:
+            return
+        self._hide_status()
+        self.drill_result_card.hide()
+        self.controller.restore_drill(Path(selected), Path(sandbox))
+
+    def _on_drill_completed(self, result: RestoreDrillResult) -> None:
+        verdict_titles = {
+            'restorable': 'このバックアップは復元可能です',
+            'restorable_with_conditions': '条件付きで復元可能です',
+            'failed': 'このバックアップは復元できません',
+            'not_verifiable': '復元可否を検証できませんでした',
+        }
+        verdict_states = {
+            'restorable': SemanticState.SUCCESS,
+            'restorable_with_conditions': SemanticState.WARNING,
+            'failed': SemanticState.ERROR,
+            'not_verifiable': SemanticState.WARNING,
+        }
+        self.drill_verdict_label.setText(
+            f"{verdict_titles.get(result.verdict, result.verdict)} — "
+            f"{result.backup_name}"
+        )
+        set_semantic_state(
+            self.drill_verdict_label,
+            verdict_states.get(result.verdict, SemanticState.WARNING),
+        )
+        status_marks = {
+            'passed': '✓',
+            'failed': '✗',
+            'conditional': '△',
+            'unknown': '?',
+            'skipped': '—',
+        }
+        lines = [
+            f"{status_marks.get(check.status, '?')} {check.detail_ja}"
+            for check in result.checks
+        ]
+        self.drill_checks_label.setText('\n'.join(lines))
+        claims_ja = {
+            'archive_verified': 'アーカイブ検証済み',
+            'isolated_restore_succeeded': '隔離復元の成功',
+            'same_machine_opened': '同一環境でのオープン成功',
+        }
+        non_claims_ja = {
+            'other_pc_migration': '別PCへの移行可否',
+            'physical_disaster_recovery': '物理障害からの復旧',
+            'operator_acceptance': '運用者による受け入れ',
+        }
+        proven = '、'.join(
+            claims_ja.get(c, c) for c in result.claims
+        ) or 'なし'
+        unproven = '、'.join(
+            non_claims_ja.get(c, c) for c in result.non_claims
+        )
+        self.drill_claims_label.setText(
+            f'証明済み: {proven}\n'
+            f'このテストでは証明していません: {unproven}'
+        )
+        self.drill_result_card.show()
+        self._show_status(
+            verdict_titles.get(result.verdict, result.verdict),
+            f'演習ログ: {Path(result.sandbox_dir).parent} / '
+            f'結果はデータ管理の履歴にも記録されました',
+            verdict_states.get(result.verdict, SemanticState.WARNING),
+        )
+        self._refresh_last_drill()
+
+    def _refresh_last_drill(self) -> None:
+        try:
+            latest = latest_drill_result(self.controller.backend.data_dir)
+        except Exception:  # noqa: BLE001 - journal must never break the page
+            latest = None
+        if latest is None:
+            self.last_drill_label.hide()
+            return
+        verdict_ja = {
+            'restorable': '復元可能',
+            'restorable_with_conditions': '条件付きで復元可能',
+            'failed': '復元不可',
+            'not_verifiable': '検証不可',
+        }.get(latest.verdict, latest.verdict)
+        self.last_drill_label.setText(
+            f'前回の復元テスト: {verdict_ja} — '
+            f'{latest.backup_name}（{latest.finished_at_utc}）'
+        )
+        self.last_drill_label.show()
 
     def showEvent(self, event) -> None:  # noqa: N802
         # Generations created while the dialog was hidden appear on show.
@@ -1351,6 +1520,7 @@ class DataManagementWidget(QWidget):
         self.storage_button.setEnabled(available)
         self.generations_combo.setEnabled(available)
         self.generation_restore_button.setEnabled(available)
+        self.drill_button.setEnabled(available)
         for control in (
             self.backup_policy_enabled,
             self.backup_interval_spin,
