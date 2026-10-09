@@ -1,0 +1,108 @@
+{
+  "schema_version": "htdt.r130d.native-grid-exact-roof-mass-fv-q0-plan-1",
+  "date_jst": "2026-10-09",
+  "issue": 938,
+  "pr": 1055,
+  "objective": "Actually modify numerical spatial calculation itself: exact physical planar sloped roof cut-cell volumes and open face aperture FV with original PFFDTD native grid coordinates and original 8-node physical point q0 source/receiver at PPW28/32/36/40/44, mass-conserving symmetric Neumann graph and stable implicit Newmark beta1/4 wave update. Preserve original source waveform and numerical acceptance, no CI.",
+  "native_original": {
+    "ppw": [
+      28,
+      32,
+      36,
+      40,
+      44
+    ],
+    "upstream_pin": "aa319f6c86517cb95aabfae8656277da62c3ead5",
+    "original_controls": "benchmarks/acoustics/r130d_original_point_quadratic_pffdtd_evidence_2026-10-09.json",
+    "original_grid_physical_coords": "original SHA-pinned native vox_out.h5 xv/yv/zv; original h, Ts, Nt, c, rho; external original raw HDF5",
+    "source_xyz_m": [
+      1.5,
+      2,
+      2
+    ],
+    "receiver_xyz_m": [
+      2.5,
+      2,
+      2
+    ],
+    "source_receiver_operator": "exact original native eight-node PFFDTD trilinear in_ixyz with original normalized initial q0 weights and out_ixyz/out_alpha unchanged",
+    "original_time_signal": "unit q[0]=1 and q[n>0]=0; physical volume source c^2 delta(x-x_source) q0, no physical smoothing",
+    "original_record_s": [
+      0,
+      0.25
+    ],
+    "frequencies_hz": [
+      40,
+      80
+    ],
+    "physical_rigid_room": "[0,4]^3 intersect z+0.25*y<=4, exact volume 56 m3"
+  },
+  "algorithm": {
+    "geometry": "For each original native Cartesian NODE take dual Voronoi cube x/y/z center ±h/2, intersect exact physical six cube halfspaces and planar roof; exact 2D polygon clipping yz volume times clipped x length; every positive-volume node is included (no original staircase mask).",
+    "fluid_volume_tolerance_m3": 2e-8,
+    "face_apertures": "exact clipped shared Cartesian Voronoi faces; x face yz polygon; y face x span times z below exact roof; z face x span times y below exact roof; only positive-area flux edges",
+    "discretization": "M_i=exact fluid cut volume; K=c² sum_{open faces} area/h (ei-ej)(ei-ej)^T; symmetric Neumann, K*1=0, mass positive, total volume=56.0",
+    "source_injection": "after current full original sample observation, set u_{n+1} = 2u_n-u_{n-1} -dt² (M+dt² K/4)^-1 K u_n + dt² (M+dt² K/4)^-1 c² S q[n]; q0 only. Spatial S is unchanged original eight source weights, no fitting; this is implicit average acceleration Newmark β=1/4 centered wave second order, not native explicit leapfrog.",
+    "receiver": "unmodified original native eight out_ixyz+out_alpha sample u_current at every time index, physical pressure rho*dphi/dt as frozen original second order incl endpoints",
+    "linear_solver": "scipy.sparse.linalg.cg of SPD M+dt² K/4 with Jacobi preconditioner exact diagonal; rtol<=1e-10 atol=1e-12 maxiter=500; verify true relative residual<=5e-10 for every CG solve; log max iter/residual and no step failure masked",
+    "max_CG_iterations": 500,
+    "CG_tolerance_rtol": 1e-10,
+    "CG_tolerance_atol": 1e-12,
+    "max_true_residual_rel": 5e-10,
+    "zero_mode_preservation_max_abs": 5e-10,
+    "mass_volume_must_be_exact": true,
+    "constant_neumann_mode_preserved": true,
+    "frequency_transfer": "unchanged original 40/80Hz no-taper 250ms finite P_T/Q_T; original q0 denominator; preserve complex and phase/magnitude for both bins",
+    "stability_energy": "undriven after q0; implicit scheme discrete conservation and no artificial damping; save four discrete energy probes with energy drift tolerance<=1e-6",
+    "energy_drift_max": 0.000001
+  },
+  "comparisons": {
+    "pairs": [
+      [
+        28,
+        32
+      ],
+      [
+        32,
+        36
+      ],
+      [
+        36,
+        40
+      ],
+      [
+        40,
+        44
+      ]
+    ],
+    "complex_relative_threshold": 0.2,
+    "magnitude_relative_threshold": 0.25,
+    "phase_deg_threshold": 15,
+    "all_pairs_and_negative_results": true,
+    "compare_original_8node_native_raw_wave_signed_complex": true,
+    "compare_new_scheme_same_original_time_q0_not_original_pffdtd_kernel": true,
+    "changed_numerical_spatial_and_time_algorithm_explicitly_labeled": true,
+    "baseline_original_run8_10_12_selfconvergence_failed": true,
+    "do_not_claim_cross_solver_physical_agreement": true,
+    "no_physical_reference_qualified": true,
+    "no_frequency_mask_change": true,
+    "do_not_modify_original_thresholds": true
+  },
+  "limits": {
+    "cases": 5,
+    "max_total_nodes": 180000,
+    "max_cells_per_grid": 240000,
+    "max_steps": 2000,
+    "max_wall_seconds_per_case": 300,
+    "max_krylov_iterations": 500,
+    "max_output_file_bytes": 40000000,
+    "no_github_actions_runs": true
+  },
+  "authority": {
+    "original_eight_node_q0": "SELF_CONVERGENCE_FAILED",
+    "BRAS_physical": "NOT_VALIDATED",
+    "product": "NO_GO",
+    "pull_request_draft": true,
+    "issue_open": true
+  }
+}
