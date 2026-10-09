@@ -540,6 +540,9 @@ def default_command_definitions() -> tuple[CommandDefinition, ...]:
             display_name='移動',
             contexts=frozenset({CommandContext.ROOM}),
             shortcut='M',
+            # #979: 'G' (grab) is the conventional twin for M — both arm the
+            # same move gizmo.
+            shortcut_aliases=('G',),
             shortcut_behavior=ShortcutBehavior.FOCUS_SAFE,
             keywords=('move', '移動モード', 'transform'),
         ),

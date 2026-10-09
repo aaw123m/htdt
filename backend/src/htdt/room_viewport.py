@@ -1298,6 +1298,49 @@ class _PickCandidateKeyFilter(QObject):
         return False
 
 
+class _SnapHud(QFrame):
+    """Cursor-side snap/transform HUD (#979).
+
+    Presentational only: a read-only multi-line readout floating near the
+    pointer while a move/rotate gesture runs — snap candidate (kind · name ·
+    coordinate · acquire distance), the gesture delta (ΔX/ΔY/ΔZ or angle),
+    axis/snap state, and the numeric-entry echo. The transform controller
+    owns the content; the working document owns every mutation.
+
+    Same window shape as the pick chooser: a real ``Qt::ToolTip`` window,
+    never an alien child of the interactor (the VTK render HWND swallows
+    plain child widgets on Windows). It never activates and never takes
+    focus, so keys keep landing on the interactor where the gizmo's axis
+    keys and numeric entry live.
+    """
+
+    def __init__(self, parent: QWidget) -> None:
+        super().__init__(
+            parent,
+            Qt.WindowType.ToolTip | Qt.WindowType.FramelessWindowHint,
+        )
+        self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
+        self.setObjectName('snapTransformHud')
+        set_surface_role(self, SurfaceRole.RAISED)
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.setAccessibleName('スナップ・移動量HUD')
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(10, 7, 10, 7)
+        layout.setSpacing(0)
+        self.label = QLabel(self)
+        self.label.setObjectName('snapTransformHudText')
+        # Plain text keeps typed numeric input from ever being re-parsed as
+        # rich text (e.g. a stray '<' while editing).
+        self.label.setTextFormat(Qt.TextFormat.PlainText)
+        set_typography_role(self.label, TypographyRole.BODY)
+        layout.addWidget(self.label)
+        self.hide()
+
+    def set_lines(self, lines: tuple[str, ...]) -> None:
+        self.label.setText('\n'.join(lines))
+        self.adjustSize()
+
+
 class RoomViewport3D(QFrame):
     """Dark, scene-authority-neutral viewport for the UX120 Room workspace.
 
@@ -1393,6 +1436,12 @@ class RoomViewport3D(QFrame):
         self._pick_popover: _PickCandidatePopover | None = None
         self._pick_key_filter: _PickCandidateKeyFilter | None = None
         self._pick_preview_name: str | None = None
+        # Cursor-side snap/transform HUD (#979): same ToolTip window shape as
+        # the pick chooser, anchored in interactor DIP space and clamped
+        # inside it. ``_snap_hud_anchor`` is the last clamped widget-space
+        # origin (kept for diagnostics/tests).
+        self._snap_hud: _SnapHud | None = None
+        self._snap_hud_anchor: QPointF | None = None
         #: Input controllers suppress the chooser while an edit gesture is
         #: armed (active gizmo) so a mid-gesture click cannot reopen it.
         self.pick_popover_enabled = True
@@ -4165,8 +4214,15 @@ class RoomViewport3D(QFrame):
             QEvent.Type.ScreenChangeInternal,
         ):
             # Widget/DPI changes reproject the whole scene — the armed
-            # candidate stack belongs to the old frame (#983).
+            # candidate stack belongs to the old frame (#983). The cursor
+            # HUD's clamped anchor is equally stale (#979); the next gesture
+            # update re-pushes it at the re-projected position.
             self.dismiss_pick_candidates()
+            self._hide_snap_hud()
+        if obj is self.interactor and event.type() == QEvent.Type.Hide:
+            # The HUD is a separate top-level window — without an explicit
+            # hide it would linger over whatever replaces the viewport.
+            self._hide_snap_hud()
         if obj is self.interactor and isinstance(event, QMouseEvent):
             if event.type() == QEvent.Type.MouseButtonPress and event.button() == Qt.MouseButton.LeftButton:
                 self._press_position = QPointF(event.position())
@@ -5785,13 +5841,117 @@ class RoomViewport3D(QFrame):
         display = renderer.GetDisplayPoint()
         return (float(display[0]), float(display[1]))
 
-    def render_snap_feedback(self, label: str | None, *, screen_position: tuple[float, float] | None = None) -> None:
-        """Floating snap-target indicator during a drag (#481)."""
+    def world_to_widget_position(self, position: tuple[float, float, float]) -> QPointF | None:
+        """Project a render-space world point to interactor DIP coordinates.
+
+        The snap HUD anchors in the same DIP space as
+        ``QMouseEvent.position()`` — unlike ``world_to_screen``, which
+        reports VTK display pixels (bottom-left origin, DPR-scaled). Under
+        200 % DPI the two differ by exactly the device pixel ratio; returns
+        ``None`` when the point cannot be projected.
+        """
+
+        try:
+            display = self.world_to_screen(position)
+        except Exception:
+            return None
+        return self._display_to_widget_position(display)
+
+    @property
+    def snap_hud(self) -> _SnapHud | None:
+        """The live cursor-side snap HUD while it is visible (tests/diagnostics)."""
+
+        if self._snap_hud is not None and not self._snap_hud.isHidden():
+            return self._snap_hud
+        return None
+
+    @property
+    def snap_hud_anchor(self) -> QPointF | None:
+        """Last clamped HUD origin in interactor DIP coords (tests)."""
+
+        return self._snap_hud_anchor
+
+    def _clamped_hud_origin(self, anchor: QPointF, hud: QWidget) -> QPointF:
+        """Cursor-neighbourhood placement that never covers the target (#979).
+
+        The HUD opens right+below the anchor; near the viewport edges it
+        flips to the left/above side of the cursor so it cannot sit on top
+        of the point being snapped to, then clamps to a 4 px margin inside
+        the interactor. Clamping is purely local — it also behaves on
+        multi-monitor layouts and at 200 % DPI since both the anchor and
+        the bounds are already DIP values.
+        """
+
+        width = float(self.interactor.width())
+        height = float(self.interactor.height())
+        hud_w = float(hud.width())
+        hud_h = float(hud.height())
+        x = float(anchor.x()) + 18.0
+        y = float(anchor.y()) + 14.0
+        if x + hud_w > width - 4.0:
+            x = float(anchor.x()) - hud_w - 8.0
+        if y + hud_h > height - 4.0:
+            y = float(anchor.y()) - hud_h - 8.0
+        x = max(4.0, min(x, max(4.0, width - hud_w - 4.0)))
+        y = max(4.0, min(y, max(4.0, height - hud_h - 4.0)))
+        return QPointF(x, y)
+
+    def _show_snap_hud(
+        self,
+        lines: tuple[str, ...],
+        screen_position: tuple[float, float] | QPointF,
+    ) -> None:
+        if self._snap_hud is None:
+            self._snap_hud = _SnapHud(self.interactor)
+        hud = self._snap_hud
+        hud.set_lines(lines)
+        if isinstance(screen_position, QPointF):
+            anchor = QPointF(screen_position)
+        else:
+            anchor = QPointF(float(screen_position[0]), float(screen_position[1]))
+        origin = self._clamped_hud_origin(anchor, hud)
+        self._snap_hud_anchor = origin
+        # A ToolTip window positions in global screen coordinates — correct
+        # across monitors as long as the interactor maps it.
+        hud.move(self.interactor.mapToGlobal(origin.toPoint()))
+        hud.show()
+        hud.raise_()
+
+    def _hide_snap_hud(self) -> None:
+        self._snap_hud_anchor = None
+        if self._snap_hud is not None:
+            self._snap_hud.hide()
+
+    def render_snap_feedback(
+        self,
+        label: str | None,
+        *,
+        screen_position: tuple[float, float] | QPointF | None = None,
+        hud_lines: tuple[str, ...] | list[str] | None = None,
+    ) -> None:
+        """Snap-target/transform indicator during a drag (#481, HUD #979).
+
+        With ``screen_position`` (the candidate/cursor point converted to
+        interactor DIP coords) the cursor-side ``_SnapHud`` carries the
+        feedback at the operation site; ``hud_lines`` supplies the richer
+        readout (delta, snap state, numeric echo) and falls back to
+        ``label`` alone. Without a position the renderer's lower-left text
+        stays as the documented fallback — e.g. when the candidate point
+        cannot be projected.
+        """
 
         try:
             self.plotter.remove_actor("snap-feedback-label", render=False)
         except Exception:
             pass
+        lines = tuple(hud_lines or ())
+        if screen_position is not None and not lines and label:
+            lines = (label,)
+        if screen_position is not None and lines:
+            self._show_snap_hud(lines, screen_position)
+            self._render()
+            return
+        self._hide_snap_hud()
         if not label:
             return
         try:

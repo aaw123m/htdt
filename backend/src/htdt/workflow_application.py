@@ -4638,6 +4638,9 @@ class WorkflowApplicationComposition:
         # Hard placement constraints (#486): reject drag commits that would
         # introduce a violation, mirroring the legacy dock's blocking gate.
         transform_input.commit_gate = workspace.controller.move_commit_gate
+        # #979: HUD readouts and numeric entry present in the user's display
+        # unit; internal authority stays SI metres.
+        bind_length_policy_widget(transform_input, preferences)
         workspace.optimizeRequested.connect(
             lambda: self.shell.navigate(WorkspaceId.OPTIMIZATION)
         )

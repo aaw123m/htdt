@@ -6721,10 +6721,19 @@ class RoomWorkspace(QWidget):
         with QSignalBlocker(controls.angle_step_spin):
             controls.angle_step_spin.setValue(vs.angle_step_deg)
 
-    def set_snap_feedback(self, label: str | None) -> None:
+    def set_snap_feedback(
+        self,
+        label: str | None,
+        *,
+        screen_position=None,
+        hud_lines=None,
+    ) -> None:
+        # ``screen_position`` (interactor DIP) + ``hud_lines`` feed the
+        # cursor-side HUD (#979); the lower-left renderer label stays as
+        # the viewport's fallback when no position is supplied.
         render = getattr(self.viewport, "render_snap_feedback", None)
         if callable(render):
-            render(label)
+            render(label, screen_position=screen_position, hud_lines=hud_lines)
         if label:
             self._set_status(f"吸着: {label}")
 

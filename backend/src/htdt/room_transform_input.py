@@ -7,6 +7,12 @@ import numpy as np
 from PySide6.QtCore import QEvent, QObject, QPointF, Qt
 from PySide6.QtGui import QGuiApplication, QKeyEvent, QMouseEvent
 
+from .cad_display_units import (
+    LengthDisplayPolicy,
+    display_length_policy,
+    display_to_si,
+    format_length_m,
+)
 from .cad_input import CadAxis
 from .cad_scene import (
     Position3,
@@ -16,6 +22,7 @@ from .cad_scene import (
 )
 from .cad_snap import (
     AxisName,
+    SnapSelection,
     SnapSelector,
     generate_snap_candidates,
     snap_angle_deg,
@@ -31,6 +38,18 @@ _SNAP_KIND_LABELS = {
     'edge': '辺',
     'alignment': '整列',
 }
+
+#: Keys that re-aim the delta axis — valid both during a pointer drag and
+#: inside numeric entry (#979).
+_AXIS_KEYS = {
+    Qt.Key.Key_X: CadAxis.X,
+    Qt.Key.Key_Y: CadAxis.Y,
+    Qt.Key.Key_Z: CadAxis.Z,
+}
+
+#: Characters that may appear in a numeric-delta buffer (#979). Kept ASCII
+#: so entry is layout-independent; keypad digits produce the same text.
+_NUMERIC_ENTRY_CHARS = frozenset('0123456789.-')
 
 
 class RoomEntityTransformController(QObject):
@@ -63,6 +82,21 @@ class RoomEntityTransformController(QObject):
         self._group_base_positions: dict[str, Position3] = {}
         self._group_pivot: Position3 | None = None
         self._snap_selectors: dict[AxisName, SnapSelector] = {}
+        #: Cursor-side HUD state (#979): last pointer position in interactor
+        #: DIP (fallback anchor), the snap candidate's world anchor, and the
+        #: current preview target/rotation used for the Δ readout.
+        self._last_pointer: QPointF | None = None
+        self._snap_anchor_world: Position3 | None = None
+        self._preview_target: Position3 | None = None
+        self._preview_rotate_value: tuple[AxisName, float] | None = None
+        #: Numeric-delta entry (#979): once digits start during an armed
+        #: gesture the typed value owns the preview until Enter/Esc, so a
+        #: stray pointer move cannot overwrite it.
+        self._numeric_entry = False
+        self._numeric_buffer = ''
+        #: #496 display policy for HUD text and numeric parsing; internal
+        #: authority stays SI metres either way.
+        self._length_policy: LengthDisplayPolicy = display_length_policy('m')
         #: Optional hard-constraint gate: called with moved entity ids before
         #: commit; returns a Japanese reason string to reject, or None.
         self.commit_gate: Callable[[tuple[str, ...]], str | None] | None = None
@@ -75,6 +109,16 @@ class RoomEntityTransformController(QObject):
     @property
     def _controller(self):
         return self.workspace.controller
+
+    def set_length_policy(self, policy: LengthDisplayPolicy) -> None:
+        """Live #496 display-unit binding for HUD text and numeric parsing.
+
+        Wired via ``bind_length_policy_widget`` where a preferences object
+        exists; the default metre policy covers bare workspaces. Authority
+        stays SI metres either way.
+        """
+
+        self._length_policy = policy
 
     def dispose(self) -> None:
         try:
@@ -134,13 +178,19 @@ class RoomEntityTransformController(QObject):
         self.axis = None
         self._dragging = False
         self._start_pointer = None
+        self._last_pointer = None
+        self._snap_anchor_world = None
+        self._preview_target = None
+        self._preview_rotate_value = None
+        self._numeric_entry = False
+        self._numeric_buffer = ''
         self._snap_selectors = {}
         group_hint = f" · {len(targets)}項目" if len(targets) > 1 else ""
         self.workspace._set_status(
             (
-                "移動: ドラッグして配置 · X/Y/Zで軸拘束 · Shiftでスナップ一時解除 · Escで中止"
+                "移動: ドラッグして配置 · X/Y/Zで軸拘束 · 0-9で数値入力 · Shiftでスナップ一時解除 · Escで中止"
                 if mode == "move"
-                else "回転: ドラッグして回転 · X/Y/Zで回転軸 · Shiftでスナップ一時解除 · Escで中止"
+                else "回転: ドラッグして回転 · X/Y/Zで回転軸 · 0-9で角度入力 · Shiftでスナップ一時解除 · Escで中止"
             )
             + group_hint
         )
@@ -151,6 +201,13 @@ class RoomEntityTransformController(QObject):
         self.axis = axis
         self.workspace.active_axis_constraint = axis.value
         self.workspace._set_status(f"{axis.value.upper()}軸に拘束")
+        # Retarget the live preview immediately (#979): typed input re-aims
+        # its delta axis, a held drag re-snaps onto the constraint instead
+        # of waiting for the next pointer move.
+        if self._numeric_entry:
+            self._apply_numeric_preview()
+        elif self._dragging and self._start_pointer is not None and self._last_pointer is not None:
+            self.drag_to(self._last_pointer)
 
     def _snap_enabled(self) -> bool:
         modifiers = QGuiApplication.keyboardModifiers()
@@ -161,6 +218,22 @@ class RoomEntityTransformController(QObject):
     def begin_at(self, position: QPointF) -> bool:
         if self.mode is None or self._dragging:
             return False
+        if not self._begin_gesture():
+            return False
+        self._start_pointer = QPointF(position)
+        self._last_pointer = QPointF(position)
+        return True
+
+    def _begin_gesture(self) -> bool:
+        """Shared preview-open for pointer drags and numeric entry (#979).
+
+        Both input styles own the same working-document preview: whichever
+        supplies the value (pointer delta or a typed number) drives
+        ``preview_move``/``preview_rotate`` while Enter and the mouse
+        release funnel into the identical ``commit_preview`` path — the
+        existing command port, so the two styles can never double-commit.
+        """
+
         entity_id = self._controller.selected_id
         if entity_id is None:
             self.cancel()
@@ -197,12 +270,18 @@ class RoomEntityTransformController(QObject):
                 self._base_orientation = entity.orientation
                 self._base_position = entity.position
         self._drag_entity_id = entity_id
-        self._start_pointer = QPointF(position)
         self._dragging = True
         return True
 
     def drag_to(self, position: QPointF) -> bool:
-        if not self._dragging or self._start_pointer is None or self.mode is None:
+        if not self._dragging or self.mode is None:
+            return False
+        self._last_pointer = QPointF(position)
+        if self._numeric_entry:
+            # Typed input owns the delta until Enter/Esc — the pointer must
+            # not overwrite a value the user is mid-way through (#979).
+            return True
+        if self._start_pointer is None:
             return False
         delta = QPointF(position) - self._start_pointer
         if self.mode == "move":
@@ -224,7 +303,14 @@ class RoomEntityTransformController(QObject):
                 return True
             return False
         if position is not None:
-            self.drag_to(position)
+            if self._numeric_entry:
+                self._apply_numeric_preview()
+            else:
+                self.drag_to(position)
+        elif self._numeric_entry:
+            # A mouse release during entry commits what was typed, not
+            # where the pointer happens to be.
+            self._apply_numeric_preview()
         working = self._controller.working
         gate_message: str | None = None
         if self.commit_gate is not None and working.preview_kind == 'move':
@@ -275,6 +361,12 @@ class RoomEntityTransformController(QObject):
         self.axis = None
         self._dragging = False
         self._start_pointer = None
+        self._last_pointer = None
+        self._snap_anchor_world = None
+        self._preview_target = None
+        self._preview_rotate_value = None
+        self._numeric_entry = False
+        self._numeric_buffer = ''
         self._base_position = None
         self._base_orientation = None
         self._drag_entity_id = None
@@ -303,28 +395,60 @@ class RoomEntityTransformController(QObject):
             snapped = snap_position_axis(snapped, axis, view_state.grid_step_m)
         return snapped, snapped != candidate
 
-    def _project_to_screen(self, position: Position3) -> tuple[float, float]:
+    def _project_to_screen(self, position: Position3) -> tuple[float, float] | None:
+        """Project a domain point to interactor DIP coordinates.
+
+        The snap selector's acquire/retain radii and the HUD anchor both
+        live in Qt widget DIP space, so this deliberately returns DIP —
+        not VTK display pixels, which differ by the device pixel ratio
+        (200 % DPI halved the effective snap radius before). ``None`` when
+        the point cannot be projected; callers fall back to the pointer or
+        the lower-left label.
+        """
+
         world = domain_to_render(position)
-        return self.viewport.world_to_screen(world)
+        to_widget = getattr(self.viewport, 'world_to_widget_position', None)
+        if callable(to_widget):
+            point = to_widget(world)
+            if point is None:
+                return None
+            return (float(point.x()), float(point.y()))
+        try:
+            display = self.viewport.world_to_screen(world)
+        except Exception:
+            return None
+        return (float(display[0]), float(display[1]))
+
+    def _screen_project_or_far(self, position: Position3) -> tuple[float, float]:
+        # An unprojectable point (behind the camera, degenerate view) can
+        # never be acquired — park it infinitely far away instead of
+        # failing the whole snap pass.
+        projected = self._project_to_screen(position)
+        if projected is None:
+            return (1e9, 1e9)
+        return projected
 
     def _apply_object_snap(
         self,
         candidate: Position3,
         *,
         grid_snapped: bool,
-    ) -> tuple[Position3, str | None]:
+    ) -> tuple[Position3, SnapSelection | None]:
         view_state = self._controller.view_state
         if (
             not view_state.object_snap_enabled
             or not self._snap_enabled()
-            or not hasattr(self.viewport, "world_to_screen")
+            or not (
+                hasattr(self.viewport, "world_to_widget_position")
+                or hasattr(self.viewport, "world_to_screen")
+            )
         ):
             return candidate, None
         document = self._controller.document
         exclude_ids = set(self._group_ids or ())
         if self._controller.selected_id is not None:
             exclude_ids.add(self._controller.selected_id)
-        label: str | None = None
+        last_selection: SnapSelection | None = None
         for axis in self._free_axes():
             candidates = generate_snap_candidates(
                 document,
@@ -333,7 +457,7 @@ class RoomEntityTransformController(QObject):
                 probe=candidate,
             )
             selector = self._snap_selectors.setdefault(axis, SnapSelector())
-            selection = selector.select(candidates, candidate, self._project_to_screen)
+            selection = selector.select(candidates, candidate, self._screen_project_or_far)
             if selection is None:
                 continue
             target = selection.candidate.target
@@ -342,8 +466,8 @@ class RoomEntityTransformController(QObject):
                 y_m=target.y_m if axis == 'y' else candidate.y_m,
                 z_m=target.z_m if axis == 'z' else candidate.z_m,
             )
-            label = selection.candidate.label
-        return candidate, label
+            last_selection = selection
+        return candidate, last_selection
 
     def _preview_move(self, delta: QPointF) -> None:
         if self._base_position is None:
@@ -396,18 +520,31 @@ class RoomEntityTransformController(QObject):
         # only ever adjusts free axes; grid snap first (absolute grid), then
         # object snap overrides per-axis against scene features.
         candidate, grid_hit = self._apply_grid_snap(candidate)
-        candidate, snap_label = self._apply_object_snap(candidate, grid_snapped=grid_hit)
+        candidate, snap_selection = self._apply_object_snap(candidate, grid_snapped=grid_hit)
         view_state = self._controller.view_state
-        if snap_label is not None:
-            self.workspace.set_snap_feedback(f"スナップ: {snap_label}")
+        self._preview_target = candidate
+        self._preview_rotate_value = None
+        self._snap_anchor_world = (
+            snap_selection.candidate.screen_anchor if snap_selection is not None else None
+        )
+        if snap_selection is not None:
+            snap_line = self._snap_candidate_line(snap_selection)
+            status_label = f"スナップ: {snap_selection.candidate.label}"
         elif grid_hit:
-            self.workspace.set_snap_feedback(f"グリッド {view_state.grid_step_m:.3f} m")
+            snap_line = f"グリッドスナップ {format_length_m(view_state.grid_step_m, self._length_policy)}"
+            status_label = f"グリッド {view_state.grid_step_m:.3f} m"
         elif not self._snap_enabled() and (
             view_state.object_snap_enabled or view_state.grid_snap_enabled
         ):
-            self.workspace.set_snap_feedback("スナップ一時解除中")
+            snap_line = "スナップ一時解除中 (Shift)"
+            status_label = "スナップ一時解除中"
+        elif not view_state.object_snap_enabled and not view_state.grid_snap_enabled:
+            snap_line = "グリッド・オブジェクトスナップ: オフ"
+            status_label = None
         else:
-            self.workspace.set_snap_feedback(None)
+            snap_line = "スナップなし (取得範囲外)"
+            status_label = None
+        self._push_feedback(snap_line=snap_line, status_label=status_label)
 
         if self._group_ids:
             delta_vector = (
@@ -419,6 +556,170 @@ class RoomEntityTransformController(QObject):
         else:
             self._controller.working.preview_move(candidate)
 
+    def _fmt_signed(self, value_m: float) -> str:
+        text = format_length_m(value_m, self._length_policy)
+        return text if value_m < 0 else f'+{text}'
+
+    def _snap_candidate_line(self, selection: SnapSelection) -> str:
+        candidate = selection.candidate
+        kind = _SNAP_KIND_LABELS.get(candidate.kind, candidate.kind)
+        try:
+            name = self._controller.document.entity(candidate.entity_id).name
+        except (KeyError, RuntimeError):
+            name = candidate.entity_id
+        axis_value = {
+            'x': candidate.target.x_m,
+            'y': candidate.target.y_m,
+            'z': candidate.target.z_m,
+        }[candidate.axis]
+        return (
+            f"{kind} · {name} ({candidate.entity_id}) · "
+            f"{candidate.axis.upper()}={format_length_m(axis_value, self._length_policy)} · "
+            f"{selection.distance_dip:.0f} px"
+        )
+
+    def _mode_line(self) -> str:
+        parts = ['移動' if self.mode == 'move' else '回転']
+        if self.mode == 'move':
+            if self.axis is not None:
+                parts.append(f'{self.axis.value.upper()}軸拘束')
+        else:
+            axis = self.axis.value if self.axis is not None else 'z'
+            parts.append(f'{axis.upper()}軸')
+        if len(self._group_ids) > 1:
+            parts.append(f'{len(self._group_ids)}項目')
+        if self._numeric_entry:
+            parts.append('数値入力')
+        return ' · '.join(parts)
+
+    def _delta_line(self) -> str | None:
+        if self.mode == 'move':
+            if self._preview_target is None or self._base_position is None:
+                return None
+            delta = (
+                self._preview_target.x_m - self._base_position.x_m,
+                self._preview_target.y_m - self._base_position.y_m,
+                self._preview_target.z_m - self._base_position.z_m,
+            )
+            return (
+                f"ΔX {self._fmt_signed(delta[0])} · "
+                f"ΔY {self._fmt_signed(delta[1])} · "
+                f"ΔZ {self._fmt_signed(delta[2])}"
+            )
+        if self._preview_rotate_value is None:
+            return None
+        return f"角度 {self._preview_rotate_value[1]:+.1f}°"
+
+    def _hud_anchor(self) -> tuple[float, float] | None:
+        """Interactor-DIP point the HUD should sit beside (#979).
+
+        Object snap anchors on the candidate itself — the exact point the
+        value belongs to. Otherwise the live pointer; when neither
+        projects (e.g. camera mid-rotation) the caller falls back to the
+        renderer's lower-left label.
+        """
+
+        if self._snap_anchor_world is not None:
+            anchor = self._project_to_screen(self._snap_anchor_world)
+            if anchor is not None:
+                return anchor
+        if self._last_pointer is not None:
+            return (float(self._last_pointer.x()), float(self._last_pointer.y()))
+        if self._preview_target is not None:
+            return self._project_to_screen(self._preview_target)
+        if self._base_position is not None:
+            return self._project_to_screen(self._base_position)
+        return None
+
+    def _push_feedback(
+        self,
+        *,
+        snap_line: str | None,
+        status_label: str | None,
+    ) -> None:
+        """Compose the cursor-side HUD body and forward it (#979).
+
+        ``status_label`` keeps the compact legacy wording for the status
+        strip and the lower-left fallback; ``hud_lines`` is the fuller
+        cursor-side readout (snap kind · name · coordinate · distance,
+        gesture delta, axis/snap state, numeric echo, commit hint).
+        """
+
+        lines: list[str] = []
+        if snap_line:
+            lines.append(snap_line)
+        delta_line = self._delta_line()
+        if delta_line is not None:
+            lines.append(delta_line)
+        if self._numeric_entry:
+            lines.append(f'入力: {self._numeric_buffer or "0"}')
+        lines.append(self._mode_line())
+        lines.append('Enter: 確定 · Esc: 中止')
+        self.workspace.set_snap_feedback(
+            status_label,
+            screen_position=self._hud_anchor(),
+            hud_lines=tuple(lines),
+        )
+
+    def _apply_numeric_preview(self) -> None:
+        """Preview the typed delta exactly — snap never rewrites typed input.
+
+        Move: the value is a display-unit delta along the constrained axis
+        (X while unconstrained); rotate: degrees about the selected axis
+        (Z default, matching pointer drags). The preview flows through the
+        same ``working.preview_*`` port as a drag, so commit on Enter is
+        indistinguishable from a drag release and cannot double-commit.
+        """
+
+        if self.mode is None or self._base_position is None or not self._numeric_entry:
+            return
+        text = self._numeric_buffer.strip()
+        try:
+            value = float(text) if text else 0.0
+        except ValueError:
+            return
+        if self.mode == "move":
+            try:
+                delta_m = display_to_si(value, self._length_policy.unit)
+            except ValueError:
+                return  # out-of-range display value stays a preview no-op
+            axis: AxisName = self.axis.value if self.axis is not None else 'x'
+            base = self._base_position
+            candidate = Position3(
+                x_m=base.x_m + delta_m if axis == 'x' else base.x_m,
+                y_m=base.y_m + delta_m if axis == 'y' else base.y_m,
+                z_m=base.z_m + delta_m if axis == 'z' else base.z_m,
+            )
+            self._preview_target = candidate
+            self._preview_rotate_value = None
+            if self._group_ids:
+                delta_vector = (
+                    candidate.x_m - base.x_m,
+                    candidate.y_m - base.y_m,
+                    candidate.z_m - base.z_m,
+                )
+                self._controller.working.preview_group_move(delta_vector)
+            else:
+                self._controller.working.preview_move(candidate)
+            self._push_feedback(
+                snap_line="数値入力 (スナップ適用なし)",
+                status_label=None,
+            )
+        else:
+            axis = self.axis.value if self.axis is not None else 'z'
+            self._preview_target = None
+            self._preview_rotate_value = (axis, value)
+            if self._group_ids and self._group_pivot is not None:
+                self._controller.working.preview_group_rotate(axis, value, self._group_pivot)
+            else:
+                orientation = rotate_orientation_world(self._base_orientation, axis, value)
+                self._controller.working.preview_rotate(orientation)
+            self._push_feedback(
+                snap_line="数値入力 (スナップ適用なし)",
+                status_label=None,
+            )
+        self.workspace.refresh()
+
     def _preview_rotate(self, delta: QPointF) -> None:
         if self._base_orientation is None:
             return
@@ -427,10 +728,21 @@ class RoomEntityTransformController(QObject):
         raw_deg = float(delta.x()) * 0.5
         if view_state.angle_snap_enabled and self._snap_enabled():
             angle_deg = snap_angle_deg(raw_deg, view_state.angle_step_deg)
-            self.workspace.set_snap_feedback(f"角度 {angle_deg:.1f}°")
+            snap_line = f"角度スナップ {view_state.angle_step_deg:g}°"
+            status_label = f"角度 {angle_deg:.1f}°"
         else:
             angle_deg = raw_deg
-            self.workspace.set_snap_feedback(None)
+            if not self._snap_enabled() and view_state.angle_snap_enabled:
+                snap_line = "スナップ一時解除中 (Shift)"
+            elif not view_state.angle_snap_enabled:
+                snap_line = "角度スナップ: オフ"
+            else:
+                snap_line = None
+            status_label = None
+        self._preview_target = None
+        self._preview_rotate_value = (axis, angle_deg)
+        self._snap_anchor_world = None
+        self._push_feedback(snap_line=snap_line, status_label=status_label)
         if self._group_ids and self._group_pivot is not None:
             self._controller.working.preview_group_rotate(
                 axis,
@@ -499,6 +811,52 @@ class RoomEntityTransformController(QObject):
             self.workspace._set_status("ナッジしました · 元に戻すで復元できます")
         return changed
 
+    def _modal_key_press(self, event: QKeyEvent) -> bool:
+        """Keys while a move/rotate gesture is armed (#979).
+
+        Once digits start, numeric entry owns the gesture: digits, '-' and
+        '.' extend the buffer (each edit re-applies the exact typed delta
+        through the same preview port as a drag), Backspace corrects, X/Y/Z
+        re-aim the axis, Enter commits and Esc cancels — both through the
+        working-document port the pointer paths use. Every other key is
+        swallowed so edit shortcuts (L/H/Delete/arrows) cannot misfire
+        mid-input. Before entry starts, Enter/Esc still commit/cancel the
+        armed gesture directly.
+        """
+
+        key = event.key()
+        if self._numeric_entry:
+            if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+                return bool(self.finish_at(None))
+            if key == Qt.Key.Key_Escape:
+                return bool(self.cancel())
+            if key == Qt.Key.Key_Backspace:
+                if self._numeric_buffer:
+                    self._numeric_buffer = self._numeric_buffer[:-1]
+                    self._apply_numeric_preview()
+                return True
+            axis = _AXIS_KEYS.get(key)
+            if axis is not None:
+                self.set_axis(axis)
+                return True
+            text = event.text()
+            if text and all(char in _NUMERIC_ENTRY_CHARS for char in text):
+                self._numeric_buffer += text
+                self._apply_numeric_preview()
+            return True  # editing context — nothing else may fire
+        if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            return bool(self.finish_at(None))
+        if key == Qt.Key.Key_Escape:
+            return bool(self.cancel())
+        text = event.text()
+        if text and all(char in _NUMERIC_ENTRY_CHARS for char in text):
+            if self._begin_gesture():
+                self._numeric_entry = True
+                self._numeric_buffer = text
+                self._apply_numeric_preview()
+            return True
+        return False
+
     def _key_press(self, event: QKeyEvent) -> bool:
         if not isinstance(event, QKeyEvent):
             return False
@@ -508,6 +866,8 @@ class RoomEntityTransformController(QObject):
             | Qt.KeyboardModifier.MetaModifier
         ):
             return False
+        if self.mode is not None:
+            return self._modal_key_press(event)
         step = float(self._controller.view_state.grid_step_m) * (
             10.0 if event.modifiers() & Qt.KeyboardModifier.ShiftModifier else 1.0
         )
@@ -536,6 +896,11 @@ class RoomEntityTransformController(QObject):
         if event_type == QEvent.Type.MouseButtonPress:
             mouse = event  # type: ignore[assignment]
             if isinstance(mouse, QMouseEvent) and mouse.button() == Qt.MouseButton.LeftButton:
+                if self._numeric_entry:
+                    # Click commits what was typed — and the press must not
+                    # fall through to the picker mid-input (#979).
+                    mouse.accept()
+                    return True
                 if self.begin_at(mouse.position()):
                     mouse.accept()
                     return True
