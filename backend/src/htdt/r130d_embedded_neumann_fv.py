@@ -288,8 +288,14 @@ def interior_point_stencil(
         raise ValueError("point must be finite xyz")
     if np.any(p < h / 2) or np.any(p > system.geometry.length_m - h / 2):
         raise ValueError("point is outside supported interior centre cube")
-    if p[2] > (system.geometry.roof_height_at_y0_m
-               - system.geometry.roof_drop_per_y_m * p[1]):
+    # Legacy pinned sloped prism and experimental bounded convex plane room
+    # retain separate, explicit geometry authorities.
+    contains = getattr(system.geometry, "contains", None)
+    if contains is not None:
+        if not contains(p):
+            raise ValueError("point is outside the physical convex room")
+    elif p[2] > (system.geometry.roof_height_at_y0_m
+                 - system.geometry.roof_drop_per_y_m * p[1]):
         raise ValueError("point is above the physical roof")
     cell_ijk = system.cell_coordinates_ijk
     lookup = {tuple(row): index for index, row in enumerate(cell_ijk)}
