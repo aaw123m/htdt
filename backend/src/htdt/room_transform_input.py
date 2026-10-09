@@ -123,6 +123,13 @@ class RoomEntityTransformController(QObject):
             return
         if self._controller.working.has_preview:
             self._controller.working.cancel_preview()
+        # An armed gizmo owns the pointer's hit stack — close and suppress
+        # the overlapping-pick chooser for the gesture's duration (#983).
+        dismiss = getattr(self.viewport, 'dismiss_pick_candidates', None)
+        if callable(dismiss):
+            dismiss()
+        if hasattr(self.viewport, 'pick_popover_enabled'):
+            self.viewport.pick_popover_enabled = False
         self.mode = mode
         self.axis = None
         self._dragging = False
@@ -210,6 +217,8 @@ class RoomEntityTransformController(QObject):
             if self.mode is not None:
                 self.mode = None
                 self.axis = None
+                if hasattr(self.viewport, 'pick_popover_enabled'):
+                    self.viewport.pick_popover_enabled = True
                 self.workspace.active_axis_constraint = None
                 self.workspace.set_snap_feedback(None)
                 return True
@@ -273,6 +282,8 @@ class RoomEntityTransformController(QObject):
         self._group_base_positions = {}
         self._group_pivot = None
         self._snap_selectors = {}
+        if hasattr(self.viewport, 'pick_popover_enabled'):
+            self.viewport.pick_popover_enabled = True
         self.workspace.active_axis_constraint = None
         self.workspace.set_snap_feedback(None)
 

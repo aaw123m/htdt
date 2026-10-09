@@ -4448,6 +4448,14 @@ class RoomWorkspace(QWidget):
         proposed_signal = getattr(viewport_widget, "proposedEntitySelected", None)
         if proposed_signal is not None and hasattr(proposed_signal, "connect"):
             proposed_signal.connect(self._proposal_entity_selected)
+        # #983: the overlapping-pick chooser asks the workspace for edit-
+        # blocking reasons it cannot see (document-wide `can_edit` False);
+        # lock/hidden rows resolve inside the viewport from render state.
+        setattr(
+            viewport_widget,
+            "pick_candidate_reason_provider",
+            self._pick_candidate_uneditable_reason,
+        )
         viewport_layout.addWidget(viewport_widget, 1)
 
         # The viewport and the right-hand panel stack share a splitter so the
@@ -6433,6 +6441,18 @@ class RoomWorkspace(QWidget):
         except KeyError:
             return
         self._after_selection_changed()
+
+    def _pick_candidate_uneditable_reason(self, entity_id: object) -> str | None:
+        """#983: edit-blocking reason for a pick-chooser candidate.
+
+        ``can_edit`` False means the whole document is off-limits (recovery
+        candidate, no room, or a live preview), so the reason applies to
+        every candidate. Selection itself stays allowed — selection is not
+        edit permission; the row just states why editing would refuse.
+        """
+        if not self.controller.can_edit:
+            return "編集不可"
+        return None
 
     def _entity_picked(self, entity_id: object, display_position: object = None) -> None:
         """Viewport pick: measure capture, Ctrl+click additive select, plain click."""

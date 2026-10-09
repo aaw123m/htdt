@@ -8,8 +8,8 @@ from typing import TYPE_CHECKING, Iterator, Sequence
 
 import numpy as np
 import pyvista as pv
-from PySide6.QtCore import QPointF, QRectF, Qt, QTimer, Signal
-from PySide6.QtWidgets import QFrame, QRubberBand, QVBoxLayout, QWidget
+from PySide6.QtCore import QEvent, QObject, QPointF, QRectF, Qt, QTimer, Signal
+from PySide6.QtWidgets import QFrame, QLabel, QRubberBand, QVBoxLayout, QWidget
 from pyvistaqt import QtInteractor
 from shapely.geometry import Polygon
 from shapely.ops import triangulate
@@ -69,7 +69,15 @@ from .installation_feasibility_viewmodel import (
     SlabMountFace,
     WallMountFace,
 )
-from .ui_theme import DARK_THEME, SurfaceRole, set_surface_role
+from .ui_theme import (
+    DARK_THEME,
+    SemanticState,
+    SurfaceRole,
+    TypographyRole,
+    set_semantic_state,
+    set_surface_role,
+    set_typography_role,
+)
 
 if TYPE_CHECKING:
     from .reflection_guidance_presentation import (
@@ -1012,6 +1020,233 @@ def entity_render_meshes(
     return entry
 
 
+# -- overlapping-pick chooser (#983) --------------------------------------------
+#
+# When one click resolves more than one entity (front-to-back via
+# ``vtkCellPicker.GetProp3Ds``) the chooser below makes the otherwise invisible
+# click-through cycle explicit: a cursor-side list of ``{i}. {name} · {kind}``
+# rows. Candidates stay keyed by stable entity id; locked/hidden/missing or
+# document-wide non-editable state is spelled out per row — selection is not
+# edit permission. The set is never re-picked: it reuses the prop list of the
+# pick that fired ``_picked_actor``, and it is dropped whenever the view or
+# scene changes in a way that would invalidate that stack.
+
+#: Kind wording mirrors ``room_workspace.SelectionInspector.KIND_LABELS`` so
+#: the chooser reads identically to the objects list (#978) it syncs with.
+_PICK_KIND_LABELS: dict[str, str] = {
+    'speaker': 'スピーカー',
+    'seat': '座席',
+    'screen': 'スクリーン',
+    'display': 'ディスプレイ',
+    'projector': 'プロジェクター',
+    'riser': 'ライザー',
+    'furniture': '家具',
+    'av_equipment': 'AV機器',
+    'measurement_point': '測定点',
+}
+
+
+@dataclass(frozen=True, slots=True)
+class PickCandidateEntry:
+    """One row of the overlapping-pick chooser (#983).
+
+    ``reason`` is the explicit "cannot operate" text — locked, hidden,
+    missing from the scene, or blocked by the workspace's edit authority.
+    A reason never disables selection itself: selection ≠ edit permission.
+    """
+
+    entity_id: str
+    name: str
+    kind: str
+    kind_label: str
+    reason: str | None = None
+
+
+class _PickCandidateRow(QLabel):
+    """One clickable chooser row — menu semantics, single click confirms."""
+
+    clicked = Signal()
+
+    def __init__(self, parent: QWidget) -> None:
+        super().__init__(parent)
+        self.setObjectName('pickCandidateRow')
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+
+    def mouseReleaseEvent(self, event) -> None:  # noqa: N802
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.clicked.emit()
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
+
+
+class _PickCandidatePopover(QFrame):
+    """Cursor-side chooser for overlapping pick candidates (#983).
+
+    Presentational only — the viewport owns the candidate set, cycling and
+    confirm/dismiss. Rows are rebuilt per update so window, highlight and
+    reason text always match the live entry list. ``activated`` carries the
+    entity id of a row that was clicked (menu semantics: click = confirm).
+    """
+
+    activated = Signal(object)
+    _MAX_ROWS = 8
+
+    def __init__(self, parent: QWidget) -> None:
+        super().__init__(parent)
+        self.setObjectName('pickCandidatePopover')
+        set_surface_role(self, SurfaceRole.RAISED)
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.setAccessibleName('重なり候補の選択')
+        self._entries: tuple[PickCandidateEntry, ...] = ()
+        self._index = 0
+        self._rows: list[_PickCandidateRow] = []
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(10, 8, 10, 8)
+        layout.setSpacing(2)
+        self.header = QLabel(self)
+        self.header.setObjectName('pickCandidateHeader')
+        set_typography_role(self.header, TypographyRole.SECTION_TITLE)
+        layout.addWidget(self.header)
+        self._layout = layout
+        self.hint = QLabel(
+            'ホイール・↑↓: 切替 / Enter: 確定 / Esc: 閉じる', self
+        )
+        self.hint.setObjectName('pickCandidateHint')
+        self.hint.setAccessibleName('操作: ホイールか上下キーで切替、Enterで確定、Escで閉じる')
+        set_typography_role(self.hint, TypographyRole.SECONDARY)
+        self.hide()
+
+    def set_entries(
+        self, entries: tuple[PickCandidateEntry, ...], index: int
+    ) -> None:
+        self._entries = tuple(entries)
+        self._index = index
+        self._refill()
+
+    def set_index(self, index: int) -> None:
+        self._index = index
+        self._refill()
+
+    def _refill(self) -> None:
+        for row in self._rows:
+            self._layout.removeWidget(row)
+            row.deleteLater()
+        self._rows = []
+        entries = self._entries
+        total = len(entries)
+        self.header.setText(
+            f'重なり候補 {self._index + 1 if total else 0}/{total}'
+        )
+        # A long hit stack renders as a window around the active row so the
+        # chooser stays small on dense scenes; ellipses mark hidden ends.
+        start = 0
+        if total > self._MAX_ROWS:
+            start = max(0, min(self._index - 3, total - self._MAX_ROWS))
+        stop = min(total, start + self._MAX_ROWS)
+        visible: list[tuple[int, PickCandidateEntry | None]] = []
+        if start > 0:
+            visible.append((-1, None))
+        visible.extend((i, entries[i]) for i in range(start, stop))
+        if stop < total:
+            visible.append((-1, None))
+        for offset, (entry_index, entry) in enumerate(visible):
+            row = _PickCandidateRow(self)
+            if entry is None:
+                row.setText('…')
+                row.setEnabled(False)
+                row.setAccessibleName('その他の候補')
+            else:
+                full = f'{entry_index + 1}. {entry.name}'
+                if entry.kind_label:
+                    full += f' · {entry.kind_label}'
+                if entry.reason:
+                    full += f' · {entry.reason}'
+                row.setText(
+                    row.fontMetrics().elidedText(
+                        full, Qt.TextElideMode.ElideRight, 260
+                    )
+                )
+                row.setToolTip(full)
+                row.setAccessibleName(full)
+                set_typography_role(row, TypographyRole.BODY)
+                entity_id = entry.entity_id
+                row.clicked.connect(
+                    lambda _checked=False, _eid=entity_id: self.activated.emit(_eid)
+                )
+                if entry_index == self._index:
+                    set_semantic_state(row, SemanticState.SELECTED)
+            self._layout.insertWidget(1 + offset, row)
+            self._rows.append(row)
+        self._layout.addWidget(self.hint)
+        self.adjustSize()
+
+
+class _PickCandidateKeyFilter(QObject):
+    """Keyboard/wheel contract while the pick chooser is open (#983).
+
+    Installed on the interactor only while the popover is visible — last
+    installed, so it runs ahead of the camera/transform/gesture filters
+    attached at workspace wiring time. Chooser keys are also accepted as
+    ``ShortcutOverride`` so the workspace cancel/commit shortcuts cannot
+    fire underneath it; every other key falls through unchanged.
+    """
+
+    _CHOOSER_KEYS = frozenset(
+        {
+            Qt.Key.Key_Escape,
+            Qt.Key.Key_Return,
+            Qt.Key.Key_Enter,
+            Qt.Key.Key_Tab,
+            Qt.Key.Key_Backtab,
+            Qt.Key.Key_Up,
+            Qt.Key.Key_Down,
+        }
+    )
+
+    def __init__(self, viewport: 'RoomViewport3D') -> None:
+        super().__init__(viewport)
+        self._viewport = viewport
+
+    def eventFilter(self, watched: QObject, event: QEvent) -> bool:  # noqa: N802
+        viewport = self._viewport
+        event_type = event.type()
+        if event_type == QEvent.Type.ShortcutOverride:
+            if event.key() in self._CHOOSER_KEYS:
+                event.accept()
+                return True
+            return False
+        if event_type == QEvent.Type.KeyPress:
+            key = event.key()
+            if key == Qt.Key.Key_Up or key == Qt.Key.Key_Backtab:
+                viewport._step_pick_candidates(-1)
+            elif key == Qt.Key.Key_Down or key == Qt.Key.Key_Tab:
+                viewport._step_pick_candidates(1)
+            elif key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+                viewport._confirm_pick_candidate()
+            elif key == Qt.Key.Key_Escape:
+                viewport.dismiss_pick_candidates()
+            else:
+                return False
+            event.accept()
+            return True
+        if event_type == QEvent.Type.Wheel:
+            delta = event.angleDelta().y()
+            if delta:
+                # Scroll-up moves toward the front-most candidate, scroll-down
+                # toward the back — a list scroll, not a camera zoom.
+                viewport._step_pick_candidates(-1 if delta > 0 else 1)
+            event.accept()
+            return True
+        if event_type in (QEvent.Type.FocusOut, QEvent.Type.Hide):
+            # Keyboard ownership is void once the interactor loses focus or
+            # is hidden (workspace switch) — the chooser closes rather than
+            # floating over state it can no longer steer.
+            viewport.dismiss_pick_candidates()
+        return False
+
+
 class RoomViewport3D(QFrame):
     """Dark, scene-authority-neutral viewport for the UX120 Room workspace.
 
@@ -1095,6 +1330,24 @@ class RoomViewport3D(QFrame):
         # vtkPicker.Pick fires EndPickEvent, which re-enters this widget's
         # pick callback — never re-pick while dispatching one.
         self._in_pick_dispatch = False
+        # Overlapping-pick chooser (#983): the candidate tuple/index reuse the
+        # click-through cycle state — never re-picked — and the chooser is
+        # dropped on any camera/scene change that would invalidate the stack
+        # it was captured from (pan/orbit/zoom/standard view/fit/focus/
+        # camera restore, section cut, document or hidden set change,
+        # marquee, context menu, empty click, resize/DPI, focus loss).
+        self._pick_entries: tuple[PickCandidateEntry, ...] = ()
+        self._pick_index = 0
+        self._pick_anchor: QPointF | None = None
+        self._pick_popover: _PickCandidatePopover | None = None
+        self._pick_key_filter: _PickCandidateKeyFilter | None = None
+        self._pick_preview_name: str | None = None
+        #: Input controllers suppress the chooser while an edit gesture is
+        #: armed (active gizmo) so a mid-gesture click cannot reopen it.
+        self.pick_popover_enabled = True
+        #: Optional workspace hook: ``(entity_id) -> reason | None`` for
+        #: edit-blocking state the viewport cannot see (e.g. ``!can_edit``).
+        self.pick_candidate_reason_provider = None
         self._search_domain_handles: dict[int, tuple[str, str, str, bool]] = {}
         # deferred_render(): compositing callers (e.g. the workspace refresh
         # that stacks document + constraint + measure + video + proposal
@@ -1172,6 +1425,8 @@ class RoomViewport3D(QFrame):
         overlays: RoomOverlayState,
         reset_camera: bool = False,
     ) -> None:
+        previous_document = self._document
+        previous_hidden = self._hidden_ids
         self._document = document
         if selected_ids is None:
             selected_ids = () if selected_id is None else (selected_id,)
@@ -1439,6 +1694,10 @@ class RoomViewport3D(QFrame):
         if reset_camera:
             self.fit_scene()
         self._last_render_signature = signature
+        # The rebuild wiped every actor — revalidate the chooser's armed
+        # candidate set against the new document/hidden state and re-add its
+        # preview envelope, or dismiss it when the stack went stale (#983).
+        self._restore_pick_candidates(previous_document, previous_hidden)
         self._render()
 
     #: Named-actor prefixes owned by the compositing overlay renderers
@@ -3675,6 +3934,10 @@ class RoomViewport3D(QFrame):
 
         self._underlay_items = tuple(underlays)
         self._guide_items = tuple(guides)
+        if section != self._section:
+            # A section cut changes what each pixel's hit stack means — the
+            # armed candidate set was captured pre-cut and is stale (#983).
+            self.dismiss_pick_candidates()
         self._section = section
 
     def _apply_section(self, mesh: pv.PolyData) -> pv.PolyData | None:
@@ -3810,6 +4073,7 @@ class RoomViewport3D(QFrame):
         try:
             underlay_id = self._actor_underlay_ids.get(id(actor))
             if underlay_id is not None:
+                self.dismiss_pick_candidates()
                 picked = getattr(self.plotter, "picked_position", None)
                 if picked is not None:
                     array = np.asarray(picked, dtype=float).reshape(-1)
@@ -3829,11 +4093,14 @@ class RoomViewport3D(QFrame):
                 entity_id = self._cycle_pick_candidate(
                     entity_id, self._current_pick_candidates()
                 )
-                self.entityPicked.emit(entity_id, self._last_display_position())
+                display = self._last_display_position()
+                self.entityPicked.emit(entity_id, display)
                 self.entitySelected.emit(entity_id)
+                self._sync_pick_candidates(display)
                 return
             proposed_id = self._actor_proposed_entity_ids.get(id(actor))
             if proposed_id is not None:
+                self.dismiss_pick_candidates()
                 self.proposedEntitySelected.emit(proposed_id)
         finally:
             self._in_pick_dispatch = False
@@ -3842,6 +4109,13 @@ class RoomViewport3D(QFrame):
         from PySide6.QtCore import QEvent
         from PySide6.QtGui import QMouseEvent
 
+        if obj is self.interactor and event.type() in (
+            QEvent.Type.Resize,
+            QEvent.Type.ScreenChangeInternal,
+        ):
+            # Widget/DPI changes reproject the whole scene — the armed
+            # candidate stack belongs to the old frame (#983).
+            self.dismiss_pick_candidates()
         if obj is self.interactor and isinstance(event, QMouseEvent):
             if event.type() == QEvent.Type.MouseButtonPress and event.button() == Qt.MouseButton.LeftButton:
                 self._press_position = QPointF(event.position())
@@ -3868,6 +4142,7 @@ class RoomViewport3D(QFrame):
                         (event.position() - pressed).manhattanLength() < 6.0
                     )
                     if moved and self.pick_actor_at(event.position()) is None:
+                        self.dismiss_pick_candidates()
                         self.emptyClicked.emit(event.position())
         return False
 
@@ -3898,6 +4173,9 @@ class RoomViewport3D(QFrame):
             self._restore_camera_state(self._press_camera_state)
             self._marquee_active = True
             self._marquee_band.show()
+            # Region select is a different gesture — the per-point candidate
+            # stack no longer describes what the band will hit (#983).
+            self.dismiss_pick_candidates()
 
     def _finish_marquee(self, event) -> None:
         """Resolve the marquee rect into an ordered entity selection signal."""
@@ -3935,6 +4213,7 @@ class RoomViewport3D(QFrame):
     def _restore_camera_state(self, state) -> None:
         if state is None:
             return
+        self.dismiss_pick_candidates()
         try:
             camera = self.plotter.camera
             camera.SetPosition(*state[0])
@@ -5128,6 +5407,262 @@ class RoomViewport3D(QFrame):
         self._cycle_index = index
         return candidates[index]
 
+    # -- Overlapping-pick chooser (#983) ---------------------------------------
+    #
+    # The chooser makes the invisible click-through cycle explicit: while it
+    # is open the wheel and arrow keys step a preview highlight across the
+    # captured stack, Enter commits that candidate through the same
+    # entityPicked/entitySelected path as a click, and Esc closes it without
+    # touching the selection. The candidate set is the picker's own hit stack
+    # — this feature performs no additional scene picks.
+
+    _PICK_PREVIEW_PREFIX = 'pick-candidate-'
+
+    @property
+    def pick_candidates_active(self) -> bool:
+        """Whether the overlapping-pick chooser is currently open."""
+
+        return (
+            self._pick_popover is not None
+            and not self._pick_popover.isHidden()
+        )
+
+    def pick_candidate_ids(self) -> tuple[str, ...]:
+        """Entity ids of the armed candidate stack, front-to-back."""
+
+        return tuple(entry.entity_id for entry in self._pick_entries)
+
+    def _sync_pick_candidates(self, anchor: QPointF | None) -> None:
+        """Reflect the pick that just fired in the chooser (#983).
+
+        Runs after the entityPicked/entitySelected emissions so the rows and
+        preview describe the post-refresh scene. Single-hit picks (and picks
+        taken while an edit gesture suppresses the chooser) close it.
+        """
+
+        candidates = self._cycle_ids
+        if not self.pick_popover_enabled or len(candidates) < 2:
+            self.dismiss_pick_candidates()
+            return
+        self._pick_entries = tuple(
+            self._pick_entry_for(entity_id) for entity_id in candidates
+        )
+        self._pick_index = min(self._cycle_index, len(self._pick_entries) - 1)
+        self._pick_anchor = QPointF(anchor) if anchor is not None else None
+        self._show_pick_popover()
+        self._refresh_pick_preview()
+        self._render()
+
+    def _pick_entry_for(self, entity_id: str) -> PickCandidateEntry:
+        """Resolve one candidate id into a chooser row (name/kind/reason)."""
+
+        document = self._document
+        entity = None
+        if document is not None:
+            try:
+                entity = document.entity(entity_id)
+            except KeyError:
+                entity = None
+        reasons: list[str] = []
+        if entity is None:
+            reasons.append('シーンに存在しません')
+        else:
+            if entity_id in self._hidden_ids:
+                reasons.append('非表示')
+            if entity_id in self._locked_ids:
+                reasons.append('ロック中')
+        provider = self.pick_candidate_reason_provider
+        if provider is not None:
+            try:
+                extra = provider(entity_id)
+            except Exception:
+                extra = None
+            if extra:
+                reasons.append(str(extra))
+        kind = entity.kind if entity is not None else ''
+        return PickCandidateEntry(
+            entity_id=entity_id,
+            name=entity.name if entity is not None else entity_id,
+            kind=kind,
+            kind_label=_PICK_KIND_LABELS.get(kind, kind),
+            reason='・'.join(reasons) if reasons else None,
+        )
+
+    def _show_pick_popover(self) -> None:
+        if self._pick_popover is None:
+            self._pick_popover = _PickCandidatePopover(self.interactor)
+            self._pick_popover.activated.connect(self._confirm_pick_candidate)
+        self._pick_popover.set_entries(self._pick_entries, self._pick_index)
+        popover = self._pick_popover
+        popover.adjustSize()
+        anchor = self._pick_anchor
+        x = int(anchor.x()) + 16 if anchor is not None else 16
+        y = int(anchor.y()) + 12 if anchor is not None else 16
+        # Keep the chooser inside the viewport — flip left/up near edges.
+        max_x = max(4, self.interactor.width() - popover.width() - 4)
+        max_y = max(4, self.interactor.height() - popover.height() - 4)
+        popover.move(max(4, min(x, max_x)), max(4, min(y, max_y)))
+        popover.show()
+        popover.raise_()
+        if self._pick_key_filter is None:
+            # Installed last, so it runs ahead of the camera/transform
+            # filters attached at workspace wiring time.
+            self._pick_key_filter = _PickCandidateKeyFilter(self)
+            self.interactor.installEventFilter(self._pick_key_filter)
+
+    def _step_pick_candidates(self, step: int) -> None:
+        """Move the armed candidate by ``step`` (wraps) — preview only."""
+
+        if not self._pick_entries:
+            return
+        self._pick_index = (self._pick_index + step) % len(self._pick_entries)
+        if self._pick_popover is not None:
+            self._pick_popover.set_index(self._pick_index)
+        self._refresh_pick_preview()
+        self._render()
+
+    def _confirm_pick_candidate(self, entity_id: object = None) -> None:
+        """Commit the armed (or clicked) candidate as the selection.
+
+        Goes through the same entityPicked/entitySelected emissions a click
+        produces, so the objects list (#978), inspector and view state stay
+        in lockstep. The click-through cursor is also advanced so a
+        following same-spot click continues past the confirmed index.
+        """
+
+        if not self._pick_entries:
+            return
+        ids = [entry.entity_id for entry in self._pick_entries]
+        if entity_id is None:
+            index = self._pick_index
+        elif str(entity_id) in ids:
+            index = ids.index(str(entity_id))
+        else:
+            return
+        target = ids[index]
+        anchor = self._pick_anchor
+        self._cycle_ids = tuple(ids)
+        self._cycle_index = index
+        self.entityPicked.emit(
+            target, QPointF(anchor) if anchor is not None else None
+        )
+        self.entitySelected.emit(target)
+        self.dismiss_pick_candidates()
+
+    def dismiss_pick_candidates(self) -> None:
+        """Drop the armed candidate stack, chooser and preview (#983)."""
+
+        had_state = (
+            bool(self._pick_entries)
+            or self._pick_preview_name is not None
+            or (
+                self._pick_popover is not None
+                and not self._pick_popover.isHidden()
+            )
+        )
+        self._pick_entries = ()
+        self._pick_index = 0
+        self._pick_anchor = None
+        if self._pick_key_filter is not None:
+            try:
+                self.interactor.removeEventFilter(self._pick_key_filter)
+            except Exception:
+                pass
+            self._pick_key_filter.deleteLater()
+            self._pick_key_filter = None
+        if self._pick_popover is not None:
+            self._pick_popover.hide()
+        self._remove_pick_preview()
+        if had_state:
+            self._render()
+
+    def _restore_pick_candidates(
+        self,
+        previous_document: SceneDocument | None,
+        previous_hidden: frozenset[str],
+    ) -> None:
+        """Revalidate the armed stack across a scene rebuild (#983).
+
+        Selection/lock re-renders rebuild actors but keep the hit stack —
+        the chooser survives with refreshed rows and a re-added preview.
+        Document or hidden-set changes alter what each pixel would hit, so
+        the captured set is stale and must be discarded.
+        """
+
+        if not self._pick_entries:
+            return
+        if (
+            self._document != previous_document
+            or self._hidden_ids != previous_hidden
+        ):
+            self.dismiss_pick_candidates()
+            return
+        self._pick_entries = tuple(
+            self._pick_entry_for(entry.entity_id)
+            for entry in self._pick_entries
+        )
+        if (
+            self._pick_popover is not None
+            and not self._pick_popover.isHidden()
+        ):
+            self._pick_popover.set_entries(self._pick_entries, self._pick_index)
+        self._refresh_pick_preview()
+
+    def _remove_pick_preview(self) -> None:
+        name = self._pick_preview_name
+        self._pick_preview_name = None
+        if name is None:
+            return
+        try:
+            self.plotter.remove_actor(name, render=False)
+        except Exception:
+            pass
+
+    def _refresh_pick_preview(self) -> None:
+        """Draw/remove the preview-only highlight for the armed candidate.
+
+        Preview-only means a render-space wireframe envelope — nothing here
+        mutates the document, view state, or any SceneRevision. When the
+        armed candidate is already the primary selection the real selection
+        outline is drawn instead and no preview is needed.
+        """
+
+        target: str | None = None
+        if self._pick_entries:
+            entity_id = self._pick_entries[self._pick_index].entity_id
+            if entity_id != self._selected_id:
+                target = entity_id
+        if target is None:
+            self._remove_pick_preview()
+            return
+        name = f'{self._PICK_PREVIEW_PREFIX}{target}'
+        if self._pick_preview_name == name:
+            return
+        self._remove_pick_preview()
+        document = self._document
+        if document is None:
+            return
+        try:
+            entity = document.entity(target)
+        except KeyError:
+            return
+        _body, _glyphs, envelope = entity_render_meshes(entity)
+        mesh = envelope if envelope is not None else _body
+        mesh = self._apply_section(mesh)
+        if mesh is None:
+            return
+        self.plotter.add_mesh(
+            mesh,
+            color=DARK_THEME.viewport.selection_outline.hex,
+            style='wireframe',
+            line_width=3,
+            opacity=0.95,
+            pickable=False,
+            name=name,
+            render=False,
+        )
+        self._pick_preview_name = name
+
     def pick_entities_in_region(self, rect: QRectF) -> list[str]:
         """Entity ids whose projected bounds intersect a Qt-space marquee rect."""
 
@@ -5217,6 +5752,7 @@ class RoomViewport3D(QFrame):
         del position
 
     def pan_by(self, delta: QPointF) -> None:
+        self.dismiss_pick_candidates()
         camera = self.plotter.camera
         position = np.asarray(camera.GetPosition(), dtype=float)
         focal = np.asarray(camera.GetFocalPoint(), dtype=float)
@@ -5263,6 +5799,7 @@ class RoomViewport3D(QFrame):
         del position
 
     def orbit_by(self, delta: QPointF) -> None:
+        self.dismiss_pick_candidates()
         camera = self.plotter.camera
         camera.Azimuth(-float(delta.x()) * 0.25)
         camera.Elevation(float(delta.y()) * 0.25)
@@ -5278,6 +5815,9 @@ class RoomViewport3D(QFrame):
         del position
         if abs(float(steps)) <= 1e-12:
             return
+        # Camera zooms also invalidate the pixel the stack was picked at —
+        # note the chooser's own wheel handling never reaches this path.
+        self.dismiss_pick_candidates()
         camera = self.plotter.camera
         factor = 1.15 ** float(steps)
         if camera.GetParallelProjection():
@@ -5296,6 +5836,7 @@ class RoomViewport3D(QFrame):
     ) -> None:
         # Command content remains outside the renderer and can be supplied by the
         # Room workspace / central command registry.
+        self.dismiss_pick_candidates()
         self.contextMenuRequested.emit(QPointF(position), QPointF(global_position))
 
     @property
@@ -5313,6 +5854,7 @@ class RoomViewport3D(QFrame):
         """
 
         view = StandardView(view)
+        self.dismiss_pick_candidates()
         camera = self.plotter.camera
         self._standard_view = view.value
         if view is StandardView.PERSPECTIVE:
@@ -5416,6 +5958,7 @@ class RoomViewport3D(QFrame):
         self._render()
 
     def fit_scene(self) -> None:
+        self.dismiss_pick_candidates()
         document = self._document
         if document is not None and document.room is None and not document.entities:
             self.plotter.reset_camera(bounds=DEFAULT_EMPTY_SCENE_BOUNDS)
@@ -5461,6 +6004,7 @@ class RoomViewport3D(QFrame):
                 maxs[axis] = max(maxs[axis], center[axis] + half[axis])
         if not found:
             return
+        self.dismiss_pick_candidates()
         bounds = (mins[0], maxs[0], mins[1], maxs[1], mins[2], maxs[2])
         self.plotter.reset_camera(bounds=bounds)
         self._render()
@@ -5482,6 +6026,7 @@ class RoomViewport3D(QFrame):
         """Restore a camera snapshot produced by ``capture_camera_view``."""
 
         position, focal, view_up, view_angle, parallel, scale = view
+        self.dismiss_pick_candidates()
         camera = self.plotter.camera
         camera.SetPosition(*position)
         camera.SetFocalPoint(*focal)
@@ -5508,6 +6053,7 @@ class RoomViewport3D(QFrame):
         claimed exact match, and never modifies the scene.
         """
 
+        self.dismiss_pick_candidates()
         camera = self.plotter.camera
         camera.SetParallelProjection(False)
         camera.SetPosition(*eye_render)
