@@ -1441,3 +1441,15 @@ entries:
       - docs/issues/issue-974-activity-center.md
       - backend/tests/test_issue_974_activity_integration.py
     close_when_gates_clear: true
+  - issue: 972
+    lifecycle: acceptance_remaining
+    landed:
+      prs: [1099]
+      commits: [15fb55fc09b3f76b8cf3e6f83717759bb8b2434a]
+    remaining_gates:
+      - kind: manual
+        description: Operator acceptance of the standards criterion search/status/domain narrowing (hidden-selection warning leading the result line, checked-but-filtered criteria still blocking the gate) on a dense evaluated profile.
+    evidence_refs:
+      - docs/issues/issue-972-standards-filter.md
+      - backend/tests/test_issue_972_standards_filter.py
+    close_when_gates_clear: true
