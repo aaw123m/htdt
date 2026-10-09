@@ -1,0 +1,225 @@
+{
+  "schema_version": "htdt.r130d.native-pffdtd-neumann-graph-audit-evidence-1",
+  "plan_sha256_lf": "1943e792bc5c7e2ae43d90ef4819124533f433047ec1ce5b61def230cc434ed6",
+  "preregistered_plan": {
+    "schema_version": "htdt.r130d.original-pffdtd-neumann-graph-audit-plan-1",
+    "date_jst": "2026-10-09",
+    "issue": 938,
+    "pr": 1055,
+    "purpose": "Independently audit algebraic self-adjointness, zero row sum, and room-connected boundary-edge reciprocity of exact original native PFFDTD seven-point cartesian rigid Neumann operator, before observing its graph metrics.",
+    "geometry_source": {
+      "five_frozen_original_ppw": [
+        28,
+        32,
+        36,
+        40,
+        44
+      ],
+      "from_original_raw_h5_only": true,
+      "pin_upstream_sha": "aa319f6c86517cb95aabfae8656277da62c3ead5",
+      "committed_prior_two_native_wave_evidence": "benchmarks/acoustics/r130d_original_point_quadratic_pffdtd_evidence_2026-10-09.json",
+      "required_original_exact_vox_out_sha256": "the five per-grid original_solver_geometry_sha256 values in committed prior evidence",
+      "source_position_m": [
+        1.5,
+        2,
+        2
+      ],
+      "receiver_position_m": [
+        2.5,
+        2,
+        2
+      ]
+    },
+    "matrix": {
+      "grid_node_order": "numpy C-order ravel (Nx,Ny,Nz) x major",
+      "offset_order": [
+        "+Ny*Nz",
+        "-Ny*Nz",
+        "+Nz",
+        "-Nz",
+        "+1",
+        "-1"
+      ],
+      "boundary_node_rows": "nb_stencil_bn_cart: L_ii = -sum(adj_bn[i]) and L_i_neighbor = adj_bn[i,d]",
+      "nonboundary_rows": "nb_stencil_air_cart: L_ii=-6 and 6 neighbors +1 for all strictly interior nodes",
+      "reference_kernel_file": "pffdtd-pin/python/fdtd/sim_fdtd.py",
+      "active_domain": "reachability from frozen source nearest air/interior node using native directed edges; do not add artificial external air connected components",
+      "outside_halo": "exclude native ghost nodes at grid index 0 or N-1 from active edge counts",
+      "graph_symmetry": "all native interior active edges must possess reverse edge in active room graph; if asymmetric preserve directed counts and representative IDs",
+      "conservation": "every evaluated interior row L applied to constant 1 must equal 0",
+      "quadratic_form": "for deterministic finite float fields u and v, compute u.Lv - v.Lu and report actual relative magnitude; no corrective symmetrization",
+      "native_kernel_crosscheck": "run pinned numba nb_stencil_air_cart and nb_stencil_bn_cart on frozen original mask and compare sampled full-domain rows with independently reconstructed graph action",
+      "do_not_change_boundary_or_solver": true
+    },
+    "gate": {
+      "expected_symmetry_mismatch_count": 0,
+      "expected_zero_row_sum_residual_max": 1e-12,
+      "do_not_claim_physical_pass_even_if_symmetric": true,
+      "no_threshold_changes": true,
+      "diagnostic_always_keep_failures": true
+    },
+    "resource_limits": {
+      "max_native_original_grid_cells": 1700000,
+      "max_graph_visited_nodes": 400000,
+      "max_cases": 5,
+      "max_probe_fields": 2,
+      "max_sampled_row_checks": 10000
+    },
+    "authority": {
+      "original_8_node_fullband": "SELF_CONVERGENCE_FAILED",
+      "physical_validation": "NOT_VALIDATED",
+      "product": "NO_GO",
+      "pr_draft": true,
+      "issue_open": true
+    }
+  },
+  "pinned_unmodified_upstream": "aa319f6c86517cb95aabfae8656277da62c3ead5",
+  "actual_original_voxel_grid_audits": [
+    {
+      "ppw": 28,
+      "original_exact_voxel_sha256": "9d8b598fc1e2077840ba5a51e8f2db72c30ad4b6991ae88d3174bac72acf9fc8",
+      "grid_dimensions": [
+        41,
+        41,
+        41
+      ],
+      "physical_spacing_m": 0.12257142857142857,
+      "full_voxel_grid_nodes": 68921,
+      "original_boundary_node_count": 11592,
+      "source_nearest_original_grid_linear_node": 27736,
+      "source_connected_room_nodes": 31185,
+      "source_connected_boundary_nodes": 5610,
+      "connected_non_ghost_directed_edges": 180864,
+      "native_halo_ghost_edge_count_excluded_from_room_graph": 0,
+      "unreciprocated_directed_room_edge_count": 0,
+      "unreciprocated_directed_edge_examples": [],
+      "max_native_constant_field_row_sum_abs": 0,
+      "max_original_numba_vs_independent_boundary_row_action_abs": 7.105427357601002e-15,
+      "native_operator_relative_bilinear_skew": 2.3711840247239043e-15,
+      "original_rigid_boundary_condition_unchanged": true,
+      "any_operator_self_adjointness_defect": {
+        "unreciprocated_room_edges": false,
+        "nonzero_native_kernel_difference": false,
+        "nonzero_relative_bilinear_skew": false
+      }
+    },
+    {
+      "ppw": 32,
+      "original_exact_voxel_sha256": "8f3ebd62703c40793d68fdf703e098bbecc568cc9beb227cfa126b8042954e3b",
+      "grid_dimensions": [
+        46,
+        46,
+        46
+      ],
+      "physical_spacing_m": 0.10725,
+      "full_voxel_grid_nodes": 97336,
+      "original_boundary_node_count": 14696,
+      "source_nearest_original_grid_linear_node": 37006,
+      "source_connected_room_nodes": 44659,
+      "source_connected_boundary_nodes": 7139,
+      "connected_non_ghost_directed_edges": 260064,
+      "native_halo_ghost_edge_count_excluded_from_room_graph": 0,
+      "unreciprocated_directed_room_edge_count": 0,
+      "unreciprocated_directed_edge_examples": [],
+      "max_native_constant_field_row_sum_abs": 0,
+      "max_original_numba_vs_independent_boundary_row_action_abs": 7.105427357601002e-15,
+      "native_operator_relative_bilinear_skew": 1.657710265305338e-16,
+      "original_rigid_boundary_condition_unchanged": true,
+      "any_operator_self_adjointness_defect": {
+        "unreciprocated_room_edges": false,
+        "nonzero_native_kernel_difference": false,
+        "nonzero_relative_bilinear_skew": false
+      }
+    },
+    {
+      "ppw": 36,
+      "original_exact_voxel_sha256": "433c1d334419006b1185a4ef275545d329244d0808b2a3c12a3200e7af4e3d50",
+      "grid_dimensions": [
+        50,
+        50,
+        50
+      ],
+      "physical_spacing_m": 0.09533333333333333,
+      "full_voxel_grid_nodes": 125000,
+      "original_boundary_node_count": 18972,
+      "source_nearest_original_grid_linear_node": 48724,
+      "source_connected_room_nodes": 64848,
+      "source_connected_boundary_nodes": 9248,
+      "connected_non_ghost_directed_edges": 378944,
+      "native_halo_ghost_edge_count_excluded_from_room_graph": 0,
+      "unreciprocated_directed_room_edge_count": 0,
+      "unreciprocated_directed_edge_examples": [],
+      "max_native_constant_field_row_sum_abs": 0,
+      "max_original_numba_vs_independent_boundary_row_action_abs": 7.105427357601002e-15,
+      "native_operator_relative_bilinear_skew": 1.838444888967632e-16,
+      "original_rigid_boundary_condition_unchanged": true,
+      "any_operator_self_adjointness_defect": {
+        "unreciprocated_room_edges": false,
+        "nonzero_native_kernel_difference": false,
+        "nonzero_relative_bilinear_skew": false
+      }
+    },
+    {
+      "ppw": 40,
+      "original_exact_voxel_sha256": "c7c1894826c4774393987855e533081f615b22d510ec6042aacda12acbe0daaf",
+      "grid_dimensions": [
+        55,
+        55,
+        55
+      ],
+      "physical_spacing_m": 0.0858,
+      "full_voxel_grid_nodes": 166375,
+      "original_boundary_node_count": 23603,
+      "source_nearest_original_grid_linear_node": 65037,
+      "source_connected_room_nodes": 89723,
+      "source_connected_boundary_nodes": 11513,
+      "connected_non_ghost_directed_edges": 525778,
+      "native_halo_ghost_edge_count_excluded_from_room_graph": 0,
+      "unreciprocated_directed_room_edge_count": 0,
+      "unreciprocated_directed_edge_examples": [],
+      "max_native_constant_field_row_sum_abs": 0,
+      "max_original_numba_vs_independent_boundary_row_action_abs": 7.105427357601002e-15,
+      "native_operator_relative_bilinear_skew": 5.973272720020485e-16,
+      "original_rigid_boundary_condition_unchanged": true,
+      "any_operator_self_adjointness_defect": {
+        "unreciprocated_room_edges": false,
+        "nonzero_native_kernel_difference": false,
+        "nonzero_relative_bilinear_skew": false
+      }
+    },
+    {
+      "ppw": 44,
+      "original_exact_voxel_sha256": "4a7cb6c30c013adc31d5b1910d50cef003cacbdd37a271ac3efa7a39956e505b",
+      "grid_dimensions": [
+        60,
+        60,
+        60
+      ],
+      "physical_spacing_m": 0.078,
+      "full_voxel_grid_nodes": 216000,
+      "original_boundary_node_count": 28160,
+      "source_nearest_original_grid_linear_node": 84569,
+      "source_connected_room_nodes": 116739,
+      "source_connected_boundary_nodes": 13790,
+      "connected_non_ghost_directed_edges": 685452,
+      "native_halo_ghost_edge_count_excluded_from_room_graph": 0,
+      "unreciprocated_directed_room_edge_count": 0,
+      "unreciprocated_directed_edge_examples": [],
+      "max_native_constant_field_row_sum_abs": 0,
+      "max_original_numba_vs_independent_boundary_row_action_abs": 7.105427357601002e-15,
+      "native_operator_relative_bilinear_skew": 1.3284599350771243e-16,
+      "original_rigid_boundary_condition_unchanged": true,
+      "any_operator_self_adjointness_defect": {
+        "unreciprocated_room_edges": false,
+        "nonzero_native_kernel_difference": false,
+        "nonzero_relative_bilinear_skew": false
+      }
+    }
+  ],
+  "all_five_native_original_room_graphs_have_zero_unreciprocated_edges": true,
+  "all_five_native_kernel_probe_reconstructions_match": true,
+  "original_fullband_q0": "SELF_CONVERGENCE_FAILED",
+  "physical_validation": "NOT_VALIDATED",
+  "production_ready": false,
+  "upstream_pffdtd_source_changed": false
+}
