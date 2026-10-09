@@ -522,9 +522,20 @@ def test_skipped_rows_stay_flagged_on_reopen(tmp_path):
     for row in changed:
         decision = reopened.diff_decisions.get(row.row_key)
         assert decision is not None and decision.decision == 'accepted'
-    # merged subject rebuilt — next revision diffs against the merged set
+    # Regression: row keys must survive reconciliation re-seals — every
+    # decision_required row the reopened controller recomputes must carry a
+    # restored decision (accepted rows re-seal under new mapping_ids).
+    for row in reopened.diff_rows:
+        if row.decision_required:
+            assert row.row_key in reopened.diff_decisions
+    # merged subject rebuilt with the SAME geometry — accepted rows do not
+    # silently revert to the prior revision on reload
     assert reopened.subject is not None
     assert reopened.subject.source_kind == 'ifc_diff_merge'
+    assert (
+        reopened.subject.subject_sha256
+        == reopened.diff_apply.merged_subject_sha256
+    )
     assert 'gid-door2' not in {
         m.ifc_global_id for m in reopened.diff_base_mappings
     }

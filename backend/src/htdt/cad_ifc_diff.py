@@ -201,10 +201,13 @@ def _row_key(
     new: IfcEntityMapping | None,
     ordinal: int,
 ) -> str:
+    # Key on step_entity_id, not mapping_id: reconciliation marks re-seal an
+    # accepted row's mappings under NEW mapping_ids, and row keys must stay
+    # identical when rows are recomputed on reload so stored decisions match.
     return (
         f'{change_kind}:'
-        f'{prior.mapping_id if prior is not None else "-"}:'
-        f'{new.mapping_id if new is not None else "-"}:'
+        f'{prior.step_entity_id if prior is not None else "-"}:'
+        f'{new.step_entity_id if new is not None else "-"}:'
         f'{ordinal}'
     )
 
