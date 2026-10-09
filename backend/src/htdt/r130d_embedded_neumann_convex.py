@@ -240,10 +240,17 @@ def build_convex_embedded_neumann(
                     vol=_cube_cut_volume(lower,upper,normals,offsets,tol)
                 if vol < -1e-10*h**3 or vol > h**3*(1+1e-10):
                     raise ValueError("cut volume outside voxel bound")
-                if vol<=1e-14*h**3:
+                # A positive, well-resolved air intersection below the
+                # registered sliver threshold must fail closed. A cube that
+                # merely touches a plane at a vertex can produce a roundoff
+                # signed volume ~1e-16 despite zero 3D air interior; this is
+                # distinguished using exact plane minimum signed margin.
+                if 0.0 < vol < min_cut_volume_fraction*h**3:
+                    if np.all(dmin < -tol):
+                        raise ValueError("unresolved tiny cut cell; no silent solidification")
                     continue
-                if vol < min_cut_volume_fraction*h**3:
-                    raise ValueError("unresolved tiny cut cell; no silent solidification")
+                if vol <= 0.0:
+                    continue
                 mass_cells[(i,j,k)]=float(vol)
     if not mass_cells or len(mass_cells)>max_cells:
         raise ValueError("empty or resource-exhausting planar room")
