@@ -1249,3 +1249,16 @@ entries:
   - docs/issues/issue-1078-install-crash.md
   - backend/tests/test_issue_1078_install_placement.py
   close_when_gates_clear: true
+
+- issue: 987
+  lifecycle: acceptance_remaining
+  landed:
+    prs: [1080]
+    commits: [08da9bba]
+  remaining_gates:
+  - kind: manual
+    description: 'オペレータ受入 — 差分確認ダイアログ・カテゴリ選択・元の設定に戻す動線の実画面確認'
+  evidence_refs:
+  - docs/issues/issue-987-preferences-reset.md
+  - backend/tests/test_issue_987_preferences_reset.py
+  close_when_gates_clear: true
