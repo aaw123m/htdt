@@ -765,14 +765,16 @@ entries:
 - issue: 955
   lifecycle: structural_followup_remaining
   landed:
-    prs: [1042]
-    commits: [e09b6479]
+    prs: [1042, 1103]
+    commits: [e09b6479, 91abfcc8bb55fa61c4b44338774d33e63f08a43c]
   remaining_gates:
   - kind: structural
-    description: 'スコープ外レイヤ (native_cad 38, native_diagnostics/room_viewport 18, adapters/capture/repository 群) の ~425 broad catch — docs/issues/issue-955-error-boundaries.md に棚卸し済み、次ラウンドで逐次型付き化'
+    description: '残レイヤの broad catch 型付き化 — capture/ingestion/watch/persistence+worker lane (66件) は PR#1103 で全変換、残りは native_cad/他 UI・adapters 等 (docs/issues/issue-955-error-boundaries.md 棚卸し)'
   evidence_refs:
   - docs/issues/issue-955-error-boundaries.md
+  - docs/issues/issue-955-capture-boundaries.md
   - backend/tests/test_issue_955_error_boundaries.py
+  - backend/tests/test_issue_955_capture_boundaries.py
   close_when_gates_clear: true
 - issue: 952
   lifecycle: structural_followup_remaining
@@ -1003,17 +1005,19 @@ entries:
   close_when_gates_clear: true
 
 - issue: 1011
-  lifecycle: structural_followup_remaining
+  lifecycle: acceptance_remaining
   landed:
-    prs: [1059]
-    commits: [fd579148]
+    prs: [1059, 1104]
+    commits: [fd579148, e96a3918a2ddfe196d216dbdfb81bd6c49890883]
   remaining_gates:
-  - kind: structural
-    description: 'M3 — 3D waypoint authoring/preview/edit UI (docs/issues/issue-1011-cable-routes.md に structural note)。M1 一覧+exact-binding、M2 CableRunGeometry 権威 (v116) は着地済み'
+  - kind: manual
+    description: 'M3 着地済 — 3D waypoint 記録モード (armed pick→draft polyline→宣言区間バインド→stale pin fail-closed→append-only version) のオペレータ受入。M1/M2 権威は先行着地'
   evidence_refs:
   - docs/issues/issue-1011-cable-routes.md
   - backend/tests/test_issue_1011_cable_routes.py
+  - backend/tests/test_issue_1011_cable_waypoints.py
   - backend/src/htdt/cad_cable_run_geometry.py
+  - backend/src/htdt/cable_run_waypoint.py
   close_when_gates_clear: true
 
 - issue: 1007
