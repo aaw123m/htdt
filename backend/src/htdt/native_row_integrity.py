@@ -2634,6 +2634,20 @@ _ROW_BINDINGS: dict[str, tuple[str, tuple[RowBinding, ...], tuple[ExtraCheck, ..
         ),
         (),
     ),
+    'cad_ifc_diff_applies': (
+        'payload_json',
+        (
+            _b('apply_id', 'apply_id'),
+            _b('apply_sha256', 'apply_sha256'),
+            _b('document_id', 'document_id'),
+            _b('delta_id', 'delta_ref', 'ref_id'),
+            _b('prior_artifact_id', 'prior_artifact_ref', 'ref_id'),
+            _b('new_artifact_id', 'new_artifact_ref', 'ref_id'),
+            _b('merged_subject_id', 'merged_subject_id'),
+            _b('applied_at_utc', 'applied_at_utc'),
+        ),
+        (),
+    ),
     'cad_ifc_intake_profiles': (
         'payload_json',
         (

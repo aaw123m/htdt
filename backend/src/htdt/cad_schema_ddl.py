@@ -3213,6 +3213,17 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
     CREATE TABLE IF NOT EXISTS cad_ifc_exports ( seq INTEGER PRIMARY KEY AUTOINCREMENT, export_id TEXT NOT NULL UNIQUE, export_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, mode TEXT NOT NULL, source_artifact_id TEXT, step_sha256 TEXT NOT NULL, created_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
     """
     ,
+    # REV74: #981 IFC diff-review apply authority — sealed, append-only
+    # record of each operator-approved diff apply: the delta it resolved,
+    # both import artifacts, the merged subject and every row decision.
+    """
+    CREATE TABLE IF NOT EXISTS cad_ifc_diff_applies ( seq INTEGER PRIMARY KEY AUTOINCREMENT, apply_id TEXT NOT NULL UNIQUE, apply_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, delta_id TEXT NOT NULL, prior_artifact_id TEXT NOT NULL, new_artifact_id TEXT NOT NULL, merged_subject_id TEXT NOT NULL, applied_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_ifc_diff_apply_doc ON cad_ifc_diff_applies(document_id, seq ASC)
+    """
+    ,
     """
     CREATE TABLE IF NOT EXISTS cad_performance_fact_profiles ( seq INTEGER PRIMARY KEY AUTOINCREMENT, profile_id TEXT NOT NULL UNIQUE, profile_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, publisher TEXT NOT NULL, family TEXT NOT NULL, document_reference TEXT NOT NULL, maturity_state TEXT NOT NULL, payload_json TEXT NOT NULL )
     """
@@ -9846,6 +9857,7 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_ifc_import_artifacts',
     'cad_ifc_entity_mappings',
     'cad_ifc_revision_deltas',
+    'cad_ifc_diff_applies',
     'cad_ifc_intake_profiles',
     'cad_ifc_intake_evaluations',
     'cad_ifc_exports',

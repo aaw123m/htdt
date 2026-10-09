@@ -476,6 +476,10 @@ _LAZY_IMPORTS = {
         '.geometry_intake_controller',
         'GeometryIntakeController',
     ),
+    'IfcDiffReviewPanel': (
+        '.ifc_diff_review_panel',
+        'IfcDiffReviewPanel',
+    ),
 }
 
 
@@ -4241,6 +4245,9 @@ class WorkflowApplicationComposition:
             dispatch_repository=prediction_lane.dispatch_repository,
         )
         intake_panel = _self.GeometryIntakePanel()
+        # #981: the diff-review panel mounts alongside the intake panel —
+        # re-imported IFC revisions are reconciled here before apply.
+        diff_panel = _self.IfcDiffReviewPanel()
         # #1004: the survey panel mounts on the geometry dock — the click
         # target for authority detail (campaign/instrument/calibration,
         # hashes, blocked-task reasons) since overlay actors stay
@@ -4251,6 +4258,7 @@ class WorkflowApplicationComposition:
         dock_layout.setContentsMargins(0, 0, 0, 0)
         dock_layout.addWidget(geometry_panel)
         dock_layout.addWidget(intake_panel)
+        dock_layout.addWidget(diff_panel)
         dock_layout.addWidget(survey_panel)
         dock_layout.addStretch(1)
         workspace.bind_survey_overlay(survey_panel)
@@ -4264,6 +4272,7 @@ class WorkflowApplicationComposition:
         geometry_dock.refresh = _refresh_geometry_dock  # type: ignore[attr-defined]
         workspace.attach_geometry_panel(geometry_dock)
         workspace.bind_geometry_intake(intake_controller, intake_panel)
+        workspace.bind_ifc_diff_review(intake_controller, diff_panel)
         bind_length_policy_widget(geometry_panel, preferences)
         bind_length_policy_widget(workspace.video_panel, preferences)
         transform_input = _self.RoomEntityTransformController(workspace, workspace.viewport)

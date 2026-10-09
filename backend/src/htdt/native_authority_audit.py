@@ -4172,6 +4172,12 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         _get('ifc_interop', 'get_revision_delta'),
     ),
     _ReplayProbe(
+        'ifc_diff_apply',
+        'cad_ifc_diff_applies',
+        ('apply_id',),
+        _get('ifc_interop', 'get_diff_apply'),
+    ),
+    _ReplayProbe(
         'ifc_intake_profile',
         'cad_ifc_intake_profiles',
         ('profile_id',),

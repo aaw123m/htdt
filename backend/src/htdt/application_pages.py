@@ -335,6 +335,7 @@ _LIFECYCLE_TABLE_LABELS = {
     "cad_ifc_import_artifacts": "IFCインポート成果物",
     "cad_ifc_entity_mappings": "IFCエンティティマッピング",
     "cad_ifc_revision_deltas": "IFCリビジョン差分",
+    "cad_ifc_diff_applies": "IFC差分適用レコード",
     "cad_ifc_intake_profiles": "IFC取込プロファイル",
     "cad_ifc_intake_evaluations": "IFC取込評価",
     "cad_ifc_exports": "IFCエクスポート",

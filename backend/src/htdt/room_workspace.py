@@ -5087,6 +5087,127 @@ class RoomWorkspace(QWidget):
             return
         self._sync_geometry_intake_panel()
 
+    # --- IFC diff review (#981) ----------------------------------------------
+
+    def bind_ifc_diff_review(self, controller, panel) -> None:
+        """Wire the IfcDiffReviewPanel into the intake controller. The
+        panel only renders correspondence rows and forwards operator
+        intent; the controller owns the transactional apply."""
+        self.ifc_diff_controller = controller
+        self.ifc_diff_panel = panel
+        panel.importRevisionRequested.connect(self._ifc_diff_import)
+        panel.reloadRequested.connect(self._ifc_diff_reload)
+        panel.diffDecisionRequested.connect(self._ifc_diff_decision)
+        panel.allDecisionsRequested.connect(self._ifc_diff_all_decisions)
+        panel.applyRequested.connect(self._ifc_diff_apply)
+        panel.locateRequested.connect(self._ifc_diff_locate)
+        try:
+            controller.resume_diff_state()
+        except ValueError:
+            pass
+        self._sync_ifc_diff_panel()
+
+    def _sync_ifc_diff_panel(self) -> None:
+        controller = getattr(self, 'ifc_diff_controller', None)
+        panel = getattr(self, 'ifc_diff_panel', None)
+        if controller is None or panel is None:
+            return
+        panel.set_rows(
+            controller.diff_rows,
+            {
+                key: decision.decision
+                for key, decision in controller.diff_decisions.items()
+            },
+        )
+
+    def _ifc_diff_import(self) -> None:
+        controller = self.ifc_diff_controller
+        path_text, _ = file_dialog_memory.get_open_file_name(
+            self,
+            '改訂 IFC ファイルをインポート',
+            'room.import_ifc_revision',
+            'IFC ファイル (*.ifc);;すべてのファイル (*)',
+        )
+        if not path_text:
+            return
+        try:
+            source = Path(path_text).read_bytes()
+            artifact, delta, rows = controller.import_revised_ifc_source(
+                source, file_name=Path(path_text).name
+            )
+        except (OSError, ValueError) as exc:
+            self._set_operation_error(
+                '改訂 IFC の取り込みに失敗しました', exc
+            )
+            return
+        self._sync_ifc_diff_panel()
+        self._set_status(
+            f'改訂 IFC「{artifact.file_name}」を取り込みました: '
+            f'差分 {len(rows)} 行 '
+            f'(差分レコード {delta.delta_id}) — '
+            'レビューして適用してください'
+        )
+
+    def _ifc_diff_reload(self) -> None:
+        controller = self.ifc_diff_controller
+        try:
+            controller.resume_diff_state()
+        except ValueError as exc:
+            self._set_operation_error(
+                '差分の再読込に失敗しました', exc
+            )
+            return
+        self._sync_ifc_diff_panel()
+        self._sync_geometry_intake_panel()
+        self._set_status('差分レビュー状態を再読込しました')
+
+    def _ifc_diff_decision(self, row_key, decision) -> None:
+        controller = self.ifc_diff_controller
+        try:
+            controller.submit_diff_decision(str(row_key), str(decision))
+        except ValueError as exc:
+            self._set_operation_error(
+                '差分行の決定を記録できませんでした', exc
+            )
+            return
+        self._sync_ifc_diff_panel()
+
+    def _ifc_diff_all_decisions(self, decision) -> None:
+        controller = self.ifc_diff_controller
+        try:
+            controller.set_all_diff_decisions(str(decision))
+        except ValueError as exc:
+            self._set_operation_error(
+                '差分行の一括決定を記録できませんでした', exc
+            )
+            return
+        self._sync_ifc_diff_panel()
+
+    def _ifc_diff_apply(self) -> None:
+        controller = self.ifc_diff_controller
+        try:
+            apply_record, report, proposal = controller.apply_ifc_diff()
+        except (ValueError, KeyError) as exc:
+            self._set_operation_error(
+                '差分の適用に失敗しました', exc
+            )
+            return
+        self._sync_ifc_diff_panel()
+        self._sync_geometry_intake_panel()
+        self._render()
+        self._set_status(
+            f'差分を適用しました ({apply_record.apply_id[:20]}…): '
+            f'承認 {len(apply_record.applied_row_keys)} / '
+            f'スキップ {len(apply_record.skipped_row_keys)} / '
+            f'未決定 {len(apply_record.pending_row_keys)} — '
+            f'欠陥 {len(report.defects)} 件 / '
+            f'修復提案 {len(proposal.actions)} 件'
+        )
+
+    def _ifc_diff_locate(self, part_ids) -> None:
+        """Locate diff-row parts — same anchor path as intake locate."""
+        self._geometry_intake_locate(part_ids)
+
     def set_prediction_results(self, results: object) -> None:
         self.prediction_results = results if isinstance(results, tuple) else ()
         self.prediction_focus = None
