@@ -1,0 +1,91 @@
+{
+  "schema_version": "htdt.r130d.original-q0-exact-roof-Cartesian-cut-Q1-variational-plan-1",
+  "date_jst": "2026-10-09",
+  "issue": 938,
+  "pr": 1055,
+  "purpose": "Prospective full original point q0 acoustic solver with SAME Cartesian 8point trilinear interpolation family as upstream PFFDTD, plus variational physical cut-domain Q1 bilinear consistent mass / Neumann stiffness exactly integrated over true 56m3 planar sloped roof. Tests numerical consistency of original source+receiver with Q1 spatial trial/test space, avoiding grid-dependent triangular P1 simplex selection. All modes retained including true cutcell boundary ghost supports; no damp/cut/fitted q0.",
+  "original": {
+    "upstream_PFFDTD_sha": "aa319f6c86517cb95aabfae8656277da62c3ead5",
+    "original_native_real_source_and_voxel_HDF5_evidence": "benchmarks/acoustics/r130d_original_point_quadratic_pffdtd_evidence_2026-10-09.json",
+    "preobserved_P1_consistent_original_eightpoint_control": "benchmarks/acoustics/r130d_original_q0_conforming_p1_consistent_mass_evidence_2026-10-09.json",
+    "preobserved_P1_dirac_control": "benchmarks/acoustics/r130d_original_q0_conforming_p1_physical_dirac_evidence_2026-10-09.json",
+    "five_native_PPWs": [
+      28,
+      32,
+      36,
+      40,
+      44
+    ],
+    "original_source_xyz": [
+      1.5,
+      2,
+      2
+    ],
+    "original_receiver_xyz": [
+      2.5,
+      2,
+      2
+    ],
+    "preserve_original_exact_eight_SHA_HDF5_q0_weights_and_native_indices": true,
+    "original_true_q0": "in_sigs[:,0] at original 8 Cartesian nodes, q[n>0]=0, original native source total strength",
+    "native_h_Ts_Nt_by_grid": true,
+    "physical_room_m3": 56,
+    "roof": "0<=x<=4, 0<=y<=4, 0<=z<=4-.25*y",
+    "full_original_record_s": 0.25,
+    "signed_freq_hz": [
+      40,
+      80
+    ],
+    "c": 343.2,
+    "rho": 1.2
+  },
+  "new_operator": {
+    "x": "exact previous physical x native nodes + physical endpoints P1 exact 1D Galerkin consistent mass and standard stiffness; all 8 original x source node positions retained",
+    "yz": "original native Cartesian y,z NODE coordinates define standard bilinear Q1 rectangular cell basis over all Cartesian grid cells whose intersection with true physical trapezoid is nonempty; exterior Cartesian nodes with nonzero physical basis support kept as ghost DOFs; zero-support DOFs only are not included",
+    "true_exact_domain": "clip each original native Cartesian rectangle exactly to y0,y4,z0 and sloped roof; triangulate only the clipped polygon for integration, no replacement of Q1 basis or element deletion",
+    "element_mass": "integrate all products N_iN_j of original rectangle Q1 basis on physically clipped rectangle; 6-point positive Dunavant triangle rule exact polynomial total degree 4; full consistent offdiagonal mass",
+    "element_stiffness": "integrate c² grad N_i·grad N_j over same clipped polygons; exact degree2 via same quadrature, natural physical Neumann roof/walls",
+    "full_3D_operators": "M=Mx tensor MyzQ1; K=Kx tensor MyzQ1 + Mx tensor KyzQ1. No artificial sliver spectral stabilizer",
+    "source_receiver": "use exact original native HDF5 8node source and receiver indices/weights as Q1 weak Dirac and nodal point observer. Same original physically fixed source and receiver (no revised interpolation)",
+    "q0_integrator": "same native beta=1/4 Newmark original q0, all sampled 250ms full original pressure 40/80Hz signed, all eigmodes",
+    "no_sliver_drop_or_ghost_node_deletion_if_positive_support": true,
+    "no_high_modal_cutoff_or_clamp": true,
+    "no_mass_floor_or_fitted_coeffs": true,
+    "no_smoothing_or_taper_or_damping_or_frequency_mask": true
+  },
+  "independent_checks": {
+    "physical_clipped_integral_yz_area_exact": 14,
+    "physical_true_3D_volume_m3": 56,
+    "independent_affine_mass_u_x_plus_z_squared_exact": 926.6666666666666,
+    "independent_affine_stiffness_u_x_plus_z": 112,
+    "source_shape_matches_original_eight_native_hdf5_indices": true,
+    "all_original_point_source_observation_coefficients_unaltered": true,
+    "all_modal_true_M_orthonormality_and_K_residual": true,
+    "strict_Neumann_constant_null": true,
+    "exact_gaussian_degree4_quadrature_weights_positive": true,
+    "number_of_all_physical_modes_reported": true,
+    "all_original_5_grids_and_4_adjacent_pairs_required": true,
+    "complex_gate": 0.2,
+    "magnitude_gate": 0.25,
+    "phase_deg_gate": 15,
+    "all_three_metrics_must_pass_all_pairs_and_strict_monotonicity_for_any_valid_solution": true,
+    "record_signed_40_80_all_modes_no_high_filter": true,
+    "report_previous_original_8node_conforming_P1_signed_baseline_without_recompute_or_fit": true,
+    "no_native_upstream_PFFDTD_requalification": true
+  },
+  "caps": {
+    "max_yz_Q1_active_nodes": 3300,
+    "max_physical_3D_modes": 180000,
+    "max_cases": 5,
+    "new_native_PFFDTD_wave_runs": 0,
+    "new_github_actions_runs": 0,
+    "retain_scratch": true
+  },
+  "authority": {
+    "original_native_PFFDTD_q0": "SELF_CONVERGENCE_FAILED",
+    "independent_BRAS_MFEM": "NOT_VALIDATED",
+    "product": "NO_GO",
+    "draft_pr": true,
+    "issue_open": true
+  }
+}
