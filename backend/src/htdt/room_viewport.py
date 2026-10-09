@@ -1265,7 +1265,35 @@ class _PickCandidateKeyFilter(QObject):
         if event_type in (QEvent.Type.FocusOut, QEvent.Type.Hide):
             # Keyboard ownership is void once the interactor loses focus or
             # is hidden (workspace switch) — the chooser closes rather than
-            # floating over state it can no longer steer.
+            # floating over state it can no longer steer. BUT: on Windows a
+            # press inside the popover still transitions the interactor
+            # through FocusOut toward the separate ToolTip window despite
+            # WA_ShowWithoutActivating — dismissing here killed the chooser
+            # on press before the row could confirm (real-GUI finding).
+            # Ignore the transition when the focus target is the chooser.
+            if event_type == QEvent.Type.FocusOut:
+                from PySide6.QtGui import QCursor, QGuiApplication
+                from PySide6.QtWidgets import QApplication
+
+                popover = viewport._pick_popover
+                if popover is not None and not popover.isHidden():
+                    if QGuiApplication.focusWindow() is popover.windowHandle():
+                        return False
+                    focus_widget = QApplication.focusWidget()
+                    if focus_widget is not None and popover.isAncestorOf(
+                        focus_widget
+                    ):
+                        return False
+                    # Timing fallback: the focus target may not be updated
+                    # yet when FocusOut dispatches — a pressed button with
+                    # the cursor inside the popover's screen rect means the
+                    # press itself caused the transition.
+                    if (
+                        QApplication.mouseButtons()
+                        != Qt.MouseButton.NoButton
+                        and popover.frameGeometry().contains(QCursor.pos())
+                    ):
+                        return False
             viewport.dismiss_pick_candidates()
         return False
 
