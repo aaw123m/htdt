@@ -1,0 +1,1011 @@
+{
+  "schema_version": "htdt.r130d.original-q0-pressure-extended-end-evidence-1",
+  "pre_observation_plan_sha256_lf": "177692a266f2ca71242b75a83c00bf943f74f48e8ad9497052cf070e9cfa539f",
+  "preregistered_plan": {
+    "schema_version": "htdt.r130d.original-native-q0-pressure-extended-end-operator-plan-1",
+    "date_jst": "2026-10-09",
+    "issue": 938,
+    "pr": 1055,
+    "rationale": "Frozen original all-mode time attribution proved end sample contributes strongly at PPW36->40 but not PPW40->44. Test a genuine consistent one-step-homogeneous-extension CENTRAL pressure derivative at the final sample without changing spatial solver/source/Nt or cutting any modal excitation. All arms diagnostics; native original pressure remains the canonical control.",
+    "original": {
+      "upstream_sha": "aa319f6c86517cb95aabfae8656277da62c3ead5",
+      "original_wave_evidence": "benchmarks/acoustics/r130d_original_point_quadratic_pffdtd_evidence_2026-10-09.json",
+      "original_full_modal_evidence": "benchmarks/acoustics/r130d_original_pffdtd_native_full_modal_q0_evidence_2026-10-09.json",
+      "graph_audit": "benchmarks/acoustics/r130d_original_pffdtd_neumann_graph_evidence_2026-10-09.json",
+      "graph_plan": "benchmarks/acoustics/r130d_original_pffdtd_neumann_graph_plan_2026-10-09.json",
+      "last_exact_time_partition": "benchmarks/acoustics/r130d_original_q0_finite_window_endpoint_leakage_evidence_2026-10-09.json",
+      "ppw": [
+        28,
+        32,
+        36,
+        40,
+        44
+      ],
+      "physical_source_xyz": [
+        1.5,
+        2,
+        2
+      ],
+      "physical_receiver_xyz": [
+        2.5,
+        2,
+        2
+      ],
+      "actual_original_native_eight_point_q0_hdf5_sha": true,
+      "original_native_Ts_Nt_h": true,
+      "original_neumann_graph_without_change": true,
+      "full_record_s": 0.25,
+      "scored_freq_hz": [
+        40,
+        80
+      ],
+      "sound_speed_m_s": 343.2,
+      "rho": 1.2
+    },
+    "arms": [
+      {
+        "id": "original_one_sided_end",
+        "pressure": "original forward at n=0, centered interior, second-order backward at n=N-1; exact archived original"
+      },
+      {
+        "id": "extended_centered_end",
+        "pressure": "original forward at n=0 and centered interior, centered at last n=N-1 using TRUE extra homogeneous phi[N] to maintain 2nd-order centered temporal differentiation; do not add phi[N] to output samples"
+      },
+      {
+        "id": "hypothetical_all_centered",
+        "pressure": "hypothetical centered at BOTH n=0 (anti-causal pre-source phi[-1], NOT physical causal q0 derivative) and n=N-1; only a diagnostic, never canonical or candidate"
+      }
+    ],
+    "numerical": {
+      "native_original_explicit_leapfrog_per_mode": true,
+      "source_discrete_original_q0": true,
+      "all_original_native_3d_modes_complete": true,
+      "original_sample_count_unchanged": true,
+      "pressure_full_250ms_true_native_40_80_without_taper": true,
+      "phi_N_extra_state_only_end_derivative": true,
+      "no_q0_change_no_smoothing_no_damping_no_mode_cut": true,
+      "analytic_pressure_stencils": "original pressure p_start=\u03c1 A/dt (2\u2212cos\u03b8), p_mid[n]=\u03c1 A/dt cos(n\u03b8), p_end_backward=\u03c1 A/dt [R(N-1)+(cos\u03b8\u22122)R(N-2)], p_end_extended_centered=\u03c1 A/dt cos((N-1)\u03b8), p_start_hypothetical_centered=\u03c1 A/dt",
+      "preserve_original_native_transfer_complex_relative_max": 2e-06,
+      "original_three_part_reconstruction_relative_max": 2e-10,
+      "previous_original_40_80_timepartition_match_relative_max": 2e-10
+    },
+    "evaluation": {
+      "all_four_adjacent_grid_pairs": true,
+      "original_complex_limit": 0.2,
+      "original_magnitude_limit": 0.25,
+      "original_phase_deg_limit": 15,
+      "retain_all_original_unfavorable_results": true,
+      "record_signed_both_bin_per_grid_every_arm": true,
+      "require_all_components_and_monotonic_for_any_experimental_numerical_refinement": true,
+      "not_original_native_pffdtd_requalification": true,
+      "anti_causal_both_centered_never_physical_candidate": true
+    },
+    "limits": {
+      "max_cases": 5,
+      "max_arms": 3,
+      "new_native_pffdtd_waves": 0,
+      "new_github_actions_runs": 0,
+      "clean_scratch": false
+    },
+    "authority": {
+      "original_PFFDTD": "SELF_CONVERGENCE_FAILED",
+      "physical_validation": "NOT_VALIDATED",
+      "product": "NO_GO",
+      "draft_pr": true,
+      "issue_open": true
+    }
+  },
+  "canonical_original_PFFDTD_q0": "SELF_CONVERGENCE_FAILED",
+  "physical_validation": "NOT_VALIDATED",
+  "product": "NO_GO",
+  "new_PFFDTD_waves": 0,
+  "new_GitHub_Actions_runs": 0,
+  "original_real_five_grid_pressure_observer_cases": [
+    {
+      "ppw": 28,
+      "original_native_3d_full_modes": 31185,
+      "native_record_nt": 1214,
+      "native_dt_s": 0.00020599032818587005,
+      "original_source_comms_sha256": "4404a9818a8f0c673c97e8ede8665367100aecb3d2f2f8481bc532bc45fd6b6c",
+      "original_room_voxel_sha256": "9d8b598fc1e2077840ba5a51e8f2db72c30ad4b6991ae88d3174bac72acf9fc8",
+      "original_solver_unchanged_baseline_vs_saved_real_wave_relative": 1.2321462523010292e-11,
+      "one_true_homogeneous_post_record_extra_state_without_extra_scored_sample": true,
+      "original_record_full_250ms_signed_40_80_by_pressure_arm": {
+        "original_one_sided_end": [
+          [
+            101.0987693066852,
+            42.79568096883029
+          ],
+          [
+            150.77953891017572,
+            -21.72999260578473
+          ]
+        ],
+        "extended_centered_end": [
+          [
+            53.34883323544561,
+            44.40118456331602
+          ],
+          [
+            103.11052263610924,
+            -18.520798927902398
+          ]
+        ],
+        "hypothetical_all_centered": [
+          [
+            53.34883323544736,
+            44.40118456331602
+          ],
+          [
+            103.11052263611099,
+            -18.520798927902398
+          ]
+        ]
+      },
+      "difference_extended_end_minus_original_signed_40_80": [
+        [
+          -47.74993607123959,
+          1.6055035944857325
+        ],
+        [
+          -47.66901627406648,
+          3.209193677882334
+        ]
+      ],
+      "difference_hypothetical_start_center_minus_original_signed_40_80": [
+        [
+          1.7479351299698465e-12,
+          0.0
+        ],
+        [
+          1.7479351299698465e-12,
+          0.0
+        ]
+      ],
+      "original_graph_exact_tensor_check": {
+        "original_room_native_flat_C_order_exact": true,
+        "original_connected_nodes": 31185,
+        "original_directed_rigid_neumann_edges": 180864,
+        "original_full_native_staircase_A_equals_kron_Ax_I_plus_I_Ayz": true,
+        "original_native_Kronecker_neumann_matrix_max_abs": 0.0,
+        "original_x_native_nodes": 33,
+        "original_yz_native_nodes": 945,
+        "original_unmodified_voxel_room_mask_used": true
+      },
+      "original_q0_and_all_mode_no_taper_no_cut": true,
+      "elapsed_seconds": 1.1256311999168247
+    },
+    {
+      "ppw": 32,
+      "original_native_3d_full_modes": 44659,
+      "native_record_nt": 1388,
+      "native_dt_s": 0.0001802415371626363,
+      "original_source_comms_sha256": "716199c1cb8f9d982cdafe7deaccdf630073a2b0d8cdec17fcaf3dff52f4b60b",
+      "original_room_voxel_sha256": "8f3ebd62703c40793d68fdf703e098bbecc568cc9beb227cfa126b8042954e3b",
+      "original_solver_unchanged_baseline_vs_saved_real_wave_relative": 1.4838873727036937e-13,
+      "one_true_homogeneous_post_record_extra_state_without_extra_scored_sample": true,
+      "original_record_full_250ms_signed_40_80_by_pressure_arm": {
+        "original_one_sided_end": [
+          [
+            16.566281665920098,
+            -21.002334508772634
+          ],
+          [
+            -21.52068840373007,
+            -230.65774208887214
+          ]
+        ],
+        "extended_centered_end": [
+          [
+            41.8684359444829,
+            -21.034053557221828
+          ],
+          [
+            3.7814062298850217,
+            -230.72118013592285
+          ]
+        ],
+        "hypothetical_all_centered": [
+          [
+            41.86843594448321,
+            -21.034053557221828
+          ],
+          [
+            3.7814062298853344,
+            -230.72118013592285
+          ]
+        ]
+      },
+      "difference_extended_end_minus_original_signed_40_80": [
+        [
+          25.302154278562796,
+          -0.031719048449192495
+        ],
+        [
+          25.30209463361509,
+          -0.06343804705070617
+        ]
+      ],
+      "difference_hypothetical_start_center_minus_original_signed_40_80": [
+        [
+          3.126388037344441e-13,
+          0.0
+        ],
+        [
+          3.126388037344441e-13,
+          0.0
+        ]
+      ],
+      "original_graph_exact_tensor_check": {
+        "original_room_native_flat_C_order_exact": true,
+        "original_connected_nodes": 44659,
+        "original_directed_rigid_neumann_edges": 260064,
+        "original_full_native_staircase_A_equals_kron_Ax_I_plus_I_Ayz": true,
+        "original_native_Kronecker_neumann_matrix_max_abs": 0.0,
+        "original_x_native_nodes": 37,
+        "original_yz_native_nodes": 1207,
+        "original_unmodified_voxel_room_mask_used": true
+      },
+      "original_q0_and_all_mode_no_taper_no_cut": true,
+      "elapsed_seconds": 1.933685899944976
+    },
+    {
+      "ppw": 36,
+      "original_native_3d_full_modes": 64848,
+      "native_record_nt": 1561,
+      "native_dt_s": 0.00016021469970012116,
+      "original_source_comms_sha256": "3cd05bcee5f8fed08da3dc94ff2ac90b92969b293daf2db77b4bac8d0c51a2f9",
+      "original_room_voxel_sha256": "433c1d334419006b1185a4ef275545d329244d0808b2a3c12a3200e7af4e3d50",
+      "original_solver_unchanged_baseline_vs_saved_real_wave_relative": 2.4815665197058064e-11,
+      "one_true_homogeneous_post_record_extra_state_without_extra_scored_sample": true,
+      "original_record_full_250ms_signed_40_80_by_pressure_arm": {
+        "original_one_sided_end": [
+          [
+            57.86557590686229,
+            12.212530556898406
+          ],
+          [
+            119.43681400068681,
+            -167.84585844823505
+          ]
+        ],
+        "extended_centered_end": [
+          [
+            40.47181777981126,
+            12.497004560208845
+          ],
+          [
+            102.0500336210799,
+            -167.27698651868553
+          ]
+        ],
+        "hypothetical_all_centered": [
+          [
+            40.47181777981499,
+            12.497004560208845
+          ],
+          [
+            102.05003362108363,
+            -167.27698651868553
+          ]
+        ]
+      },
+      "difference_extended_end_minus_original_signed_40_80": [
+        [
+          -17.39375812705103,
+          0.28447400331043937
+        ],
+        [
+          -17.386780379606904,
+          0.5688719295495257
+        ]
+      ],
+      "difference_hypothetical_start_center_minus_original_signed_40_80": [
+        [
+          3.730349362740526e-12,
+          0.0
+        ],
+        [
+          3.730349362740526e-12,
+          0.0
+        ]
+      ],
+      "original_graph_exact_tensor_check": {
+        "original_room_native_flat_C_order_exact": true,
+        "original_connected_nodes": 64848,
+        "original_directed_rigid_neumann_edges": 378944,
+        "original_full_native_staircase_A_equals_kron_Ax_I_plus_I_Ayz": true,
+        "original_native_Kronecker_neumann_matrix_max_abs": 0.0,
+        "original_x_native_nodes": 42,
+        "original_yz_native_nodes": 1544,
+        "original_unmodified_voxel_room_mask_used": true
+      },
+      "original_q0_and_all_mode_no_taper_no_cut": true,
+      "elapsed_seconds": 3.6034611999057233
+    },
+    {
+      "ppw": 40,
+      "original_native_3d_full_modes": 89723,
+      "native_record_nt": 1734,
+      "native_dt_s": 0.00014419322973010905,
+      "original_source_comms_sha256": "64a4f45cf19b92bb7a8a1ffd24af05e10877c99000e29bf985637b18e287763a",
+      "original_room_voxel_sha256": "c7c1894826c4774393987855e533081f615b22d510ec6042aacda12acbe0daaf",
+      "original_solver_unchanged_baseline_vs_saved_real_wave_relative": 2.5253762743220508e-11,
+      "one_true_homogeneous_post_record_extra_state_without_extra_scored_sample": true,
+      "original_record_full_250ms_signed_40_80_by_pressure_arm": {
+        "original_one_sided_end": [
+          [
+            23.081760574873204,
+            18.909536568094328
+          ],
+          [
+            109.072633421375,
+            -119.86161783681533
+          ]
+        ],
+        "extended_centered_end": [
+          [
+            23.254538348271545,
+            18.904622585371435
+          ],
+          [
+            109.24520165532581,
+            -119.8714418297808
+          ]
+        ],
+        "hypothetical_all_centered": [
+          [
+            23.254538348271062,
+            18.904622585371435
+          ],
+          [
+            109.24520165532533,
+            -119.8714418297808
+          ]
+        ]
+      },
+      "difference_extended_end_minus_original_signed_40_80": [
+        [
+          0.17277777339834088,
+          -0.004913982722894117
+        ],
+        [
+          0.17256823395081433,
+          -0.009823992965473982
+        ]
+      ],
+      "difference_hypothetical_start_center_minus_original_signed_40_80": [
+        [
+          -4.831690603168681e-13,
+          0.0
+        ],
+        [
+          -4.831690603168681e-13,
+          0.0
+        ]
+      ],
+      "original_graph_exact_tensor_check": {
+        "original_room_native_flat_C_order_exact": true,
+        "original_connected_nodes": 89723,
+        "original_directed_rigid_neumann_edges": 525778,
+        "original_full_native_staircase_A_equals_kron_Ax_I_plus_I_Ayz": true,
+        "original_native_Kronecker_neumann_matrix_max_abs": 0.0,
+        "original_x_native_nodes": 47,
+        "original_yz_native_nodes": 1909,
+        "original_unmodified_voxel_room_mask_used": true
+      },
+      "original_q0_and_all_mode_no_taper_no_cut": true,
+      "elapsed_seconds": 5.324109899811447
+    },
+    {
+      "ppw": 44,
+      "original_native_3d_full_modes": 116739,
+      "native_record_nt": 1908,
+      "native_dt_s": 0.00013108475430009911,
+      "original_source_comms_sha256": "41c537b663ef11aa7404a248862f89398dec80fd3b6c794f4ecce4a0a8577ee4",
+      "original_room_voxel_sha256": "4a7cb6c30c013adc31d5b1910d50cef003cacbdd37a271ac3efa7a39956e505b",
+      "original_solver_unchanged_baseline_vs_saved_real_wave_relative": 2.050857196116713e-11,
+      "one_true_homogeneous_post_record_extra_state_without_extra_scored_sample": true,
+      "original_record_full_250ms_signed_40_80_by_pressure_arm": {
+        "original_one_sided_end": [
+          [
+            -64.44884936551652,
+            -11.312555993320903
+          ],
+          [
+            -83.61305811663993,
+            -224.3177326045238
+          ]
+        ],
+        "extended_centered_end": [
+          [
+            -30.38846001091025,
+            -11.49552195422439
+          ],
+          [
+            -49.554143024952694,
+            -224.68365924671537
+          ]
+        ],
+        "hypothetical_all_centered": [
+          [
+            -30.388460010979614,
+            -11.49552195422439
+          ],
+          [
+            -49.55414302502206,
+            -224.68365924671537
+          ]
+        ]
+      },
+      "difference_extended_end_minus_original_signed_40_80": [
+        [
+          34.06038935460627,
+          -0.18296596090348835
+        ],
+        [
+          34.05891509168724,
+          -0.3659266421915751
+        ]
+      ],
+      "difference_hypothetical_start_center_minus_original_signed_40_80": [
+        [
+          -6.936318186490098e-11,
+          0.0
+        ],
+        [
+          -6.936318186490098e-11,
+          0.0
+        ]
+      ],
+      "original_graph_exact_tensor_check": {
+        "original_room_native_flat_C_order_exact": true,
+        "original_connected_nodes": 116739,
+        "original_directed_rigid_neumann_edges": 685452,
+        "original_full_native_staircase_A_equals_kron_Ax_I_plus_I_Ayz": true,
+        "original_native_Kronecker_neumann_matrix_max_abs": 0.0,
+        "original_x_native_nodes": 51,
+        "original_yz_native_nodes": 2289,
+        "original_unmodified_voxel_room_mask_used": true
+      },
+      "original_q0_and_all_mode_no_taper_no_cut": true,
+      "elapsed_seconds": 7.353335699997842
+    }
+  ],
+  "all_four_original_adjacent_pressure_observer_comparisons": [
+    {
+      "coarse_ppw": 28,
+      "fine_ppw": 32,
+      "arms": {
+        "original_one_sided_end": {
+          "signed_coarse_minus_fine_40_80": [
+            [
+              84.5324876407651,
+              63.798015477602924
+            ],
+            [
+              172.3002273139058,
+              208.9277494830874
+            ]
+          ],
+          "all_frozen_original_complex_magnitude_phase": {
+            "complex_rms_relative": 1.2469270700479786,
+            "magnitude_max_relative": 3.1041238212861972,
+            "magnitude_max_db": 12.264409099044668,
+            "phase_max_deg": 87.12947751852141,
+            "mask_floor": 0.7325717303780368,
+            "compared_frequency_count": 2,
+            "frequency_metrics": [
+              {
+                "frequency_hz": 40.0,
+                "masked_in": true,
+                "magnitude_absolute": 83.03399182794804,
+                "magnitude_relative": 3.1041238212861972,
+                "magnitude_db": 12.264409099044668,
+                "phase_deg": 74.67744374860393,
+                "complex_relative": 3.9591388291313123
+              },
+              {
+                "frequency_hz": 80.0,
+                "masked_in": true,
+                "magnitude_absolute": 79.32219233177295,
+                "magnitude_relative": 0.3424085128659034,
+                "magnitude_db": 3.6408763520187986,
+                "phase_deg": 87.12947751852141,
+                "complex_relative": 1.16900101274768
+              }
+            ]
+          },
+          "passes_original_three_gates": false
+        },
+        "extended_centered_end": {
+          "signed_coarse_minus_fine_40_80": [
+            [
+              11.480397290962713,
+              65.43523812053785
+            ],
+            [
+              99.32911640622422,
+              212.20038120802045
+            ]
+          ],
+          "all_frozen_original_complex_magnitude_phase": {
+            "complex_rms_relative": 1.03428552928952,
+            "magnitude_max_relative": 0.5460034851968879,
+            "magnitude_max_db": 6.858949621606224,
+            "phase_max_deg": 78.878104560515,
+            "mask_floor": 0.7297024187734913,
+            "compared_frequency_count": 2,
+            "frequency_metrics": [
+              {
+                "frequency_hz": 40.0,
+                "masked_in": true,
+                "magnitude_absolute": 22.553600671806365,
+                "magnitude_relative": 0.4813481644924565,
+                "magnitude_db": 3.4131428739670158,
+                "phase_deg": 66.44419116920713,
+                "complex_relative": 1.4178766107495717
+              },
+              {
+                "frequency_hz": 80.0,
+                "masked_in": true,
+                "magnitude_absolute": 125.99148671395,
+                "magnitude_relative": 0.5460034851968879,
+                "magnitude_db": 6.858949621606224,
+                "phase_deg": 78.878104560515,
+                "complex_relative": 1.0153638503050593
+              }
+            ]
+          },
+          "passes_original_three_gates": false
+        },
+        "hypothetical_all_centered": {
+          "signed_coarse_minus_fine_40_80": [
+            [
+              11.480397290964149,
+              65.43523812053785
+            ],
+            [
+              99.32911640622565,
+              212.20038120802045
+            ]
+          ],
+          "all_frozen_original_complex_magnitude_phase": {
+            "complex_rms_relative": 1.0342855292895223,
+            "magnitude_max_relative": 0.5460034851968805,
+            "magnitude_max_db": 6.858949621606082,
+            "phase_max_deg": 78.87810456051506,
+            "mask_floor": 0.7297024187734913,
+            "compared_frequency_count": 2,
+            "frequency_metrics": [
+              {
+                "frequency_hz": 40.0,
+                "masked_in": true,
+                "magnitude_absolute": 22.553600671807416,
+                "magnitude_relative": 0.48134816449247597,
+                "magnitude_db": 3.4131428739671303,
+                "phase_deg": 66.44419116920602,
+                "complex_relative": 1.4178766107495686
+              },
+              {
+                "frequency_hz": 80.0,
+                "masked_in": true,
+                "magnitude_absolute": 125.99148671394828,
+                "magnitude_relative": 0.5460034851968805,
+                "magnitude_db": 6.858949621606082,
+                "phase_deg": 78.87810456051506,
+                "complex_relative": 1.0153638503050617
+              }
+            ]
+          },
+          "passes_original_three_gates": false
+        }
+      }
+    },
+    {
+      "coarse_ppw": 32,
+      "fine_ppw": 36,
+      "arms": {
+        "original_one_sided_end": {
+          "signed_coarse_minus_fine_40_80": [
+            [
+              -41.29929424094219,
+              -33.21486506567104
+            ],
+            [
+              -140.95750240441689,
+              -62.81188364063709
+            ]
+          ],
+          "all_frozen_original_complex_magnitude_phase": {
+            "complex_rms_relative": 0.7613047721708397,
+            "magnitude_max_relative": 0.5476926714762745,
+            "magnitude_max_db": 6.891327510541272,
+            "phase_max_deg": 63.65161560294307,
+            "mask_floor": 0.6514398263604984,
+            "compared_frequency_count": 2,
+            "frequency_metrics": [
+              {
+                "frequency_hz": 40.0,
+                "masked_in": true,
+                "magnitude_absolute": 32.390688958072616,
+                "magnitude_relative": 0.5476926714762745,
+                "magnitude_db": 6.891327510541272,
+                "phase_deg": 63.65161560294307,
+                "complex_relative": 0.8961520672523412
+              },
+              {
+                "frequency_hz": 80.0,
+                "masked_in": true,
+                "magnitude_absolute": 25.656160760158713,
+                "magnitude_relative": 0.12454243774257846,
+                "magnitude_db": 1.0195169878680435,
+                "phase_deg": 40.76547835195839,
+                "complex_relative": 0.7491090813231016
+              }
+            ]
+          },
+          "passes_original_three_gates": false
+        },
+        "extended_centered_end": {
+          "signed_coarse_minus_fine_40_80": [
+            [
+              1.3966181646716365,
+              -33.531058117430675
+            ],
+            [
+              -98.26862739119488,
+              -63.44419361723732
+            ]
+          ],
+          "all_frozen_original_complex_magnitude_phase": {
+            "complex_rms_relative": 0.6070046529676731,
+            "magnitude_max_relative": 0.17761662392988692,
+            "magnitude_max_db": 1.4200785558681082,
+            "phase_max_deg": 43.834037315132065,
+            "mask_floor": 0.6196434424799157,
+            "compared_frequency_count": 2,
+            "frequency_metrics": [
+              {
+                "frequency_hz": 40.0,
+                "masked_in": true,
+                "magnitude_absolute": 4.497740281656867,
+                "magnitude_relative": 0.10618564937158144,
+                "magnitude_db": 0.8765604007037858,
+                "phase_deg": 43.834037315132065,
+                "complex_relative": 0.792309936275269
+              },
+              {
+                "frequency_hz": 80.0,
+                "masked_in": true,
+                "magnitude_absolute": 34.80370420341757,
+                "magnitude_relative": 0.17761662392988692,
+                "magnitude_db": 1.4200785558681082,
+                "phase_deg": 30.446989394147522,
+                "complex_relative": 0.596940672712475
+              }
+            ]
+          },
+          "passes_original_three_gates": false
+        },
+        "hypothetical_all_centered": {
+          "signed_coarse_minus_fine_40_80": [
+            [
+              1.3966181646682188,
+              -33.531058117430675
+            ],
+            [
+              -98.2686273911983,
+              -63.44419361723732
+            ]
+          ],
+          "all_frozen_original_complex_magnitude_phase": {
+            "complex_rms_relative": 0.6070046529676786,
+            "magnitude_max_relative": 0.17761662392987532,
+            "magnitude_max_db": 1.420078555868023,
+            "phase_max_deg": 43.83403731513039,
+            "mask_floor": 0.6196434424799218,
+            "compared_frequency_count": 2,
+            "frequency_metrics": [
+              {
+                "frequency_hz": 40.0,
+                "masked_in": true,
+                "magnitude_absolute": 4.497740281653591,
+                "magnitude_relative": 0.10618564937149519,
+                "magnitude_db": 0.8765604007031093,
+                "phase_deg": 43.83403731513039,
+                "complex_relative": 0.7923099362751991
+              },
+              {
+                "frequency_hz": 80.0,
+                "masked_in": true,
+                "magnitude_absolute": 34.80370420341566,
+                "magnitude_relative": 0.17761662392987532,
+                "magnitude_db": 1.420078555868023,
+                "phase_deg": 30.446989394148375,
+                "complex_relative": 0.5969406727124837
+              }
+            ]
+          },
+          "passes_original_three_gates": false
+        }
+      }
+    },
+    {
+      "coarse_ppw": 36,
+      "fine_ppw": 40,
+      "arms": {
+        "original_one_sided_end": {
+          "signed_coarse_minus_fine_40_80": [
+            [
+              34.78381533198909,
+              -6.697006011195922
+            ],
+            [
+              10.364180579311807,
+              -47.98424061141972
+            ]
+          ],
+          "all_frozen_original_complex_magnitude_phase": {
+            "complex_rms_relative": 0.36736729324942863,
+            "magnitude_max_relative": 0.9820095440266974,
+            "magnitude_max_db": 5.942114828496232,
+            "phase_max_deg": 27.408370450432244,
+            "mask_floor": 0.5124807000456937,
+            "compared_frequency_count": 2,
+            "frequency_metrics": [
+              {
+                "frequency_hz": 40.0,
+                "masked_in": true,
+                "magnitude_absolute": 29.30172735940456,
+                "magnitude_relative": 0.9820095440266974,
+                "magnitude_db": 5.942114828496232,
+                "phase_deg": 27.408370450432244,
+                "complex_relative": 1.1871441545367345
+              },
+              {
+                "frequency_hz": 80.0,
+                "masked_in": true,
+                "magnitude_absolute": 43.942734082182255,
+                "magnitude_relative": 0.27114996974991423,
+                "magnitude_db": 2.0839358292174213,
+                "phase_deg": 6.866684363992135,
+                "complex_relative": 0.3029160739832872
+              }
+            ]
+          },
+          "passes_original_three_gates": false
+        },
+        "extended_centered_end": {
+          "signed_coarse_minus_fine_40_80": [
+            [
+              17.217279431539716,
+              -6.40761802516259
+            ],
+            [
+              -7.19516803424591,
+              -47.405544688904726
+            ]
+          ],
+          "all_frozen_original_complex_magnitude_phase": {
+            "complex_rms_relative": 0.31132842361102214,
+            "magnitude_max_relative": 0.413357736772064,
+            "magnitude_max_db": 3.005042011809751,
+            "phase_max_deg": 21.949364336045676,
+            "mask_floor": 0.5128711012629131,
+            "compared_frequency_count": 2,
+            "frequency_metrics": [
+              {
+                "frequency_hz": 40.0,
+                "masked_in": true,
+                "magnitude_absolute": 12.388037651089391,
+                "magnitude_relative": 0.413357736772064,
+                "magnitude_db": 3.005042011809751,
+                "phase_deg": 21.949364336045676,
+                "complex_relative": 0.6129929438383109
+              },
+              {
+                "frequency_hz": 80.0,
+                "masked_in": true,
+                "magnitude_absolute": 33.76437893544022,
+                "magnitude_relative": 0.2081855283990115,
+                "magnitude_db": 1.6426725892314118,
+                "phase_deg": 10.958617208469803,
+                "complex_relative": 0.29564228944112203
+              }
+            ]
+          },
+          "passes_original_three_gates": false
+        },
+        "hypothetical_all_centered": {
+          "signed_coarse_minus_fine_40_80": [
+            [
+              17.21727943154393,
+              -6.40761802516259
+            ],
+            [
+              -7.1951680342417035,
+              -47.405544688904726
+            ]
+          ],
+          "all_frozen_original_complex_magnitude_phase": {
+            "complex_rms_relative": 0.31132842361102786,
+            "magnitude_max_relative": 0.41335773677220056,
+            "magnitude_max_db": 3.0050420118105903,
+            "phase_max_deg": 21.94936433604775,
+            "mask_floor": 0.5128711012629121,
+            "compared_frequency_count": 2,
+            "frequency_metrics": [
+              {
+                "frequency_hz": 40.0,
+                "masked_in": true,
+                "magnitude_absolute": 12.388037651093327,
+                "magnitude_relative": 0.41335773677220056,
+                "magnitude_db": 3.0050420118105903,
+                "phase_deg": 21.94936433604775,
+                "complex_relative": 0.6129929438384504
+              },
+              {
+                "frequency_hz": 80.0,
+                "masked_in": true,
+                "magnitude_absolute": 33.764378935442465,
+                "magnitude_relative": 0.20818552839902574,
+                "magnitude_db": 1.642672589231514,
+                "phase_deg": 10.958617208468752,
+                "complex_relative": 0.29564228944111876
+              }
+            ]
+          },
+          "passes_original_three_gates": false
+        }
+      }
+    },
+    {
+      "coarse_ppw": 40,
+      "fine_ppw": 44,
+      "arms": {
+        "original_one_sided_end": {
+          "signed_coarse_minus_fine_40_80": [
+            [
+              87.53060994038972,
+              30.22209256141523
+            ],
+            [
+              192.68569153801494,
+              104.45611476770847
+            ]
+          ],
+          "all_frozen_original_complex_magnitude_phase": {
+            "complex_rms_relative": 0.9587423413882808,
+            "magnitude_max_relative": 0.5439913896839914,
+            "magnitude_max_db": 6.820539138929452,
+            "phase_max_deg": 150.62981978541688,
+            "mask_floor": 0.7570309679824944,
+            "compared_frequency_count": 2,
+            "frequency_metrics": [
+              {
+                "frequency_hz": 40.0,
+                "masked_in": true,
+                "magnitude_absolute": 35.59561469600159,
+                "magnitude_relative": 0.5439913896839914,
+                "magnitude_db": 6.820539138929452,
+                "phase_deg": 150.62981978541688,
+                "complex_relative": 1.4151815280222992
+              },
+              {
+                "frequency_hz": 80.0,
+                "masked_in": true,
+                "magnitude_absolute": 77.33358490847365,
+                "magnitude_relative": 0.3230386579673657,
+                "magnitude_db": 3.3887226210169583,
+                "phase_deg": 62.74444928281807,
+                "complex_relative": 0.9155512944821849
+              }
+            ]
+          },
+          "passes_original_three_gates": false
+        },
+        "extended_centered_end": {
+          "signed_coarse_minus_fine_40_80": [
+            [
+              53.642998359181796,
+              30.400144539595825
+            ],
+            [
+              158.79934468027852,
+              104.81221741693456
+            ]
+          ],
+          "all_frozen_original_complex_magnitude_phase": {
+            "complex_rms_relative": 0.8607602579861757,
+            "magnitude_max_relative": 0.29510734081909795,
+            "magnitude_max_db": 3.037540243851109,
+            "phase_max_deg": 161.61176011934944,
+            "mask_floor": 0.7275875192953187,
+            "compared_frequency_count": 2,
+            "frequency_metrics": [
+              {
+                "frequency_hz": 40.0,
+                "masked_in": true,
+                "magnitude_absolute": 2.5207940862316605,
+                "magnitude_relative": 0.07758656837678839,
+                "magnitude_db": 0.7014876347057151,
+                "phase_deg": 161.61176011934944,
+                "complex_relative": 1.897756038194043
+              },
+              {
+                "frequency_hz": 80.0,
+                "masked_in": true,
+                "magnitude_absolute": 67.89929320152513,
+                "magnitude_relative": 0.29510734081909795,
+                "magnitude_db": 3.037540243851109,
+                "phase_deg": 54.78208439574129,
+                "complex_relative": 0.8269629194154929
+              }
+            ]
+          },
+          "passes_original_three_gates": false
+        },
+        "hypothetical_all_centered": {
+          "signed_coarse_minus_fine_40_80": [
+            [
+              53.642998359250676,
+              30.400144539595825
+            ],
+            [
+              158.7993446803474,
+              104.81221741693456
+            ]
+          ],
+          "all_frozen_original_complex_magnitude_phase": {
+            "complex_rms_relative": 0.8607602579864021,
+            "magnitude_max_relative": 0.295107340819145,
+            "magnitude_max_db": 3.037540243851689,
+            "phase_max_deg": 161.6117601193056,
+            "mask_floor": 0.7275875192953659,
+            "compared_frequency_count": 2,
+            "frequency_metrics": [
+              {
+                "frequency_hz": 40.0,
+                "masked_in": true,
+                "magnitude_absolute": 2.520794086296906,
+                "magnitude_relative": 0.07758656837864175,
+                "magnitude_db": 0.7014876347231676,
+                "phase_deg": 161.6117601193056,
+                "complex_relative": 1.897756038192098
+              },
+              {
+                "frequency_hz": 80.0,
+                "masked_in": true,
+                "magnitude_absolute": 67.89929320154039,
+                "magnitude_relative": 0.295107340819145,
+                "magnitude_db": 3.037540243851689,
+                "phase_deg": 54.782084395758034,
+                "complex_relative": 0.826962919415689
+              }
+            ]
+          },
+          "passes_original_three_gates": false
+        }
+      }
+    }
+  ],
+  "original_and_diagnostic_pressure_observer_verdicts": {
+    "original_one_sided_end": {
+      "all_four_pairs_pass_three_gates": false,
+      "three_error_types_monotone_decrease": false,
+      "valid_for_original_canonical_requalification": false
+    },
+    "extended_centered_end": {
+      "all_four_pairs_pass_three_gates": false,
+      "three_error_types_monotone_decrease": false,
+      "valid_for_original_canonical_requalification": false
+    },
+    "hypothetical_all_centered": {
+      "all_four_pairs_pass_three_gates": false,
+      "three_error_types_monotone_decrease": false,
+      "valid_for_original_canonical_requalification": false
+    }
+  },
+  "hypothetical_both_sided_centered_first_sample_is_not_causal": true
+}
