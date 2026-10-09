@@ -101,9 +101,26 @@ files): all 7 scenes import — RS1 (3 GeneralFIR imported, 3 BRIR
 skipped), RS2 (4), RS3 (1 + 1 BRIR), RS4 (2), RS5 (1 + 1), RS6 (1),
 RS7 (1) — plus all 61 material CSVs.
 
+## Action 3 — metric manifests (landed)
+
+`backend/src/htdt/cad_bras_v3_metrics.py` turns imported measurements
+into sealed `BrasV3MetricManifest` records (`bmm-` ids) with honest
+reference observables:
+
+- `arrival_timing` — energy-onset (`first |p| ≥ onset_threshold·peak`);
+  the threshold is part of the manifest.
+- `decay_metric` — T20 via brick-wall FFT bandpass + Schroeder backward
+  integration, least-squares over −5..−25 dB; filter method recorded.
+- `impulse_window` / `magnitude_fr` — verbatim samples / single-sided
+  amplitude spectrum on a declared grid; no extrapolation.
+- `complex_transfer` is deliberately absent — the corpus certifies no
+  coherent phase. Tolerances stay in the Action-4 qualification config.
+
+Verified on the real corpus (RS4 `onCenter`: 15 observables —
+`arrival-m0 = 11.2 ms` consistent with the RS4 geometry).
+
 ## Deliberately not done (later actions)
 
-- Per-scene metric manifests / observable extraction (Action 3)
-- Solver qualification runs that consume this manifest (Actions 4–6)
+- Solver qualification runs + qualification config (Actions 4–6)
 
 Refs #836. Does not close the issue.
