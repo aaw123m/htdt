@@ -1340,3 +1340,16 @@ entries:
   - docs/issues/issue-983-pick-candidates.md
   - backend/tests/test_issue_983_pick_candidates.py
   close_when_gates_clear: true
+
+- issue: 985
+  lifecycle: acceptance_remaining
+  landed:
+    prs: [1086]
+    commits: [82ce0e623ecf33ecf88f0bc007fb54e50233a73f]
+  remaining_gates:
+  - kind: manual
+    description: 'オペレータ受入 — 実機での応答性体感と出力時間の #867 指標照合 (360フレーム≈85-90s 実測済)'
+  evidence_refs:
+  - docs/issues/issue-985-async-export.md
+  - backend/tests/test_issue_985_async_export.py
+  close_when_gates_clear: true
