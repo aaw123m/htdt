@@ -415,6 +415,9 @@ def test_marquee_selects_entities_intersecting_projected_bounds(_app) -> None:
     plotter = _RecordingPlotter()
     viewport.plotter = plotter
     inside = _FakeActor("entity-e1", bounds=(0.0, 1.0, -1.0, 0.0, 0.0, 1.0))
+    # #955: the candidates read is now a typed boundary — the double must
+    # expose the pick collection like the real QtInteractor does.
+    viewport.plotter.iren = _FakeIren(_FakePicker(props=(inside,)))
     outside = _FakeActor("entity-e2", bounds=(50.0, 51.0, -51.0, -50.0, 0.0, 1.0))
     # Bypass the scene build: register actors directly.
     viewport._marquee_actors = [("e1", inside), ("e1", inside), ("e2", outside)]

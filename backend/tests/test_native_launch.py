@@ -193,11 +193,16 @@ def _spy_capture(monkeypatch):
 
 
 def _fake_window_with_app(**app_stubs):
+    # #886's autoshow hook is unconditional in _run_gui — the double must
+    # carry it like the real WorkflowApplication does.
+    stubs = {'enable_first_run_wizard_autoshow': lambda: None}
+    stubs.update(app_stubs)
+
     class _Window:
         def __init__(self, *_args, **_kwargs) -> None:
             self.shown = False
             self.navigations: list = []
-            self.workflow_application = SimpleNamespace(**app_stubs)
+            self.workflow_application = SimpleNamespace(**stubs)
 
         def show(self) -> None:
             self.shown = True
