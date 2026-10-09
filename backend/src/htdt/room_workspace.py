@@ -6314,6 +6314,13 @@ class RoomWorkspace(QWidget):
             return True
         if self.transform_input is not None and self.transform_input.is_active:
             return bool(self.transform_input.cancel())
+        # Issue #982: an armed geometry-change preview is cancelled first —
+        # Esc drops the pending change before it can exit edit mode.
+        geometry_panel = getattr(self, "geometry_panel", None)
+        cancel_preview = getattr(geometry_panel, "cancel_pending_preview", None)
+        if callable(cancel_preview) and cancel_preview():
+            self._set_status("変更プレビューを取り消しました")
+            return True
         if self.geometry_input is not None and self.geometry_input.is_active:
             return bool(self.geometry_input.cancel())
         if self.controller.working.has_preview:

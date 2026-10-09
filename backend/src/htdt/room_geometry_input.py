@@ -64,12 +64,17 @@ class RoomGeometryInputController(QObject):
         self._wall_drag_preview_topology: WallTopology | None = None
         self.selected_vertex_id: str | None = None
         self.selected_edge_index: int | None = None
+        # Issue #982: opening picked in 3D or in the inspector selector —
+        # selects the parent wall edge plus this opening so both surfaces
+        # highlight/focus the same target.
+        self.selected_opening_id: str | None = None
         # Issue #976: (kind, primitive_id) of the selected semantic primitive.
         self.selected_authoring: tuple[str, str] | None = None
         self._authoring_preview: RoomAuthoringModel | None = None
         self._authoring_hit_targets: list[tuple[str, str]] = []
         self._authoring_actor_names: set[str] = set()
         self._opening_actor_names: set[str] = set()
+        self._opening_hit_ids: list[str] = []
         viewport.interactor.installEventFilter(self)
 
     @property
@@ -176,6 +181,7 @@ class RoomGeometryInputController(QObject):
         self.selected_edge_index = None
         if vertex_id is not None:
             self.selected_authoring = None
+            self.selected_opening_id = None
         self.selectionChanged.emit()
         if self.mode == "edit":
             self._render_edit_handles()
@@ -196,6 +202,7 @@ class RoomGeometryInputController(QObject):
         if ref is not None:
             self.selected_vertex_id = None
             self.selected_edge_index = None
+            self.selected_opening_id = None
         self.selectionChanged.emit()
         if self.mode == "edit":
             self._render_edit_handles()
@@ -221,9 +228,88 @@ class RoomGeometryInputController(QObject):
         self.selected_vertex_id = None
         if edge_index is not None:
             self.selected_authoring = None
+            self.selected_opening_id = None
         self.selectionChanged.emit()
         if self.mode == "edit":
             self._render_edit_handles()
+
+    def select_opening(self, opening_id: str | None) -> None:
+        """Select an opening — the shared inspector↔3D selection (#982).
+
+        Selecting an opening also selects its parent wall edge so the
+        inspector wall context and the 3D highlight stay on the same object.
+        Idempotent: re-selecting the same id neither re-emits nor re-renders.
+        """
+
+        if opening_id == self.selected_opening_id:
+            return
+        if opening_id is not None:
+            room = self.room
+            topology = self.topology
+            opening = next(
+                (
+                    item
+                    for item in (topology.openings if topology is not None else ())
+                    if item.opening_id == opening_id
+                ),
+                None,
+            )
+            if room is None or topology is None or opening is None:
+                raise KeyError(opening_id)
+            wall = next(
+                (
+                    item
+                    for item in topology.walls
+                    if item.wall_id == opening.wall_id
+                ),
+                None,
+            )
+            if wall is not None:
+                vertices = tuple(room_vertices(room))
+                for index, start in enumerate(vertices):
+                    end = vertices[(index + 1) % len(vertices)]
+                    if (start.vertex_id, end.vertex_id) == (
+                        wall.from_vertex_id,
+                        wall.to_vertex_id,
+                    ):
+                        self.selected_edge_index = index
+                        break
+            self.selected_vertex_id = None
+            self.selected_authoring = None
+        self.selected_opening_id = opening_id
+        self.selectionChanged.emit()
+        if self.mode == "edit":
+            self._render_edit_handles()
+
+    def clear_selection(self) -> None:
+        """Public selection reset — previews that remove the selected target
+        clear it explicitly instead of leaving a stale id behind (#982)."""
+
+        self._clear_selection()
+        self.selectionChanged.emit()
+        if self.mode == "edit":
+            self._render_edit_handles()
+
+    def apply_geometry_candidate(
+        self,
+        room: RoomPrism,
+        topology: WallTopology | None,
+        *,
+        message: str,
+    ) -> bool:
+        """Commit a pre-built (previewed) candidate through the working document.
+
+        The candidate arrives already validated by ``cad_walls`` during
+        preview build (#982); committing it pushes exactly one Undo step.
+        """
+
+        if topology is None:
+            changed = self.workspace.controller.replace_room(room)
+        else:
+            changed = self.workspace.controller.replace_room_topology(room, topology)
+        if changed:
+            self._after_geometry_change(message)
+        return changed
 
     def set_selected_vertex_coordinates(self, *, x_m: float, y_m: float) -> bool:
         room = self.room
@@ -583,6 +669,43 @@ class RoomGeometryInputController(QObject):
             self._render_edit_handles()
             return False
         kind, index = hit
+        if kind == "opening":
+            opening_id = self._opening_hit_ids[index]
+            topology = self.topology
+            if topology is not None and room is not None:
+                opening = next(
+                    (
+                        item
+                        for item in topology.openings
+                        if item.opening_id == opening_id
+                    ),
+                    None,
+                )
+                wall = next(
+                    (
+                        item
+                        for item in topology.walls
+                        if opening is not None and item.wall_id == opening.wall_id
+                    ),
+                    None,
+                )
+                if wall is not None:
+                    vertices = tuple(room_vertices(room))
+                    for edge_index, start in enumerate(vertices):
+                        end = vertices[(edge_index + 1) % len(vertices)]
+                        if (start.vertex_id, end.vertex_id) == (
+                            wall.from_vertex_id,
+                            wall.to_vertex_id,
+                        ):
+                            self.selected_edge_index = edge_index
+                            break
+            self.selected_vertex_id = None
+            self.selected_authoring = None
+            self.selected_opening_id = opening_id
+            self.selectionChanged.emit()
+            self._render_edit_handles()
+            event.accept()
+            return True
         if kind == "authoring":
             ref = self._authoring_hit_targets[index]
             self.selected_vertex_id = None
@@ -606,6 +729,7 @@ class RoomGeometryInputController(QObject):
         else:
             self.selected_vertex_id = None
             self.selected_edge_index = index
+            self.selected_opening_id = None
             self.selectionChanged.emit()
             floor = self._screen_to_floor(position)
             if floor is not None:
@@ -868,6 +992,7 @@ class RoomGeometryInputController(QObject):
     def _clear_selection(self) -> None:
         self.selected_vertex_id = None
         self.selected_edge_index = None
+        self.selected_opening_id = None
         self.selected_authoring = None
 
     def _view_top(self) -> None:
@@ -967,6 +1092,7 @@ class RoomGeometryInputController(QObject):
         # Issue #976: primitive outlines are selectable wherever they project —
         # top/front/section views all resolve through the same display-space hit.
         self._authoring_hit_targets = []
+        self._opening_hit_ids = []
         for ref, segments in _authoring_outline_segments(self.authoring):
             best: float | None = None
             for start, end in segments:
@@ -999,6 +1125,50 @@ class RoomGeometryInputController(QObject):
             distance = self._point_segment_distance(position, start_point, end_point)
             if distance <= 10.0:
                 hits.append((distance, "edge", index))
+        # Issue #982: openings pick as their own target — their outline edges
+        # (sill/top/verticals) are hit-tested in display space, with a bias so
+        # clicking the opening wins over the underlying wall edge.
+        topology = self.topology
+        if topology is not None:
+            by_vertex = {vertex.vertex_id: vertex for vertex in vertices}
+            for wall in topology.walls:
+                start = by_vertex.get(wall.from_vertex_id)
+                end = by_vertex.get(wall.to_vertex_id)
+                if start is None or end is None:
+                    continue
+                dx = end.x_m - start.x_m
+                dy = end.y_m - start.y_m
+                length = hypot(dx, dy)
+                if length <= 1e-12:
+                    continue
+                ux, uy = dx / length, dy / length
+                for opening in topology.openings:
+                    if opening.wall_id != wall.wall_id:
+                        continue
+                    x0 = start.x_m + ux * opening.offset_m
+                    y0 = start.y_m + uy * opening.offset_m
+                    x1 = start.x_m + ux * (opening.offset_m + opening.width_m)
+                    y1 = start.y_m + uy * (opening.offset_m + opening.width_m)
+                    corners = [
+                        (x0, y0, opening.sill_m),
+                        (x1, y1, opening.sill_m),
+                        (x1, y1, opening.sill_m + opening.height_m),
+                        (x0, y0, opening.sill_m + opening.height_m),
+                    ]
+                    best: float | None = None
+                    for a, b in zip(corners, (*corners[1:], corners[0])):
+                        distance = self._point_segment_distance(
+                            position,
+                            self._project_point3(a),
+                            self._project_point3(b),
+                        )
+                        if best is None or distance < best:
+                            best = distance
+                    if best is not None and best <= 10.0:
+                        self._opening_hit_ids.append(opening.opening_id)
+                        hits.append(
+                            (best * 0.5, "opening", len(self._opening_hit_ids) - 1)
+                        )
         if not hits:
             return None
         _distance, kind, index = min(hits, key=lambda item: item[0])
@@ -1238,14 +1408,23 @@ class RoomGeometryInputController(QObject):
                 if length <= 1e-12:
                     continue
                 ux, uy = dx / length, dy / length
-                color = (
-                    DARK_THEME.viewport.selection_outline.hex
-                    if wall.wall_id == selected_wall_id
-                    else DARK_THEME.viewport.geometry_edge.hex
-                )
                 for opening in topology.openings:
                     if opening.wall_id != wall.wall_id:
                         continue
+                    if opening.opening_id == self.selected_opening_id:
+                        # #982 inspector↔3D shared selection — the picked
+                        # opening outranks the generic wall accent.
+                        color = "#E8A33D"
+                        opening_width = 5.0
+                        opening_opacity = 0.95
+                    elif wall.wall_id == selected_wall_id:
+                        color = DARK_THEME.viewport.selection_outline.hex
+                        opening_width = 3.0
+                        opening_opacity = 0.82
+                    else:
+                        color = DARK_THEME.viewport.geometry_edge.hex
+                        opening_width = 3.0
+                        opening_opacity = 0.82
                     x0 = start.x_m + ux * opening.offset_m
                     y0 = start.y_m + uy * opening.offset_m
                     x1 = start.x_m + ux * (opening.offset_m + opening.width_m)
@@ -1267,8 +1446,8 @@ class RoomGeometryInputController(QObject):
                     self.viewport.plotter.add_mesh(
                         pv.lines_from_points(points, close=False),
                         color=color,
-                        line_width=3,
-                        opacity=0.82,
+                        line_width=opening_width,
+                        opacity=opening_opacity,
                         pickable=False,
                         name=name,
                         render=False,
