@@ -947,3 +947,16 @@ entries:
   - backend/tests/test_issue_1018_support_health_check.py
   - backend/src/htdt/support_health_runner.py
   close_when_gates_clear: true
+
+- issue: 1013
+  lifecycle: acceptance_remaining
+  landed:
+    prs: [1057]
+    commits: [137190bd]
+  remaining_gates:
+  - kind: manual
+    description: 'オペレータ受入 — 実 Hue bridge read-back と設計 scene の4状態表示の実機確認 (子が実GUI Mesa GL で toggle/beads/未配置リストを検証済)'
+  evidence_refs:
+  - docs/issues/issue-1013-lighting-states.md
+  - backend/tests/test_issue_1013_lighting_states.py
+  close_when_gates_clear: true
