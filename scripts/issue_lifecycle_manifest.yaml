@@ -1228,7 +1228,7 @@ entries:
   lifecycle: acceptance_remaining
   landed:
     prs: [1076]
-    commits: [d10a3039]
+    commits: [d10a30393c5f40eca649909a5aa9051dd0cc2068]
   remaining_gates:
   - kind: manual
     description: 'オペレータ受入 — 製作プレビュー(断面/分解/3D)の実画面確認。非対応形状のフォールバックは設計上正直表示'
