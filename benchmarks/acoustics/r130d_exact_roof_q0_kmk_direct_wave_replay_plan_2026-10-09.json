@@ -1,0 +1,74 @@
+{
+  "schema_version": "htdt.r130d.exact-roof-q0-kmk-direct-cg-replay-plan-1",
+  "date_jst": "2026-10-09",
+  "issue": 938,
+  "pr": 1055,
+  "purpose": "Independent numerical time-domain full-state SHA-pinned q0 run of the actual newly implemented conservative K+(h^2/(12c^2))K M^-1K exact-roof FV solver. Validate previously frozen all-mode analytical evidence, NOT new physics/source and NOT native PFFDTD.",
+  "frozen": {
+    "full_mode_candidate_evidence": "benchmarks/acoustics/r130d_exact_roof_q0_kmk_dispersion_evidence_2026-10-09.json",
+    "prior_original_pffdtd_sha_evidence": "benchmarks/acoustics/r130d_original_point_quadratic_pffdtd_evidence_2026-10-09.json",
+    "frozen_upstream_sha": "aa319f6c86517cb95aabfae8656277da62c3ead5",
+    "ppw": [
+      40,
+      44
+    ],
+    "source_xyz_m": [
+      1.5,
+      2,
+      2
+    ],
+    "receiver_xyz_m": [
+      2.5,
+      2,
+      2
+    ],
+    "original_raw_eight_point_source_receiver_hdf5_sha_checks": true,
+    "original_native_each_dt_Nt": true,
+    "original_q0": "q0=1 and zero after n=0; true native HDF5 source total source strength and eight trilinear weights",
+    "record_s": 0.25,
+    "scored_frequency_hz": [
+      40,
+      80
+    ],
+    "rho": 1.2,
+    "c": 343.2,
+    "roof_exact_volume": 56
+  },
+  "numerical": {
+    "mass": "unchanged exact roof native node dual cell physical volumes",
+    "stiffness": "true sparse K4=K+(h^2/(12c^2))KM^-1K",
+    "time": "native-clock implicit average acceleration Newmark beta=1/4 with previous source-free update, q0 after observing phi0",
+    "linear_solver": "Jacobi preconditioned SciPy CG; each true relative residual checked",
+    "cg_rtol": 1e-10,
+    "cg_atol": 1e-12,
+    "cg_maxiter": 500,
+    "max_true_relative_residual": 5e-10,
+    "max_energy_drift": 0.000001,
+    "full_state_all_cells": true,
+    "pressure_derivative": "same endpoint-inclusive second order physical pressure p=rho du/dt",
+    "frequency_transfer": "original finite_record_pressure_transfer 250ms Q0 signed, no taper or smoothing",
+    "compare_independent_spectral_exact_all_modes_relative_complex_max": 0.00002,
+    "save_both_fullwave_complex_bins_and_failures": true,
+    "do_not_modify_original_pffdtd": true
+  },
+  "acceptance": {
+    "original_complex_limit": 0.2,
+    "original_magnitude_limit": 0.25,
+    "original_phase_deg_limit": 15,
+    "report_all_metrics_and_failure": true,
+    "one_pair_not_full_convergence_qualification": true
+  },
+  "limits": {
+    "max_fullwave_cases": 2,
+    "max_additional_original_native_PFFDTD_waves": 0,
+    "new_github_actions_runs": 0,
+    "do_not_delete_or_clean_scratch": true
+  },
+  "authority": {
+    "original_pffdtd_q0": "SELF_CONVERGENCE_FAILED",
+    "physics": "NOT_VALIDATED",
+    "product": "NO_GO",
+    "pr_draft": true,
+    "issue_open": true
+  }
+}
