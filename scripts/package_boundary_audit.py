@@ -127,6 +127,7 @@ PACKAGE_LAYERS: dict[str, dict[str, tuple[str, ...]]] = {
             'cad_measurement_uncertainty', 'cad_measurements',
             'cad_moving_mic_measurement',
             'cad_prediction_measurement_registration',
+            'cad_remeasure_queue',
             'cad_spatial_ir_measurement', 'cad_spatial_ir_metrics',
             'measurement_analysis', 'measurement_evidence_display',
             'measurement_instrument_onboarding', 'measurement_journey',
@@ -136,6 +137,7 @@ PACKAGE_LAYERS: dict[str, dict[str, tuple[str, ...]]] = {
             'cad_measurement_effective', 'cad_measurement_loop',
             'cad_measurement_quality_producer',
             'cad_prediction_measurement_service',
+            'cad_remeasure_queue_service',
             'cad_system_variant_measurement_campaign',
             'measurement_target_service', 'measurement_workflow',
         ),
@@ -146,16 +148,41 @@ PACKAGE_LAYERS: dict[str, dict[str, tuple[str, ...]]] = {
             'cad_measurement_runner_repository',
             'cad_measurement_setup_repository',
             'cad_prediction_measurement_registration_repository',
+            'cad_remeasure_queue_repository',
         ),
         'ui': (
             'measurement_authority_dialogs', 'measurement_explanations',
             'measurement_page_workspace', 'measurement_record_surfaces',
             'optimization_measurement_controller',
+            'reflection_correspondence_panel',
+        ),
+    },
+    'capture': {
+        'domain': (
+            'capture_binary_formats', 'capture_bundle',
+            'capture_compatibility', 'capture_mesh_ingestion',
+            'capture_mission', 'capture_plan_schema', 'capture_reference',
+            'capture_schema_eval', 'capture_watch_failures',
+            'capture_watch_guard',
+        ),
+        'services': (
+            'capture_authoring', 'capture_connected_space',
+            'capture_entity_promotion', 'capture_import',
+            'capture_receiver', 'capture_retention',
+        ),
+        'persistence': (
+            'capture_inbox', 'capture_ingestion_transaction',
+            'capture_semantic_promotion',
+        ),
+        'ui': (
+            'capture_receiver_controller', 'capture_receiver_settings',
+            'capture_retention_ui', 'capture_watch_runner',
         ),
     },
 }
 PACKAGE_DIRECTION = {
     'measurement': 'ui -> services -> persistence -> domain',
+    'capture': 'ui -> services -> persistence -> domain',
 }
 """Documented import direction per package."""
 
@@ -203,6 +230,8 @@ SIZE_EXEMPTIONS: dict[str, str] = {
     'measurement_evidence_display': 'display composition; split per panel',
     'capture_ingestion_transaction': 'transaction pipeline; stage modules',
     'workflow_application': 'composition root; keep wiring, move widgets',
+    'application_pages': 'page composition root; extract per-destination panels',
+    'room_viewport': '3D viewport; split overlays from the canvas core',
 }
 """Keyed by module *stem* — survives moves into declared packages."""
 
@@ -399,7 +428,7 @@ def audit(root: Path = ROOT) -> dict:
         if is_shim(node):
             # The shim's layer is its target's: the single forwarding edge is
             # then layer-identical on both ends and can never violate.
-            impl = f'measurement.{MOVED[stem][1]}.{stem}'
+            impl = f'{MOVED[stem][0]}.{MOVED[stem][1]}.{stem}'
             layers[node] = classify(impl, stem, qt_imports.get(impl, False))
             package_layers[node] = 'shim'
             continue
@@ -571,7 +600,8 @@ def diff_against_baseline(report: dict, baseline_path: Path) -> dict:
     now_viol = {violation_key(v): v for v in report['violations']}
 
     new_violations = sorted(
-        v for k, v in now_viol.items() if k not in base_viol)
+        (v for k, v in now_viol.items() if k not in base_viol),
+        key=violation_key)
     resolved = sorted(k for k in base_viol if k not in now_viol)
 
     base_cycles = [set(c) for c in base['cycles']]

@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections import OrderedDict
 from contextlib import contextmanager
 from dataclasses import dataclass
+import logging
 from math import hypot, isfinite, radians, tan
 from typing import TYPE_CHECKING, Iterator, Sequence
 
@@ -15,6 +16,10 @@ from shapely.geometry import Point, Polygon
 from shapely.ops import triangulate
 
 from .cad_prediction_models import CadPredictionResult
+from .error_boundary import (
+    EXPECTED_OPERATION_ERRORS,
+    report_boundary_failure,
+)
 from .cad_room_authoring import compile_room_authoring_to_r120
 from .prediction_interpretation import PredictionSpatialLink
 from .cad_view_state import (
@@ -83,6 +88,9 @@ if TYPE_CHECKING:
     from .reflection_guidance_presentation import (
         ReflectionGuidanceOverlayMarker,
     )
+
+
+_LOGGER = logging.getLogger(__name__)
 
 
 #: Camera framing used when the scene has no usable bounds yet — a
@@ -257,7 +265,8 @@ def _ray_room_boundary_domain(
     try:
         origin = np.asarray(near, dtype=float).reshape(-1)[:3]
         direction = np.asarray(far, dtype=float).reshape(-1)[:3] - origin
-    except Exception:
+    except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: pick ray input — malformed probe input reports and degrades to no boundary hit; bugs propagate
+        report_boundary_failure(exc, operation='ピック境界レイの解析')
         return None
     if not np.all(np.isfinite(direction)) or not np.any(direction):
         return None
@@ -4458,7 +4467,8 @@ class RoomViewport3D(QFrame):
                 tuple(float(v) for v in camera.GetFocalPoint()),
                 tuple(float(v) for v in camera.GetViewUp()),
             )
-        except Exception:
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: camera probe — a dead VTK camera reports and degrades to no saved state; bugs propagate
+            report_boundary_failure(exc, operation='カメラ状態の取得')
             return None
 
     def _restore_camera_state(self, state) -> None:
@@ -4470,7 +4480,8 @@ class RoomViewport3D(QFrame):
             camera.SetPosition(*state[0])
             camera.SetFocalPoint(*state[1])
             camera.SetViewUp(*state[2])
-        except Exception:
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: camera restore — a dead VTK camera reports and skips the restore; bugs propagate
+            report_boundary_failure(exc, operation='カメラ状態の復元')
             return
         self._render()
 
@@ -4495,7 +4506,8 @@ class RoomViewport3D(QFrame):
             height = float(self.interactor.height())
             x = float(position.x()) * dpr
             y = (height - 1.0 - float(position.y())) * dpr
-        except Exception:
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: coordinate conversion — a dead interactor reports and degrades to no pick position; bugs propagate
+            report_boundary_failure(exc, operation='表示座標の変換')
             return None
         if not (isfinite(x) and isfinite(y)):
             return None
@@ -4513,7 +4525,8 @@ class RoomViewport3D(QFrame):
             height = float(self.interactor.height())
             x = float(position[0]) / dpr
             y = (height - 1.0) - float(position[1]) / dpr
-        except Exception:
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: coordinate conversion — a dead interactor reports and degrades to no widget position; bugs propagate
+            report_boundary_failure(exc, operation='ウィジェット座標の変換')
             return None
         if not (isfinite(x) and isfinite(y)):
             return None
@@ -4524,7 +4537,8 @@ class RoomViewport3D(QFrame):
 
         try:
             pos = self.interactor.GetEventPosition()
-        except Exception:
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: pick position read — a dead interactor reports and degrades to no position; bugs propagate
+            report_boundary_failure(exc, operation='ピック位置の取得')
             return None
         return self._display_to_widget_position(pos)
 
@@ -4540,7 +4554,8 @@ class RoomViewport3D(QFrame):
         try:
             picker = self.plotter.iren.picker
             picked = picker.GetPickPosition()
-        except Exception:
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: pick position read — a dead picker reports and degrades to no position; bugs propagate
+            report_boundary_failure(exc, operation='ピック位置の取得')
             return None
         if picked is None:
             return None
@@ -4561,7 +4576,8 @@ class RoomViewport3D(QFrame):
             finally:
                 self._in_pick_probe = False
             return picker.GetActor()
-        except Exception:
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: actor pick — a failed pick reports and degrades to no actor; bugs propagate
+            report_boundary_failure(exc, operation='アクターのピック')
             return None
 
     def pick_world_position(self, position: QPointF) -> tuple[float, float, float] | None:
@@ -4575,7 +4591,8 @@ class RoomViewport3D(QFrame):
             renderer = self.plotter.iren.get_poked_renderer()
             picker.Pick(display[0], display[1], 0.0, renderer)
             picked = picker.GetPickPosition()
-        except Exception:
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: world pick — a failed pick reports and degrades to no position; bugs propagate
+            report_boundary_failure(exc, operation='ワールド座標のピック')
             return None
         if picked is None:
             return None
@@ -4667,8 +4684,8 @@ class RoomViewport3D(QFrame):
                 got = picker.GetPickPosition()
                 if got is not None and len(got) >= 3:
                     return (float(got[0]), -float(got[1]), float(got[2]))
-        except Exception:
-            pass
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: waypoint pick — a failed pick reports and falls through to the unproject fallback; bugs propagate
+            report_boundary_failure(exc, operation='ウェイポイントのピック')
         try:
             renderer = self.plotter.renderer
             renderer.SetDisplayPoint(display[0], display[1], 0.0)
@@ -4677,7 +4694,8 @@ class RoomViewport3D(QFrame):
             renderer.SetDisplayPoint(display[0], display[1], 1.0)
             renderer.DisplayToWorld()
             far = renderer.GetWorldPoint()
-        except Exception:
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: waypoint unproject — a dead renderer reports and degrades to no domain point; bugs propagate
+            report_boundary_failure(exc, operation='ウェイポイントのピック')
             return None
         if near is None or far is None or len(near) < 4 or len(far) < 4:
             return None
@@ -4876,7 +4894,7 @@ class RoomViewport3D(QFrame):
                         name='acoustic-field-volume',
                         render=False,
                     )
-                except Exception as exc:  # GPU/driver dependent — never fatal
+                except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: volume surface — GPU/driver failures degrade to section-only with an honest status note; bug-class failures propagate
                     status_extra.append(
                         f'ボリューム表示不可 ({type(exc).__name__}) → 断面のみ'
                     )
@@ -4929,8 +4947,8 @@ class RoomViewport3D(QFrame):
         for title in tuple(self._field_scalar_bars):
             try:
                 self.plotter.remove_scalar_bar(title, render=False)
-            except Exception:
-                pass
+            except Exception:  # error-boundary: overlay teardown — one bar's removal failure must not strand the rest; identity is logged (noqa: BLE001)
+                _LOGGER.debug('scalar bar removal failed for %s', title, exc_info=True)
         self._field_scalar_bars.clear()
         self._field_image_cache.clear()
         self._field_probe_plane = None
@@ -4963,7 +4981,8 @@ class RoomViewport3D(QFrame):
             renderer.SetDisplayPoint(display[0], display[1], 1.0)
             renderer.DisplayToWorld()
             far = renderer.GetWorldPoint()
-        except Exception:
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: field probe — a dead renderer reports and degrades to no probe position; bugs propagate
+            report_boundary_failure(exc, operation='フィールドプローブの座標取得')
             return None
         if near is None or far is None or len(near) < 4 or len(far) < 4:
             return None
@@ -5574,7 +5593,8 @@ class RoomViewport3D(QFrame):
                 zoomed_out = visible_half > max(
                     scene.scene_diagonal_m * 2.5, 12.0
                 )
-            except Exception:
+            except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: survey label zoom probe — a dead camera degrades to labels-shown; identity is logged (noqa: BLE001)
+                _LOGGER.debug('survey label zoom probe failed: %s: %s', type(exc).__name__, exc)
                 zoomed_out = False
 
         label_points: list = []
@@ -5808,7 +5828,8 @@ class RoomViewport3D(QFrame):
             renderer = self.plotter.iren.get_poked_renderer()
             picker.Pick(display[0], display[1], 0.0, renderer)
             props = picker.GetProp3Ds()
-        except Exception:
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: candidate pick — a failed pick reports and degrades to no candidates; bugs propagate
+            report_boundary_failure(exc, operation='候補アクターの列挙')
             return ()
         return self._candidates_from_props(props)
 
@@ -5821,7 +5842,8 @@ class RoomViewport3D(QFrame):
 
         try:
             props = self.plotter.iren.picker.GetProp3Ds()
-        except Exception:
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: pick-candidate read — a dead picker reports and degrades to no candidates; bugs propagate
+            report_boundary_failure(exc, operation='ピック候補の取得')
             return ()
         return self._candidates_from_props(props)
 
@@ -5837,8 +5859,8 @@ class RoomViewport3D(QFrame):
                     entity_id = self._actor_entity_ids.get(id(prop))
                     if entity_id is not None and entity_id not in ordered:
                         ordered.append(entity_id)
-            except Exception:
-                pass
+            except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: prop traversal — a mid-traversal failure keeps the front-to-back prefix collected so far; identity is logged (noqa: BLE001)
+                _LOGGER.debug('pick prop traversal failed: %s: %s', type(exc).__name__, exc)
         return tuple(ordered)
 
     def _cycle_pick_candidate(self, entity_id: str, candidates: tuple[str, ...]) -> str:
@@ -5938,7 +5960,8 @@ class RoomViewport3D(QFrame):
         if provider is not None:
             try:
                 extra = provider(entity_id)
-            except Exception:
+            except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: reason-provider callback — an expected provider failure degrades to no extra reason; identity is logged (noqa: BLE001)
+                _LOGGER.debug('pick reason provider failed for %s: %s: %s', entity_id, type(exc).__name__, exc)
                 extra = None
             if extra:
                 reasons.append(str(extra))
@@ -6039,8 +6062,8 @@ class RoomViewport3D(QFrame):
         if self._pick_key_filter is not None:
             try:
                 self.interactor.removeEventFilter(self._pick_key_filter)
-            except Exception:
-                pass
+            except Exception:  # error-boundary: event-filter teardown — removal must not abort the rest of dismiss; identity is logged (noqa: BLE001)
+                _LOGGER.debug('pick key filter removal failed', exc_info=True)
             self._pick_key_filter.deleteLater()
             self._pick_key_filter = None
         if self._pick_popover is not None:
@@ -6088,8 +6111,8 @@ class RoomViewport3D(QFrame):
             return
         try:
             self.plotter.remove_actor(name, render=False)
-        except Exception:
-            pass
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: preview teardown — a dead actor is already gone; identity is logged (noqa: BLE001)
+            _LOGGER.debug('pick preview actor removal failed: %s: %s', type(exc).__name__, exc)
 
     def _refresh_pick_preview(self) -> None:
         """Draw/remove the preview-only highlight for the armed candidate.
@@ -6152,7 +6175,8 @@ class RoomViewport3D(QFrame):
             # top edge maps to the larger display y.
             y_lo = (height - 1.0 - max(float(rect.top()), float(rect.bottom()))) * dpr
             y_hi = (height - 1.0 - min(float(rect.top()), float(rect.bottom()))) * dpr
-        except Exception:
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: marquee conversion — a dead interactor reports and degrades to no selection; bugs propagate
+            report_boundary_failure(exc, operation='領域内エンティティの選択')
             return []
         ordered: list[str] = []
         seen: set[str] = set()
@@ -6161,7 +6185,8 @@ class RoomViewport3D(QFrame):
                 continue
             try:
                 bounds = actor.GetBounds()
-            except Exception:
+            except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: per-actor bounds probe — a dead actor is skipped, not fatal; identity is logged (noqa: BLE001)
+                _LOGGER.debug('marquee bounds probe failed for %s: %s: %s', entity_id, type(exc).__name__, exc)
                 continue
             if bounds is None or len(bounds) != 6:
                 continue
@@ -6174,7 +6199,8 @@ class RoomViewport3D(QFrame):
                             sx, sy = self.world_to_screen((cx, cy, cz))
                             xs.append(sx)
                             ys.append(sy)
-            except Exception:
+            except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: per-actor projection — an unprojectable actor is skipped, not fatal; identity is logged (noqa: BLE001)
+                _LOGGER.debug('marquee projection failed for %s: %s: %s', entity_id, type(exc).__name__, exc)
                 continue
             if not xs or not all(isfinite(v) for v in (*xs, *ys)):
                 continue
@@ -6209,7 +6235,8 @@ class RoomViewport3D(QFrame):
 
         try:
             display = self.world_to_screen(position)
-        except Exception:
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: world projection — a dead renderer reports and degrades to no widget position; bugs propagate
+            report_boundary_failure(exc, operation='ワールド座標の投影')
             return None
         return self._display_to_widget_position(display)
 
@@ -6300,8 +6327,8 @@ class RoomViewport3D(QFrame):
 
         try:
             self.plotter.remove_actor("snap-feedback-label", render=False)
-        except Exception:
-            pass
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: HUD label teardown — a dead actor is already gone; identity is logged (noqa: BLE001)
+            _LOGGER.debug('snap feedback label removal failed: %s: %s', type(exc).__name__, exc)
         lines = tuple(hud_lines or ())
         if screen_position is not None and not lines and label:
             lines = (label,)
@@ -6321,7 +6348,8 @@ class RoomViewport3D(QFrame):
                 color=DARK_THEME.viewport.selection_outline.hex,
                 render=False,
             )
-        except Exception:
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: HUD label draw — a dead renderer reports and skips the label; bugs propagate
+            _LOGGER.debug('snap feedback label draw failed: %s: %s', type(exc).__name__, exc)
             return
         self._render()
 

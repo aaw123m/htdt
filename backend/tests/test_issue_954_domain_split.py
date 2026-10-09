@@ -1,22 +1,24 @@
-"""#954 domain-split phase 1 — measurement package contracts.
+"""#954 domain-split — declared-package contracts.
 
-The ``measurement`` domain is the first flat-namespace domain split into a
-layered package (``domain/services/persistence/ui`` under
-``htdt.measurement``).  These tests pin the migration's contracts:
+Phase 1 split the ``measurement`` domain and phase 2 the ``capture``
+domain into layered packages (``domain/services/persistence/ui`` under
+``htdt.<pkg>``).  These tests pin the migration's contracts for every
+declared package:
 
 - every old ``htdt.<stem>`` import path still resolves — and resolves to
-  the *same module object* as ``htdt.measurement.<layer>.<stem>`` so name
+  the *same module object* as ``htdt.<pkg>.<layer>.<stem>`` so name
   reads AND writes (monkeypatched helpers, module-level constants) behave
   identically for old and new importers;
 - moved modules only reach siblings through package-relative imports —
-  nothing inside the package sneaks back through the flat shims, which
+  nothing inside a package sneaks back through the flat shims, which
   would hide boundary violations from the audit;
 - the audit's PACKAGE_LAYERS registry stays exhaustive: every module
-  under ``htdt.measurement.*`` is classified;
+  under ``htdt.<pkg>.*`` is classified;
 - baseline/diff mode: the audit baseline file round-trips and the diff
   classifier flags new violations/cycles while tolerating recorded debt;
-- sealed authorities hash identically through old and new paths — the
-  split is import plumbing only, no contract drift.
+- hash-pinned records (measurement sealed authorities, capture task
+  plans) hash identically through old and new paths — the split is
+  import plumbing only, no contract drift.
 """
 
 from __future__ import annotations
@@ -34,7 +36,6 @@ _ROOT = Path(__file__).resolve().parent.parent.parent
 _SRC = _ROOT / 'backend' / 'src'
 _AUDIT_PATH = _ROOT / 'scripts' / 'package_boundary_audit.py'
 _INVENTORY_PATH = _ROOT / 'scripts' / 'package_boundary_inventory.json'
-_MEASUREMENT_ROOT = _SRC / 'htdt' / 'measurement'
 
 _spec = importlib.util.spec_from_file_location(
     'package_boundary_audit', _AUDIT_PATH)
@@ -42,14 +43,26 @@ assert _spec is not None and _spec.loader is not None
 audit_mod = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(audit_mod)
 
-PACKAGE_LAYERS = audit_mod.PACKAGE_LAYERS['measurement']
+PACKAGES = audit_mod.PACKAGE_LAYERS
 
-# (flat_stem, layer) pairs derived from the audit's own registry so the
-# tests track the same source of truth the boundary rules use.
+# stem -> (package, layer) pairs derived from the audit's own registry so
+# the tests track the same source of truth the boundary rules use.
 MOVED = {
-    stem: layer
-    for layer, stems in PACKAGE_LAYERS.items()
+    stem: (pkg, layer)
+    for pkg, layers in PACKAGES.items()
+    for layer, stems in layers.items()
     for stem in stems
+}
+
+_LAYERS = ('domain', 'services', 'persistence', 'ui')
+
+# Stems whose flat ``htdt.<stem>`` shim exists on disk — the modules the
+# split itself moved.  Package-native additions (e.g. upstream's
+# cad_remeasure_queue trio) are declared for layering enforcement but
+# never had a flat path, so shim-contract checks skip them by design.
+FLAT_SHIMS = {
+    stem for stem in MOVED
+    if (_SRC / 'htdt' / f'{stem}.py').is_file()
 }
 
 
@@ -57,17 +70,27 @@ def _import(name: str):
     return importlib.import_module(name)
 
 
-@pytest.mark.parametrize('stem,layer', sorted(MOVED.items()))
-def test_flat_path_resolves_to_canonical_module(stem, layer):
-    canonical = _import(f'htdt.measurement.{layer}.{stem}')
+@pytest.mark.parametrize(
+    'stem,pkg_layer',
+    sorted((s, MOVED[s]) for s in FLAT_SHIMS),
+    ids=sorted(FLAT_SHIMS),
+)
+def test_flat_path_resolves_to_canonical_module(stem, pkg_layer):
+    pkg, layer = pkg_layer
+    canonical = _import(f'htdt.{pkg}.{layer}.{stem}')
     flat = _import(f'htdt.{stem}')
     assert flat is canonical
     assert getattr(sys.modules['htdt'], stem) is canonical
 
 
-@pytest.mark.parametrize('stem,layer', sorted(MOVED.items()))
-def test_from_import_forms_return_canonical_module(stem, layer):
-    canonical = _import(f'htdt.measurement.{layer}.{stem}')
+@pytest.mark.parametrize(
+    'stem,pkg_layer',
+    sorted((s, MOVED[s]) for s in FLAT_SHIMS),
+    ids=sorted(FLAT_SHIMS),
+)
+def test_from_import_forms_return_canonical_module(stem, pkg_layer):
+    pkg, layer = pkg_layer
+    canonical = _import(f'htdt.{pkg}.{layer}.{stem}')
     namespace = {}
     exec(f'from htdt import {stem} as _target', namespace)
     assert namespace['_target'] is canonical
@@ -89,25 +112,42 @@ def test_attribute_writes_through_flat_path_reach_canonical_module():
         canonical._utc_now = original  # noqa: SLF001
 
 
+def test_capture_attribute_writes_through_flat_path():
+    flat = _import('htdt.capture_watch_failures')
+    canonical = _import('htdt.capture.domain.capture_watch_failures')
+    sentinel = object()
+    original = flat._utc_now
+    try:
+        flat._utc_now = sentinel  # noqa: SLF001 — monkeypatch parity
+        assert canonical._utc_now is sentinel  # noqa: SLF001
+    finally:
+        canonical._utc_now = original  # noqa: SLF001
+
+
 def test_registry_is_exhaustive():
-    """Every .py under htdt.measurement is classified — nothing unlayered."""
-    on_disk = {}
-    for layer in ('domain', 'services', 'persistence', 'ui'):
-        for path in (_MEASUREMENT_ROOT / layer).glob('*.py'):
-            if path.stem != '__init__':
-                on_disk[path.stem] = layer
-    assert on_disk == MOVED
+    """Every .py under each htdt.<pkg> is classified — nothing unlayered."""
+    for pkg, layers in PACKAGES.items():
+        on_disk = {}
+        for layer in _LAYERS:
+            for path in (_SRC / 'htdt' / pkg / layer).glob('*.py'):
+                if path.stem != '__init__':
+                    on_disk[path.stem] = (pkg, layer)
+        assert on_disk == {
+            stem: (pkg, layer)
+            for layer, stems in layers.items()
+            for stem in stems
+        }
 
 
 def test_package_members_only_use_package_relative_sibling_imports():
     """Moved modules must not reference moved siblings via flat htdt.* paths.
 
-    A flat-path edge inside the package would both hide the real
+    A flat-path edge inside a package would both hide the real
     dependency from the audit (it lands on a shim, not a layer) and make
     the import direction unverifiable.
     """
-    for stem, layer in MOVED.items():
-        source = (_MEASUREMENT_ROOT / layer / f'{stem}.py').read_text(
+    for stem, (pkg, layer) in MOVED.items():
+        source = (_SRC / 'htdt' / pkg / layer / f'{stem}.py').read_text(
             encoding='utf-8')
         for sibling in MOVED:
             assert f'import htdt.{sibling}' not in source, (
@@ -119,7 +159,7 @@ def test_package_members_only_use_package_relative_sibling_imports():
 
 def test_shim_files_are_pure_aliases():
     """Shims contain no forwarding tables or lazy hacks — just the alias."""
-    for stem in MOVED:
+    for stem in FLAT_SHIMS:
         text = (_SRC / 'htdt' / f'{stem}.py').read_text(encoding='utf-8')
         assert '_sys.modules[__name__] = _impl' in text
         assert 'def __getattr__' not in text
@@ -154,6 +194,26 @@ def test_sealed_authorities_hash_identically_via_old_and_new_paths():
         isinstance(v, str) and len(v) == 64 for v in seals)
 
 
+def test_capture_task_plan_hash_identically_via_old_and_new_paths():
+    """Hash-pinned capture plan: identical plan_sha256 on both paths."""
+    from htdt.cad_scene import SceneDocument
+    from htdt.project_identity import new_project_reference
+
+    old = _import('htdt.capture_mission')
+    new = _import('htdt.capture.domain.capture_mission')
+    assert old.build_capture_task_plan is new.build_capture_task_plan
+    document = SceneDocument(
+        document_id='mission-split-check', room=None, entities=())
+    kwargs = dict(
+        project=new_project_reference(document_id='mission-split-check'),
+        purpose='initial_capture',
+    )
+    plan_a = old.build_capture_task_plan(document, **kwargs)
+    plan_b = new.build_capture_task_plan(document, **kwargs)
+    assert plan_a == plan_b
+    assert len(plan_a.plan_sha256) == 64
+
+
 def _fresh_audit_report():
     return audit_mod.audit(audit_mod.ROOT)
 
@@ -161,9 +221,9 @@ def _fresh_audit_report():
 def test_audit_sees_all_package_edges_under_their_layers():
     report = _fresh_audit_report()
     layers = report['package_layers']
-    for stem, layer in MOVED.items():
-        assert layers[f'measurement.{layer}.{stem}'] == (
-            f'measurement.{layer}')
+    for stem, (pkg, layer) in MOVED.items():
+        assert layers[f'{pkg}.{layer}.{stem}'] == f'{pkg}.{layer}'
+    for stem in FLAT_SHIMS:
         assert layers[stem] == 'shim'
 
 
@@ -211,4 +271,5 @@ def test_importing_flat_path_does_not_pull_qt_for_domain_modules():
         if name == 'PySide6' or name.startswith('PySide6.'):
             pytest.skip('PySide6 already loaded in this worker')
     _import('htdt.cad_measurements')
+    _import('htdt.capture_bundle')
     assert 'PySide6' not in sys.modules

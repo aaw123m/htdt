@@ -2719,7 +2719,7 @@ class WorkflowApplicationComposition:
                     f'出力マニフェスト: {preflight.manifest.manifest_id}'
                 )
             lines.append(f'検査レコード: {sidecar.name}')
-        except Exception as exc:  # inspection must never break the export
+        except Exception as exc:  # error-boundary: export sidecar — inspection must never break the export; the failure is written into the output lines (noqa: BLE001)
             lines.append(f'検査レコードの保存に失敗: {exc}')
         return lines
 

@@ -9203,7 +9203,10 @@ class RoomWorkspace(QWidget):
                 qualification = CadRoomQualificationRepository(
                     self.controller.repository
                 )
-            except Exception:
+            except EXPECTED_OPERATION_ERRORS as exc:
+                if is_authority_failure(exc):
+                    raise  # store failures never masquerade as 'no clearances'
+                report_boundary_failure(exc, operation='運用クリアランスの確認')
                 qualification = None
             self._qualification_repository = qualification
         if qualification is not None:
@@ -9219,7 +9222,10 @@ class RoomWorkspace(QWidget):
                         clearances[ref_id] = float(
                             envelope.service_clearance_m
                         )
-            except Exception:
+            except EXPECTED_OPERATION_ERRORS as exc:
+                if is_authority_failure(exc):
+                    raise  # store failures never masquerade as 'no clearances'
+                report_boundary_failure(exc, operation='運用クリアランスの確認')
                 clearances = {}
         return build_installation_feasibility_preview(
             document=self.controller.document,

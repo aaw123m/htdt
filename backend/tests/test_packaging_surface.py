@@ -116,8 +116,28 @@ def _relative_module_file(source: Path, module: str) -> Path:
     return source.parent.joinpath(*parts)
 
 
+_SHIM_IMPL_RE = re.compile(r'^import htdt\.([\w.]+) as _impl$', re.MULTILINE)
+
+
+def _follow_shim(target: Path) -> Path:
+    """Resolve a #954 flat shim to the packaged impl it rebinds to.
+
+    The shims swap ``sys.modules`` so runtime importers get the impl, but
+    source scans see only ``_sys``/``_impl`` — follow the ``_impl`` import
+    so checks below exercise the real module file.
+    """
+    path = target.with_suffix('.py')
+    if not path.is_file():
+        return target
+    text = path.read_text(encoding='utf-8')
+    match = _SHIM_IMPL_RE.search(text)
+    if match is None or '_sys.modules[__name__] = _impl' not in text:
+        return target
+    return PACKAGE_ROOT.joinpath(*match.group(1).split('.'))
+
+
 def _module_file_exists(source: Path, module: str) -> bool:
-    target = _relative_module_file(source, module)
+    target = _follow_shim(_relative_module_file(source, module))
     return target.with_suffix('.py').is_file() or (
         target / '__init__.py'
     ).is_file()
@@ -159,7 +179,7 @@ def test_lazy_table_relative_targets_define_attribute() -> None:
         for table, key, module, attr in _lazy_dict_targets(tree):
             if module is None or attr is None or not module.startswith('.'):
                 continue
-            target = _relative_module_file(source, module)
+            target = _follow_shim(_relative_module_file(source, module))
             if not target.with_suffix('.py').is_file():
                 continue  # unresolved modules are covered by the file test
             target_tree = ast.parse(
@@ -300,17 +320,37 @@ def test_metadata_version_queries_have_copy_metadata() -> None:
         tree = ast.parse(source.read_text(encoding='utf-8'))
         # loop-variable binding: for <name> in ('a', 'b'): ... version(<name>)
         loop_bindings: dict[str, set[str]] = {}
+        # module-level constant iterables: for <name> in _CONST: ...
+        const_iters: dict[str, set[str]] = {}
+        for node in tree.body:
+            if isinstance(node, ast.Assign) and isinstance(
+                node.value, (ast.Tuple, ast.List)
+            ):
+                literals = {
+                    v for e in node.value.elts if (v := _const_str(e))
+                }
+                if literals:
+                    for t in node.targets:
+                        if isinstance(t, ast.Name):
+                            const_iters.setdefault(t.id, set()).update(
+                                literals
+                            )
         for node in ast.walk(tree):
-            if isinstance(node, (ast.For, ast.AsyncFor)) and isinstance(
+            if not isinstance(node, (ast.For, ast.AsyncFor)) or not isinstance(
                 node.target, ast.Name
-            ) and isinstance(node.iter, (ast.Tuple, ast.List)):
+            ):
+                continue
+            literals: set[str] = set()
+            if isinstance(node.iter, (ast.Tuple, ast.List)):
                 literals = {
                     v for e in node.iter.elts if (v := _const_str(e))
                 }
-                if literals:
-                    loop_bindings.setdefault(node.target.id, set()).update(
-                        literals
-                    )
+            elif isinstance(node.iter, ast.Name):
+                literals = const_iters.get(node.iter.id, set())
+            if literals:
+                loop_bindings.setdefault(node.target.id, set()).update(
+                    literals
+                )
         for node in ast.walk(tree):
             if not isinstance(node, ast.Call):
                 continue
