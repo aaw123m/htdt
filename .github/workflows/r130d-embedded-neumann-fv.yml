@@ -6,6 +6,15 @@ on:
       - 'backend/src/htdt/r130d_embedded_neumann_fv.py'
       - 'backend/tests/test_r130d_embedded_neumann_fv.py'
       - 'backend/src/htdt/r130d_embedded_neumann_convex.py'
+      - 'backend/src/htdt/r130d_convex_obj_import.py'
+      - 'backend/src/htdt/r130d_experimental_convex_obj_wave.py'
+      - 'backend/tests/test_r130d_convex_obj_import.py'
+      - 'backend/tests/test_r130d_convex_sliver_and_optin.py'
+      - 'backend/tests/test_r130d_convex_high_resolution_evidence.py'
+      - 'benchmarks/acoustics/r130d_convex_obj_fixtures/**'
+      - 'benchmarks/acoustics/r130d_convex_high_resolution_followup*'
+      - 'scripts/run_r130d_experimental_convex_obj_wave.py'
+      - 'scripts/run_r130d_convex_high_resolution_followup.py'
       - 'backend/tests/test_r130d_embedded_convex_cutcell.py'
       - 'backend/tests/test_r130d_convex_multiplane_evidence.py'
       - 'scripts/run_r130d_convex_multiplane_cutcell_diagnostic.py'
@@ -58,6 +67,9 @@ jobs:
           New-Item -ItemType Directory scratch/tests -Force | Out-Null
           Copy-Item backend/tests/test_r130d_embedded_neumann_fv.py scratch/tests/
           Copy-Item backend/tests/test_r130d_embedded_convex_cutcell.py scratch/tests/
+          Copy-Item backend/tests/test_r130d_convex_obj_import.py scratch/tests/
+          Copy-Item backend/tests/test_r130d_convex_sliver_and_optin.py scratch/tests/
+          Copy-Item backend/tests/test_r130d_convex_high_resolution_evidence.py scratch/tests/
           Copy-Item backend/tests/test_r130d_convex_multiplane_evidence.py scratch/tests/
           Copy-Item backend/tests/test_r130d_embedded_neumann_fv_evidence.py scratch/tests/
           Copy-Item backend/tests/test_r130d_fv_mfem_same_drive.py scratch/tests/
@@ -65,7 +77,7 @@ jobs:
           Copy-Item backend/tests/test_r130d_mfem_ref4_same_drive.py scratch/tests/
           Copy-Item backend/tests/test_r130d_mfem_ref4_same_source_result.py scratch/tests/
           $env:PYTHONPATH = Join-Path $pwd 'backend/src'
-          python -m pytest -q scratch/tests/test_r130d_embedded_convex_cutcell.py scratch/tests/test_r130d_convex_multiplane_evidence.py scratch/tests/test_r130d_embedded_neumann_fv.py scratch/tests/test_r130d_embedded_neumann_fv_evidence.py scratch/tests/test_r130d_fv_mfem_same_drive.py scratch/tests/test_r130d_candidate_same_source_qualification.py scratch/tests/test_r130d_mfem_ref4_same_drive.py scratch/tests/test_r130d_mfem_ref4_same_source_result.py --tb=short
+          python -m pytest -q scratch/tests/test_r130d_convex_obj_import.py scratch/tests/test_r130d_convex_sliver_and_optin.py scratch/tests/test_r130d_convex_high_resolution_evidence.py scratch/tests/test_r130d_embedded_convex_cutcell.py scratch/tests/test_r130d_convex_multiplane_evidence.py scratch/tests/test_r130d_embedded_neumann_fv.py scratch/tests/test_r130d_embedded_neumann_fv_evidence.py scratch/tests/test_r130d_fv_mfem_same_drive.py scratch/tests/test_r130d_candidate_same_source_qualification.py scratch/tests/test_r130d_mfem_ref4_same_drive.py scratch/tests/test_r130d_mfem_ref4_same_source_result.py --tb=short
       - name: Recompute modal benchmark and compare frozen evidence
         shell: pwsh
         env:
@@ -214,4 +226,53 @@ jobs:
               for p,q in zip(x['adjacent_transfer'],y['adjacent_transfer']):
                   assert abs(p['complex_l2_relative']-q['complex_l2_relative'])<1e-6
           print('PASS: 15 actual bounded convex-room wave solves, immutable plan and no production authority')
+          '@ | python -
+      - name: Verify explicit convex OBJ opt-in and immutable original CAD bytes
+        shell: pwsh
+        env:
+          PYTHONUTF8: '1'
+        run: |
+          python scripts/run_r130d_experimental_convex_obj_wave.py `
+            --experimental-only --obj benchmarks/acoustics/r130d_convex_obj_fixtures/planar_wedge.obj `
+            --cells-per-axis 12 --output scratch/ci_explicit_optin_wave.json
+          if ($LASTEXITCODE -ne 0) { throw 'explicit experimental candidate failed' }
+          @'
+          import json
+          j=json.load(open('scratch/ci_explicit_optin_wave.json'))
+          assert j['mesh_authority']['source_sha256']=='396f7f6e6119a7e7062f01c3af32827e0ecefb985f434c488363e6609cb5babb'
+          assert j['production_dispatch_registered'] is False
+          assert j['canonical_r130d_impulse']=='SELF_CONVERGENCE_FAILED'
+          assert j['production_ready'] is False
+          assert j['physical_validation']=='NOT_VALIDATED'
+          print('PASS: actual OBJ source injected under strictly experimental authority')
+          '@ | python -
+      - name: Re-execute preregistered high convex FV n24-28-32 in both geometries
+        shell: pwsh
+        env:
+          PYTHONUTF8: '1'
+          PYTHONIOENCODING: utf-8
+        run: |
+          python scripts/run_r130d_convex_high_resolution_followup.py `
+            --plan benchmarks/acoustics/r130d_convex_high_resolution_followup_plan_2026-10-09.json `
+            --baseline-evidence benchmarks/acoustics/r130d_convex_multiplane_cutcell_evidence_2026-10-09.json `
+            --out scratch/ci_high_convex_fv.json
+          if ($LASTEXITCODE -ne 0) { throw 'high convex FV original source execution failed' }
+          @'
+          import json
+          import numpy as np
+          a=json.load(open('scratch/ci_high_convex_fv.json'))
+          b=json.load(open('benchmarks/acoustics/r130d_convex_high_resolution_followup_evidence_2026-10-09.json'))
+          assert a['plan']==b['plan'] and a['production_enabled'] is False
+          assert a['independent_cross_solver_new_geometries']=='PENDING_MFEM_R4'
+          for x,y in zip(a['cases'],b['cases']):
+              assert x['name']==y['name']
+              assert len(x['adjacent'])==len(y['adjacent'])==3
+              for r,s in zip(x['history'],y['history']):
+                  assert r['n']==s['n']
+                  rr=np.array([complex(*v) for v in r['complex_transfer_40_80_hz']])
+                  ss=np.array([complex(*v) for v in s['complex_transfer_40_80_hz']])
+                  assert max(abs(rr-ss))<1e-5
+              for r,s in zip(x['adjacent'],y['adjacent']):
+                  assert abs(r['complex_l2_relative']-s['complex_l2_relative'])<1e-6
+          print('PASS: both convex rooms actual Gaussian FV n24/n28/n32 recorded and honest')
           '@ | python -
