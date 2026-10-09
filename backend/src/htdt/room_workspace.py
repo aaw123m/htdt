@@ -321,6 +321,13 @@ from .room_lighting_panel import RoomLightingPreviewPanel
 from .room_lighting_preview import build_lighting_scene_preview
 from .room_operational_clearance import build_operational_clearance_preview
 from .room_operational_clearance_panel import RoomOperationalClearancePanel
+from .installation_feasibility_viewmodel import (
+    build_installation_feasibility_preview,
+)
+from .installation_feasibility_panel import (
+    RoomInstallationFeasibilityPanel,
+)
+from .cad_room_qualification_repository import CadRoomQualificationRepository
 from .room_objects_panel import RoomObjectsPanel
 from .room_constraints_panel import RoomConstraintsPanel
 from .room_measure_input import RoomMeasureController, RoomMeasurePanel
@@ -4358,6 +4365,10 @@ class RoomWorkspace(QWidget):
         # footprints + conflict highlights; never authors geometry.
         self.clearance_panel = RoomOperationalClearancePanel()
         self.clearance_panel.changed.connect(lambda: self._render())
+        # #1005: read-only 設置実現性検査 layer — authority verdicts only;
+        # UNKNOWN is an on-site-confirmation state, never a red failure.
+        self.feasibility_panel = RoomInstallationFeasibilityPanel()
+        self.feasibility_panel.changed.connect(lambda: self._render())
         # UX140B: リスニング集団 (seat-priority profile authoring) — the
         # legacy TheaterEditorWindow dock's workflow mount; it edits the
         # same seats the placement context owns.
@@ -4393,6 +4404,7 @@ class RoomWorkspace(QWidget):
         placement_layout.addWidget(self.video_panel)
         placement_layout.addWidget(self.lighting_panel)
         placement_layout.addWidget(self.clearance_panel)
+        placement_layout.addWidget(self.feasibility_panel)
         placement_layout.addWidget(self.seat_priority_panel)
         placement_layout.addWidget(self.standards_panel)
         placement_layout.addWidget(self.installation_panel)
@@ -7969,6 +7981,27 @@ class RoomWorkspace(QWidget):
                     if overlays.operational_clearance
                     else None
                 )
+            # #1005: mounting-feasibility inspection — rebuilt from the
+            # live document + persisted context/service records on every
+            # render, so a scene edit or a changed assembly can never
+            # leave a stale verdict painted. The panel binds the fresh
+            # preview regardless of the 3D toggle; the viewport only
+            # draws while the toggle is on.
+            feasibility_preview = self._installation_feasibility_preview()
+            render_feasibility = getattr(
+                self.viewport, 'render_installation_feasibility_overlay',
+                None,
+            )
+            if callable(render_feasibility):
+                render_feasibility(
+                    feasibility_preview
+                    if getattr(self, 'feasibility_panel', None) is not None
+                    and self.feasibility_panel.preview_enabled
+                    else None
+                )
+            feasibility_panel = getattr(self, 'feasibility_panel', None)
+            if feasibility_panel is not None:
+                feasibility_panel.show_preview(feasibility_preview)
             if self.current_context == "placement" and self._proposed_variant_id is not None:
                 try:
                     proposal_entities = self.system_expansion.ghost_preview(
@@ -8086,6 +8119,60 @@ class RoomWorkspace(QWidget):
             fixtures=fixtures,
             zones=zones,
             commissioning_records=records,
+        )
+
+    def _installation_feasibility_preview(self):
+        """#1005 preview — fresh contexts + service envelopes every call.
+
+        ``controller.document`` returns the live preview document during
+        drags, and both authority stores are re-read here, so a scene
+        edit, a newly saved mounting record or an assembly change lapses
+        every glyph on the next render pass.
+        """
+        if getattr(self, 'feasibility_panel', None) is None:
+            return None
+        document_id = self.controller.document_id
+        contexts: tuple = ()
+        context_repo = getattr(
+            self.installation_panel, 'context_repository', None
+        )
+        if context_repo is not None:
+            contexts = tuple(
+                context_repo.latest_contexts_for_document(
+                    document_id
+                ).values()
+            )
+        if not contexts:
+            return None
+        clearances: dict[str, float] = {}
+        qualification = getattr(self, '_qualification_repository', None)
+        if qualification is None:
+            try:
+                qualification = CadRoomQualificationRepository(
+                    self.controller.repository
+                )
+            except Exception:
+                qualification = None
+            self._qualification_repository = qualification
+        if qualification is not None:
+            try:
+                for envelope in qualification.service_envelopes.list(
+                    document_id
+                ):
+                    ref_id = envelope.device_ref.ref_id
+                    if (
+                        envelope.service_clearance_m is not None
+                        and ref_id not in clearances
+                    ):
+                        clearances[ref_id] = float(
+                            envelope.service_clearance_m
+                        )
+            except Exception:
+                clearances = {}
+        return build_installation_feasibility_preview(
+            document=self.controller.document,
+            contexts=contexts,
+            service_clearances=clearances,
         )
 
     def _set_status(self, text: str, *, error: bool = False) -> None:

@@ -59,6 +59,12 @@ from .design_ab_overlay import (
     AB_OVERLAY_CONTEXT_COLOR,
     DesignAbOverlayPreview,
 )
+from .installation_feasibility_viewmodel import (
+    FEASIBILITY_VERDICT_VOCAB,
+    InstallationFeasibilityPreview,
+    SlabMountFace,
+    WallMountFace,
+)
 from .ui_theme import DARK_THEME, SurfaceRole, set_surface_role
 
 if TYPE_CHECKING:
@@ -2607,6 +2613,292 @@ class RoomViewport3D(QFrame):
             line_width=1,
             labels_off=True,
         )
+        self._render()
+
+    # #1005: installation-feasibility inspection layer. Every glyph color
+    # comes from the authority verdict vocabulary — UNKNOWN is gray (不明),
+    # never presented as a red failure. Mount faces, recess/service
+    # volumes and the cavity prism only appear for dimensions with
+    # declared evidence; an assembly without in-wall cavity data draws
+    # the face + glyphs and leaves the depth question to the panel's
+    # on-site confirmation list.
+
+    _INSTALL_FEASIBILITY_PREFIX = 'installation-feasibility-'
+
+    def clear_installation_feasibility_overlay(self) -> None:
+        """Drop every ``installation-feasibility-*`` actor."""
+        renderer = getattr(self.plotter, 'renderer', None)
+        actors = getattr(renderer, 'actors', None)
+        if not actors:
+            return
+        removed = False
+        for name in tuple(actors):
+            if isinstance(name, str) and name.startswith(
+                self._INSTALL_FEASIBILITY_PREFIX
+            ):
+                self.plotter.remove_actor(name)
+                removed = True
+        if removed:
+            self._render()
+
+    def _wall_face_render_mesh(self, face: WallMountFace) -> pv.PolyData:
+        """Two-triangle quad of a wall mount face (domain → render)."""
+        cx, cy, cz = face.center
+        ux, uy, _uz = face.axis_u
+        hw, hh = face.width_m * 0.5, face.height_m * 0.5
+        corners = [
+            (cx - ux * hw, cy - uy * hw, cz - hh),
+            (cx + ux * hw, cy + uy * hw, cz - hh),
+            (cx + ux * hw, cy + uy * hw, cz + hh),
+            (cx - ux * hw, cy - uy * hw, cz + hh),
+        ]
+        points = [(x, -y, z) for (x, y, z) in corners]
+        return pv.PolyData(
+            np.asarray(points, dtype=float),
+            [3, 0, 1, 2, 3, 0, 2, 3],
+        )
+
+    def _wall_face_outline_mesh(self, face: WallMountFace) -> pv.PolyData:
+        cx, cy, cz = face.center
+        ux, uy, _uz = face.axis_u
+        hw, hh = face.width_m * 0.5, face.height_m * 0.5
+        corners = [
+            (cx - ux * hw, cy - uy * hw, cz - hh),
+            (cx + ux * hw, cy + uy * hw, cz - hh),
+            (cx + ux * hw, cy + uy * hw, cz + hh),
+            (cx - ux * hw, cy - uy * hw, cz + hh),
+        ]
+        points = [(x, -y, z) for (x, y, z) in corners]
+        return pv.PolyData(
+            np.asarray(points, dtype=float), [5, 0, 1, 2, 3, 0]
+        )
+
+    def _face_base_mesh(self, item) -> pv.PolyData | None:
+        """Mount-face triangle mesh for either face kind (render frame)."""
+        if item.wall_face is not None:
+            return self._wall_face_render_mesh(item.wall_face)
+        if item.slab_face is not None:
+            return _shapely_xy_fill_mesh(
+                item.slab_face.footprint, item.slab_face.z_m
+            )
+        return None
+
+    def _volume_mesh(
+        self,
+        base: pv.PolyData | None,
+        item,
+        depth_m: float,
+    ) -> pv.PolyData | None:
+        """Extrude the mount face into the element by ``depth_m``."""
+        if base is None or depth_m <= 0.0:
+            return None
+        face = item.wall_face
+        if face is not None:
+            direction = face.recess_direction
+        elif item.slab_face is not None:
+            direction = item.slab_face.recess_direction
+        else:
+            return None
+        vector = (
+            direction[0] * depth_m,
+            -direction[1] * depth_m,  # domain → render y flip
+            direction[2] * depth_m,
+        )
+        volume = base.extrude(vector, capping=True)
+        return volume
+
+    def render_installation_feasibility_overlay(
+        self,
+        preview: InstallationFeasibilityPreview | None,
+    ) -> None:
+        """Draw the read-only 設置実現性検査 layer (#1005).
+
+        ``None`` clears the overlay. Every actor is non-pickable — this
+        is an evidence inspection surface, never an input device. The
+        preview arrives pre-keyed to the current head: glyph anchors and
+        volumes are rebuilt from the live document every render, so an
+        edited scene or changed assembly can never leave a stale verdict
+        on screen.
+        """
+        self.clear_installation_feasibility_overlay()
+        if preview is None:
+            return
+
+        for item in preview.items:
+            color = (
+                FEASIBILITY_VERDICT_VOCAB[item.overall][1]
+                if item.overall is not None
+                else FEASIBILITY_VERDICT_VOCAB['unknown'][1]
+            )
+            unevaluated = item.overall is None
+            if item.entity_anchor is not None:
+                ex, ey, ez = item.entity_anchor
+                self.plotter.add_mesh(
+                    pv.Sphere(radius=0.055, center=(ex, -ey, ez + 0.03)),
+                    color=color,
+                    style='wireframe' if unevaluated else None,
+                    line_width=2,
+                    opacity=0.75 if unevaluated else 0.9,
+                    lighting=False,
+                    pickable=False,
+                    name=(
+                        f'{self._INSTALL_FEASIBILITY_PREFIX}'
+                        f'glyph-{item.entity_id}'
+                    ),
+                    render=False,
+                )
+            if item.substrate_anchor is not None:
+                sx, sy, sz = item.substrate_anchor
+                self.plotter.add_mesh(
+                    pv.Sphere(radius=0.045, center=(sx, -sy, sz)),
+                    color=color,
+                    opacity=0.85,
+                    lighting=False,
+                    pickable=False,
+                    name=(
+                        f'{self._INSTALL_FEASIBILITY_PREFIX}'
+                        f'substrate-{item.entity_id}'
+                    ),
+                    render=False,
+                )
+
+            base = self._face_base_mesh(item)
+            if base is not None:
+                self.plotter.add_mesh(
+                    base,
+                    color=color,
+                    opacity=0.18,
+                    lighting=False,
+                    pickable=False,
+                    name=(
+                        f'{self._INSTALL_FEASIBILITY_PREFIX}'
+                        f'face-{item.entity_id}'
+                    ),
+                    render=False,
+                )
+            if item.wall_face is not None:
+                self.plotter.add_mesh(
+                    self._wall_face_outline_mesh(item.wall_face),
+                    color=color,
+                    line_width=3,
+                    opacity=0.9,
+                    pickable=False,
+                    name=(
+                        f'{self._INSTALL_FEASIBILITY_PREFIX}'
+                        f'face-outline-{item.entity_id}'
+                    ),
+                    render=False,
+                )
+            elif item.slab_face is not None:
+                outline = _shapely_xy_outline_mesh(
+                    item.slab_face.footprint,
+                    item.slab_face.z_m,
+                )
+                if outline is not None:
+                    self.plotter.add_mesh(
+                        outline,
+                        color=color,
+                        line_width=3,
+                        opacity=0.9,
+                        pickable=False,
+                        name=(
+                            f'{self._INSTALL_FEASIBILITY_PREFIX}'
+                            f'face-outline-{item.entity_id}'
+                        ),
+                        render=False,
+                    )
+
+            # Translucent depth volumes — requirement (amber/cyan) vs
+            # assembly-declared cavity (green). A cavity prism only
+            # exists when the assembly actually declares the depth.
+            if item.cutout_volume is not None:
+                volume = self._volume_mesh(
+                    base, item, item.cutout_volume.depth_m
+                )
+                if volume is not None:
+                    self.plotter.add_mesh(
+                        volume,
+                        color='#d9a05b',
+                        opacity=0.14,
+                        lighting=False,
+                        pickable=False,
+                        name=(
+                            f'{self._INSTALL_FEASIBILITY_PREFIX}'
+                            f'vol-cutout-{item.entity_id}'
+                        ),
+                        render=False,
+                    )
+            if item.service_volume is not None:
+                volume = self._volume_mesh(
+                    base, item, item.service_volume.depth_m
+                )
+                if volume is not None:
+                    self.plotter.add_mesh(
+                        volume,
+                        color='#4cc4d9',
+                        opacity=0.12,
+                        lighting=False,
+                        pickable=False,
+                        name=(
+                            f'{self._INSTALL_FEASIBILITY_PREFIX}'
+                            f'vol-service-{item.entity_id}'
+                        ),
+                        render=False,
+                    )
+            if item.cavity_volume is not None:
+                volume = self._volume_mesh(
+                    base, item, item.cavity_volume.depth_m
+                )
+                if volume is not None:
+                    self.plotter.add_mesh(
+                        volume,
+                        color='#59d98c',
+                        opacity=0.10,
+                        lighting=False,
+                        pickable=False,
+                        name=(
+                            f'{self._INSTALL_FEASIBILITY_PREFIX}'
+                            f'vol-cavity-{item.entity_id}'
+                        ),
+                        render=False,
+                    )
+
+        self.plotter.add_text(
+            preview.summary,
+            name=f'{self._INSTALL_FEASIBILITY_PREFIX}summary',
+            position='lower_right',
+            font_size=9,
+            color=DARK_THEME.text.secondary.hex,
+            render=False,
+        )
+        self.plotter.add_text(
+            preview.disclaimer,
+            name=f'{self._INSTALL_FEASIBILITY_PREFIX}disclaimer',
+            position='lower_left',
+            font_size=8,
+            color=DARK_THEME.text.secondary.hex,
+            render=False,
+        )
+        if preview.verdict_legend:
+            # add_legend has no render kwarg and renders internally;
+            # suppress so the compositing render ends in a single draw.
+            self.plotter.suppress_rendering = True
+            try:
+                self.plotter.add_legend(
+                    labels=list(preview.verdict_legend),
+                    loc='lower left',
+                    face='rectangle',
+                    size=(
+                        0.19,
+                        0.035 * len(preview.verdict_legend) + 0.02,
+                    ),
+                    bcolor=DARK_THEME.text.secondary.hex,
+                    border=False,
+                    background_opacity=0.55,
+                    name=f'{self._INSTALL_FEASIBILITY_PREFIX}legend',
+                )
+            finally:
+                self.plotter.suppress_rendering = False
         self._render()
 
     def _render_labels(self, document: SceneDocument, selected_id: str | None) -> None:
