@@ -1236,3 +1236,16 @@ entries:
   - docs/issues/issue-1008-fab-preview.md
   - backend/tests/test_issue_1008_fab_preview.py
   close_when_gates_clear: true
+
+- issue: 1078
+  lifecycle: acceptance_remaining
+  landed:
+    prs: [1079]
+    commits: [05034f54217b1efdaf21647b28f39412d1fcc8b8]
+  remaining_gates:
+  - kind: manual
+    description: 'オペレータ受入 — 設置済み化の実画面確認のみ (クラッシュ自体は解消、テスト済)'
+  evidence_refs:
+  - docs/issues/issue-1078-install-crash.md
+  - backend/tests/test_issue_1078_install_placement.py
+  close_when_gates_clear: true
