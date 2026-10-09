@@ -1,0 +1,106 @@
+{
+  "schema_version": "htdt.r130d.exact-roof-q0-exact-causal-time-multigrid-plan-1",
+  "date_jst": "2026-10-09",
+  "issue": 938,
+  "pr": 1055,
+  "objective": "Prospectively test true joint original full physical exact 56m3 cutcell roof M/K FV spatial solver with mathematically exact causal semidiscrete impulsive versus one-native-step constant-force time integration. All 5 real original HDF5 PPW grids, all generalized Neumann modes, frozen real q0 point nodes, full 250ms, original signed 40/80Hz gates. Contrast previously numerically executed exact-roof Newmark-CG wave and existing full eigenmode reconstruct.",
+  "frozen": {
+    "upstream_original_native_sha": "aa319f6c86517cb95aabfae8656277da62c3ead5",
+    "ppw": [
+      28,
+      32,
+      36,
+      40,
+      44
+    ],
+    "raw_original_source_receiver_and_voxel_sha_evidence": "benchmarks/acoustics/r130d_original_point_quadratic_pffdtd_evidence_2026-10-09.json",
+    "previous_real_exact_roof_CG_evidence": "benchmarks/acoustics/r130d_native_grid_exact_roof_mass_fv_q0_evidence_2026-10-09.json",
+    "source_m": [
+      1.5,
+      2,
+      2
+    ],
+    "receiver_m": [
+      2.5,
+      2,
+      2
+    ],
+    "true_original_eight_point_q0_input_hdf5": true,
+    "original_q0": "q[0]=1 all n>0 zero, original in_sigs[:,0], original native strength preserved",
+    "actual_native_each_dt_nt_h": true,
+    "exact_sloped_roof_volume_m3": 56,
+    "record_s": 0.25,
+    "signed_hz": [
+      40,
+      80
+    ],
+    "c_m_s": 343.2,
+    "rho_kg_m3": 1.2
+  },
+  "operator": {
+    "M": "physically exact unchanged diagonal cutcell mass",
+    "K": "unmodified exact room Neumann cutface FV stiffness, x tensor yz",
+    "spatial_eigenvalues": "all generalized M/K eigenvalues lambda_x+lambda_yz in 1/s²",
+    "source_receiver_coupling": "original 8node HDF5 weights against full mass-normalized exact x-yz eigenbasis, source impulse kick A=dt²*c²*coupling",
+    "all_true_modes_no_truncation": true,
+    "sliver_cell_high_eigenfrequencies_are_NOT_clamped_to_Nyquist": true,
+    "one_grid_no_fitting_or_amplitude_normalization": true
+  },
+  "arms": [
+    {
+      "id": "existing_exact_roof_newmark",
+      "mode": "previous true independent 250ms full-state CG wave baseline and all-mode Newmark beta=1/4 equivalent",
+      "amplitude": "A/(1+dt²*lambda/4)",
+      "theta": "2atan(dt*sqrt(lambda)/2)"
+    },
+    {
+      "id": "exact_roof_velocity_impulse",
+      "mode": "instantaneous causal velocity jump v(0+)=A/dt, exact semidiscrete oscillator then homogeneous",
+      "amplitude": "A",
+      "theta": "dt*sqrt(lambda)"
+    },
+    {
+      "id": "exact_roof_one_native_sample_hold",
+      "mode": "original one-sample q0=1 interpreted constant FV source acceleration A/dt² over [0,dt], exact forced oscillator then homogeneous",
+      "amplitude": "A",
+      "theta": "dt*sqrt(lambda)"
+    }
+  ],
+  "observer": {
+    "original_second_order_pressure_start_interior_end_native_samples": true,
+    "all_scored_original_full_250ms_40_80": true,
+    "do_not_extend_scored_sample_count": true,
+    "no_frequency_masks_no_modal_truncation_no_damping_no_smoothing_no_taper": true,
+    "allow_all_extremely_high_cutcell_eigenfrequencies_without_clamp": true,
+    "full_signed_real_imag_by_grid_by_arm": true
+  },
+  "predeclared_verification": {
+    "old_newmark_fullmode_vs_archived_real_CG_wave_rel_max": 0.00002,
+    "full_true_3d_neumann_matrix_tensor_identity_and_exact_volume": true,
+    "true_original_8node_input_sha_per_grid": true,
+    "all_3d_eigenmodes_retained": true,
+    "stable_geometric_phase_progression_with_modulo_2pi": true,
+    "zero_mode_exact_limits": true,
+    "original_frozen_complex_relative_limit": 0.2,
+    "original_frozen_magnitude_relative_limit": 0.25,
+    "original_frozen_max_phase_deg_limit": 15,
+    "all_four_adjacent_pairs_and_three_metrics": true,
+    "strict_monotonic_three_metrics_requirement": true,
+    "record_all_adverse_signed_bin_results": true,
+    "no_original_PFFDTD_native_requalification": true
+  },
+  "limits": {
+    "max_cases": 5,
+    "max_arms": 3,
+    "new_native_pffdtd_full_wave_runs": 0,
+    "new_github_actions_runs": 0,
+    "scratch_cleanup": false
+  },
+  "release": {
+    "canonical_original_PFFDTD_q0": "SELF_CONVERGENCE_FAILED",
+    "external_physical": "NOT_VALIDATED",
+    "product": "NO_GO",
+    "draft_pr": true,
+    "issue_open": true
+  }
+}
