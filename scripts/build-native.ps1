@@ -152,6 +152,10 @@ try {
         --collect-all pyvistaqt `
         --copy-metadata numpy `
         --copy-metadata h5py `
+        --copy-metadata PySide6 `
+        --copy-metadata pydantic `
+        --copy-metadata vtk `
+        --copy-metadata pyyaml `
         --distpath $OutputDir `
         --workpath (Join-Path $WorkRoot "build") `
         --specpath $WorkRoot `
