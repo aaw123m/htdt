@@ -652,10 +652,13 @@ def test_viewport_zoomed_out_suppresses_element_labels(
     scene = _resolve(fixture)
     viewport = RoomViewport3D()
     camera = viewport.plotter.camera
-    focal = camera.GetFocalPoint()
-    # Push the camera far beyond the zoomed-out threshold: labels (thin
+    # Push the visible world span far beyond the zoomed-out threshold
+    # using the app's own zoom model (parallel scale): labels (thin
     # per-element detail) disappear; fills + aggregate status remain.
-    camera.SetPosition(focal[0], focal[1] - 500.0, focal[2] + 200.0)
+    # Note: camera.GetDistance() is NOT the gate — the viewport zooms via
+    # SetParallelScale/camera.Zoom, so distance stays constant in-app.
+    camera.SetParallelProjection(1)
+    camera.SetParallelScale(50.0)
     viewport.render_survey_overlay(scene)
     names = [
         name
@@ -675,6 +678,21 @@ def test_viewport_near_zoom_shows_labels(tmp_path: Path) -> None:
     scene = _resolve(fixture)
     viewport = RoomViewport3D()
     camera = viewport.plotter.camera
+    # Near view under the app's parallel-projection zoom model: a small
+    # parallel scale means a tight visible span, so labels appear even
+    # though the camera distance itself is unchanged by wheel zoom.
+    camera.SetParallelProjection(1)
+    camera.SetParallelScale(2.0)
+    viewport.render_survey_overlay(scene)
+    assert any(
+        name.startswith('survey-overlay-labels')
+        for name in viewport.plotter.renderer.actors
+    )
+
+    # Perspective path: half-span = distance * tan(angle/2); a near camera
+    # under perspective also reveals the labels.
+    viewport.clear_survey_overlay()
+    camera.SetParallelProjection(0)
     focal = camera.GetFocalPoint()
     camera.SetPosition(focal[0], focal[1] - 6.0, focal[2] + 3.0)
     viewport.render_survey_overlay(scene)

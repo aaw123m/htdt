@@ -4081,7 +4081,17 @@ class RoomViewport3D(QFrame):
         zoomed_out = False
         if camera is not None:
             try:
-                zoomed_out = float(camera.GetDistance()) > max(
+                # Key on the visible world span, never camera distance:
+                # this viewport zooms via SetParallelScale / camera.Zoom,
+                # so GetDistance() does not track wheel zoom and would
+                # leave labels permanently suppressed or shown.
+                if camera.GetParallelProjection():
+                    visible_half = float(camera.GetParallelScale())
+                else:
+                    visible_half = float(camera.GetDistance()) * tan(
+                        radians(float(camera.GetViewAngle()) / 2.0)
+                    )
+                zoomed_out = visible_half > max(
                     scene.scene_diagonal_m * 2.5, 12.0
                 )
             except Exception:
