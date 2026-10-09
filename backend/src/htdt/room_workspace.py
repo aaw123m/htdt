@@ -4481,6 +4481,11 @@ class RoomWorkspace(QWidget):
         self.objects_panel.hideRequested.connect(self._objects_hidden)
         self.objects_panel.lockRequested.connect(self._objects_locked)
         self.objects_panel.deleteRequested.connect(self._objects_delete)
+        self.objects_panel.isolationRequested.connect(self._objects_isolate)
+        self.objects_panel.isolationClearRequested.connect(
+            self._objects_clear_isolation
+        )
+        self.objects_panel.focusRequested.connect(self._objects_focus)
         self.measure_controller = RoomMeasureController(self, self.viewport)
         self.measure_panel = RoomMeasurePanel(self.measure_controller)
         self.measure_controller.stateChanged.connect(self._measure_state_changed)
@@ -5436,6 +5441,7 @@ class RoomWorkspace(QWidget):
             self._pre_isolation_hidden = set(self.controller.view_state.hidden_ids)
         self.controller.isolate_entities(set(selection))
         self._render()
+        self._sync_objects_panel()
         self._set_status("選択項目のみ表示しています")
         return True
 
@@ -5456,6 +5462,7 @@ class RoomWorkspace(QWidget):
             self._pre_isolation_hidden = set(self.controller.view_state.hidden_ids)
         self.controller.isolate_entities(keep)
         self._render()
+        self._sync_objects_panel()
         self._set_status(
             f"「{SelectionInspector.KIND_LABELS.get(kind, kind)}」のみ表示しています"
         )
@@ -5467,6 +5474,7 @@ class RoomWorkspace(QWidget):
         self.controller.set_hidden_ids(self._pre_isolation_hidden)
         self._pre_isolation_hidden = None
         self._render()
+        self._sync_objects_panel()
         self._set_status("分離を解除しました")
         return True
 
@@ -6720,6 +6728,7 @@ class RoomWorkspace(QWidget):
             hidden_ids=frozenset(self.controller.view_state.hidden_ids),
             locked_ids=frozenset(self.controller.view_state.locked_ids),
             kind_labels=SelectionInspector.KIND_LABELS,
+            isolation_active=self._pre_isolation_hidden is not None,
         )
 
     def _objects_selection(self, entity_ids: object, primary_id: object) -> None:
@@ -6775,6 +6784,15 @@ class RoomWorkspace(QWidget):
         if changed:
             self._refresh()
             self._set_status(f"{changed} 項目を削除しました（元に戻せます）")
+
+    def _objects_isolate(self) -> None:
+        self.isolate_selection()
+
+    def _objects_clear_isolation(self) -> None:
+        self.clear_isolation()
+
+    def _objects_focus(self) -> None:
+        self.fit_selection()
 
     # -- constraints (#486) ------------------------------------------------------------
 
