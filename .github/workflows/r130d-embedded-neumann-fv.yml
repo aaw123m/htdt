@@ -17,6 +17,9 @@ on:
       - 'backend/tests/test_r130d_exact_discrete_impulse_evidence.py'
       - 'backend/tests/test_r130d_impulse_time_refinement.py'
       - 'backend/tests/test_r130d_impulse_source_moment_evidence.py'
+      - 'backend/tests/test_r130d_sloped_neumann_modal_spectrum.py'
+      - 'benchmarks/acoustics/r130d_sloped_neumann_modal_spectrum_*'
+      - 'scripts/run_r130d_sloped_neumann_modal_spectrum.py'
       - 'benchmarks/acoustics/r130d_impulse_source_moment_*'
       - 'scripts/run_r130d_impulse_source_moment_probe.py'
       - 'benchmarks/acoustics/r130d_exact_discrete_impulse_*'
@@ -92,6 +95,7 @@ jobs:
           Copy-Item backend/tests/test_r130d_exact_discrete_impulse_evidence.py scratch/tests/
           Copy-Item backend/tests/test_r130d_impulse_time_refinement.py scratch/tests/
           Copy-Item backend/tests/test_r130d_impulse_source_moment_evidence.py scratch/tests/
+          Copy-Item backend/tests/test_r130d_sloped_neumann_modal_spectrum.py scratch/tests/
           Copy-Item backend/tests/test_r130d_convex_multiplane_evidence.py scratch/tests/
           Copy-Item backend/tests/test_r130d_embedded_neumann_fv_evidence.py scratch/tests/
           Copy-Item backend/tests/test_r130d_fv_mfem_same_drive.py scratch/tests/
@@ -99,7 +103,7 @@ jobs:
           Copy-Item backend/tests/test_r130d_mfem_ref4_same_drive.py scratch/tests/
           Copy-Item backend/tests/test_r130d_mfem_ref4_same_source_result.py scratch/tests/
           $env:PYTHONPATH = Join-Path $pwd 'backend/src'
-          python -m pytest -q scratch/tests/test_r130d_impulse_source_moment_evidence.py scratch/tests/test_r130d_discrete_source_wave.py scratch/tests/test_r130d_exact_discrete_impulse_evidence.py scratch/tests/test_r130d_impulse_time_refinement.py scratch/tests/test_r130d_convex_independent_mfem_contract.py scratch/tests/test_r130d_convex_mfem_actual_evidence.py scratch/tests/test_r130d_convex_obj_import.py scratch/tests/test_r130d_convex_sliver_and_optin.py scratch/tests/test_r130d_convex_high_resolution_evidence.py scratch/tests/test_r130d_embedded_convex_cutcell.py scratch/tests/test_r130d_convex_multiplane_evidence.py scratch/tests/test_r130d_embedded_neumann_fv.py scratch/tests/test_r130d_embedded_neumann_fv_evidence.py scratch/tests/test_r130d_fv_mfem_same_drive.py scratch/tests/test_r130d_candidate_same_source_qualification.py scratch/tests/test_r130d_mfem_ref4_same_drive.py scratch/tests/test_r130d_mfem_ref4_same_source_result.py --tb=short
+          python -m pytest -q scratch/tests/test_r130d_sloped_neumann_modal_spectrum.py scratch/tests/test_r130d_impulse_source_moment_evidence.py scratch/tests/test_r130d_discrete_source_wave.py scratch/tests/test_r130d_exact_discrete_impulse_evidence.py scratch/tests/test_r130d_impulse_time_refinement.py scratch/tests/test_r130d_convex_independent_mfem_contract.py scratch/tests/test_r130d_convex_mfem_actual_evidence.py scratch/tests/test_r130d_convex_obj_import.py scratch/tests/test_r130d_convex_sliver_and_optin.py scratch/tests/test_r130d_convex_high_resolution_evidence.py scratch/tests/test_r130d_embedded_convex_cutcell.py scratch/tests/test_r130d_convex_multiplane_evidence.py scratch/tests/test_r130d_embedded_neumann_fv.py scratch/tests/test_r130d_embedded_neumann_fv_evidence.py scratch/tests/test_r130d_fv_mfem_same_drive.py scratch/tests/test_r130d_candidate_same_source_qualification.py scratch/tests/test_r130d_mfem_ref4_same_drive.py scratch/tests/test_r130d_mfem_ref4_same_source_result.py --tb=short
       - name: Recompute modal benchmark and compare frozen evidence
         shell: pwsh
         env:
