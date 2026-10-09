@@ -1,0 +1,128 @@
+name: R130D preregistered spatial Gaussian q0 impulse diagnosis
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/r130d-fixed-spatial-kernel-impulse.yml'
+      - 'benchmarks/acoustics/r130d_fixed_spatial_kernel*'
+      - 'benchmarks/acoustics/r130d_mfem_reference/sloped_spatial_gaussian_functionals.cpp'
+      - 'benchmarks/acoustics/r130d_mfem_reference/CMakeLists.txt'
+      - 'backend/tests/test_r130d_fixed_spatial_kernel.py'
+      - 'scripts/run_r130d_fixed_spatial_kernel.py'
+  workflow_dispatch:
+concurrency:
+  group: r130d-fixed-gaussian-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+jobs:
+  gaussian-source-and-receiver:
+    runs-on: windows-2022
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Checkout preregistered plan
+        uses: actions/checkout@v4
+      - name: Pinned Python runtime
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pinned numerical dependencies and execute kernel regression
+        env:
+          PYTHONUTF8: '1'
+        run: |
+          python -m pip install --disable-pip-version-check numpy==1.26.4 scipy==1.14.1 pytest==8.4.2 pydantic==2.11.9
+          if ($LASTEXITCODE -ne 0) { throw 'numerical runtime unavailable' }
+          New-Item -ItemType Directory -Force scratch/tests, scratch/gaussian-functional | Out-Null
+          Copy-Item backend/tests/test_r130d_fixed_spatial_kernel.py scratch/tests/
+          $env:PYTHONPATH = Join-Path $pwd 'backend/src'
+          python -m pytest -q scratch/tests/test_r130d_fixed_spatial_kernel.py --tb=short
+          if ($LASTEXITCODE -ne 0) { throw 'preregistered Gaussian regression failed' }
+      - name: Fetch pinned independent MFEM C++ authority
+        run: |
+          git clone --filter=blob:none https://github.com/mfem/mfem.git _mfem-source
+          if ($LASTEXITCODE -ne 0) { throw 'MFEM clone failed' }
+          git -C _mfem-source checkout d964264cdb9a13e94a201b6c236c7721e0c8765f
+          if ((git -C _mfem-source rev-parse HEAD).Trim() -ne 'd964264cdb9a13e94a201b6c236c7721e0c8765f') {
+            throw 'MFEM commit does not match preregistered pin'
+          }
+      - name: Build independent P2 Gaussian spatial integral reference
+        run: |
+          $root = (Resolve-Path '_mfem-source').Path
+          cmake -S benchmarks/acoustics/r130d_mfem_reference -B _mfem-build -G "Visual Studio 17 2022" -A x64 "-DHTDT_MFEM_SOURCE_DIR=$root"
+          if ($LASTEXITCODE -ne 0) { throw 'MFEM configure failed' }
+          cmake --build _mfem-build --config Release --target r130d_mfem_gaussian_functionals --parallel 4
+          if ($LASTEXITCODE -ne 0) { throw 'MFEM Gaussian functional C++ build failed' }
+      - name: Assemble high-order source and receiver on P2 r2 r3 r4
+        run: |
+          foreach ($ref in @(2,3,4)) {
+            & _mfem-build/Release/r130d_mfem_gaussian_functionals.exe --refinement $ref --output "scratch/gaussian-functional/mfem-gaussian-r$ref.json"
+            if ($LASTEXITCODE -ne 0) { throw "P2 integral assembly failed r$ref" }
+          }
+      - name: Actually drive six FV and six independent P2 impulses at 40 and 80 Hz
+        env:
+          PYTHONUTF8: '1'
+          PYTHONIOENCODING: utf-8
+        run: |
+          $env:PYTHONPATH = Join-Path $pwd 'backend/src'
+          python -u scripts/run_r130d_fixed_spatial_kernel.py `
+            --plan benchmarks/acoustics/r130d_fixed_spatial_kernel_plan_2026-10-09.json `
+            --systems benchmarks/acoustics/r130d_mfem_independent_sparse_systems `
+            --functionals scratch/gaussian-functional `
+            --output scratch/gaussian-functional/full_spatial_kernel_evidence.json
+          if ($LASTEXITCODE -ne 0) { throw 'independent full Gaussian wave replay failed' }
+      - name: Require all values, hashes, true residuals and canonical NO_GO
+        env:
+          PYTHONUTF8: '1'
+        run: |
+          @'
+          import json,math
+          from pathlib import Path
+          from scripts.run_r130d_exact_discrete_impulse_candidate import HASHES,DOFS
+          x=json.loads(Path('scratch/gaussian-functional/full_spatial_kernel_evidence.json').read_text())
+          assert x['mfem_status']=='ACTUALLY_SOLVED'
+          assert x['original_fullband_PFFDTD']=='SELF_CONVERGENCE_FAILED'
+          assert x['original_discrete_impulse_candidate']=='NOT_QUALIFIED'
+          assert x['production_ready'] is False
+          assert x['physical_validation']=='NOT_VALIDATED'
+          assert x['spatial_model_changed_from_original_point_source'] is True
+          assert sorted(x['fv_levels'])==['0.35','0.7']
+          assert sorted(x['mfem_levels'])==['0.35','0.7']
+          for sigma in ('0.35','0.7'):
+              f=x['fv_levels'][sigma]
+              m=x['mfem_levels'][sigma]
+              assert [v['n'] for v in f]==[12,20,32]
+              assert [v['r'] for v in m]==[2,3,4]
+              for v in f+m:
+                  assert v['sampled_time_impulse_q0_only'] is True
+                  assert v['worst_true_relative_linear_residual']<=1e-8
+                  assert len(v['complex_40_80_hz'])==2
+                  assert len(v['magnitude_40_80_hz'])==2
+                  assert len(v['phase_deg_40_80_hz'])==2
+                  assert all(math.isfinite(t) for z in v['complex_40_80_hz'] for t in z)
+                  assert all(math.isfinite(t) for t in v['magnitude_40_80_hz']+v['phase_deg_40_80_hz'])
+              for v in m:
+                  assert v['mfem_reference_raw_sha256']==HASHES[v['r']]
+                  assert v['dofs']==DOFS[v['r']]
+              c=x['comparisons'][sigma]
+              assert len(c['fv_adjacent'])==len(c['mfem_adjacent'])==2
+              for comparison in c['fv_adjacent']+c['mfem_adjacent']+[c['cross_finest']]:
+                  assert math.isfinite(comparison['normalized_complex_l2'])
+                  for name in ('phase_difference_deg_by_hz','magnitude_relative_by_hz'):
+                      assert len(comparison[name])==2
+                      assert all(math.isfinite(t) for t in comparison[name])
+              print('ALL VALUES sigma',sigma,'FV last',c['fv_adjacent'][-1],
+                    'MFEM last',c['mfem_adjacent'][-1], 'cross',c['cross_finest'])
+          print('PASS complete independent numerical evidence; canonical still FAIL, production NO_GO')
+          '@ | python -
+          if ($LASTEXITCODE -ne 0) { throw 'missing physical evidence / unfaithful verdict' }
+      - name: Archive raw wave metrics and independent spatial integrals even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: r130d-preregistered-fixed-spatial-kernel-wave
+          path: |
+            scratch/gaussian-functional/*.json
+          if-no-files-found: warn
+          retention-days: 30
