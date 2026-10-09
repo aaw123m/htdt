@@ -550,7 +550,10 @@ class CableRunWaypointController(QObject):
             )
             return False
         label = inspection.label
-        segments = len(self._staged)
+        # Report what the record actually contains — the merged snapshot's
+        # segment count and total geometric length, not just this
+        # session's staged slice.
+        segments = len(geometry.segment_geometries)
         self._teardown()
         self.workspace._set_status(
             f'{label} の経路を保存しました（{segments}区間・'
