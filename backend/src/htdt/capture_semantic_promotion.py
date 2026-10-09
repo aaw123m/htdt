@@ -1329,7 +1329,7 @@ class CaptureSemanticPromotionRepository:
             )
             connection.execute('DROP TABLE capture_semantic_promotions_legacy')
             connection.commit()
-        except Exception:
+        except Exception:  # error-boundary: migration atomicity — rollback must run on any failure before the original error re-raises (noqa: BLE001)
             connection.rollback()
             raise
 
@@ -1486,7 +1486,7 @@ class CaptureSemanticPromotionRepository:
                     ),
                 )
                 connection.commit()
-            except Exception:
+            except Exception:  # error-boundary: compose atomicity — rollback must run on any failure before the original error re-raises (noqa: BLE001)
                 connection.rollback()
                 raise
 
@@ -2059,7 +2059,7 @@ class CaptureSemanticPromotionRepository:
                     ),
                 )
                 connection.commit()
-            except Exception:
+            except Exception:  # error-boundary: promote atomicity — rollback must run on any failure before the original error re-raises (noqa: BLE001)
                 connection.rollback()
                 raise
 

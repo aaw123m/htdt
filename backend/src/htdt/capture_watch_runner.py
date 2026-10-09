@@ -75,6 +75,11 @@ from .capture_watch_guard import (
     staged_capture_drop,
     sweep_stale_staging,
 )
+from .error_boundary import (
+    EXPECTED_OPERATION_ERRORS,
+    is_authority_failure,
+    report_boundary_failure,
+)
 from .launch_intents import build_launch_intent
 from .launch_router import route_capture_intent
 from .native_worker import NativeWorkerPool, WORKER_CANCELLED
@@ -342,9 +347,12 @@ class CaptureWatchRunner(QObject):
                 self._preferences.get('integrations.capture_watch_dir')
                 or ''
             ).strip()
-        except Exception:
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: preference probe — expected store failures fail closed (no watch dir) and report; sealed-store failures and bugs propagate to diagnostics
             # A store that cannot answer must fail closed — watching a
             # guessed path would stage the wrong files.
+            if is_authority_failure(exc):
+                raise
+            report_boundary_failure(exc, operation='キャプチャ監視ディレクトリ設定の読み取り')
             return ''
 
     def _tick(self) -> None:
@@ -465,7 +473,7 @@ class CaptureWatchRunner(QObject):
                     results.append((path, None, exc.reason))
                     succeeded = False
                     stage_reason = exc.reason
-                except Exception as exc:  # never let one drop kill the lane
+                except Exception as exc:  # error-boundary: per-drop routing — one poison drop must not kill the scan lane; the failure identity is logged and the drop is recorded with its reason (noqa: BLE001)
                     _LOGGER.exception(
                         'capture watch routing raised for %s', path
                     )
@@ -542,7 +550,7 @@ class CaptureWatchRunner(QObject):
                     lambda key, gen=generation: self._job_finished(key, gen)
                 ),
             )
-        except Exception:
+        except Exception:  # error-boundary: in-flight flag reset — a raise must not wedge ``_in_flight`` (the lane would silently stop); any failure type resets it before re-raising (noqa: BLE001)
             self._in_flight = False
             self._in_flight_since = None
             raise

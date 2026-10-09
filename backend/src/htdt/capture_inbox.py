@@ -28,6 +28,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from .cad_repository import SceneRepository
 from .cad_schema import ensure_native_schema, require_native_tables, connect_sqlite
+from .error_boundary import EXPECTED_OPERATION_ERRORS, is_authority_failure
 from .capture_ingestion_transaction import (
     CaptureIngestionPlan,
     CaptureIngestionRepository,
@@ -769,7 +770,7 @@ class CaptureInboxRepository:
                     created=True,
                     outcome='staged',
                 )
-            except Exception:
+            except Exception:  # error-boundary: stage atomicity — rollback must run on any failure before the original error re-raises (noqa: BLE001)
                 connection.rollback()
                 raise
 
@@ -915,7 +916,7 @@ class CaptureInboxRepository:
                     created=True,
                     outcome='staged',
                 )
-            except Exception:
+            except Exception:  # error-boundary: stage atomicity — rollback must run on any failure before the original error re-raises (noqa: BLE001)
                 connection.rollback()
                 raise
 
@@ -961,7 +962,9 @@ class CaptureInboxRepository:
                 )
                 if staged.created:
                     recovered.append(staged.item)
-            except Exception:
+            except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: per-digest restage — expected failures are logged and the sweep continues; sealed-store failures and bugs propagate instead of reporting a partial recovery as complete
+                if is_authority_failure(exc):
+                    raise
                 _LOGGER.exception(
                     'could not restage orphaned ingestion %s', digest
                 )
@@ -1380,7 +1383,7 @@ class CaptureInboxRepository:
                 updated = self._row(connection, lineage_digest)
                 connection.commit()
                 return self._item_from_row(updated)
-            except Exception:
+            except Exception:  # error-boundary: transaction atomicity — rollback must run on any failure before the original error re-raises (noqa: BLE001)
                 connection.rollback()
                 raise
 
@@ -1707,7 +1710,7 @@ class CaptureInboxRepository:
                     detail=record['detail'],
                     promoted_at_utc=record['promoted_at_utc'],
                 )
-            except Exception:
+            except Exception:  # error-boundary: transaction atomicity — rollback must run on any failure before the original error re-raises (noqa: BLE001)
                 connection.rollback()
                 raise
 
@@ -1765,7 +1768,7 @@ class CaptureInboxRepository:
             if executor is not None:
                 try:
                     created_id = executor(plan, kind)
-                except Exception as exc:  # record the block, keep going
+                except Exception as exc:  # error-boundary: per-authority promotion — any executor failure is sealed as the kind's blocked record with its reason; the batch keeps its honest per-kind outcomes (noqa: BLE001)
                     records.append(
                         self.record_blocked(lineage_digest, kind, str(exc))
                     )
@@ -1898,7 +1901,7 @@ class CaptureInboxRepository:
                     reason=row['reason'],
                     created_at_utc=row['created_at_utc'],
                 )
-            except Exception:
+            except Exception:  # error-boundary: transaction atomicity — rollback must run on any failure before the original error re-raises (noqa: BLE001)
                 connection.rollback()
                 raise
 
@@ -1994,7 +1997,7 @@ class CaptureInboxRepository:
                     note=row['note'],
                     created_at_utc=row['created_at_utc'],
                 )
-            except Exception:
+            except Exception:  # error-boundary: transaction atomicity — rollback must run on any failure before the original error re-raises (noqa: BLE001)
                 connection.rollback()
                 raise
 

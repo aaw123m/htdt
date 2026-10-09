@@ -207,7 +207,7 @@ class CadObjectiveRepository:
         while not scan.exhausted:
             try:
                 page = next(scan.pages, None)
-            except Exception as exc:
+            except Exception as exc:  # error-boundary: page-scan — the failure is recorded on the scan so the membership contract can re-raise it identically for every later caller (noqa: BLE001)
                 scan.error = exc
                 raise
             if page is None:

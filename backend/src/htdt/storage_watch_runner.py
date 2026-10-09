@@ -25,6 +25,11 @@ from pathlib import Path
 
 from PySide6.QtCore import QObject, QTimer, Signal
 
+from .error_boundary import (
+    EXPECTED_OPERATION_ERRORS,
+    is_authority_failure,
+    report_boundary_failure,
+)
 from .native_worker import NativeWorkerPool, WORKER_CANCELLED
 from .storage_maintenance import plan_storage_gc
 
@@ -92,7 +97,10 @@ class StorageWatchRunner(QObject):
             return bool(
                 self._preferences.get('maintenance.storage_watch_enabled')
             )
-        except Exception:
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: preference probe — expected store failures fail closed (off) and report; sealed-store failures and bugs propagate to diagnostics
+            if is_authority_failure(exc):
+                raise
+            report_boundary_failure(exc, operation='ストレージ監視設定の読み取り')
             return False
 
     def _tick(self) -> None:
@@ -119,7 +127,7 @@ class StorageWatchRunner(QObject):
                 self._on_completed,
                 on_finished=self._job_finished,
             )
-        except Exception:
+        except Exception:  # error-boundary: in-flight flag reset — a raise must not wedge ``_in_flight`` (later ticks would be absorbed forever); any failure type resets it before re-raising (noqa: BLE001)
             # A raise must not wedge ``_in_flight`` — later ticks would be
             # absorbed forever and the feature would silently stop.
             self._in_flight = False

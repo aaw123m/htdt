@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import atexit
+import logging
 import time
 import weakref
 from collections.abc import Callable
@@ -10,6 +11,7 @@ from threading import Event
 from PySide6.QtCore import QObject, QThread, Signal, Slot
 from shiboken6 import isValid
 
+_LOGGER = logging.getLogger('htdt.native_worker')
 
 #: Cooperative shutdown budget shared by every native worker pool. It keeps
 #: the 1.8 s per-task wait the duplicated prediction/search/REW paths used to
@@ -54,7 +56,7 @@ class NativeWorker(QObject):
             return
         try:
             result = self.operation(self.cancel_event)
-        except Exception as exc:
+        except Exception as exc:  # error-boundary: job dispatch — every operation failure must cross the thread boundary as the completion payload; the exception object preserves the consumer's type mapping (noqa: BLE001)
             if self.cancel_event.is_set():
                 self.completed.emit(self.key, None, WORKER_CANCELLED)
             else:
@@ -187,8 +189,8 @@ def _drain_worker_threads_at_exit() -> None:
     """
     try:
         drain_worker_threads()
-    except Exception:
-        pass
+    except Exception:  # error-boundary: exit teardown — drain must never raise into interpreter teardown; the failure identity is logged (noqa: BLE001)
+        _LOGGER.exception('worker drain at interpreter exit failed')
 
 
 atexit.register(_drain_worker_threads_at_exit)

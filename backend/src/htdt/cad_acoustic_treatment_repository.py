@@ -105,7 +105,7 @@ class CadAcousticTreatmentRepository:
                         len(data),
                     ),
                 )
-        except Exception:
+        except Exception:  # error-boundary: orphan cleanup — a failed row insert must not leave a managed asset file behind; any failure type unlinks before re-raising (noqa: BLE001)
             if created_asset_file:
                 target.unlink(missing_ok=True)
             raise

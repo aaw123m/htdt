@@ -650,7 +650,7 @@ class ConnectedSpacePromotionRepository:
                     staged_at_utc=staged_at,
                     created=True,
                 )
-            except Exception:
+            except Exception:  # error-boundary: stage atomicity — rollback must run on any failure before the original error re-raises (noqa: BLE001)
                 connection.rollback()
                 raise
 
@@ -851,7 +851,7 @@ class ConnectedSpacePromotionRepository:
             )
             connection.commit()
             return model
-        except Exception:
+        except Exception:  # error-boundary: persist atomicity — rollback must run on any failure before the original error re-raises (noqa: BLE001)
             connection.rollback()
             raise
         finally:

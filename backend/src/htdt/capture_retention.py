@@ -794,7 +794,7 @@ class CaptureRetentionService:
                         'post-purge foreign-key check failed; rolling back'
                     )
                 connection.commit()
-            except Exception:
+            except Exception:  # error-boundary: purge atomicity — rollback must run on any failure before the original error re-raises (noqa: BLE001)
                 connection.rollback()
                 raise
         return plan

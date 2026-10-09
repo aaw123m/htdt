@@ -28,6 +28,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import json
+import logging
 from hashlib import sha256
 from pathlib import Path
 
@@ -46,6 +47,9 @@ from htdt.capture_reference import (
     CaptureIngestionContractError,
     build_ingestion_plan,
 )
+
+
+_LOGGER = logging.getLogger('htdt.capture_import')
 
 
 class CaptureImportError(ValueError):
@@ -132,10 +136,10 @@ def import_capture_artifact(
                 arrival_source=arrival_source,
                 source_detail=str(artifact),
             )
-        except Exception:
+        except Exception:  # error-boundary: audit staging — a failed rejection-stage must never replace the import's own verdict (the caller still gets the original rejection); the failure identity is logged (noqa: BLE001)
             # Staging is audit, never the reason an import fails — the
             # original rejection is still reported to the caller.
-            pass
+            _LOGGER.exception('rejected-artifact audit staging failed')
 
     try:
         frozen = FrozenBundle(artifact)
@@ -263,7 +267,7 @@ def main(argv: list[str] | None = None) -> int:
             arrival_source='cli_import',
             source_detail=str(args.artifact),
         )
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:  # error-boundary: CLI inbox staging — bookkeeping, never the import's success criterion; any failure type warns on stderr with the reason (noqa: BLE001)
         print(
             json.dumps({'warning': f'inbox staging failed: {exc}'}),
             file=sys.stderr,

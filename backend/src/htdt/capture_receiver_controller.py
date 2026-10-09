@@ -20,6 +20,11 @@ from .application_preferences import (
 )
 from .cad_repository import SceneRepository
 from .capture_receiver import CaptureReceiverService, ReceiverDeliveryRecord
+from .error_boundary import (
+    EXPECTED_OPERATION_ERRORS,
+    is_authority_failure,
+    report_boundary_failure,
+)
 from .user_facing_error import operation_error_message
 
 
@@ -118,7 +123,9 @@ class CaptureReceiverController(QObject):
     def _stop(self) -> str | None:
         try:
             self.service.stop()
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: service stop — never raises inside a store notification; expected failures surface on last_error like a failed start, authority failures and bugs propagate
+            if is_authority_failure(exc):
+                raise
             # Never raise inside a store notification — surface it like a
             # failed start instead.
             self.last_error = operation_error_message(exc)
@@ -139,7 +146,9 @@ class CaptureReceiverController(QObject):
             return self.last_error
         try:
             self.service.start()
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: service start — expected failures surface on last_error with their reason; authority failures and bugs propagate
+            if is_authority_failure(exc):
+                raise
             self.last_error = operation_error_message(exc)
             _LOGGER.warning('capture receiver failed to start: %s', exc)
             self.changed.emit()
@@ -153,7 +162,7 @@ class CaptureReceiverController(QObject):
         self._shutdown_requested = True
         try:
             self.service.stop()
-        except Exception as exc:
+        except Exception as exc:  # error-boundary: shutdown teardown — a stop failure during app exit must not abort remaining teardown; the failure identity is logged (noqa: BLE001)
             _LOGGER.warning('capture receiver failed to stop: %s', exc)
 
     # -- status -----------------------------------------------------------
@@ -162,7 +171,10 @@ class CaptureReceiverController(QObject):
         """Effective receiver state for Settings/Support surfaces."""
         try:
             config = self.service.get_config()
-        except Exception:
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: status probe — expected failures report and degrade to fewer lines; authority failures and bugs propagate
+            if is_authority_failure(exc):
+                raise
+            report_boundary_failure(exc, operation='キャプチャ受信設定の読み取り')
             config = None
         if self.running:
             state = '有効（待受中）'
@@ -182,7 +194,10 @@ class CaptureReceiverController(QObject):
                     for pairing in self.service.list_pairings()
                     if pairing.state == 'active'
                 )
-            except Exception:
+            except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: pairing-count probe — expected failures report and degrade to 0; authority failures and bugs propagate
+                if is_authority_failure(exc):
+                    raise
+                report_boundary_failure(exc, operation='ペアリング一覧の読み取り')
                 active = 0
             lines.append(f'ペアリング済みデバイス: {active} 台')
         if self.last_error:

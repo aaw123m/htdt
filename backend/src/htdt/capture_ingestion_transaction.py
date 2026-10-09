@@ -443,7 +443,7 @@ def _repoint_lineage_parent(
                 'unresolved foreign keys remain'
             )
         connection.commit()
-    except Exception:
+    except Exception:  # error-boundary: retarget atomicity — rollback must run on any failure before the original error re-raises (noqa: BLE001)
         if connection.in_transaction:
             connection.rollback()
         raise
@@ -1654,7 +1654,7 @@ class CaptureIngestionRepository:
                 'DROP TABLE capture_ingestion_runs_legacy'
             )
             connection.commit()
-        except Exception:
+        except Exception:  # error-boundary: migration atomicity — rollback must run on any failure before the original error re-raises (noqa: BLE001)
             connection.rollback()
             raise
 
@@ -2314,7 +2314,7 @@ class CaptureIngestionRepository:
                     )
 
                 connection.commit()
-            except Exception:
+            except Exception:  # error-boundary: ingest atomicity — rollback must run on any failure before the original error re-raises (and the conflict outcome persists on its own transaction) (noqa: BLE001)
                 connection.rollback()
                 if revision_conflict is not None:
                     self._persist_revision_conflict_outcome(

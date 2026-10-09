@@ -509,7 +509,7 @@ class CaptureWatchFailureQueue:
                 with os.fdopen(descriptor, 'w', encoding='utf-8') as file:
                     json.dump(payload, file, ensure_ascii=False, indent=1)
                 os.replace(temp_name, self._path)
-            except BaseException:
+            except BaseException:  # error-boundary: temp-file cleanup — the staging temp must be unlinked on ANY failure (including KeyboardInterrupt) before the original error re-raises (noqa: BLE001)
                 Path(temp_name).unlink(missing_ok=True)
                 raise
         except OSError:
@@ -579,7 +579,7 @@ def write_watch_failure_diagnostic(
         with os.fdopen(descriptor, 'w', encoding='utf-8') as file:
             json.dump(payload, file, ensure_ascii=False, indent=1)
         os.replace(temp_name, destination)
-    except BaseException:
+    except BaseException:  # error-boundary: temp-file cleanup — the diagnostic temp must be unlinked on ANY failure (including KeyboardInterrupt) before the original error re-raises (noqa: BLE001)
         Path(temp_name).unlink(missing_ok=True)
         raise
     return destination

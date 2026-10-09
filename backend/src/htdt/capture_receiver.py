@@ -69,6 +69,7 @@ from .capture_mission import (
     mission_package_descriptor,
     mission_package_wire_payload,
 )
+from .error_boundary import EXPECTED_OPERATION_ERRORS, is_authority_failure
 from .field_return_ingestion import (
     FieldReturnConflictError,
     FieldReturnRepository,
@@ -883,11 +884,11 @@ class CaptureReceiverService:
                         source_detail=f'pairing {pairing.pairing_id}',
                         capture_revision_id=capture_revision_id or 'unknown',
                     )
-                except Exception:
+                except Exception:  # error-boundary: audit staging — a failed rejection-stage must never change the wire outcome (the delivery-ledger row still records the rejection); the failure identity is logged (noqa: BLE001)
                     # Envelope staging is audit, never a reason to change
                     # the wire outcome — the delivery-ledger row still
                     # records the rejection below.
-                    pass
+                    _LOGGER.exception('rejected-envelope audit staging failed')
             try:
                 self._record_delivery(
                     pairing=pairing,
@@ -1010,7 +1011,9 @@ class CaptureReceiverService:
             manifest = parts[2] if len(parts) > 2 else None
             if not isinstance(plan, CaptureIngestionPlan):
                 plan = CaptureIngestionPlan.model_validate(plan)
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: bundle read — expected parse/validation failures reject honestly with their reason; sealed-store failures and bugs propagate instead of a falsified 'bad bundle' verdict
+            if is_authority_failure(exc):
+                raise
             return reject(
                 f'capture bundle could not be read: {exc}',
                 stage_envelope=True,
@@ -1034,7 +1037,9 @@ class CaptureReceiverService:
             self.ingestion_repository.ingest(
                 plan, payloads, manifest=manifest
             )
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: ingest — expected failures reject honestly with their reason; sealed-store failures and bugs propagate instead of a falsified 'failed ingestion' verdict
+            if is_authority_failure(exc):
+                raise
             return reject(
                 f'capture bundle failed ingestion: {exc}',
                 stage_envelope=True,
@@ -1048,7 +1053,9 @@ class CaptureReceiverService:
                 scope=scope,
                 source_detail=f'pairing {pairing.pairing_id}',
             )
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: inbox staging — expected failures reject honestly with their reason; sealed-store failures and bugs propagate instead of a falsified 'failed staging' verdict
+            if is_authority_failure(exc):
+                raise
             return reject(f'capture bundle failed inbox staging: {exc}')
 
         record = self._record_delivery(
@@ -1080,7 +1087,7 @@ class CaptureReceiverService:
         ):
             try:
                 self._delivery_listener(record)
-            except Exception:
+            except Exception:  # error-boundary: delivery listener — the delivery is already committed; a listener failure must not falsify the wire receipt, so any failure type logs and the 200 stands (noqa: BLE001)
                 _LOGGER.exception('capture delivery listener failed')
         return 200, self._receipt_for(record)
 
@@ -1113,7 +1120,9 @@ class CaptureReceiverService:
                 channel_project_ref=pairing.project_ref,
                 declared_content_digest=artifact_digest,
             )
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: field-return staging — expected failures log and reject honestly; sealed-store failures and bugs propagate instead of a falsified 'could not be staged' verdict
+            if is_authority_failure(exc):
+                raise
             _LOGGER.exception('field return staging failed')
             return reject(f'field return could not be staged: {exc}')
 
@@ -1152,7 +1161,9 @@ class CaptureReceiverService:
             return reject(
                 f'field return contribution conflict: {exc}'
             )
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: field-return stage — expected failures log and reject honestly; sealed-store failures and bugs propagate instead of a falsified 'could not be staged' verdict
+            if is_authority_failure(exc):
+                raise
             _LOGGER.exception('field return staging failed')
             return reject(f'field return could not be staged: {exc}')
 
@@ -1190,7 +1201,7 @@ class CaptureReceiverService:
         ):
             try:
                 self._delivery_listener(record)
-            except Exception:
+            except Exception:  # error-boundary: delivery listener — the delivery is already committed; a listener failure must not falsify the wire receipt, so any failure type logs and the 200 stands (noqa: BLE001)
                 _LOGGER.exception('field return delivery listener failed')
         return 200, self._receipt_for(record)
 
@@ -1870,7 +1881,7 @@ class CaptureReceiverService:
             return bound
         try:
             receipt = json.loads(body.decode('utf-8'))
-        except Exception:
+        except (UnicodeDecodeError, json.JSONDecodeError):  # error-boundary: wire parse — a non-JSON receipt body is a client rejection; any other decode failure is a bug and propagates
             return 400, {'detail': 'receipt is not valid JSON'}
         if not isinstance(receipt, dict):
             return 400, {'detail': 'receipt is not a JSON object'}

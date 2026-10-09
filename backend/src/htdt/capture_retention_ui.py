@@ -34,6 +34,11 @@ from .capture_retention import (
     CaptureRetentionService,
     CaptureRevisionListing,
 )
+from .error_boundary import (
+    EXPECTED_OPERATION_ERRORS,
+    is_authority_failure,
+    report_boundary_failure,
+)
 from .tree_item_role import ROLE as _REVISION_ROLE
 from .ui_theme import (
     ControlSize,
@@ -319,7 +324,10 @@ class RetentionPolicyWidget(QWidget):
         try:
             inventory = self._service.inventory()
             self._revisions = list(self._service.list_capture_revisions())
-        except Exception:  # noqa: BLE001 - UI must degrade, not crash
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: inventory refresh — expected failures surface on the inventory label; sealed-store failures and bugs propagate to diagnostics
+            if is_authority_failure(exc):
+                raise
+            report_boundary_failure(exc, operation='キャプチャ棚卸しの読み込み')
             self.inventory_label.setText(
                 "キャプチャ情報を読み込めませんでした。"
             )
@@ -563,7 +571,10 @@ class RetentionPolicyWidget(QWidget):
             return
         try:
             plan = self._service.plan_capture_revision_purge(revision_id)
-        except Exception:  # noqa: BLE001
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: purge plan — expected failures surface on the error label; sealed-store failures and bugs propagate to diagnostics
+            if is_authority_failure(exc):
+                raise
+            report_boundary_failure(exc, operation='削除内容の確認')
             self._show_error("削除内容の確認に失敗しました。")
             return
         self._planned_revision_id = (
@@ -613,7 +624,10 @@ class RetentionPolicyWidget(QWidget):
                 "削除内容の確認で詳細を確認してください。"
             )
             return
-        except Exception:  # noqa: BLE001
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: purge execute — expected failures surface on the error label after refresh; sealed-store failures and bugs propagate to diagnostics
+            if is_authority_failure(exc):
+                raise
+            report_boundary_failure(exc, operation='キャプチャ削除の実行')
             self.refresh()
             self._show_error(
                 "削除に失敗しました。データは変更されていません。"

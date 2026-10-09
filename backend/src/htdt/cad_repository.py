@@ -117,7 +117,7 @@ class _SharedReadConnection:
                 continue
             try:
                 self._inner.__enter__()
-            except BaseException:
+            except BaseException:  # error-boundary: borrow-lock release — the lock must be freed on ANY failure (including KeyboardInterrupt) before the original error re-raises (noqa: BLE001)
                 self._borrow_lock.release()
                 raise
             return self._inner
@@ -137,14 +137,14 @@ class _SharedReadConnection:
             self._closed = True
             try:
                 self._inner.close()
-            except Exception:
-                pass
+            except Exception:  # error-boundary: pooled-read release — the swap must complete even when the inner close fails; the failure identity is logged (noqa: BLE001)
+                _LOGGER.exception('pooled read connection close failed')
 
     def __del__(self) -> None:
         try:
             self._inner.close()
-        except Exception:
-            pass
+        except Exception:  # error-boundary: finalizer close — a __del__ must never raise; the failure identity is logged (noqa: BLE001)
+            _LOGGER.exception('pooled read connection finalizer close failed')
 
 
 # File-swap layers (backup restore, managed-data relocation) cannot
@@ -252,7 +252,12 @@ def release_read_handles_under(data_dir: Path) -> int:
     for repository in list(_LIVE_REPOSITORIES):
         try:
             repository_path = repository.path.resolve()
-        except Exception:
+        except (OSError, RuntimeError) as exc:  # error-boundary: path probe — a repository whose path cannot resolve is skipped (it cannot be under data_dir) with the failure logged; unexpected errors propagate
+            _LOGGER.warning(
+                'repository path resolve failed during release sweep: %s: %s',
+                type(exc).__name__,
+                exc,
+            )
             continue
         if repository_path == root or root in repository_path.parents:
             repository.close()
@@ -995,8 +1000,8 @@ class SceneRepository:
                         )
 
                         declare_scene_draft_cleared(document.document_id)
-                    except Exception:
-                        pass
+                    except Exception:  # error-boundary: best-effort journal — journaling never gates the canonical write; the failure identity is logged (noqa: BLE001)
+                        _LOGGER.exception('scene-draft-cleared journaling failed')
                     return None
             connection.execute(
                 '''
@@ -1022,8 +1027,8 @@ class SceneRepository:
                 content_hash=content_hash,
                 source_revision_id=source_revision_id,
             )
-        except Exception:
-            pass
+        except Exception:  # error-boundary: best-effort journal — journaling never gates the canonical write; the failure identity is logged (noqa: BLE001)
+            _LOGGER.exception('scene-draft journaling failed')
         return RecoverySnapshot(
             document_id=document.document_id,
             source_revision_id=source_revision_id,
@@ -1064,8 +1069,8 @@ class SceneRepository:
             from .session_recovery import declare_scene_draft_cleared
 
             declare_scene_draft_cleared(document_id)
-        except Exception:
-            pass
+        except Exception:  # error-boundary: best-effort journal — journaling never gates the canonical delete; the failure identity is logged (noqa: BLE001)
+            _LOGGER.exception('scene-draft-cleared journaling failed')
 
     def store_blob(self, payload: bytes) -> str:
         """Persist immutable bytes in the project content-addressed blob store.

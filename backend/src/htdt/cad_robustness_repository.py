@@ -562,7 +562,7 @@ class CadRobustnessRepository:
                 if not domain_rejections:
                     try:
                         document = apply_local_perturbation(document, axis, delta)
-                    except Exception as exc:
+                    except Exception as exc:  # error-boundary: per-sample perturbation — any failure type is sealed as the sample's unsupported-domain rejection and perturbation_failed reason, never aborting the stencil (noqa: BLE001)
                         domain_rejections.append(
                             f'__perturbation_unsupported__:{axis.axis_id}'
                         )
@@ -578,7 +578,7 @@ class CadRobustnessRepository:
                 changed.add(axis.entity_id)
                 try:
                     document = apply_local_perturbation(document, axis, delta)
-                except Exception as exc:
+                except Exception as exc:  # error-boundary: per-sample perturbation — any failure type is sealed as the sample's unsupported-domain rejection and perturbation_failed reason, never aborting the sweep (noqa: BLE001)
                     domain_rejections.append(
                         f'__perturbation_unsupported__:{axis.axis_id}'
                     )

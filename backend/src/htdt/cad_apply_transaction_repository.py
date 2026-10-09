@@ -10,6 +10,7 @@ Seven tables in one repository:
 from __future__ import annotations
 
 from contextlib import closing
+import logging
 import sqlite3
 from typing import Any
 
@@ -25,6 +26,9 @@ from .cad_apply_transaction import (
     RollbackExecutionRecord,
     RollbackPlan,
 )
+
+
+_LOGGER = logging.getLogger('htdt.cad_apply_transaction')
 
 
 class ApplyTransactionConflictError(ValueError):
@@ -321,8 +325,8 @@ class CadApplyTransactionRepository:
                     record.transaction_id,
                     document_id=record.document_id,
                 )
-            except Exception:
-                pass
+            except Exception:  # error-boundary: best-effort journal — journaling never gates the store; the failure identity is logged (noqa: BLE001)
+                _LOGGER.exception('apply-transaction journaling failed')
 
     def get_transaction(
         self, transaction_id: str

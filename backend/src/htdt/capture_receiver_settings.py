@@ -33,6 +33,11 @@ from PySide6.QtWidgets import (
 from .accessible_labels import announce_status, wire_label_buddies
 from .capture_receiver import ReceiverPairing, ReceiverPairingPayload
 from .capture_receiver_controller import CaptureReceiverController
+from .error_boundary import (
+    EXPECTED_OPERATION_ERRORS,
+    is_authority_failure,
+    report_boundary_failure,
+)
 from .user_facing_error import operation_error_message
 
 
@@ -186,7 +191,9 @@ class PairingDialog(QDialog):
                 project_ref=project_ref,
                 display_name=display_name,
             )
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: pairing offer — expected failures surface their reason in the dialog; authority failures and bugs propagate
+            if is_authority_failure(exc):
+                raise
             QMessageBox.warning(
                 self, "ペアリング",
                 f"QRコードを発行できませんでした · {operation_error_message(exc)}"
@@ -225,7 +232,9 @@ class PairingDialog(QDialog):
             pairing = self._controller.service.confirm_pairing(
                 self._pairing.pairing_id
             )
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: pairing confirm — expected failures surface their reason on the status line; authority failures and bugs propagate
+            if is_authority_failure(exc):
+                raise
             self._set_status(f"確認できませんでした · {operation_error_message(exc)}")
             return
         self._pairing = pairing
@@ -253,7 +262,9 @@ class PairingDialog(QDialog):
             return
         try:
             self._controller.service.revoke_pairing(pairing_id)
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: pairing revoke — expected failures surface their reason on the status line; authority failures and bugs propagate
+            if is_authority_failure(exc):
+                raise
             self._set_status(f"解除できませんでした · {operation_error_message(exc)}")
             return
         self._set_status("デバイスのペアリングを解除しました。")
@@ -263,7 +274,10 @@ class PairingDialog(QDialog):
         self.pairing_list.clear()
         try:
             pairings = self._controller.service.list_pairings()
-        except Exception:
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: pairing list probe — expected failures report and leave the list empty; authority failures and bugs propagate
+            if is_authority_failure(exc):
+                raise
+            report_boundary_failure(exc, operation='ペアリング一覧の読み込み')
             pairings = ()
         state_labels = {
             'offered': '発行済み（未確認）',
@@ -365,8 +379,10 @@ class CaptureReceiverPanel(QWidget):
             self.enabled_combo.blockSignals(False)
         try:
             self.port_spin.setValue(controller.service.get_config().port)
-        except Exception:
-            pass
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: config probe — expected failures report and leave the spin at its current value; authority failures and bugs propagate
+            if is_authority_failure(exc):
+                raise
+            report_boundary_failure(exc, operation='受信ポート設定の読み込み')
         lines = controller.status_lines()
         if lines:
             self.status_label.setText(' · '.join(lines))
@@ -402,7 +418,10 @@ class CaptureReceiverPanel(QWidget):
     def _open_pairing(self) -> None:
         try:
             project_ref = self._project_ref_provider()
-        except Exception:
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: project-scope probe — expected failures report and degrade to the shared scope; authority failures and bugs propagate
+            if is_authority_failure(exc):
+                raise
+            report_boundary_failure(exc, operation='プロジェクト参照の解決')
             project_ref = None
         dialog = PairingDialog(self._controller, project_ref, self)
         dialog.exec()

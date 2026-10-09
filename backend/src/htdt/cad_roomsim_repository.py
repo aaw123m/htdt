@@ -232,7 +232,7 @@ class CadRoomSimRepository:
                     (batch_run_id,),
                 ).fetchone()
             spec = None if row is None else self._validated_batch_spec(row)
-        except BaseException as exc:
+        except BaseException as exc:  # error-boundary: memoized failure — ANY lookup failure type is cached so every caller sees the identical raise; never a falsified miss (noqa: BLE001)
             if batches is not None:
                 batches[batch_run_id] = exc
             raise
