@@ -1,0 +1,5100 @@
+{
+  "schema_version": "htdt.r130d.original-pffdtd-native-full-kronecker-modal-q0-evidence-1",
+  "plan_sha256_lf": "f6dedac84640c8165550f887b45ed19e0f6739f8845f8242de4c50cafa2ebfb1",
+  "preregistered_plan": {
+    "schema_version": "htdt.r130d.original-pffdtd-native-full-kronecker-modal-q0-plan-1",
+    "date_jst": "2026-10-09",
+    "issue": 938,
+    "pr": 1055,
+    "objective": "Apply exact ALL-mode finite-window 40/80Hz impulse decomposition to frozen ORIGINAL upstream PFFDTD native 8-node q[0] wave, not experimental roof FV. Test whether original connected native staircase rigid Neumann graph actually separates x\u2297yz for all five PPW28,32,36,40,44 and if so verify exact full recorded native wave P_T/Q_T and quantify original high-mode contribution to four unresolved spatial refinement failures.",
+    "original_authority": {
+      "frozen_original_native_ppw": [
+        28,
+        32,
+        36,
+        40,
+        44
+      ],
+      "pffdtd_sha": "aa319f6c86517cb95aabfae8656277da62c3ead5",
+      "raw_native_wave_SHA_evidence": "benchmarks/acoustics/r130d_original_point_quadratic_pffdtd_evidence_2026-10-09.json",
+      "native_true_rigid_graph_audit": "benchmarks/acoustics/r130d_original_pffdtd_neumann_graph_evidence_2026-10-09.json",
+      "native_original_high_ppw_signed_wave_partition": "benchmarks/acoustics/r130d_original_high_ppw_native_window_partition_evidence_2026-10-09.json",
+      "original_source_xyz_m": [
+        1.5,
+        2,
+        2
+      ],
+      "original_receiver_xyz_m": [
+        2.5,
+        2,
+        2
+      ],
+      "original_eight_source_receiver_weight_HDF5_must_match": true,
+      "temporal_q0": "exact original native in_sigs[:,0], q[0]=1 then all native q[n>0]=0",
+      "original_full_no_taper_record_s": 0.25,
+      "frequencies_hz": [
+        40,
+        80
+      ],
+      "rho_kg_m3": 1.2,
+      "c_m_s": 343.2
+    },
+    "spatial": {
+      "original_graph": "direct pinned original native PFFDTD seven-point 6-neighbor zero-flux graph; source-connected reachable native interior only, from actual archived frozen vox_out HDF5 and native reconstruction; NO modified voxel or cap, NO staircase smooth",
+      "original_C_native_order": "flattened Nx Ny Nz original native index and exact in_ixyz out_ixyz from comms; source-connected A maybe not x\u2297yz; check and fail closed if no exact product",
+      "mass": "original discrete unit mass all graph nodes",
+      "separable_if_verified": "A3_original_native = kron(Ax,I_yz)+kron(I_x,Ayz), x Neumann adjacency 1D and yz Neumann 4-neighbor degree-adjacency from independently reconstructed original source-connected native graph; exact sorted original C index permutation from graph BFS",
+      "matrix_max_absolute_difference": 0,
+      "original_connected_room_vertices_and_directed_edges_exact_match": true,
+      "original_constant_null_and_reciprocal_edges_required": true,
+      "physical_room_not_revoxelized": true
+    },
+    "solver": {
+      "x_spectral": "all original native 1D x Neumann eigenpairs via symmetric scipy.linalg.eigh",
+      "yz_spectral": "ALL ORIGINAL 2D yz graph normalized Neumann eigenpairs via symmetric scipy.linalg.eigh (no truncation)",
+      "native_frequency": "theta = 2arcsin(sqrt((c*Ts/h)^2*(lambda_x+lambda_yz))/2), theta in [0,pi], physically stable ORIGINAL PFFDTD leapfrog",
+      "mode_amp": "original raw native injected in_sigs[:,0] sum times original 8node source+receiver Euclidean mode overlap, initial u0=0, u1=q0_native_scale*source_projection; q[n>0]=0",
+      "pressure_and_frequency": "exact original rho dphi/dt second-order one-sided endpoints and centered interior; signed full 250ms direct-frequency analysis P_T/Q_T q0 denominator",
+      "analytic_DTFT": "same closed-form finite N derivation validated independently on original temporal Leapfrog q0, theta inserted from actual original leapfrog. Full cosine time progression, include first/last sample endpoint derivatives and full 40/80Hz (no Gaussian or temporal filter).",
+      "true_original_8node_all_raw_wave_matched_relative_max": 2e-06,
+      "low_modes_are_not_acceptance": true,
+      "entire_native_source_connected_eigensystem_no_high_mode_filter": true,
+      "if_original_graph_not_separable": "save exact counterexample/structural mismatch with PPW and DO NOT fabricate spectral results",
+      "all_graphs_required_or_diagnostic_incomplete": true
+    },
+    "bins": {
+      "semidiscrete_frequencies_hz": [
+        [
+          0,
+          100
+        ],
+        [
+          100,
+          200
+        ],
+        [
+          200,
+          400
+        ],
+        [
+          400,
+          800
+        ],
+        [
+          800,
+          1000000000
+        ]
+      ],
+      "band_edges_are_half_open": true,
+      "all_native_modes_are_assigned_once": true,
+      "save_full_signed_two_frequency_original_native_transfer_both_bins": true,
+      "save_each_band_signed_transfer_each_PPWave": true,
+      "save_all_4_adjacent_PPW_original_native_signed_band_differences": true,
+      "save_top20_signed_modes_each_bin_each_grid": true,
+      "save_original_native_rigid_volume_and_modes_count": true,
+      "save_40_80_signed_comparison_vs_original_saved_pressure_wave": true,
+      "retain_unfavorable_results": true,
+      "diagnostic_no_original_fullband_qualification_if_mismatch": true,
+      "original_frozen_complex_threshold": 0.2,
+      "original_frozen_magnitude_threshold": 0.25,
+      "original_frozen_phase_deg_threshold": 15
+    },
+    "limits": {
+      "max_original_native_cases": 5,
+      "max_room_nodes": 150000,
+      "max_2d_yz_nodes": 3500,
+      "max_x_nodes": 90,
+      "max_full_record_samples": 2000,
+      "no_github_actions_runs": true,
+      "max_artifact_size_bytes": 25000000
+    },
+    "release": {
+      "original_run25_8node_PFFDTD_q0": "SELF_CONVERGENCE_FAILED",
+      "physical_Bras_owned_room": "NOT_VALIDATED",
+      "product": "NO_GO",
+      "PR_draft": true,
+      "issue_open": true
+    }
+  },
+  "upstream_PIN": "aa319f6c86517cb95aabfae8656277da62c3ead5",
+  "canonical_original_point_q0": "SELF_CONVERGENCE_FAILED",
+  "physical_validation": "NOT_VALIDATED",
+  "product": "NO_GO",
+  "new_GitHub_Actions_launched": 0,
+  "actual_original_unmodified_all_mode_native_cases": [
+    {
+      "ppw": 28,
+      "original_native_comms_SHA256": "4404a9818a8f0c673c97e8ede8665367100aecb3d2f2f8481bc532bc45fd6b6c",
+      "original_native_voxels_SHA256": "9d8b598fc1e2077840ba5a51e8f2db72c30ad4b6991ae88d3174bac72acf9fc8",
+      "original_native_sim_output_SHA256": "6e8a94d695fe77e992d8bd66bbb9b63ed9eaf27abd86f5be94f7554d2ba97d6b",
+      "exact_original_connected_staircase_graph_tensor_identity": {
+        "original_room_native_flat_C_order_exact": true,
+        "original_connected_nodes": 31185,
+        "original_directed_rigid_neumann_edges": 180864,
+        "original_full_native_staircase_A_equals_kron_Ax_I_plus_I_Ayz": true,
+        "original_native_Kronecker_neumann_matrix_max_abs": 0.0,
+        "original_x_native_nodes": 33,
+        "original_yz_native_nodes": 945,
+        "original_unmodified_voxel_room_mask_used": true
+      },
+      "exact_original_8point_source_tensor_residual": 5.551115123125783e-17,
+      "exact_original_8point_receiver_tensor_residual": 1.3877787807814457e-17,
+      "original_native_time_step_s": 0.00020599032818587005,
+      "original_native_impulse_q0_total_in_sigs_source_strength": 2.7140664335664337,
+      "original_record_samples": 1214,
+      "original_native_CFL_squared": 0.332667,
+      "original_native_const_neumann_zero_mode_present": true,
+      "true_full_eigenmode_max_absolute_Av_minus_lambda_v": 2.7736215484211968e-14,
+      "actual_native_full_3D_modes_count": 31185,
+      "full_x_native_graph_modes": 33,
+      "full_yz_native_original_staircase_graph_modes": 945,
+      "lowest32_original_yz_native_semidiscrete_mode_hz": [
+        9.607117044880469e-06,
+        41.3168998396543,
+        48.87634936396424,
+        65.33920635751716,
+        84.1581882468589,
+        92.65046055314441,
+        97.25905116209611,
+        111.91562514655139,
+        123.7253601487585,
+        128.88790933704425,
+        136.57687683051995,
+        138.0859066014805,
+        155.3454694982877,
+        160.04141172509077,
+        167.29908154628825,
+        173.24975974801345,
+        174.0985080179041,
+        181.21828928142574,
+        188.40392269348956,
+        197.8062087910857,
+        204.08438864526894,
+        207.0105864189702,
+        212.5283420988871,
+        218.04553819453497,
+        221.3276550784352,
+        224.59638553540842,
+        230.18025560158574,
+        236.25163866803942,
+        243.60044693853735,
+        248.11625680400297,
+        250.6705991470714,
+        253.65349971711987
+      ],
+      "lowest16_original_x_native_semidiscrete_mode_hz": [
+        9.391030986755703e-06,
+        42.40822378873505,
+        84.72037931066066,
+        126.84061592449532,
+        168.6735177470085,
+        210.1243198006888,
+        251.09912268689848,
+        291.5051052982113,
+        331.25073508807543,
+        370.2459754214713,
+        408.40248953685006,
+        445.6338406573067,
+        481.85568779768806,
+        516.9859768240424,
+        550.9451263326313,
+        583.6562079274006
+      ],
+      "highest_original_native_FDTD_mode_semidiscrete_frequency_hz": 1541.7613348631921,
+      "highest_original_native_leapfrog_modified_mode_frequency_hz": 2323.202733455009,
+      "exact_original_saved_true_PFFDTD_q0_signed_40_80": [
+        [
+          101.0987693066617,
+          42.7956809667478
+        ],
+        [
+          150.77953891006572,
+          -21.729992606786517
+        ]
+      ],
+      "entire_true_original_native_PFFDTD_3D_mode_sum_signed_40_80": [
+        [
+          101.09876930668506,
+          42.79568096883028
+        ],
+        [
+          150.7795389101757,
+          -21.72999260578468
+        ]
+      ],
+      "all_original_native_PFFDTD_modes_vs_original_saved_full_wave_complex_rel": 1.2321528297295843e-11,
+      "all_native_actual_original_PFFDTD_modes_signed_spectral_band_transfer": [
+        {
+          "semidiscrete_mode_frequency_band_hz": [
+            0,
+            100
+          ],
+          "full_original_native_3D_mode_count": 15,
+          "signed_original_8node_q0_full250ms_P_T_over_Q_T_40_80": [
+            [
+              31.46841490778258,
+              36.853523118821634
+            ],
+            [
+              78.89230623472505,
+              -33.75608874129918
+            ]
+          ]
+        },
+        {
+          "semidiscrete_mode_frequency_band_hz": [
+            100,
+            200
+          ],
+          "full_original_native_3D_mode_count": 60,
+          "signed_original_8node_q0_full250ms_P_T_over_Q_T_40_80": [
+            [
+              2.5888574361091496,
+              -1.1871087708058166
+            ],
+            [
+              3.089739932578158,
+              -3.507214931971504
+            ]
+          ]
+        },
+        {
+          "semidiscrete_mode_frequency_band_hz": [
+            200,
+            400
+          ],
+          "full_original_native_3D_mode_count": 446,
+          "signed_original_8node_q0_full250ms_P_T_over_Q_T_40_80": [
+            [
+              23.40154290662994,
+              8.1783016757626
+            ],
+            [
+              25.240304875401485,
+              17.60304909087812
+            ]
+          ]
+        },
+        {
+          "semidiscrete_mode_frequency_band_hz": [
+            400,
+            800
+          ],
+          "full_original_native_3D_mode_count": 4233,
+          "signed_original_8node_q0_full250ms_P_T_over_Q_T_40_80": [
+            [
+              20.035952053583614,
+              0.32991607482283875
+            ],
+            [
+              20.21064376140762,
+              0.6832190891232603
+            ]
+          ]
+        },
+        {
+          "semidiscrete_mode_frequency_band_hz": [
+            800,
+            1000000000
+          ],
+          "full_original_native_3D_mode_count": 26431,
+          "signed_original_8node_q0_full250ms_P_T_over_Q_T_40_80": [
+            [
+              23.604002002579282,
+              -1.3789511297709567
+            ],
+            [
+              23.34654410606183,
+              -2.7529571125153796
+            ]
+          ]
+        }
+      ],
+      "top20_original_native_impulse_coupled_3D_modes_each_40_80_bin": {
+        "40": [
+          {
+            "x_eigen_index": 1,
+            "yz_eigen_index": 0,
+            "semidiscrete_mode_frequency_hz": 42.40822378873614,
+            "native_leapfrog_modified_frequency_hz": 42.41354903428722,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                14.349165748425477,
+                40.440116336854494
+              ],
+              [
+                -0.7137597121059239,
+                -3.4956171953202966
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 42.910389965766015
+          },
+          {
+            "x_eigen_index": 8,
+            "yz_eigen_index": 536,
+            "semidiscrete_mode_frequency_hz": 964.0428265005033,
+            "native_leapfrog_modified_frequency_hz": 1041.0193044839982,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                17.755705185396632,
+                -0.39649430165851585
+              ],
+              [
+                17.76530762663789,
+                -0.7943047743268095
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 17.76013159754084
+          },
+          {
+            "x_eigen_index": 5,
+            "yz_eigen_index": 536,
+            "semidiscrete_mode_frequency_hz": 929.4104322646651,
+            "native_leapfrog_modified_frequency_hz": 997.195831288825,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                -15.44626077414421,
+                0.39388559755816105
+              ],
+              [
+                -15.458155035847131,
+                0.7897223593372144
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 15.451282075181654
+          },
+          {
+            "x_eigen_index": 8,
+            "yz_eigen_index": 30,
+            "semidiscrete_mode_frequency_hz": 415.40678710529284,
+            "native_leapfrog_modified_frequency_hz": 420.5802340202867,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                14.070019654375018,
+                -0.5096579138648737
+              ],
+              [
+                14.33523867302443,
+                -1.0441784220262678
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 14.07924729037971
+          },
+          {
+            "x_eigen_index": 5,
+            "yz_eigen_index": 30,
+            "semidiscrete_mode_frequency_hz": 327.09016959923133,
+            "native_leapfrog_modified_frequency_hz": 329.58332865851236,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                -12.711742021875132,
+                3.106112537366488
+              ],
+              [
+                -13.118773475900051,
+                6.502833180547887
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 13.085729644367996
+          },
+          {
+            "x_eigen_index": 3,
+            "yz_eigen_index": 600,
+            "semidiscrete_mode_frequency_hz": 951.6392795042715,
+            "native_leapfrog_modified_frequency_hz": 1025.2126977689647,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                -12.330936832555581,
+                0.3089132754865328
+              ],
+              [
+                -12.338479323757333,
+                0.619192694796058
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 12.334805656363123
+          },
+          {
+            "x_eigen_index": 8,
+            "yz_eigen_index": 88,
+            "semidiscrete_mode_frequency_hz": 548.4216400924462,
+            "native_leapfrog_modified_frequency_hz": 560.6406825548595,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                12.310206200268153,
+                -0.3508369768221673
+              ],
+              [
+                12.413199918983997,
+                -0.709928463118612
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 12.31520455686491
+          },
+          {
+            "x_eigen_index": 16,
+            "yz_eigen_index": 600,
+            "semidiscrete_mode_frequency_hz": 1125.9703711389745,
+            "native_leapfrog_modified_frequency_hz": 1261.4938810837489,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                12.056562709744355,
+                -0.28613550469431875
+              ],
+              [
+                12.053359641069235,
+                -0.5727821716249603
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 12.059957624346978
+          },
+          {
+            "x_eigen_index": 5,
+            "yz_eigen_index": 88,
+            "semidiscrete_mode_frequency_hz": 484.9654375282845,
+            "native_leapfrog_modified_frequency_hz": 493.3016067125029,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                -11.982240988191492,
+                1.0268700995054925
+              ],
+              [
+                -12.133968945824666,
+                2.0940847410082064
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 12.026161536431923
+          },
+          {
+            "x_eigen_index": 11,
+            "yz_eigen_index": 600,
+            "semidiscrete_mode_frequency_hz": 1043.1290890327457,
+            "native_leapfrog_modified_frequency_hz": 1145.0885607319292,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                -11.406423713993426,
+                0.24912878896862814
+              ],
+              [
+                -11.407808617633263,
+                0.49877513892943726
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 11.40914401244215
+          },
+          {
+            "x_eigen_index": 19,
+            "yz_eigen_index": 536,
+            "semidiscrete_mode_frequency_hz": 1144.757209785961,
+            "native_leapfrog_modified_frequency_hz": 1289.1903639586246,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                -11.403400376077489,
+                0.24671942372468472
+              ],
+              [
+                -11.400351714841175,
+                0.49367481081933395
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 11.406069025355198
+          },
+          {
+            "x_eigen_index": 11,
+            "yz_eigen_index": 30,
+            "semidiscrete_mode_frequency_hz": 511.297632710864,
+            "native_leapfrog_modified_frequency_hz": 521.119264098017,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                -11.374799993125176,
+                0.6966175974323753
+              ],
+              [
+                -11.501615065478559,
+                1.4168991625812617
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 11.396111220967132
+          },
+          {
+            "x_eigen_index": 8,
+            "yz_eigen_index": 18,
+            "semidiscrete_mode_frequency_hz": 381.0814710566294,
+            "native_leapfrog_modified_frequency_hz": 385.05392060663473,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                11.012590399580587,
+                -0.9482976106770509
+              ],
+              [
+                11.288141786152885,
+                -1.9589866092432007
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 11.053344094315996
+          },
+          {
+            "x_eigen_index": 13,
+            "yz_eigen_index": 30,
+            "semidiscrete_mode_frequency_hz": 574.5522165212324,
+            "native_leapfrog_modified_frequency_hz": 588.6889036124113,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                -10.749933238281173,
+                0.31025849049132775
+              ],
+              [
+                -10.82841298912937,
+                0.6270838220849635
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 10.75440955880072
+          },
+          {
+            "x_eigen_index": 0,
+            "yz_eigen_index": 18,
+            "semidiscrete_mode_frequency_hz": 188.4039226934898,
+            "native_leapfrog_modified_frequency_hz": 188.87385278854686,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                10.544320022580388,
+                -1.638940923164562
+              ],
+              [
+                12.08224701789237,
+                -3.811521714305009
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 10.670933046749623
+          },
+          {
+            "x_eigen_index": 24,
+            "yz_eigen_index": 600,
+            "semidiscrete_mode_frequency_hz": 1243.7060641033456,
+            "native_leapfrog_modified_frequency_hz": 1445.4746364158088,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                10.445594899674077,
+                -0.2365542507822873
+              ],
+              [
+                10.43944267681403,
+                -0.4731907925746016
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 10.448273097582215
+          },
+          {
+            "x_eigen_index": 13,
+            "yz_eigen_index": 600,
+            "semidiscrete_mode_frequency_hz": 1075.5478960418327,
+            "native_leapfrog_modified_frequency_hz": 1189.6232697846517,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                -10.184143329684971,
+                0.2624376423020143
+              ],
+              [
+                -10.183063245471443,
+                0.525695492457059
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 10.187524177918005
+          },
+          {
+            "x_eigen_index": 5,
+            "yz_eigen_index": 656,
+            "semidiscrete_mode_frequency_hz": 1004.0805007341811,
+            "native_leapfrog_modified_frequency_hz": 1092.9556384338916,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                -10.182460546916154,
+                0.21405390595040452
+              ],
+              [
+                -10.185696456008955,
+                0.42860557605203997
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 10.184710200303034
+          },
+          {
+            "x_eigen_index": 13,
+            "yz_eigen_index": 88,
+            "semidiscrete_mode_frequency_hz": 676.9887340702262,
+            "native_leapfrog_modified_frequency_hz": 700.7618876637748,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                -10.171054691424448,
+                0.26419745553822227
+              ],
+              [
+                -10.212883837359291,
+                0.5318356908824681
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 10.174485433252148
+          },
+          {
+            "x_eigen_index": 5,
+            "yz_eigen_index": 107,
+            "semidiscrete_mode_frequency_hz": 526.0793969886781,
+            "native_leapfrog_modified_frequency_hz": 536.8115482498782,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                -9.985542178288604,
+                0.3847057853798475
+              ],
+              [
+                -10.085817901620716,
+                0.780627246378833
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 9.992950071709828
+          }
+        ],
+        "80": [
+          {
+            "x_eigen_index": 2,
+            "yz_eigen_index": 0,
+            "semidiscrete_mode_frequency_hz": 84.7203793106612,
+            "native_leapfrog_modified_frequency_hz": 84.76287979965176,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                5.826205893022669,
+                -1.804678399646179
+              ],
+              [
+                40.0297492902722,
+                -25.65483415934748
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 47.54525574634834
+          },
+          {
+            "x_eigen_index": 0,
+            "yz_eigen_index": 4,
+            "semidiscrete_mode_frequency_hz": 84.15818824685941,
+            "native_leapfrog_modified_frequency_hz": 84.19984751123755,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                3.9033658470018873,
+                -0.27231735661324474
+              ],
+              [
+                28.57267878431287,
+                -4.2541107264267195
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 28.88763456886392
+          },
+          {
+            "x_eigen_index": 8,
+            "yz_eigen_index": 536,
+            "semidiscrete_mode_frequency_hz": 964.0428265005033,
+            "native_leapfrog_modified_frequency_hz": 1041.0193044839982,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                17.755705185396632,
+                -0.39649430165851585
+              ],
+              [
+                17.76530762663789,
+                -0.7943047743268095
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 17.783055843796838
+          },
+          {
+            "x_eigen_index": 5,
+            "yz_eigen_index": 536,
+            "semidiscrete_mode_frequency_hz": 929.4104322646651,
+            "native_leapfrog_modified_frequency_hz": 997.195831288825,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                -15.44626077414421,
+                0.39388559755816105
+              ],
+              [
+                -15.458155035847131,
+                0.7897223593372144
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 15.478314459821624
+          },
+          {
+            "x_eigen_index": 5,
+            "yz_eigen_index": 30,
+            "semidiscrete_mode_frequency_hz": 327.09016959923133,
+            "native_leapfrog_modified_frequency_hz": 329.58332865851236,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                -12.711742021875132,
+                3.106112537366488
+              ],
+              [
+                -13.118773475900051,
+                6.502833180547887
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 14.642030490543764
+          },
+          {
+            "x_eigen_index": 8,
+            "yz_eigen_index": 30,
+            "semidiscrete_mode_frequency_hz": 415.40678710529284,
+            "native_leapfrog_modified_frequency_hz": 420.5802340202867,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                14.070019654375018,
+                -0.5096579138648737
+              ],
+              [
+                14.33523867302443,
+                -1.0441784220262678
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 14.373217329102085
+          },
+          {
+            "x_eigen_index": 1,
+            "yz_eigen_index": 4,
+            "semidiscrete_mode_frequency_hz": 94.23936594602688,
+            "native_leapfrog_modified_frequency_hz": 94.29788092999824,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                1.07238580419229,
+                2.2208335958625094
+              ],
+              [
+                3.474807323605151,
+                12.993925172186342
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 13.450515875480683
+          },
+          {
+            "x_eigen_index": 0,
+            "yz_eigen_index": 18,
+            "semidiscrete_mode_frequency_hz": 188.4039226934898,
+            "native_leapfrog_modified_frequency_hz": 188.87385278854686,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                10.544320022580388,
+                -1.638940923164562
+              ],
+              [
+                12.08224701789237,
+                -3.811521714305009
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 12.669190612662977
+          },
+          {
+            "x_eigen_index": 3,
+            "yz_eigen_index": 30,
+            "semidiscrete_mode_frequency_hz": 280.93467412346433,
+            "native_leapfrog_modified_frequency_hz": 282.5057539163786,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                8.286669702798893,
+                4.010706618476611
+              ],
+              [
+                9.061767859360359,
+                8.545170026721507
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 12.455342930747273
+          },
+          {
+            "x_eigen_index": 8,
+            "yz_eigen_index": 88,
+            "semidiscrete_mode_frequency_hz": 548.4216400924462,
+            "native_leapfrog_modified_frequency_hz": 560.6406825548595,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                12.310206200268153,
+                -0.3508369768221673
+              ],
+              [
+                12.413199918983997,
+                -0.709928463118612
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 12.43348425226856
+          },
+          {
+            "x_eigen_index": 3,
+            "yz_eigen_index": 600,
+            "semidiscrete_mode_frequency_hz": 951.6392795042715,
+            "native_leapfrog_modified_frequency_hz": 1025.2126977689647,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                -12.330936832555581,
+                0.3089132754865328
+              ],
+              [
+                -12.338479323757333,
+                0.619192694796058
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 12.354006298204483
+          },
+          {
+            "x_eigen_index": 5,
+            "yz_eigen_index": 88,
+            "semidiscrete_mode_frequency_hz": 484.9654375282845,
+            "native_leapfrog_modified_frequency_hz": 493.3016067125029,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                -11.982240988191492,
+                1.0268700995054925
+              ],
+              [
+                -12.133968945824666,
+                2.0940847410082064
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 12.313342084128125
+          },
+          {
+            "x_eigen_index": 16,
+            "yz_eigen_index": 600,
+            "semidiscrete_mode_frequency_hz": 1125.9703711389745,
+            "native_leapfrog_modified_frequency_hz": 1261.4938810837489,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                12.056562709744355,
+                -0.28613550469431875
+              ],
+              [
+                12.053359641069235,
+                -0.5727821716249603
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 12.066961425855645
+          },
+          {
+            "x_eigen_index": 11,
+            "yz_eigen_index": 30,
+            "semidiscrete_mode_frequency_hz": 511.297632710864,
+            "native_leapfrog_modified_frequency_hz": 521.119264098017,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                -11.374799993125176,
+                0.6966175974323753
+              ],
+              [
+                -11.501615065478559,
+                1.4168991625812617
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 11.588561271847633
+          },
+          {
+            "x_eigen_index": 8,
+            "yz_eigen_index": 18,
+            "semidiscrete_mode_frequency_hz": 381.0814710566294,
+            "native_leapfrog_modified_frequency_hz": 385.05392060663473,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                11.012590399580587,
+                -0.9482976106770509
+              ],
+              [
+                11.288141786152885,
+                -1.9589866092432007
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 11.456865780809558
+          },
+          {
+            "x_eigen_index": 11,
+            "yz_eigen_index": 600,
+            "semidiscrete_mode_frequency_hz": 1043.1290890327457,
+            "native_leapfrog_modified_frequency_hz": 1145.0885607319292,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                -11.406423713993426,
+                0.24912878896862814
+              ],
+              [
+                -11.407808617633263,
+                0.49877513892943726
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 11.41870719896792
+          },
+          {
+            "x_eigen_index": 19,
+            "yz_eigen_index": 536,
+            "semidiscrete_mode_frequency_hz": 1144.757209785961,
+            "native_leapfrog_modified_frequency_hz": 1289.1903639586246,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                -11.403400376077489,
+                0.24671942372468472
+              ],
+              [
+                -11.400351714841175,
+                0.49367481081933395
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 11.411035625258544
+          },
+          {
+            "x_eigen_index": 1,
+            "yz_eigen_index": 3,
+            "semidiscrete_mode_frequency_hz": 77.89524589052688,
+            "native_leapfrog_modified_frequency_hz": 77.9282731155839,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                -0.06361090145120449,
+                0.40532734625977557
+              ],
+              [
+                0.5895781353183124,
+                -11.079931640424084
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 11.095606677154528
+          },
+          {
+            "x_eigen_index": 13,
+            "yz_eigen_index": 30,
+            "semidiscrete_mode_frequency_hz": 574.5522165212324,
+            "native_leapfrog_modified_frequency_hz": 588.6889036124113,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                -10.749933238281173,
+                0.31025849049132775
+              ],
+              [
+                -10.82841298912937,
+                0.6270838220849635
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 10.846555304937432
+          },
+          {
+            "x_eigen_index": 24,
+            "yz_eigen_index": 600,
+            "semidiscrete_mode_frequency_hz": 1243.7060641033456,
+            "native_leapfrog_modified_frequency_hz": 1445.4746364158088,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                10.445594899674077,
+                -0.2365542507822873
+              ],
+              [
+                10.43944267681403,
+                -0.4731907925746016
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 10.450161382900433
+          }
+        ]
+      },
+      "original_pffdtd_source_and_full250ms_40_80_unmodified": true,
+      "original_native_modes_not_experimentally_damped_or_removed": true,
+      "single_case_wall_seconds": 1.0697174000088125
+    },
+    {
+      "ppw": 32,
+      "original_native_comms_SHA256": "716199c1cb8f9d982cdafe7deaccdf630073a2b0d8cdec17fcaf3dff52f4b60b",
+      "original_native_voxels_SHA256": "8f3ebd62703c40793d68fdf703e098bbecc568cc9beb227cfa126b8042954e3b",
+      "original_native_sim_output_SHA256": "773601d4be74cef568739d8957082c9561912ccfd4fa860c415585409a1d84b7",
+      "exact_original_connected_staircase_graph_tensor_identity": {
+        "original_room_native_flat_C_order_exact": true,
+        "original_connected_nodes": 44659,
+        "original_directed_rigid_neumann_edges": 260064,
+        "original_full_native_staircase_A_equals_kron_Ax_I_plus_I_Ayz": true,
+        "original_native_Kronecker_neumann_matrix_max_abs": 0.0,
+        "original_x_native_nodes": 37,
+        "original_yz_native_nodes": 1207,
+        "original_unmodified_voxel_room_mask_used": true
+      },
+      "exact_original_8point_source_tensor_residual": 1.3877787807814457e-17,
+      "exact_original_8point_receiver_tensor_residual": 3.469446951953614e-18,
+      "original_native_time_step_s": 0.0001802415371626363,
+      "original_native_impulse_q0_total_in_sigs_source_strength": 3.10179020979021,
+      "original_record_samples": 1388,
+      "original_native_CFL_squared": 0.332667,
+      "original_native_const_neumann_zero_mode_present": true,
+      "true_full_eigenmode_max_absolute_Av_minus_lambda_v": 3.2309216833634144e-14,
+      "actual_native_full_3D_modes_count": 44659,
+      "full_x_native_graph_modes": 37,
+      "full_yz_native_original_staircase_graph_modes": 1207,
+      "lowest32_original_yz_native_semidiscrete_mode_hz": [
+        0.0,
+        42.07802683201278,
+        49.179073314649074,
+        66.01088471069106,
+        85.89490449165126,
+        93.39397914156015,
+        98.55787640378928,
+        112.68598078837911,
+        125.83188078480502,
+        131.02624025344682,
+        138.9571340552226,
+        139.0919536777384,
+        157.29390555537432,
+        161.30086402064532,
+        170.89228499275185,
+        175.27575168122493,
+        177.32093287244663,
+        182.738772342921,
+        191.09311435344836,
+        200.71326143771734,
+        205.92680711319733,
+        211.5531553440019,
+        216.6526733356927,
+        221.56719922297532,
+        223.59169700613023,
+        226.5008520999825,
+        234.2549114843499,
+        239.215883878724,
+        248.6366851584112,
+        251.75004489393666,
+        255.0487555212974,
+        259.0579472538674
+      ],
+      "lowest16_original_x_native_semidiscrete_mode_hz": [
+        0.0,
+        43.23025458838114,
+        86.38260533603344,
+        129.37928879021516,
+        172.14282202116817,
+        214.59614225159598,
+        256.66274572899664,
+        298.2668255905951,
+        339.3334084724343,
+        379.7884896164451,
+        419.5591662320212,
+        458.5737688717757,
+        496.76199058473037,
+        534.0550136141918,
+        570.3856334120017,
+        605.6883797456749
+      ],
+      "highest_original_native_FDTD_mode_semidiscrete_frequency_hz": 1762.4947123428726,
+      "highest_original_native_leapfrog_modified_mode_frequency_hz": 2662.474738197076,
+      "exact_original_saved_true_PFFDTD_q0_signed_40_80": [
+        [
+          16.56628166594011,
+          -21.00233450877161
+        ],
+        [
+          -21.520688403756687,
+          -230.6577420888628
+        ]
+      ],
+      "entire_true_original_native_PFFDTD_3D_mode_sum_signed_40_80": [
+        [
+          16.56628166592005,
+          -21.002334508772627
+        ],
+        [
+          -21.52068840373007,
+          -230.65774208887214
+        ]
+      ],
+      "all_original_native_PFFDTD_modes_vs_original_saved_full_wave_complex_rel": 1.485024661663064e-13,
+      "all_native_actual_original_PFFDTD_modes_signed_spectral_band_transfer": [
+        {
+          "semidiscrete_mode_frequency_band_hz": [
+            0,
+            100
+          ],
+          "full_original_native_3D_mode_count": 15,
+          "signed_original_8node_q0_full250ms_P_T_over_Q_T_40_80": [
+            [
+              18.617635617251437,
+              -10.416853344185265
+            ],
+            [
+              -23.218141080107273,
+              -199.69479663913646
+            ]
+          ]
+        },
+        {
+          "semidiscrete_mode_frequency_band_hz": [
+            100,
+            200
+          ],
+          "full_original_native_3D_mode_count": 59,
+          "signed_original_8node_q0_full250ms_P_T_over_Q_T_40_80": [
+            [
+              -11.714801804989678,
+              -8.38127450912244
+            ],
+            [
+              -11.281230248123919,
+              -26.045642801903377
+            ]
+          ]
+        },
+        {
+          "semidiscrete_mode_frequency_band_hz": [
+            200,
+            400
+          ],
+          "full_original_native_3D_mode_count": 418,
+          "signed_original_8node_q0_full250ms_P_T_over_Q_T_40_80": [
+            [
+              48.82356286535127,
+              -3.912320893091722
+            ],
+            [
+              52.51507033322477,
+              -8.392391808582836
+            ]
+          ]
+        },
+        {
+          "semidiscrete_mode_frequency_band_hz": [
+            400,
+            800
+          ],
+          "full_original_native_3D_mode_count": 3668,
+          "signed_original_8node_q0_full250ms_P_T_over_Q_T_40_80": [
+            [
+              -12.77135561745437,
+              1.9663368701715522
+            ],
+            [
+              -13.188889341640087,
+              3.9941235199484133
+            ]
+          ]
+        },
+        {
+          "semidiscrete_mode_frequency_band_hz": [
+            800,
+            1000000000
+          ],
+          "full_original_native_3D_mode_count": 40499,
+          "signed_original_8node_q0_full250ms_P_T_over_Q_T_40_80": [
+            [
+              -26.388759394235937,
+              -0.25822263254479505
+            ],
+            [
+              -26.347498067082807,
+              -0.5190343591977974
+            ]
+          ]
+        }
+      ],
+      "top20_original_native_impulse_coupled_3D_modes_each_40_80_bin": {
+        "40": [
+          {
+            "x_eigen_index": 1,
+            "yz_eigen_index": 0,
+            "semidiscrete_mode_frequency_hz": 43.23025458838114,
+            "native_leapfrog_modified_frequency_hz": 43.23457314653602,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                18.050771151167563,
+                11.512980560113643
+              ],
+              [
+                -1.170687343013312,
+                -1.3674841485726885
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 21.40978889502131
+          },
+          {
+            "x_eigen_index": 8,
+            "yz_eigen_index": 30,
+            "semidiscrete_mode_frequency_hz": 424.4962070484052,
+            "native_leapfrog_modified_frequency_hz": 428.6939981867976,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                13.78790824861409,
+                -0.5390411420464355
+              ],
+              [
+                14.040022982493769,
+                -1.1066140776412634
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 13.798441188229168
+          },
+          {
+            "x_eigen_index": 5,
+            "yz_eigen_index": 18,
+            "semidiscrete_mode_frequency_hz": 287.3466245191812,
+            "native_leapfrog_modified_frequency_hz": 288.62984692585155,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                -11.897156607030357,
+                0.6816209687945061
+              ],
+              [
+                -12.460345899748939,
+                1.4474458084457444
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 11.916666584129407
+          },
+          {
+            "x_eigen_index": 8,
+            "yz_eigen_index": 18,
+            "semidiscrete_mode_frequency_hz": 389.4402912627558,
+            "native_leapfrog_modified_frequency_hz": 392.6677474848583,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                10.968582989936943,
+                -0.45625066260169467
+              ],
+              [
+                11.215302133817689,
+                -0.9415818807413684
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 10.978068021025308
+          },
+          {
+            "x_eigen_index": 0,
+            "yz_eigen_index": 4,
+            "semidiscrete_mode_frequency_hz": 85.89490449165126,
+            "native_leapfrog_modified_frequency_hz": 85.92880632520145,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                1.3145815008547062,
+                -10.719916711629033
+              ],
+              [
+                7.600361439028721,
+                -125.99053636174321
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 10.800219387894526
+          },
+          {
+            "x_eigen_index": 16,
+            "yz_eigen_index": 434,
+            "semidiscrete_mode_frequency_hz": 1113.2839170329732,
+            "native_leapfrog_modified_frequency_hz": 1204.5271716813843,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                10.583206063902232,
+                -0.03656972810477185
+              ],
+              [
+                10.589262383167473,
+                -0.07331928821923438
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 10.583269246127617
+          },
+          {
+            "x_eigen_index": 8,
+            "yz_eigen_index": 500,
+            "semidiscrete_mode_frequency_hz": 1014.412732668181,
+            "native_leapfrog_modified_frequency_hz": 1080.5897691827424,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                10.22406384540129,
+                -0.054200493392092125
+              ],
+              [
+                10.233849365862454,
+                -0.10876682336686416
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 10.224207510038406
+          },
+          {
+            "x_eigen_index": 3,
+            "yz_eigen_index": 30,
+            "semidiscrete_mode_frequency_hz": 285.98753130307,
+            "native_leapfrog_modified_frequency_hz": 287.25248646051546,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                10.11644372073905,
+                1.2887820422684806
+              ],
+              [
+                10.985044243300276,
+                2.738531596775612
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 10.198205366992482
+          },
+          {
+            "x_eigen_index": 11,
+            "yz_eigen_index": 30,
+            "semidiscrete_mode_frequency_hz": 524.7282812944499,
+            "native_leapfrog_modified_frequency_hz": 532.7729520202932,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                -10.025008705709432,
+                0.34044802234730454
+              ],
+              [
+                -10.134225086338876,
+                0.6922931656895546
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 10.030787825762745
+          },
+          {
+            "x_eigen_index": 13,
+            "yz_eigen_index": 759,
+            "semidiscrete_mode_frequency_hz": 1200.8762415780257,
+            "native_leapfrog_modified_frequency_hz": 1320.540366103049,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                -9.896745382926042,
+                0.029132074967661226
+              ],
+              [
+                -9.900686989696954,
+                0.05837502852250835
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 9.896788259443559
+          },
+          {
+            "x_eigen_index": 8,
+            "yz_eigen_index": 272,
+            "semidiscrete_mode_frequency_hz": 830.1932715400658,
+            "native_leapfrog_modified_frequency_hz": 864.2830256299208,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                9.828519729476893,
+                -0.026241883029633786
+              ],
+              [
+                9.84082416440904,
+                -0.05274145210372306
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 9.828554761975
+          },
+          {
+            "x_eigen_index": 8,
+            "yz_eigen_index": 371,
+            "semidiscrete_mode_frequency_hz": 924.2777894788284,
+            "native_leapfrog_modified_frequency_hz": 972.7210071807165,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                9.814815251128532,
+                -0.09465857804128046
+              ],
+              [
+                9.830921000597169,
+                -0.19016571200634888
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 9.815271705876615
+          },
+          {
+            "x_eigen_index": 8,
+            "yz_eigen_index": 821,
+            "semidiscrete_mode_frequency_hz": 1165.1079618962856,
+            "native_leapfrog_modified_frequency_hz": 1272.3614096336805,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                9.434723318487912,
+                -0.01716660895374645
+              ],
+              [
+                9.437939605972023,
+                -0.03439322490035326
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 9.434738935915638
+          },
+          {
+            "x_eigen_index": 3,
+            "yz_eigen_index": 500,
+            "semidiscrete_mode_frequency_hz": 964.6890848670718,
+            "native_leapfrog_modified_frequency_hz": 1020.5497908114554,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                -9.242657727720978,
+                0.04946297888299788
+              ],
+              [
+                -9.253093711105109,
+                0.09930597230367583
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 9.24279007973676
+          },
+          {
+            "x_eigen_index": 8,
+            "yz_eigen_index": 1006,
+            "semidiscrete_mode_frequency_hz": 1297.2250386770847,
+            "native_leapfrog_modified_frequency_hz": 1456.9653640692948,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                8.73148405160195,
+                -0.054936401437548736
+              ],
+              [
+                8.734914391903455,
+                -0.11006143510681693
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 8.731656873216108
+          },
+          {
+            "x_eigen_index": 3,
+            "yz_eigen_index": 322,
+            "semidiscrete_mode_frequency_hz": 823.7216693058472,
+            "native_leapfrog_modified_frequency_hz": 856.9588038811157,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                -8.595844531079393,
+                0.19172462404023485
+              ],
+              [
+                -8.62234440012112,
+                0.3857800352045039
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 8.597982410656053
+          },
+          {
+            "x_eigen_index": 5,
+            "yz_eigen_index": 322,
+            "semidiscrete_mode_frequency_hz": 841.3262698771606,
+            "native_leapfrog_modified_frequency_hz": 876.9208438691719,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                -8.414818463239275,
+                0.1643981564750308
+              ],
+              [
+                -8.438234374107132,
+                0.33069270460798855
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 8.41642421240309
+          },
+          {
+            "x_eigen_index": 8,
+            "yz_eigen_index": 1143,
+            "semidiscrete_mode_frequency_hz": 1414.6615222105588,
+            "native_leapfrog_modified_frequency_hz": 1640.7019729554206,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                8.300811682395867,
+                -0.022724970247669143
+              ],
+              [
+                8.30230559928179,
+                -0.045498913358708766
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 8.300842789191497
+          },
+          {
+            "x_eigen_index": 5,
+            "yz_eigen_index": 272,
+            "semidiscrete_mode_frequency_hz": 787.4802919909454,
+            "native_leapfrog_modified_frequency_hz": 816.2316778086855,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                -8.296878996541842,
+                0.018568818303600007
+              ],
+              [
+                -8.307757118452013,
+                0.037333751214357634
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 8.296899775474595
+          },
+          {
+            "x_eigen_index": 5,
+            "yz_eigen_index": 371,
+            "semidiscrete_mode_frequency_hz": 886.1116037427886,
+            "native_leapfrog_modified_frequency_hz": 928.2695172862406,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                -8.205455992097427,
+                0.01788654886855488
+              ],
+              [
+                -8.213051021031468,
+                0.035913967755023896
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 8.205475486946384
+          }
+        ],
+        "80": [
+          {
+            "x_eigen_index": 0,
+            "yz_eigen_index": 4,
+            "semidiscrete_mode_frequency_hz": 85.89490449165126,
+            "native_leapfrog_modified_frequency_hz": 85.92880632520145,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                1.3145815008547062,
+                -10.719916711629033
+              ],
+              [
+                7.600361439028721,
+                -125.99053636174321
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 126.21957354833526
+          },
+          {
+            "x_eigen_index": 2,
+            "yz_eigen_index": 0,
+            "semidiscrete_mode_frequency_hz": 86.38260533603344,
+            "native_leapfrog_modified_frequency_hz": 86.41708834486012,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                -3.5326919906014447,
+                -4.895263461687865
+              ],
+              [
+                -19.67707554658069,
+                -53.77082061226341
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 57.25808634055154
+          },
+          {
+            "x_eigen_index": 1,
+            "yz_eigen_index": 3,
+            "semidiscrete_mode_frequency_hz": 78.90685529194783,
+            "native_leapfrog_modified_frequency_hz": 78.93313332831752,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                0.4270394688467541,
+                0.2481637353771288
+              ],
+              [
+                -12.045131003755357,
+                -13.54707810548024
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 18.12756205598565
+          },
+          {
+            "x_eigen_index": 2,
+            "yz_eigen_index": 4,
+            "semidiscrete_mode_frequency_hz": 121.81908357179019,
+            "native_leapfrog_modified_frequency_hz": 121.91589704220564,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                0.948750564980481,
+                -4.580449053152886
+              ],
+              [
+                1.4718196434659532,
+                -14.349674658362273
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 14.42495808880347
+          },
+          {
+            "x_eigen_index": 8,
+            "yz_eigen_index": 30,
+            "semidiscrete_mode_frequency_hz": 424.4962070484052,
+            "native_leapfrog_modified_frequency_hz": 428.6939981867976,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                13.78790824861409,
+                -0.5390411420464355
+              ],
+              [
+                14.040022982493769,
+                -1.1066140776412634
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 14.083566312045647
+          },
+          {
+            "x_eigen_index": 0,
+            "yz_eigen_index": 7,
+            "semidiscrete_mode_frequency_hz": 112.68598078837911,
+            "native_leapfrog_modified_frequency_hz": 112.76258714773128,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                6.759530763792469,
+                -1.516037427110302
+              ],
+              [
+                11.512291708813578,
+                -5.333625296536601
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 12.687805925087009
+          },
+          {
+            "x_eigen_index": 5,
+            "yz_eigen_index": 18,
+            "semidiscrete_mode_frequency_hz": 287.3466245191812,
+            "native_leapfrog_modified_frequency_hz": 288.62984692585155,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                -11.897156607030357,
+                0.6816209687945061
+              ],
+              [
+                -12.460345899748939,
+                1.4474458084457444
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 12.544134856967114
+          },
+          {
+            "x_eigen_index": 0,
+            "yz_eigen_index": 5,
+            "semidiscrete_mode_frequency_hz": 93.39397914156015,
+            "native_leapfrog_modified_frequency_hz": 93.43756664882716,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                1.9897101514199682,
+                -1.763645227382352
+              ],
+              [
+                5.999398971278673,
+                -10.786835754580173
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 12.34295805764845
+          },
+          {
+            "x_eigen_index": 3,
+            "yz_eigen_index": 30,
+            "semidiscrete_mode_frequency_hz": 285.98753130307,
+            "native_leapfrog_modified_frequency_hz": 287.25248646051546,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                10.11644372073905,
+                1.2887820422684806
+              ],
+              [
+                10.985044243300276,
+                2.738531596775612
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 11.32125224230089
+          },
+          {
+            "x_eigen_index": 8,
+            "yz_eigen_index": 18,
+            "semidiscrete_mode_frequency_hz": 389.4402912627558,
+            "native_leapfrog_modified_frequency_hz": 392.6677474848583,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                10.968582989936943,
+                -0.45625066260169467
+              ],
+              [
+                11.215302133817689,
+                -0.9415818807413684
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 11.25475803342551
+          },
+          {
+            "x_eigen_index": 3,
+            "yz_eigen_index": 0,
+            "semidiscrete_mode_frequency_hz": 129.37928879021516,
+            "native_leapfrog_modified_frequency_hz": 129.49530095564788,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                -4.338465460587218,
+                3.111106424605458
+              ],
+              [
+                -6.286948458381584,
+                9.09824447205318
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 11.059103643225017
+          },
+          {
+            "x_eigen_index": 16,
+            "yz_eigen_index": 434,
+            "semidiscrete_mode_frequency_hz": 1113.2839170329732,
+            "native_leapfrog_modified_frequency_hz": 1204.5271716813843,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                10.583206063902232,
+                -0.03656972810477185
+              ],
+              [
+                10.589262383167473,
+                -0.07331928821923438
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 10.589516208854427
+          },
+          {
+            "x_eigen_index": 8,
+            "yz_eigen_index": 500,
+            "semidiscrete_mode_frequency_hz": 1014.412732668181,
+            "native_leapfrog_modified_frequency_hz": 1080.5897691827424,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                10.22406384540129,
+                -0.054200493392092125
+              ],
+              [
+                10.233849365862454,
+                -0.10876682336686416
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 10.234427344264489
+          },
+          {
+            "x_eigen_index": 11,
+            "yz_eigen_index": 30,
+            "semidiscrete_mode_frequency_hz": 524.7282812944499,
+            "native_leapfrog_modified_frequency_hz": 532.7729520202932,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                -10.025008705709432,
+                0.34044802234730454
+              ],
+              [
+                -10.134225086338876,
+                0.6922931656895546
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 10.157843665258916
+          },
+          {
+            "x_eigen_index": 13,
+            "yz_eigen_index": 759,
+            "semidiscrete_mode_frequency_hz": 1200.8762415780257,
+            "native_leapfrog_modified_frequency_hz": 1320.540366103049,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                -9.896745382926042,
+                0.029132074967661226
+              ],
+              [
+                -9.900686989696954,
+                0.05837502852250835
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 9.900859079489493
+          },
+          {
+            "x_eigen_index": 8,
+            "yz_eigen_index": 272,
+            "semidiscrete_mode_frequency_hz": 830.1932715400658,
+            "native_leapfrog_modified_frequency_hz": 864.2830256299208,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                9.828519729476893,
+                -0.026241883029633786
+              ],
+              [
+                9.84082416440904,
+                -0.05274145210372306
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 9.840965496107936
+          },
+          {
+            "x_eigen_index": 8,
+            "yz_eigen_index": 371,
+            "semidiscrete_mode_frequency_hz": 924.2777894788284,
+            "native_leapfrog_modified_frequency_hz": 972.7210071807165,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                9.814815251128532,
+                -0.09465857804128046
+              ],
+              [
+                9.830921000597169,
+                -0.19016571200634888
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 9.832760076296244
+          },
+          {
+            "x_eigen_index": 8,
+            "yz_eigen_index": 821,
+            "semidiscrete_mode_frequency_hz": 1165.1079618962856,
+            "native_leapfrog_modified_frequency_hz": 1272.3614096336805,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                9.434723318487912,
+                -0.01716660895374645
+              ],
+              [
+                9.437939605972023,
+                -0.03439322490035326
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 9.438002272721405
+          },
+          {
+            "x_eigen_index": 3,
+            "yz_eigen_index": 18,
+            "semidiscrete_mode_frequency_hz": 230.77170260056144,
+            "native_leapfrog_modified_frequency_hz": 231.4335598630037,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                7.962629438544751,
+                0.9213741116679702
+              ],
+              [
+                9.092329901045042,
+                2.028933598448537
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 9.315955913182023
+          },
+          {
+            "x_eigen_index": 3,
+            "yz_eigen_index": 500,
+            "semidiscrete_mode_frequency_hz": 964.6890848670718,
+            "native_leapfrog_modified_frequency_hz": 1020.5497908114554,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                -9.242657727720978,
+                0.04946297888299788
+              ],
+              [
+                -9.253093711105109,
+                0.09930597230367583
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 9.253626581110137
+          }
+        ]
+      },
+      "original_pffdtd_source_and_full250ms_40_80_unmodified": true,
+      "original_native_modes_not_experimentally_damped_or_removed": true,
+      "single_case_wall_seconds": 1.8250764000695199
+    },
+    {
+      "ppw": 36,
+      "original_native_comms_SHA256": "3cd05bcee5f8fed08da3dc94ff2ac90b92969b293daf2db77b4bac8d0c51a2f9",
+      "original_native_voxels_SHA256": "433c1d334419006b1185a4ef275545d329244d0808b2a3c12a3200e7af4e3d50",
+      "original_native_sim_output_SHA256": "8fad2511eee77d463b43a1aa5d6f7ae13047ed8bf5d27e0cb0b76ffb7b3bd486",
+      "exact_original_connected_staircase_graph_tensor_identity": {
+        "original_room_native_flat_C_order_exact": true,
+        "original_connected_nodes": 64848,
+        "original_directed_rigid_neumann_edges": 378944,
+        "original_full_native_staircase_A_equals_kron_Ax_I_plus_I_Ayz": true,
+        "original_native_Kronecker_neumann_matrix_max_abs": 0.0,
+        "original_x_native_nodes": 42,
+        "original_yz_native_nodes": 1544,
+        "original_unmodified_voxel_room_mask_used": true
+      },
+      "exact_original_8point_source_tensor_residual": 2.7755575615628914e-17,
+      "exact_original_8point_receiver_tensor_residual": 2.7755575615628914e-17,
+      "original_native_time_step_s": 0.00016021469970012116,
+      "original_native_impulse_q0_total_in_sigs_source_strength": 3.4895139860139857,
+      "original_record_samples": 1561,
+      "original_native_CFL_squared": 0.332667,
+      "original_native_const_neumann_zero_mode_present": true,
+      "true_full_eigenmode_max_absolute_Av_minus_lambda_v": 3.670278503232562e-14,
+      "actual_native_full_3D_modes_count": 64848,
+      "full_x_native_graph_modes": 42,
+      "full_yz_native_original_staircase_graph_modes": 1544,
+      "lowest32_original_yz_native_semidiscrete_mode_hz": [
+        1.0833054357810443e-05,
+        41.74789923557586,
+        49.03352418993911,
+        65.71657212733966,
+        85.15380958695003,
+        93.09318203139199,
+        98.04040514125596,
+        112.35662688582039,
+        125.09850218829497,
+        130.10492152808075,
+        138.07172038919467,
+        138.69666908908067,
+        156.64170826927034,
+        160.93261758926232,
+        169.67750983961494,
+        174.62675491549683,
+        176.0686512113146,
+        182.31115316952645,
+        190.19893284668504,
+        199.7938745002721,
+        205.60161836657167,
+        210.29038995377098,
+        215.31555884861922,
+        220.3960699034679,
+        223.08126352338417,
+        226.20023206045053,
+        233.18120012477564,
+        238.48589994083397,
+        247.39044474353787,
+        251.2130078866828,
+        253.87954455879319,
+        257.6360160137289
+      ],
+      "lowest16_original_x_native_semidiscrete_mode_hz": [
+        1.7075472925031877e-05,
+        42.847152459747974,
+        85.63437930239424,
+        128.30183872226056,
+        170.7898564192034,
+        213.03900905858293,
+        254.99020738012385,
+        296.5847788396111,
+        337.7645496677456,
+        378.47192623141825,
+        418.6499755836125,
+        458.2425050892806,
+        497.19414101582674,
+        535.4504059782759,
+        572.9577951308232,
+        609.6638509982017
+      ],
+      "highest_original_native_FDTD_mode_semidiscrete_frequency_hz": 1983.2401533335596,
+      "highest_original_native_leapfrog_modified_mode_frequency_hz": 3002.3500108147846,
+      "exact_original_saved_true_PFFDTD_q0_signed_40_80": [
+        [
+          57.86557590696418,
+          12.212530552108216
+        ],
+        [
+          119.43681400077243,
+          -167.8458584505424
+        ]
+      ],
+      "entire_true_original_native_PFFDTD_3D_mode_sum_signed_40_80": [
+        [
+          57.865575906862375,
+          12.2125305568984
+        ],
+        [
+          119.43681400068691,
+          -167.84585844823502
+        ]
+      ],
+      "all_original_native_PFFDTD_modes_vs_original_saved_full_wave_complex_rel": 2.481568524769028e-11,
+      "all_native_actual_original_PFFDTD_modes_signed_spectral_band_transfer": [
+        {
+          "semidiscrete_mode_frequency_band_hz": [
+            0,
+            100
+          ],
+          "full_original_native_3D_mode_count": 15,
+          "signed_original_8node_q0_full250ms_P_T_over_Q_T_40_80": [
+            [
+              42.78023201693555,
+              7.503974774419529
+            ],
+            [
+              98.60091572735145,
+              -173.33808946858963
+            ]
+          ]
+        },
+        {
+          "semidiscrete_mode_frequency_band_hz": [
+            100,
+            200
+          ],
+          "full_original_native_3D_mode_count": 60,
+          "signed_original_8node_q0_full250ms_P_T_over_Q_T_40_80": [
+            [
+              10.599446588784907,
+              -7.401715971118483
+            ],
+            [
+              17.630906054094563,
+              -20.993694949575914
+            ]
+          ]
+        },
+        {
+          "semidiscrete_mode_frequency_band_hz": [
+            200,
+            400
+          ],
+          "full_original_native_3D_mode_count": 424,
+          "signed_original_8node_q0_full250ms_P_T_over_Q_T_40_80": [
+            [
+              -36.52899364715036,
+              10.99214498795541
+            ],
+            [
+              -37.984532486481775,
+              24.18864248597992
+            ]
+          ]
+        },
+        {
+          "semidiscrete_mode_frequency_band_hz": [
+            400,
+            800
+          ],
+          "full_original_native_3D_mode_count": 3514,
+          "signed_original_8node_q0_full250ms_P_T_over_Q_T_40_80": [
+            [
+              5.0408736467835995,
+              1.2727030180944316
+            ],
+            [
+              5.1598092682394805,
+              2.603479036089381
+            ]
+          ]
+        },
+        {
+          "semidiscrete_mode_frequency_band_hz": [
+            800,
+            1000000000
+          ],
+          "full_original_native_3D_mode_count": 60835,
+          "signed_original_8node_q0_full250ms_P_T_over_Q_T_40_80": [
+            [
+              35.97401730150931,
+              -0.15457625245247325
+            ],
+            [
+              36.02971543748308,
+              -0.3061955521389882
+            ]
+          ]
+        }
+      ],
+      "top20_original_native_impulse_coupled_3D_modes_each_40_80_bin": {
+        "40": [
+          {
+            "x_eigen_index": 1,
+            "yz_eigen_index": 0,
+            "semidiscrete_mode_frequency_hz": 42.84715245974934,
+            "native_leapfrog_modified_frequency_hz": 42.850474539250875,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                20.576196819739415,
+                24.41267248776403
+              ],
+              [
+                -1.1238297461951845,
+                -2.52580038237559
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 31.927393466418227
+          },
+          {
+            "x_eigen_index": 5,
+            "yz_eigen_index": 30,
+            "semidiscrete_mode_frequency_hz": 331.4218498017945,
+            "native_leapfrog_modified_frequency_hz": 332.97850289201153,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                -15.720619983147685,
+                1.5435689749671213
+              ],
+              [
+                -16.325003051596525,
+                3.2275258028891924
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 15.796217833235378
+          },
+          {
+            "x_eigen_index": 3,
+            "yz_eigen_index": 30,
+            "semidiscrete_mode_frequency_hz": 284.4577032968051,
+            "native_leapfrog_modified_frequency_hz": 285.438645242509,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                -14.182961484588228,
+                3.60202086890877
+              ],
+              [
+                -14.95645962583675,
+                7.663477036336976
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 14.633213960486172
+          },
+          {
+            "x_eigen_index": 0,
+            "yz_eigen_index": 4,
+            "semidiscrete_mode_frequency_hz": 85.15380958695174,
+            "native_leapfrog_modified_frequency_hz": 85.17990262924859,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                11.470643210324612,
+                -6.943509601935343
+              ],
+              [
+                73.74139760341977,
+                -91.76797575343308
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 13.408504064612668
+          },
+          {
+            "x_eigen_index": 2,
+            "yz_eigen_index": 30,
+            "semidiscrete_mode_frequency_hz": 267.93295815163646,
+            "native_leapfrog_modified_frequency_hz": 268.7518189949223,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                10.68446148388359,
+                -0.9200111445569634
+              ],
+              [
+                11.348911308821984,
+                -1.9725897530278849
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 10.723998214597993
+          },
+          {
+            "x_eigen_index": 2,
+            "yz_eigen_index": 18,
+            "semidiscrete_mode_frequency_hz": 208.58782556641253,
+            "native_leapfrog_modified_frequency_hz": 208.97293405978021,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                9.845840366672036,
+                -1.634344820211084
+              ],
+              [
+                10.988924284264227,
+                -3.6880699809078457
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 9.980563887743985
+          },
+          {
+            "x_eigen_index": 8,
+            "yz_eigen_index": 89,
+            "semidiscrete_mode_frequency_hz": 561.1682498243315,
+            "native_leapfrog_modified_frequency_hz": 568.9111907899137,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                9.525055262411806,
+                -0.41856980570372027
+              ],
+              [
+                9.623786204504203,
+                -0.8492237339728329
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 9.534247659582045
+          },
+          {
+            "x_eigen_index": 16,
+            "yz_eigen_index": 30,
+            "semidiscrete_mode_frequency_hz": 693.6478401939777,
+            "native_leapfrog_modified_frequency_hz": 708.5739381461171,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                8.63674178312896,
+                -0.1525654878015264
+              ],
+              [
+                8.678761102333269,
+                -0.30744320788234036
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 8.638089190122646
+          },
+          {
+            "x_eigen_index": 0,
+            "yz_eigen_index": 30,
+            "semidiscrete_mode_frequency_hz": 253.87954455879375,
+            "native_leapfrog_modified_frequency_hz": 254.57560513326834,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                -7.0646299384225255,
+                -2.6642531983605218
+              ],
+              [
+                -7.739961059403626,
+                -5.7655106609132725
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 7.550313984983017
+          },
+          {
+            "x_eigen_index": 2,
+            "yz_eigen_index": 4,
+            "semidiscrete_mode_frequency_hz": 120.76596459962082,
+            "native_leapfrog_modified_frequency_hz": 120.84045665495299,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                7.304398781204785,
+                -1.773320684016599
+              ],
+              [
+                11.336485579726707,
+                -5.618743135367694
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 7.51657553698671
+          },
+          {
+            "x_eigen_index": 5,
+            "yz_eigen_index": 18,
+            "semidiscrete_mode_frequency_hz": 285.58930903778736,
+            "native_leapfrog_modified_frequency_hz": 286.5820786565523,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                7.0836528898421935,
+                2.3926482277367427
+              ],
+              [
+                7.616823587894609,
+                5.087855572132181
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 7.476824446612441
+          },
+          {
+            "x_eigen_index": 0,
+            "yz_eigen_index": 18,
+            "semidiscrete_mode_frequency_hz": 190.1989328466858,
+            "native_leapfrog_modified_frequency_hz": 190.49065851366478,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                -6.083809221732586,
+                -3.5555518545608393
+              ],
+              [
+                -7.185800176860723,
+                -8.251992009760505
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 7.04660795254777
+          },
+          {
+            "x_eigen_index": 5,
+            "yz_eigen_index": 103,
+            "semidiscrete_mode_frequency_hz": 526.8635204061654,
+            "native_leapfrog_modified_frequency_hz": 533.2426809513468,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                -6.932827156036599,
+                0.5706001105782473
+              ],
+              [
+                -7.0203516995839905,
+                1.1606139526708599
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 6.956268889402597
+          },
+          {
+            "x_eigen_index": 11,
+            "yz_eigen_index": 89,
+            "semidiscrete_mode_frequency_hz": 640.9454790145162,
+            "native_leapfrog_modified_frequency_hz": 652.6186352381168,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                -6.812685714267416,
+                0.14639975416821338
+              ],
+              [
+                -6.856235976031675,
+                0.29563061545100455
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 6.814258545829021
+          },
+          {
+            "x_eigen_index": 8,
+            "yz_eigen_index": 43,
+            "semidiscrete_mode_frequency_hz": 456.5152428432549,
+            "native_leapfrog_modified_frequency_hz": 460.63095746561237,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                6.63772980573687,
+                -0.2338441267660824
+              ],
+              [
+                6.746724265919077,
+                -0.4779262491473081
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 6.641847638239725
+          },
+          {
+            "x_eigen_index": 5,
+            "yz_eigen_index": 89,
+            "semidiscrete_mode_frequency_hz": 496.1960630429381,
+            "native_leapfrog_modified_frequency_hz": 501.50484532916266,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                -6.452679833163046,
+                0.916843404241092
+              ],
+              [
+                -6.54444444884989,
+                1.869400473425478
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 6.517490226859529
+          },
+          {
+            "x_eigen_index": 8,
+            "yz_eigen_index": 103,
+            "semidiscrete_mode_frequency_hz": 588.4593790282979,
+            "native_leapfrog_modified_frequency_hz": 597.4219600670363,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                6.315026410524578,
+                -0.5976028417371135
+              ],
+              [
+                6.374043473393514,
+                -1.2113980135082574
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 6.3432395289847925
+          },
+          {
+            "x_eigen_index": 8,
+            "yz_eigen_index": 30,
+            "semidiscrete_mode_frequency_hz": 422.53960069753845,
+            "native_leapfrog_modified_frequency_hz": 425.79157412071544,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                5.8245618220160775,
+                -2.1052502959758153
+              ],
+              [
+                5.926030233163234,
+                -4.325854388914007
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 6.193351211355085
+          },
+          {
+            "x_eigen_index": 24,
+            "yz_eigen_index": 30,
+            "semidiscrete_mode_frequency_hz": 931.1899484789319,
+            "native_leapfrog_modified_frequency_hz": 969.1728568195088,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                6.155685815378979,
+                -0.16937996021783788
+              ],
+              [
+                6.16948017859234,
+                -0.34028799899803736
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 6.158015705451015
+          },
+          {
+            "x_eigen_index": 3,
+            "yz_eigen_index": 7,
+            "semidiscrete_mode_frequency_hz": 170.54434445232246,
+            "native_leapfrog_modified_frequency_hz": 170.7544846664739,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                5.7258743430669385,
+                2.1723457547626106
+              ],
+              [
+                7.0410157152569335,
+                5.259834638389755
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 6.124109981934304
+          }
+        ],
+        "80": [
+          {
+            "x_eigen_index": 0,
+            "yz_eigen_index": 4,
+            "semidiscrete_mode_frequency_hz": 85.15380958695174,
+            "native_leapfrog_modified_frequency_hz": 85.17990262924859,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                11.470643210324612,
+                -6.943509601935343
+              ],
+              [
+                73.74139760341977,
+                -91.76797575343308
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 117.72491280263631
+          },
+          {
+            "x_eigen_index": 2,
+            "yz_eigen_index": 0,
+            "semidiscrete_mode_frequency_hz": 85.63437930239492,
+            "native_leapfrog_modified_frequency_hz": 85.66091686329767,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                3.1961460312711094,
+                -5.18189215192582
+              ],
+              [
+                18.688402542903603,
+                -63.401569599766006
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 66.09852810251964
+          },
+          {
+            "x_eigen_index": 3,
+            "yz_eigen_index": 30,
+            "semidiscrete_mode_frequency_hz": 284.4577032968051,
+            "native_leapfrog_modified_frequency_hz": 285.438645242509,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                -14.182961484588228,
+                3.60202086890877
+              ],
+              [
+                -14.95645962583675,
+                7.663477036336976
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 16.80549210305217
+          },
+          {
+            "x_eigen_index": 5,
+            "yz_eigen_index": 30,
+            "semidiscrete_mode_frequency_hz": 331.4218498017945,
+            "native_leapfrog_modified_frequency_hz": 332.97850289201153,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                -15.720619983147685,
+                1.5435689749671213
+              ],
+              [
+                -16.325003051596525,
+                3.2275258028891924
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 16.640992982480082
+          },
+          {
+            "x_eigen_index": 1,
+            "yz_eigen_index": 3,
+            "semidiscrete_mode_frequency_hz": 78.45091666817362,
+            "native_leapfrog_modified_frequency_hz": 78.4713177020148,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                0.27055401907665344,
+                0.36918003040346187
+              ],
+              [
+                -5.297441062140661,
+                -13.889398419284568
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 14.865337878988107
+          },
+          {
+            "x_eigen_index": 2,
+            "yz_eigen_index": 4,
+            "semidiscrete_mode_frequency_hz": 120.76596459962082,
+            "native_leapfrog_modified_frequency_hz": 120.84045665495299,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                7.304398781204785,
+                -1.773320684016599
+              ],
+              [
+                11.336485579726707,
+                -5.618743135367694
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 12.652516734649797
+          },
+          {
+            "x_eigen_index": 3,
+            "yz_eigen_index": 4,
+            "semidiscrete_mode_frequency_hz": 153.98874344147205,
+            "native_leapfrog_modified_frequency_hz": 154.14333892096587,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                1.4820837135308167,
+                4.623702727361074
+              ],
+              [
+                2.0388085506018774,
+                11.803034173441034
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 11.977827683074432
+          },
+          {
+            "x_eigen_index": 2,
+            "yz_eigen_index": 18,
+            "semidiscrete_mode_frequency_hz": 208.58782556641253,
+            "native_leapfrog_modified_frequency_hz": 208.97293405978021,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                9.845840366672036,
+                -1.634344820211084
+              ],
+              [
+                10.988924284264227,
+                -3.6880699809078457
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 11.59130351208895
+          },
+          {
+            "x_eigen_index": 2,
+            "yz_eigen_index": 30,
+            "semidiscrete_mode_frequency_hz": 267.93295815163646,
+            "native_leapfrog_modified_frequency_hz": 268.7518189949223,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                10.68446148388359,
+                -0.9200111445569634
+              ],
+              [
+                11.348911308821984,
+                -1.9725897530278849
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 11.519066725618796
+          },
+          {
+            "x_eigen_index": 0,
+            "yz_eigen_index": 5,
+            "semidiscrete_mode_frequency_hz": 93.09318203139354,
+            "native_leapfrog_modified_frequency_hz": 93.12728060945332,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                2.596587107299346,
+                -1.3144605348749059
+              ],
+              [
+                7.879298258936314,
+                -8.178801342965997
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 11.356765933177421
+          },
+          {
+            "x_eigen_index": 0,
+            "yz_eigen_index": 18,
+            "semidiscrete_mode_frequency_hz": 190.1989328466858,
+            "native_leapfrog_modified_frequency_hz": 190.49065851366478,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                -6.083809221732586,
+                -3.5555518545608393
+              ],
+              [
+                -7.185800176860723,
+                -8.251992009760505
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 10.942170548429722
+          },
+          {
+            "x_eigen_index": 3,
+            "yz_eigen_index": 18,
+            "semidiscrete_mode_frequency_hz": 229.4275394880283,
+            "native_leapfrog_modified_frequency_hz": 229.94052952210663,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                -2.5124426606900125,
+                4.721475961565016
+              ],
+              [
+                -2.6433311220020665,
+                10.417376462367637
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 10.747508166046488
+          },
+          {
+            "x_eigen_index": 8,
+            "yz_eigen_index": 89,
+            "semidiscrete_mode_frequency_hz": 561.1682498243315,
+            "native_leapfrog_modified_frequency_hz": 568.9111907899137,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                9.525055262411806,
+                -0.41856980570372027
+              ],
+              [
+                9.623786204504203,
+                -0.8492237339728329
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 9.661182218566637
+          },
+          {
+            "x_eigen_index": 0,
+            "yz_eigen_index": 30,
+            "semidiscrete_mode_frequency_hz": 253.87954455879375,
+            "native_leapfrog_modified_frequency_hz": 254.57560513326834,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                -7.0646299384225255,
+                -2.6642531983605218
+              ],
+              [
+                -7.739961059403626,
+                -5.7655106609132725
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 9.651326871585539
+          },
+          {
+            "x_eigen_index": 5,
+            "yz_eigen_index": 18,
+            "semidiscrete_mode_frequency_hz": 285.58930903778736,
+            "native_leapfrog_modified_frequency_hz": 286.5820786565523,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                7.0836528898421935,
+                2.3926482277367427
+              ],
+              [
+                7.616823587894609,
+                5.087855572132181
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 9.159818551258763
+          },
+          {
+            "x_eigen_index": 3,
+            "yz_eigen_index": 7,
+            "semidiscrete_mode_frequency_hz": 170.54434445232246,
+            "native_leapfrog_modified_frequency_hz": 170.7544846664739,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                5.7258743430669385,
+                2.1723457547626106
+              ],
+              [
+                7.0410157152569335,
+                5.259834638389755
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 8.78872930096836
+          },
+          {
+            "x_eigen_index": 16,
+            "yz_eigen_index": 30,
+            "semidiscrete_mode_frequency_hz": 693.6478401939777,
+            "native_leapfrog_modified_frequency_hz": 708.5739381461171,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                8.63674178312896,
+                -0.1525654878015264
+              ],
+              [
+                8.678761102333269,
+                -0.30744320788234036
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 8.68420494906966
+          },
+          {
+            "x_eigen_index": 2,
+            "yz_eigen_index": 7,
+            "semidiscrete_mode_frequency_hz": 141.27016147674564,
+            "native_leapfrog_modified_frequency_hz": 141.38947632621597,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                4.3285192863531465,
+                -2.196535186607237
+              ],
+              [
+                5.753363334963644,
+                -5.943508188474184
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 8.27202993530389
+          },
+          {
+            "x_eigen_index": 0,
+            "yz_eigen_index": 8,
+            "semidiscrete_mode_frequency_hz": 125.09850218829614,
+            "native_leapfrog_modified_frequency_hz": 125.18131270855082,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                3.974891464255224,
+                -1.6049182782875417
+              ],
+              [
+                5.921753517992494,
+                -4.8705024440630655
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 7.667395828146658
+          },
+          {
+            "x_eigen_index": 0,
+            "yz_eigen_index": 7,
+            "semidiscrete_mode_frequency_hz": 112.3566268858217,
+            "native_leapfrog_modified_frequency_hz": 112.41660254931158,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                4.366299381280479,
+                -0.4842572390332463
+              ],
+              [
+                7.433070664222221,
+                -1.7092265256796622
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 7.627056759681807
+          }
+        ]
+      },
+      "original_pffdtd_source_and_full250ms_40_80_unmodified": true,
+      "original_native_modes_not_experimentally_damped_or_removed": true,
+      "single_case_wall_seconds": 3.5843237000517547
+    },
+    {
+      "ppw": 40,
+      "original_native_comms_SHA256": "64a4f45cf19b92bb7a8a1ffd24af05e10877c99000e29bf985637b18e287763a",
+      "original_native_voxels_SHA256": "c7c1894826c4774393987855e533081f615b22d510ec6042aacda12acbe0daaf",
+      "original_native_sim_output_SHA256": "79763a63cedf667e98cbcf5867b848675d634a861e63fc3e1cf94ed9982596fa",
+      "exact_original_connected_staircase_graph_tensor_identity": {
+        "original_room_native_flat_C_order_exact": true,
+        "original_connected_nodes": 89723,
+        "original_directed_rigid_neumann_edges": 525778,
+        "original_full_native_staircase_A_equals_kron_Ax_I_plus_I_Ayz": true,
+        "original_native_Kronecker_neumann_matrix_max_abs": 0.0,
+        "original_x_native_nodes": 47,
+        "original_yz_native_nodes": 1909,
+        "original_unmodified_voxel_room_mask_used": true
+      },
+      "exact_original_8point_source_tensor_residual": 2.7755575615628914e-17,
+      "exact_original_8point_receiver_tensor_residual": 6.938893903907228e-18,
+      "original_native_time_step_s": 0.00014419322973010905,
+      "original_native_impulse_q0_total_in_sigs_source_strength": 3.877237762237762,
+      "original_record_samples": 1734,
+      "original_native_CFL_squared": 0.332667,
+      "original_native_const_neumann_zero_mode_present": true,
+      "true_full_eigenmode_max_absolute_Av_minus_lambda_v": 3.1842839627633734e-14,
+      "actual_native_full_3D_modes_count": 89723,
+      "full_x_native_graph_modes": 47,
+      "full_yz_native_original_staircase_graph_modes": 1909,
+      "lowest32_original_yz_native_semidiscrete_mode_hz": [
+        1.7894852232165648e-05,
+        41.54896871152203,
+        49.208443571631825,
+        65.85121524784236,
+        84.69437147338292,
+        93.41067975186299,
+        97.95563316733825,
+        112.89025743167066,
+        124.89248034391183,
+        129.78487941554113,
+        137.8434136218973,
+        139.2972031307088,
+        156.92734205291302,
+        161.45676951088203,
+        168.94081524241213,
+        174.73135589585274,
+        176.31253606466797,
+        183.16599573358303,
+        190.21722112125727,
+        199.8521933787839,
+        206.62733857870106,
+        210.0203969041881,
+        214.6717509632462,
+        220.8476558515078,
+        223.7600772962741,
+        227.3924485007311,
+        232.81174427083837,
+        239.54757739279563,
+        248.38296224648892,
+        251.74389572136545,
+        253.66554902902806,
+        256.7829539806274
+      ],
+      "lowest16_original_x_native_semidiscrete_mode_hz": [
+        0.0,
+        42.54527011258759,
+        85.0430225813011,
+        127.44579283341831,
+        169.70622237924601,
+        211.777111705518,
+        253.61147299123328,
+        295.16258258706466,
+        336.38403319971945,
+        377.22978572297046,
+        417.65422065746935,
+        457.6121890619137,
+        497.05906297865835,
+        535.9507852774572,
+        574.2439188616611,
+        611.8956951819187
+      ],
+      "highest_original_native_FDTD_mode_semidiscrete_frequency_hz": 2203.9323127919215,
+      "highest_original_native_leapfrog_modified_mode_frequency_hz": 3341.6413780063135,
+      "exact_original_saved_true_PFFDTD_q0_signed_40_80": [
+        [
+          23.081760574920366,
+          18.909536564347828
+        ],
+        [
+          109.07263342140902,
+          -119.86161783862582
+        ]
+      ],
+      "entire_true_original_native_PFFDTD_3D_mode_sum_signed_40_80": [
+        [
+          23.081760574873243,
+          18.909536568094314
+        ],
+        [
+          109.07263342137534,
+          -119.8616178368153
+        ]
+      ],
+      "all_original_native_PFFDTD_modes_vs_original_saved_full_wave_complex_rel": 2.5253740620373566e-11,
+      "all_native_actual_original_PFFDTD_modes_signed_spectral_band_transfer": [
+        {
+          "semidiscrete_mode_frequency_band_hz": [
+            0,
+            100
+          ],
+          "full_original_native_3D_mode_count": 15,
+          "signed_original_8node_q0_full250ms_P_T_over_Q_T_40_80": [
+            [
+              41.35229859939205,
+              24.707091139509004
+            ],
+            [
+              122.9987390233526,
+              -102.98236703959782
+            ]
+          ]
+        },
+        {
+          "semidiscrete_mode_frequency_band_hz": [
+            100,
+            200
+          ],
+          "full_original_native_3D_mode_count": 60,
+          "signed_original_8node_q0_full250ms_P_T_over_Q_T_40_80": [
+            [
+              5.563576396027939,
+              -6.170188664558101
+            ],
+            [
+              11.536608130243922,
+              -18.513144297992227
+            ]
+          ]
+        },
+        {
+          "semidiscrete_mode_frequency_band_hz": [
+            200,
+            400
+          ],
+          "full_original_native_3D_mode_count": 423,
+          "signed_original_8node_q0_full250ms_P_T_over_Q_T_40_80": [
+            [
+              -8.912275314032103,
+              3.5206577441087705
+            ],
+            [
+              -10.621141327570921,
+              8.001501865149267
+            ]
+          ]
+        },
+        {
+          "semidiscrete_mode_frequency_band_hz": [
+            400,
+            800
+          ],
+          "full_original_native_3D_mode_count": 3408,
+          "signed_original_8node_q0_full250ms_P_T_over_Q_T_40_80": [
+            [
+              24.75004980513199,
+              -3.825622442614854
+            ],
+            [
+              25.08084780741691,
+              -7.739354225462621
+            ]
+          ]
+        },
+        {
+          "semidiscrete_mode_frequency_band_hz": [
+            800,
+            1000000000
+          ],
+          "full_original_native_3D_mode_count": 85817,
+          "signed_original_8node_q0_full250ms_P_T_over_Q_T_40_80": [
+            [
+              -39.67188891164424,
+              0.6775987916496106
+            ],
+            [
+              -39.92242021206284,
+              1.3717458610881523
+            ]
+          ]
+        }
+      ],
+      "top20_original_native_impulse_coupled_3D_modes_each_40_80_bin": {
+        "40": [
+          {
+            "x_eigen_index": 1,
+            "yz_eigen_index": 0,
+            "semidiscrete_mode_frequency_hz": 42.54527011259135,
+            "native_leapfrog_modified_frequency_hz": 42.54790440931587,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                17.461246959881077,
+                35.90865687536238
+              ],
+              [
+                -0.8744365797248369,
+                -3.2904225980200135
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 39.92902182606614
+          },
+          {
+            "x_eigen_index": 3,
+            "yz_eigen_index": 30,
+            "semidiscrete_mode_frequency_hz": 283.88138522125195,
+            "native_leapfrog_modified_frequency_hz": 284.66970217900547,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                -17.166857108508804,
+                1.2661052236490191
+              ],
+              [
+                -18.15115549442355,
+                2.692827935535849
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 17.213483244866815
+          },
+          {
+            "x_eigen_index": 3,
+            "yz_eigen_index": 18,
+            "semidiscrete_mode_frequency_hz": 228.96510939885988,
+            "native_leapfrog_modified_frequency_hz": 229.3776408156208,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                -12.963127434577478,
+                3.6600309402619495
+              ],
+              [
+                -14.120095142272271,
+                8.078723088631769
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 13.469910889414601
+          },
+          {
+            "x_eigen_index": 0,
+            "yz_eigen_index": 4,
+            "semidiscrete_mode_frequency_hz": 84.69437147338292,
+            "native_leapfrog_modified_frequency_hz": 84.71516315948088,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                10.601451228804793,
+                -3.074712641467982
+              ],
+              [
+                74.50937522869461,
+                -44.128433782682265
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 11.038325325171824
+          },
+          {
+            "x_eigen_index": 5,
+            "yz_eigen_index": 18,
+            "semidiscrete_mode_frequency_hz": 284.6614414588403,
+            "native_leapfrog_modified_frequency_hz": 285.456307716831,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                -10.054807611131665,
+                2.5083931667229047
+              ],
+              [
+                -10.57403839072995,
+                5.336534570959956
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 10.36297217866252
+          },
+          {
+            "x_eigen_index": 16,
+            "yz_eigen_index": 104,
+            "semidiscrete_mode_frequency_hz": 813.3640489903137,
+            "native_leapfrog_modified_frequency_hz": 832.991676109468,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                10.079223783827244,
+                -0.31628089384906105
+              ],
+              [
+                10.117893769370662,
+                -0.6363273271150599
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 10.08418492929809
+          },
+          {
+            "x_eigen_index": 16,
+            "yz_eigen_index": 30,
+            "semidiscrete_mode_frequency_hz": 696.6855687636169,
+            "native_leapfrog_modified_frequency_hz": 708.8019809612533,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                10.067191513425204,
+                -0.30803327705985467
+              ],
+              [
+                10.12941622150092,
+                -0.6212568514390512
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 10.071902971522148
+          },
+          {
+            "x_eigen_index": 3,
+            "yz_eigen_index": 4,
+            "semidiscrete_mode_frequency_hz": 153.02145820181545,
+            "native_leapfrog_modified_frequency_hz": 153.14426883560589,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                -9.332989416455073,
+                2.8507266352785194
+              ],
+              [
+                -11.774294641915962,
+                7.304262410029045
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 9.758654302553646
+          },
+          {
+            "x_eigen_index": 8,
+            "yz_eigen_index": 665,
+            "semidiscrete_mode_frequency_hz": 1179.891695396785,
+            "native_leapfrog_modified_frequency_hz": 1244.8228931927383,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                9.406568576759408,
+                -0.16314356130885885
+              ],
+              [
+                9.413427014563347,
+                -0.32671455167662944
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 9.40798321697451
+          },
+          {
+            "x_eigen_index": 2,
+            "yz_eigen_index": 18,
+            "semidiscrete_mode_frequency_hz": 208.3624411952811,
+            "native_leapfrog_modified_frequency_hz": 208.67307121371888,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                8.400109382794527,
+                -0.8751847486304946
+              ],
+              [
+                9.403661290893274,
+                -1.9750965685830852
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 8.445577895392836
+          },
+          {
+            "x_eigen_index": 24,
+            "yz_eigen_index": 104,
+            "semidiscrete_mode_frequency_hz": 1038.359829030248,
+            "native_leapfrog_modified_frequency_hz": 1081.0543033475908,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                8.35066845253004,
+                -0.19761954316966657
+              ],
+              [
+                8.36310401898728,
+                -0.39636158900689034
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 8.353006470003663
+          },
+          {
+            "x_eigen_index": 16,
+            "yz_eigen_index": 581,
+            "semidiscrete_mode_frequency_hz": 1256.4397481103244,
+            "native_leapfrog_modified_frequency_hz": 1336.6268223330997,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                7.949975317373101,
+                -0.1150084435228734
+              ],
+              [
+                7.9534753017182265,
+                -0.2301705480117122
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 7.950807159585944
+          },
+          {
+            "x_eigen_index": 11,
+            "yz_eigen_index": 104,
+            "semidiscrete_mode_frequency_hz": 670.779711089019,
+            "native_leapfrog_modified_frequency_hz": 681.556091716249,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                -7.602038585989097,
+                0.6735919366068002
+              ],
+              [
+                -7.645195490538022,
+                1.3610684352326843
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 7.631822636823316
+          },
+          {
+            "x_eigen_index": 16,
+            "yz_eigen_index": 1228,
+            "semidiscrete_mode_frequency_hz": 1508.5470961988249,
+            "native_leapfrog_modified_frequency_hz": 1660.8603820366309,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                7.564314740871853,
+                -0.11585957850263222
+              ],
+              [
+                7.563878527529817,
+                -0.23176873265607564
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 7.565201976213326
+          },
+          {
+            "x_eigen_index": 16,
+            "yz_eigen_index": 90,
+            "semidiscrete_mode_frequency_hz": 791.2884579629326,
+            "native_leapfrog_modified_frequency_hz": 809.2954235107441,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                7.526581067867974,
+                -0.3530754586883147
+              ],
+              [
+                7.556566930057987,
+                -0.7110168074682034
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 7.53485798477427
+          },
+          {
+            "x_eigen_index": 8,
+            "yz_eigen_index": 1040,
+            "semidiscrete_mode_frequency_hz": 1327.9730089343936,
+            "native_leapfrog_modified_frequency_hz": 1424.8706816672332,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                7.510888449383885,
+                -0.12414538451800072
+              ],
+              [
+                7.512870945279222,
+                -0.24846129015045854
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 7.5119143615715815
+          },
+          {
+            "x_eigen_index": 24,
+            "yz_eigen_index": 581,
+            "semidiscrete_mode_frequency_hz": 1412.5405831286207,
+            "native_leapfrog_modified_frequency_hz": 1532.7641294579635,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                7.465008080879988,
+                -0.11162035082703665
+              ],
+              [
+                7.465759992928754,
+                -0.22332062949174017
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 7.465842534524973
+          },
+          {
+            "x_eigen_index": 3,
+            "yz_eigen_index": 61,
+            "semidiscrete_mode_frequency_hz": 392.97510228014977,
+            "native_leapfrog_modified_frequency_hz": 395.0808218010862,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                7.3628142312612255,
+                0.8082269624285054
+              ],
+              [
+                7.65089217156902,
+                1.6678297965674502
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 7.407041529980728
+          },
+          {
+            "x_eigen_index": 8,
+            "yz_eigen_index": 454,
+            "semidiscrete_mode_frequency_hz": 1031.7077265786845,
+            "native_leapfrog_modified_frequency_hz": 1073.5230661671824,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                7.3857865592961565,
+                -0.27221783831669455
+              ],
+              [
+                7.395525155441969,
+                -0.5464194427946151
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 7.390801421427691
+          },
+          {
+            "x_eigen_index": 19,
+            "yz_eigen_index": 665,
+            "semidiscrete_mode_frequency_hz": 1359.9293084186631,
+            "native_leapfrog_modified_frequency_hz": 1465.1539606905988,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                -7.366644375261815,
+                0.13866844237467157
+              ],
+              [
+                -7.367830163482791,
+                0.2775646072965253
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 7.367949395081861
+          }
+        ],
+        "80": [
+          {
+            "x_eigen_index": 0,
+            "yz_eigen_index": 4,
+            "semidiscrete_mode_frequency_hz": 84.69437147338292,
+            "native_leapfrog_modified_frequency_hz": 84.71516315948088,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                10.601451228804793,
+                -3.074712641467982
+              ],
+              [
+                74.50937522869461,
+                -44.128433782682265
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 86.59656843710947
+          },
+          {
+            "x_eigen_index": 2,
+            "yz_eigen_index": 0,
+            "semidiscrete_mode_frequency_hz": 85.04302258130299,
+            "native_leapfrog_modified_frequency_hz": 85.06407221291231,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                6.208361161023827,
+                -3.1298015568016546
+              ],
+              [
+                40.75090516191473,
+                -42.19160462961148
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 58.658058037552024
+          },
+          {
+            "x_eigen_index": 3,
+            "yz_eigen_index": 30,
+            "semidiscrete_mode_frequency_hz": 283.88138522125195,
+            "native_leapfrog_modified_frequency_hz": 284.66970217900547,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                -17.166857108508804,
+                1.2661052236490191
+              ],
+              [
+                -18.15115549442355,
+                2.692827935535849
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 18.349816567833706
+          },
+          {
+            "x_eigen_index": 3,
+            "yz_eigen_index": 18,
+            "semidiscrete_mode_frequency_hz": 228.96510939885988,
+            "native_leapfrog_modified_frequency_hz": 229.3776408156208,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                -12.963127434577478,
+                3.6600309402619495
+              ],
+              [
+                -14.120095142272271,
+                8.078723088631769
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 16.267847232182046
+          },
+          {
+            "x_eigen_index": 1,
+            "yz_eigen_index": 3,
+            "semidiscrete_mode_frequency_hz": 78.39950611177794,
+            "native_leapfrog_modified_frequency_hz": 78.41599627017916,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                0.2403533479437066,
+                0.38611292440268746
+              ],
+              [
+                -4.665360313628042,
+                -13.99700827162372
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 14.754044442520783
+          },
+          {
+            "x_eigen_index": 3,
+            "yz_eigen_index": 4,
+            "semidiscrete_mode_frequency_hz": 153.02145820181545,
+            "native_leapfrog_modified_frequency_hz": 153.14426883560589,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                -9.332989416455073,
+                2.8507266352785194
+              ],
+              [
+                -11.774294641915962,
+                7.304262410029045
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 13.85591078454297
+          },
+          {
+            "x_eigen_index": 0,
+            "yz_eigen_index": 7,
+            "semidiscrete_mode_frequency_hz": 112.89025743167066,
+            "native_leapfrog_modified_frequency_hz": 112.93952024521161,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                6.765929584330737,
+                -2.090597701623543
+              ],
+              [
+                11.664866599056328,
+                -7.336384561761568
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 13.780117967994086
+          },
+          {
+            "x_eigen_index": 0,
+            "yz_eigen_index": 5,
+            "semidiscrete_mode_frequency_hz": 93.41067975186299,
+            "native_leapfrog_modified_frequency_hz": 93.43857806806027,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                2.2670548774660246,
+                -1.9385293471752922
+              ],
+              [
+                6.666828792625739,
+                -11.859155279812219
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 13.604637815865647
+          },
+          {
+            "x_eigen_index": 5,
+            "yz_eigen_index": 18,
+            "semidiscrete_mode_frequency_hz": 284.6614414588403,
+            "native_leapfrog_modified_frequency_hz": 285.456307716831,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                -10.054807611131665,
+                2.5083931667229047
+              ],
+              [
+                -10.57403839072995,
+                5.336534570959956
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 11.844361068275553
+          },
+          {
+            "x_eigen_index": 1,
+            "yz_eigen_index": 4,
+            "semidiscrete_mode_frequency_hz": 94.77993758293164,
+            "native_leapfrog_modified_frequency_hz": 94.80908150506335,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                2.549593258196533,
+                1.525174960893435
+              ],
+              [
+                7.491051396479937,
+                8.704079622673955
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 11.483764761721305
+          },
+          {
+            "x_eigen_index": 0,
+            "yz_eigen_index": 18,
+            "semidiscrete_mode_frequency_hz": 190.21722112125727,
+            "native_leapfrog_modified_frequency_hz": 190.45340094809382,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                -5.221212727906353,
+                -3.6038502557213317
+              ],
+              [
+                -6.245531629917965,
+                -8.364535572375232
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 10.438971246336317
+          },
+          {
+            "x_eigen_index": 16,
+            "yz_eigen_index": 30,
+            "semidiscrete_mode_frequency_hz": 696.6855687636169,
+            "native_leapfrog_modified_frequency_hz": 708.8019809612533,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                10.067191513425204,
+                -0.30803327705985467
+              ],
+              [
+                10.12941622150092,
+                -0.6212568514390512
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 10.148449786241539
+          },
+          {
+            "x_eigen_index": 16,
+            "yz_eigen_index": 104,
+            "semidiscrete_mode_frequency_hz": 813.3640489903137,
+            "native_leapfrog_modified_frequency_hz": 832.991676109468,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                10.079223783827244,
+                -0.31628089384906105
+              ],
+              [
+                10.117893769370662,
+                -0.6363273271150599
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 10.137883743439904
+          },
+          {
+            "x_eigen_index": 2,
+            "yz_eigen_index": 18,
+            "semidiscrete_mode_frequency_hz": 208.3624411952811,
+            "native_leapfrog_modified_frequency_hz": 208.67307121371888,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                8.400109382794527,
+                -0.8751847486304946
+              ],
+              [
+                9.403661290893274,
+                -1.9750965685830852
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 9.608842392768924
+          },
+          {
+            "x_eigen_index": 8,
+            "yz_eigen_index": 665,
+            "semidiscrete_mode_frequency_hz": 1179.891695396785,
+            "native_leapfrog_modified_frequency_hz": 1244.8228931927383,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                9.406568576759408,
+                -0.16314356130885885
+              ],
+              [
+                9.413427014563347,
+                -0.32671455167662944
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 9.419094996696247
+          },
+          {
+            "x_eigen_index": 2,
+            "yz_eigen_index": 7,
+            "semidiscrete_mode_frequency_hz": 141.3383384391955,
+            "native_leapfrog_modified_frequency_hz": 141.4350816580568,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                4.27271594364642,
+                -2.304649603015124
+              ],
+              [
+                5.638301319869414,
+                -6.234426831977876
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 8.405862222099936
+          },
+          {
+            "x_eigen_index": 24,
+            "yz_eigen_index": 104,
+            "semidiscrete_mode_frequency_hz": 1038.359829030248,
+            "native_leapfrog_modified_frequency_hz": 1081.0543033475908,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                8.35066845253004,
+                -0.19761954316966657
+              ],
+              [
+                8.36310401898728,
+                -0.39636158900689034
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 8.372491346166996
+          },
+          {
+            "x_eigen_index": 0,
+            "yz_eigen_index": 30,
+            "semidiscrete_mode_frequency_hz": 253.66554902902806,
+            "native_leapfrog_modified_frequency_hz": 254.22713459951976,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                -2.0876003726433185,
+                -3.6003316132767815
+              ],
+              [
+                -2.426984954131027,
+                -7.793258832871436
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 8.162422385769254
+          },
+          {
+            "x_eigen_index": 3,
+            "yz_eigen_index": 7,
+            "semidiscrete_mode_frequency_hz": 170.25463381044128,
+            "native_leapfrog_modified_frequency_hz": 170.4238726745838,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                3.4415935119174246,
+                2.821454962335364
+              ],
+              [
+                4.321846573756425,
+                6.837965601626279
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 8.089260249003885
+          },
+          {
+            "x_eigen_index": 16,
+            "yz_eigen_index": 581,
+            "semidiscrete_mode_frequency_hz": 1256.4397481103244,
+            "native_leapfrog_modified_frequency_hz": 1336.6268223330997,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                7.949975317373101,
+                -0.1150084435228734
+              ],
+              [
+                7.9534753017182265,
+                -0.2301705480117122
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 7.956805128706738
+          }
+        ]
+      },
+      "original_pffdtd_source_and_full250ms_40_80_unmodified": true,
+      "original_native_modes_not_experimentally_damped_or_removed": true,
+      "single_case_wall_seconds": 5.4481171001680195
+    },
+    {
+      "ppw": 44,
+      "original_native_comms_SHA256": "41c537b663ef11aa7404a248862f89398dec80fd3b6c794f4ecce4a0a8577ee4",
+      "original_native_voxels_SHA256": "4a7cb6c30c013adc31d5b1910d50cef003cacbdd37a271ac3efa7a39956e505b",
+      "original_native_sim_output_SHA256": "a5603179fa00ef7a82e5e5e486d864b1b2f08e3f432692d80631fcf406c0ce89",
+      "exact_original_connected_staircase_graph_tensor_identity": {
+        "original_room_native_flat_C_order_exact": true,
+        "original_connected_nodes": 116739,
+        "original_directed_rigid_neumann_edges": 685452,
+        "original_full_native_staircase_A_equals_kron_Ax_I_plus_I_Ayz": true,
+        "original_native_Kronecker_neumann_matrix_max_abs": 0.0,
+        "original_x_native_nodes": 51,
+        "original_yz_native_nodes": 2289,
+        "original_unmodified_voxel_room_mask_used": true
+      },
+      "exact_original_8point_source_tensor_residual": 6.938893903907228e-18,
+      "exact_original_8point_receiver_tensor_residual": 1.734723475976807e-18,
+      "original_native_time_step_s": 0.00013108475430009911,
+      "original_native_impulse_q0_total_in_sigs_source_strength": 4.264961538461538,
+      "original_record_samples": 1908,
+      "original_native_CFL_squared": 0.332667,
+      "original_native_const_neumann_zero_mode_present": true,
+      "true_full_eigenmode_max_absolute_Av_minus_lambda_v": 6.931437903490827e-14,
+      "actual_native_full_3D_modes_count": 116739,
+      "full_x_native_graph_modes": 51,
+      "full_yz_native_original_staircase_graph_modes": 2289,
+      "lowest32_original_yz_native_semidiscrete_mode_hz": [
+        8.803214007527996e-06,
+        42.032627546200395,
+        49.13968485844723,
+        65.97362156382866,
+        85.80135281035847,
+        93.40294565011384,
+        98.55588472903963,
+        112.63302959119045,
+        126.01794723659184,
+        130.90178109741998,
+        139.00978968699877,
+        139.10858461222116,
+        157.5225397041874,
+        161.49237287327657,
+        171.14007028722372,
+        175.3554671363764,
+        177.5058754807127,
+        183.0022886191843,
+        191.3677329917783,
+        201.01603230579803,
+        206.4554432807412,
+        212.413997929818,
+        217.07053897734738,
+        221.82524984723423,
+        224.1721651546866,
+        227.14855846034465,
+        235.0065152536831,
+        239.88891450894667,
+        249.48688608764283,
+        252.87527935240055,
+        256.12976312216455,
+        260.03549985173805
+      ],
+      "lowest16_original_x_native_semidiscrete_mode_hz": [
+        1.7289018378189917e-05,
+        43.13043496977702,
+        86.21995810942033,
+        129.22769639617022,
+        172.112854385148,
+        214.83475290630275,
+        257.3528676510847,
+        299.6268676121958,
+        341.61665333999633,
+        383.2823949792668,
+        424.5845700502331,
+        465.4840009380317,
+        505.9418920550531,
+        545.9198666409062,
+        585.3800031651001,
+        624.2848712979116
+      ],
+      "highest_original_native_FDTD_mode_semidiscrete_frequency_hz": 2424.5734565823277,
+      "highest_original_native_leapfrog_modified_mode_frequency_hz": 3680.2241990804105,
+      "exact_original_saved_true_PFFDTD_q0_signed_40_80": [
+        [
+          -64.44884936510273,
+          -11.312555997628882
+        ],
+        [
+          -83.61305811577175,
+          -224.3177326070579
+        ]
+      ],
+      "entire_true_original_native_PFFDTD_3D_mode_sum_signed_40_80": [
+        [
+          -64.4488493655164,
+          -11.312555993320913
+        ],
+        [
+          -83.61305811663996,
+          -224.3177326045239
+        ]
+      ],
+      "all_original_native_PFFDTD_modes_vs_original_saved_full_wave_complex_rel": 2.050828518164721e-11,
+      "all_native_actual_original_PFFDTD_modes_signed_spectral_band_transfer": [
+        {
+          "semidiscrete_mode_frequency_band_hz": [
+            0,
+            100
+          ],
+          "full_original_native_3D_mode_count": 15,
+          "signed_original_8node_q0_full250ms_P_T_over_Q_T_40_80": [
+            [
+              24.236730992524212,
+              -7.497388189459511
+            ],
+            [
+              -0.05798370782736528,
+              -208.0392647712124
+            ]
+          ]
+        },
+        {
+          "semidiscrete_mode_frequency_band_hz": [
+            100,
+            200
+          ],
+          "full_original_native_3D_mode_count": 59,
+          "signed_original_8node_q0_full250ms_P_T_over_Q_T_40_80": [
+            [
+              -6.083413067768131,
+              -7.3673599651606265
+            ],
+            [
+              -4.250150883435615,
+              -23.281389197947462
+            ]
+          ]
+        },
+        {
+          "semidiscrete_mode_frequency_band_hz": [
+            200,
+            400
+          ],
+          "full_original_native_3D_mode_count": 409,
+          "signed_original_8node_q0_full250ms_P_T_over_Q_T_40_80": [
+            [
+              31.716651863252878,
+              -3.561529417736474
+            ],
+            [
+              34.528542133359,
+              -7.52743939419586
+            ]
+          ]
+        },
+        {
+          "semidiscrete_mode_frequency_band_hz": [
+            400,
+            800
+          ],
+          "full_original_native_3D_mode_count": 3238,
+          "signed_original_8node_q0_full250ms_P_T_over_Q_T_40_80": [
+            [
+              49.03143406394243,
+              6.97482613133874
+            ],
+            [
+              50.010307403126596,
+              14.252899395703745
+            ]
+          ]
+        },
+        {
+          "semidiscrete_mode_frequency_band_hz": [
+            800,
+            1000000000
+          ],
+          "full_original_native_3D_mode_count": 113018,
+          "signed_original_8node_q0_full250ms_P_T_over_Q_T_40_80": [
+            [
+              -163.35025321746724,
+              0.13889544769690623
+            ],
+            [
+              -163.8437730618631,
+              0.2774613631279505
+            ]
+          ]
+        }
+      ],
+      "top20_original_native_impulse_coupled_3D_modes_each_40_80_bin": {
+        "40": [
+          {
+            "x_eigen_index": 1,
+            "yz_eigen_index": 0,
+            "semidiscrete_mode_frequency_hz": 43.130434969777916,
+            "native_leapfrog_modified_frequency_hz": 43.13270308984017,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                19.391177078731893,
+                14.619629073812376
+              ],
+              [
+                -1.1721342197918716,
+                -1.6768674364711618
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 24.2847957116093
+          },
+          {
+            "x_eigen_index": 8,
+            "yz_eigen_index": 30,
+            "semidiscrete_mode_frequency_hz": 426.9711856744379,
+            "native_leapfrog_modified_frequency_hz": 429.20250218306126,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                11.370856035452253,
+                -1.2675600442395296
+              ],
+              [
+                11.634415424505145,
+                -2.603025734642743
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 11.441288189916966
+          },
+          {
+            "x_eigen_index": 3,
+            "yz_eigen_index": 18,
+            "semidiscrete_mode_frequency_hz": 230.9142844136614,
+            "native_leapfrog_modified_frequency_hz": 231.26372912882667,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                11.205188093427427,
+                1.4669037328555259
+              ],
+              [
+                12.52357912579774,
+                3.2314848601803816
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 11.300798501457907
+          },
+          {
+            "x_eigen_index": 0,
+            "yz_eigen_index": 4,
+            "semidiscrete_mode_frequency_hz": 85.8013528103602,
+            "native_leapfrog_modified_frequency_hz": 85.81921683800988,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                3.373315428339279,
+                -10.63091406218359
+              ],
+              [
+                19.588897780470464,
+                -127.00643927365111
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 11.153277131704593
+          },
+          {
+            "x_eigen_index": 11,
+            "yz_eigen_index": 1762,
+            "semidiscrete_mode_frequency_hz": 1706.6259994039915,
+            "native_leapfrog_modified_frequency_hz": 1892.4656592437827,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                -10.213809275102754,
+                0.03693351747025437
+              ],
+              [
+                -10.215379004968405,
+                0.07389403991454416
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 10.213876051376763
+          },
+          {
+            "x_eigen_index": 5,
+            "yz_eigen_index": 1264,
+            "semidiscrete_mode_frequency_hz": 1435.9626854773808,
+            "native_leapfrog_modified_frequency_hz": 1536.4497991805072,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                -10.13197061271552,
+                0.04167450036903758
+              ],
+              [
+                -10.135655534136385,
+                0.08342103619813876
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 10.132056319469998
+          },
+          {
+            "x_eigen_index": 8,
+            "yz_eigen_index": 160,
+            "semidiscrete_mode_frequency_hz": 698.8074919584924,
+            "native_leapfrog_modified_frequency_hz": 708.8312586933378,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                9.829046179111916,
+                -0.2918137555600109
+              ],
+              [
+                9.891899575925907,
+                -0.5890534869363945
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 9.833377042453352
+          },
+          {
+            "x_eigen_index": 8,
+            "yz_eigen_index": 18,
+            "semidiscrete_mode_frequency_hz": 391.5655080183031,
+            "native_leapfrog_modified_frequency_hz": 393.28261556632555,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                9.270673525371251,
+                -1.3188125606215846
+              ],
+              [
+                9.534218972653028,
+                -2.722497011781812
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 9.364008446390503
+          },
+          {
+            "x_eigen_index": 0,
+            "yz_eigen_index": 30,
+            "semidiscrete_mode_frequency_hz": 256.1297631221651,
+            "native_leapfrog_modified_frequency_hz": 256.6070904804704,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                8.957230334932202,
+                -0.6135298288533009
+              ],
+              [
+                9.56776746258155,
+                -1.3253788861286473
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 8.978217758771638
+          },
+          {
+            "x_eigen_index": 5,
+            "yz_eigen_index": 255,
+            "semidiscrete_mode_frequency_hz": 794.1151300775953,
+            "native_leapfrog_modified_frequency_hz": 808.9979275679375,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                -8.8590935550706,
+                0.2962313407012865
+              ],
+              [
+                -8.901857550457594,
+                0.5966817027308039
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 8.864044879438909
+          },
+          {
+            "x_eigen_index": 16,
+            "yz_eigen_index": 1762,
+            "semidiscrete_mode_frequency_hz": 1770.5740546661973,
+            "native_leapfrog_modified_frequency_hz": 1984.0887106244215,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                8.603023925730458,
+                -0.02176368227440978
+              ],
+              [
+                8.603314869326756,
+                -0.043528518652005264
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 8.60305145425487
+          },
+          {
+            "x_eigen_index": 3,
+            "yz_eigen_index": 43,
+            "semidiscrete_mode_frequency_hz": 335.74261159988305,
+            "native_leapfrog_modified_frequency_hz": 336.82164538539985,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                -8.497430426550999,
+                0.6471797138240778
+              ],
+              [
+                -8.819379189717544,
+                1.351926272715997
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 8.52203998090012
+          },
+          {
+            "x_eigen_index": 3,
+            "yz_eigen_index": 1552,
+            "semidiscrete_mode_frequency_hz": 1540.5081759887992,
+            "native_leapfrog_modified_frequency_hz": 1668.8020298982497,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                -8.461390648293083,
+                0.05380733596735559
+              ],
+              [
+                -8.464582661246153,
+                0.10773020777333626
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 8.461561731289652
+          },
+          {
+            "x_eigen_index": 3,
+            "yz_eigen_index": 255,
+            "semidiscrete_mode_frequency_hz": 775.3480936184113,
+            "native_leapfrog_modified_frequency_hz": 789.1667368848942,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                -8.43281182461775,
+                0.40038237792003173
+              ],
+              [
+                -8.47864845791102,
+                0.806828464835839
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 8.442311372957162
+          },
+          {
+            "x_eigen_index": 11,
+            "yz_eigen_index": 255,
+            "semidiscrete_mode_frequency_hz": 895.0643685741944,
+            "native_leapfrog_modified_frequency_hz": 916.6823108503587,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                -8.411933196511672,
+                0.12150359102066786
+              ],
+              [
+                -8.436078197876768,
+                0.24425930471305612
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 8.412810661438067
+          },
+          {
+            "x_eigen_index": 5,
+            "yz_eigen_index": 18,
+            "semidiscrete_mode_frequency_hz": 287.70745608469156,
+            "native_leapfrog_modified_frequency_hz": 288.38488553677905,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                -8.287267461238812,
+                0.2736554079076495
+              ],
+              [
+                -8.674079224715756,
+                0.5807694762307282
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 8.29178444343464
+          },
+          {
+            "x_eigen_index": 3,
+            "yz_eigen_index": 4,
+            "semidiscrete_mode_frequency_hz": 155.11824412346974,
+            "native_leapfrog_modified_frequency_hz": 155.22393565818274,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                7.928497292045182,
+                1.5532525134710833
+              ],
+              [
+                10.26597953692508,
+                3.9476365731611605
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 8.079211761092292
+          },
+          {
+            "x_eigen_index": 16,
+            "yz_eigen_index": 1552,
+            "semidiscrete_mode_frequency_hz": 1671.97523280615,
+            "native_leapfrog_modified_frequency_hz": 1844.226203515562,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                7.726256421511341,
+                -0.021996486801363402
+              ],
+              [
+                7.727037099794976,
+                -0.04399941135221351
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 7.726287733211651
+          },
+          {
+            "x_eigen_index": 21,
+            "yz_eigen_index": 1264,
+            "semidiscrete_mode_frequency_hz": 1651.73189547708,
+            "native_leapfrog_modified_frequency_hz": 1816.4619352141442,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                -7.7149847170620625,
+                0.028421930945955267
+              ],
+              [
+                -7.7164006078091125,
+                0.05686870391499693
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 7.715037069947226
+          },
+          {
+            "x_eigen_index": 3,
+            "yz_eigen_index": 464,
+            "semidiscrete_mode_frequency_hz": 1012.4983311967709,
+            "native_leapfrog_modified_frequency_hz": 1044.4017990104796,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                -7.694106125935278,
+                0.045019389939592515
+              ],
+              [
+                -7.704821554834196,
+                0.09030680841460433
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 7.694237832470822
+          }
+        ],
+        "80": [
+          {
+            "x_eigen_index": 0,
+            "yz_eigen_index": 4,
+            "semidiscrete_mode_frequency_hz": 85.8013528103602,
+            "native_leapfrog_modified_frequency_hz": 85.81921683800988,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                3.373315428339279,
+                -10.63091406218359
+              ],
+              [
+                19.588897780470464,
+                -127.00643927365111
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 128.50821192914228
+          },
+          {
+            "x_eigen_index": 2,
+            "yz_eigen_index": 0,
+            "semidiscrete_mode_frequency_hz": 86.2199581094208,
+            "native_leapfrog_modified_frequency_hz": 86.23808497806621,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                -2.102398268338111,
+                -5.306376926112862
+              ],
+              [
+                -12.119350523713653,
+                -59.7262390247396
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 60.943435127640825
+          },
+          {
+            "x_eigen_index": 1,
+            "yz_eigen_index": 3,
+            "semidiscrete_mode_frequency_hz": 78.82101980391678,
+            "native_leapfrog_modified_frequency_hz": 78.83486773860021,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                0.40563466811816196,
+                0.27328459456108756
+              ],
+              [
+                -10.338270303624089,
+                -13.626698960141596
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 17.104582936193438
+          },
+          {
+            "x_eigen_index": 2,
+            "yz_eigen_index": 4,
+            "semidiscrete_mode_frequency_hz": 121.6377956084284,
+            "native_leapfrog_modified_frequency_hz": 121.68872275329169,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                3.468331836727345,
+                -4.402419139959858
+              ],
+              [
+                5.374824051415404,
+                -13.829021992371498
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 14.836798268129415
+          },
+          {
+            "x_eigen_index": 3,
+            "yz_eigen_index": 18,
+            "semidiscrete_mode_frequency_hz": 230.9142844136614,
+            "native_leapfrog_modified_frequency_hz": 231.26372912882667,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                11.205188093427427,
+                1.4669037328555259
+              ],
+              [
+                12.52357912579774,
+                3.2314848601803816
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 12.933774720540478
+          },
+          {
+            "x_eigen_index": 0,
+            "yz_eigen_index": 5,
+            "semidiscrete_mode_frequency_hz": 93.40294565011543,
+            "native_leapfrog_modified_frequency_hz": 93.42599315363336,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                2.114813359923259,
+                -1.8283284569670961
+              ],
+              [
+                6.3750462747122,
+                -11.19274956301878
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 12.880949413190743
+          },
+          {
+            "x_eigen_index": 8,
+            "yz_eigen_index": 30,
+            "semidiscrete_mode_frequency_hz": 426.9711856744379,
+            "native_leapfrog_modified_frequency_hz": 429.20250218306126,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                11.370856035452253,
+                -1.2675600442395296
+              ],
+              [
+                11.634415424505145,
+                -2.603025734642743
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 11.922053734368738
+          },
+          {
+            "x_eigen_index": 0,
+            "yz_eigen_index": 7,
+            "semidiscrete_mode_frequency_hz": 112.63302959119177,
+            "native_leapfrog_modified_frequency_hz": 112.67345653997373,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                6.148545080643562,
+                -1.202150358831405
+              ],
+              [
+                10.561118607383179,
+                -4.235482025516235
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 11.378775603187117
+          },
+          {
+            "x_eigen_index": 3,
+            "yz_eigen_index": 0,
+            "semidiscrete_mode_frequency_hz": 129.22769639617053,
+            "native_leapfrog_modified_frequency_hz": 129.28877284053107,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                -5.514965257920704,
+                2.631809907826386
+              ],
+              [
+                -7.987291619425499,
+                7.711323546234645
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 11.102312292872043
+          },
+          {
+            "x_eigen_index": 3,
+            "yz_eigen_index": 4,
+            "semidiscrete_mode_frequency_hz": 155.11824412346974,
+            "native_leapfrog_modified_frequency_hz": 155.22393565818274,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                7.928497292045182,
+                1.5532525134710833
+              ],
+              [
+                10.26597953692508,
+                3.9476365731611605
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 10.99882586307848
+          },
+          {
+            "x_eigen_index": 11,
+            "yz_eigen_index": 1762,
+            "semidiscrete_mode_frequency_hz": 1706.6259994039915,
+            "native_leapfrog_modified_frequency_hz": 1892.4656592437827,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                -10.213809275102754,
+                0.03693351747025437
+              ],
+              [
+                -10.215379004968405,
+                0.07389403991454416
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 10.215646261704844
+          },
+          {
+            "x_eigen_index": 5,
+            "yz_eigen_index": 1264,
+            "semidiscrete_mode_frequency_hz": 1435.9626854773808,
+            "native_leapfrog_modified_frequency_hz": 1536.4497991805072,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                -10.13197061271552,
+                0.04167450036903758
+              ],
+              [
+                -10.135655534136385,
+                0.08342103619813876
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 10.135998824780412
+          },
+          {
+            "x_eigen_index": 8,
+            "yz_eigen_index": 18,
+            "semidiscrete_mode_frequency_hz": 391.5655080183031,
+            "native_leapfrog_modified_frequency_hz": 393.28261556632555,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                9.270673525371251,
+                -1.3188125606215846
+              ],
+              [
+                9.534218972653028,
+                -2.722497011781812
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 9.915307428297815
+          },
+          {
+            "x_eigen_index": 8,
+            "yz_eigen_index": 160,
+            "semidiscrete_mode_frequency_hz": 698.8074919584924,
+            "native_leapfrog_modified_frequency_hz": 708.8312586933378,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                9.829046179111916,
+                -0.2918137555600109
+              ],
+              [
+                9.891899575925907,
+                -0.5890534869363945
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 9.90942285053348
+          },
+          {
+            "x_eigen_index": 0,
+            "yz_eigen_index": 30,
+            "semidiscrete_mode_frequency_hz": 256.1297631221651,
+            "native_leapfrog_modified_frequency_hz": 256.6070904804704,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                8.957230334932202,
+                -0.6135298288533009
+              ],
+              [
+                9.56776746258155,
+                -1.3253788861286473
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 9.659130572149328
+          },
+          {
+            "x_eigen_index": 3,
+            "yz_eigen_index": 43,
+            "semidiscrete_mode_frequency_hz": 335.74261159988305,
+            "native_leapfrog_modified_frequency_hz": 336.82164538539985,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                -8.497430426550999,
+                0.6471797138240778
+              ],
+              [
+                -8.819379189717544,
+                1.351926272715997
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 8.922396199389638
+          },
+          {
+            "x_eigen_index": 5,
+            "yz_eigen_index": 255,
+            "semidiscrete_mode_frequency_hz": 794.1151300775953,
+            "native_leapfrog_modified_frequency_hz": 808.9979275679375,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                -8.8590935550706,
+                0.2962313407012865
+              ],
+              [
+                -8.901857550457594,
+                0.5966817027308039
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 8.921832597791365
+          },
+          {
+            "x_eigen_index": 2,
+            "yz_eigen_index": 30,
+            "semidiscrete_mode_frequency_hz": 270.2523574983322,
+            "native_leapfrog_modified_frequency_hz": 270.81339670144126,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                -7.49071769385958,
+                -1.6528180221492763
+              ],
+              [
+                -8.084698889450761,
+                -3.5418729774585525
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 8.82650668846614
+          },
+          {
+            "x_eigen_index": 5,
+            "yz_eigen_index": 18,
+            "semidiscrete_mode_frequency_hz": 287.70745608469156,
+            "native_leapfrog_modified_frequency_hz": 288.38488553677905,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                -8.287267461238812,
+                0.2736554079076495
+              ],
+              [
+                -8.674079224715756,
+                0.5807694762307282
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 8.69350007656104
+          },
+          {
+            "x_eigen_index": 16,
+            "yz_eigen_index": 1762,
+            "semidiscrete_mode_frequency_hz": 1770.5740546661973,
+            "native_leapfrog_modified_frequency_hz": 1984.0887106244215,
+            "individual_signed_full250ms_transfer_40_80": [
+              [
+                8.603023925730458,
+                -0.02176368227440978
+              ],
+              [
+                8.603314869326756,
+                -0.043528518652005264
+              ]
+            ],
+            "absolute_in_original_scored_frequency_bin": 8.603424985011195
+          }
+        ]
+      },
+      "original_pffdtd_source_and_full250ms_40_80_unmodified": true,
+      "original_native_modes_not_experimentally_damped_or_removed": true,
+      "single_case_wall_seconds": 7.335502200061455
+    }
+  ],
+  "all_four_actual_original_PFFDTD_adjacent_q0_mode_band_differences": [
+    {
+      "original_coarse_ppw": 28,
+      "original_fine_ppw": 32,
+      "original_full_250ms_signed_delta": [
+        [
+          84.53248764072158,
+          63.79801547551941
+        ],
+        [
+          172.3002273138224,
+          208.92774948207628
+        ]
+      ],
+      "original_full_native_PPWave_two_frequency_refinement": {
+        "complex_rms_relative": 1.246927070042666,
+        "magnitude_max_relative": 3.104123821253262,
+        "magnitude_max_db": 12.264409098974966,
+        "phase_max_deg": 87.12947751814937,
+        "mask_floor": 0.732571730378015,
+        "compared_frequency_count": 2,
+        "frequency_metrics": [
+          {
+            "frequency_hz": 40.0,
+            "masked_in": true,
+            "magnitude_absolute": 83.033991827103,
+            "magnitude_relative": 3.104123821253262,
+            "magnitude_db": 12.264409098974966,
+            "phase_deg": 74.67744374757285,
+            "complex_relative": 3.9591388290813776
+          },
+          {
+            "frequency_hz": 80.0,
+            "masked_in": true,
+            "magnitude_absolute": 79.32219233173205,
+            "magnitude_relative": 0.34240851286573704,
+            "magnitude_db": 3.6408763520166003,
+            "phase_deg": 87.12947751814937,
+            "complex_relative": 1.1690010127441177
+          }
+        ]
+      },
+      "original_full_signed_band_causal_differences": [
+        {
+          "original_native_physical_semidiscrete_mode_band_hz": [
+            0,
+            100
+          ],
+          "original_coarse_mode_count": 15,
+          "original_fine_mode_count": 15,
+          "original_signed_complex_delta_40_80": [
+            [
+              12.850779290531143,
+              47.2703764630069
+            ],
+            [
+              102.11044731483233,
+              165.93870789783728
+            ]
+          ],
+          "relative_complex_delta_norm_to_full_original": 0.6909045964944929,
+          "not_additive_percentage_due_to_signed_complex_cancellation": true
+        },
+        {
+          "original_native_physical_semidiscrete_mode_band_hz": [
+            100,
+            200
+          ],
+          "original_coarse_mode_count": 60,
+          "original_fine_mode_count": 59,
+          "original_signed_complex_delta_40_80": [
+            [
+              14.303659241098828,
+              7.194165738316623
+            ],
+            [
+              14.370970180702077,
+              22.538427869931873
+            ]
+          ],
+          "relative_complex_delta_norm_to_full_original": 0.10715442656388253,
+          "not_additive_percentage_due_to_signed_complex_cancellation": true
+        },
+        {
+          "original_native_physical_semidiscrete_mode_band_hz": [
+            200,
+            400
+          ],
+          "original_coarse_mode_count": 446,
+          "original_fine_mode_count": 418,
+          "original_signed_complex_delta_40_80": [
+            [
+              -25.422019958721332,
+              12.090622568854323
+            ],
+            [
+              -27.274765457823285,
+              25.995440899460956
+            ]
+          ],
+          "relative_complex_delta_norm_to_full_original": 0.16174794538651724,
+          "not_additive_percentage_due_to_signed_complex_cancellation": true
+        },
+        {
+          "original_native_physical_semidiscrete_mode_band_hz": [
+            400,
+            800
+          ],
+          "original_coarse_mode_count": 4233,
+          "original_fine_mode_count": 3668,
+          "original_signed_complex_delta_40_80": [
+            [
+              32.80730767103798,
+              -1.6364207953487135
+            ],
+            [
+              33.39953310304771,
+              -3.310904430825153
+            ]
+          ],
+          "relative_complex_delta_norm_to_full_original": 0.16150465031132855,
+          "not_additive_percentage_due_to_signed_complex_cancellation": true
+        },
+        {
+          "original_native_physical_semidiscrete_mode_band_hz": [
+            800,
+            1000000000
+          ],
+          "original_coarse_mode_count": 26431,
+          "original_fine_mode_count": 40499,
+          "original_signed_complex_delta_40_80": [
+            [
+              49.99276139681522,
+              -1.1207284972261617
+            ],
+            [
+              49.69404217314464,
+              -2.2339227533175823
+            ]
+          ],
+          "relative_complex_delta_norm_to_full_original": 0.24256609534412052,
+          "not_additive_percentage_due_to_signed_complex_cancellation": true
+        }
+      ],
+      "all_original_3D_mode_signed_reconstruction_conservation": true
+    },
+    {
+      "original_coarse_ppw": 32,
+      "original_fine_ppw": 36,
+      "original_full_250ms_signed_delta": [
+        [
+          -41.29929424102407,
+          -33.21486506087983
+        ],
+        [
+          -140.95750240452912,
+          -62.81188363832038
+        ]
+      ],
+      "original_full_native_PPWave_two_frequency_refinement": {
+        "complex_rms_relative": 0.7613047721569608,
+        "magnitude_max_relative": 0.5476926714692758,
+        "magnitude_max_db": 6.891327510406872,
+        "phase_max_deg": 63.65161559834691,
+        "mask_floor": 0.6514398263666002,
+        "compared_frequency_count": 2,
+        "frequency_metrics": [
+          {
+            "frequency_hz": 40.0,
+            "masked_in": true,
+            "magnitude_absolute": 32.39068895717154,
+            "magnitude_relative": 0.5476926714692758,
+            "magnitude_db": 6.891327510406872,
+            "phase_deg": 63.65161559834691,
+            "complex_relative": 0.8961520672161258
+          },
+          {
+            "frequency_hz": 80.0,
+            "masked_in": true,
+            "magnitude_absolute": 25.656160758222256,
+            "magnitude_relative": 0.12454243773201162,
+            "magnitude_db": 1.0195169877864259,
+            "phase_deg": 40.7654783516125,
+            "complex_relative": 0.7491090813120052
+          }
+        ]
+      },
+      "original_full_signed_band_causal_differences": [
+        {
+          "original_native_physical_semidiscrete_mode_band_hz": [
+            0,
+            100
+          ],
+          "original_coarse_mode_count": 15,
+          "original_fine_mode_count": 15,
+          "original_signed_complex_delta_40_80": [
+            [
+              -24.162596399684112,
+              -17.920828118604796
+            ],
+            [
+              -121.81905680745872,
+              -26.356707170546827
+            ]
+          ],
+          "relative_complex_delta_norm_to_full_original": 0.7858048491819413,
+          "not_additive_percentage_due_to_signed_complex_cancellation": true
+        },
+        {
+          "original_native_physical_semidiscrete_mode_band_hz": [
+            100,
+            200
+          ],
+          "original_coarse_mode_count": 59,
+          "original_fine_mode_count": 60,
+          "original_signed_complex_delta_40_80": [
+            [
+              -22.314248393774584,
+              -0.9795585380039569
+            ],
+            [
+              -28.91213630221848,
+              -5.051947852327462
+            ]
+          ],
+          "relative_complex_delta_norm_to_full_original": 0.22604254213644845,
+          "not_additive_percentage_due_to_signed_complex_cancellation": true
+        },
+        {
+          "original_native_physical_semidiscrete_mode_band_hz": [
+            200,
+            400
+          ],
+          "original_coarse_mode_count": 418,
+          "original_fine_mode_count": 424,
+          "original_signed_complex_delta_40_80": [
+            [
+              85.35255651250162,
+              -14.904465881047132
+            ],
+            [
+              90.49960281970655,
+              -32.581034294562755
+            ]
+          ],
+          "relative_complex_delta_norm_to_full_original": 0.7934007437871214,
+          "not_additive_percentage_due_to_signed_complex_cancellation": true
+        },
+        {
+          "original_native_physical_semidiscrete_mode_band_hz": [
+            400,
+            800
+          ],
+          "original_coarse_mode_count": 3668,
+          "original_fine_mode_count": 3514,
+          "original_signed_complex_delta_40_80": [
+            [
+              -17.81222926423797,
+              0.6936338520771206
+            ],
+            [
+              -18.348698609879566,
+              1.3906444838590324
+            ]
+          ],
+          "relative_complex_delta_norm_to_full_original": 0.15701552481921036,
+          "not_additive_percentage_due_to_signed_complex_cancellation": true
+        },
+        {
+          "original_native_physical_semidiscrete_mode_band_hz": [
+            800,
+            1000000000
+          ],
+          "original_coarse_mode_count": 40499,
+          "original_fine_mode_count": 60835,
+          "original_signed_complex_delta_40_80": [
+            [
+              -62.362776695745254,
+              -0.1036463800923218
+            ],
+            [
+              -62.37721350456589,
+              -0.2128388070588092
+            ]
+          ],
+          "relative_complex_delta_norm_to_full_original": 0.5405826123764153,
+          "not_additive_percentage_due_to_signed_complex_cancellation": true
+        }
+      ],
+      "all_original_3D_mode_signed_reconstruction_conservation": true
+    },
+    {
+      "original_coarse_ppw": 36,
+      "original_fine_ppw": 40,
+      "original_full_250ms_signed_delta": [
+        [
+          34.783815332043815,
+          -6.697006012239612
+        ],
+        [
+          10.364180579363406,
+          -47.98424061191659
+        ]
+      ],
+      "original_full_native_PPWave_two_frequency_refinement": {
+        "complex_rms_relative": 0.3673672932507214,
+        "magnitude_max_relative": 0.9820095441521739,
+        "magnitude_max_db": 5.942114829046117,
+        "phase_max_deg": 27.408370449371034,
+        "mask_floor": 0.5124807000500005,
+        "compared_frequency_count": 2,
+        "frequency_metrics": [
+          {
+            "frequency_hz": 40.0,
+            "masked_in": true,
+            "magnitude_absolute": 29.301727360852865,
+            "magnitude_relative": 0.9820095441521739,
+            "magnitude_db": 5.942114829046117,
+            "phase_deg": 27.408370449371034,
+            "complex_relative": 1.1871441546381585
+          },
+          {
+            "frequency_hz": 80.0,
+            "masked_in": true,
+            "magnitude_absolute": 43.94273408274992,
+            "magnitude_relative": 0.2711499697511383,
+            "magnitude_db": 2.0839358292257857,
+            "phase_deg": 6.8666843639229,
+            "complex_relative": 0.30291607398380554
+          }
+        ]
+      },
+      "original_full_signed_band_causal_differences": [
+        {
+          "original_native_physical_semidiscrete_mode_band_hz": [
+            0,
+            100
+          ],
+          "original_coarse_mode_count": 15,
+          "original_fine_mode_count": 15,
+          "original_signed_complex_delta_40_80": [
+            [
+              1.4279334175434997,
+              -17.203116365089475
+            ],
+            [
+              -24.39782329600115,
+              -70.35572242899181
+            ]
+          ],
+          "relative_complex_delta_norm_to_full_original": 1.262719532917357,
+          "not_additive_percentage_due_to_signed_complex_cancellation": true
+        },
+        {
+          "original_native_physical_semidiscrete_mode_band_hz": [
+            100,
+            200
+          ],
+          "original_coarse_mode_count": 60,
+          "original_fine_mode_count": 60,
+          "original_signed_complex_delta_40_80": [
+            [
+              5.035870192756969,
+              -1.2315273065603813
+            ],
+            [
+              6.094297923850641,
+              -2.4805506515836875
+            ]
+          ],
+          "relative_complex_delta_norm_to_full_original": 0.1383755074410202,
+          "not_additive_percentage_due_to_signed_complex_cancellation": true
+        },
+        {
+          "original_native_physical_semidiscrete_mode_band_hz": [
+            200,
+            400
+          ],
+          "original_coarse_mode_count": 424,
+          "original_fine_mode_count": 423,
+          "original_signed_complex_delta_40_80": [
+            [
+              -27.616718333118257,
+              7.471487243846639
+            ],
+            [
+              -27.363391158910854,
+              16.187140620830654
+            ]
+          ],
+          "relative_complex_delta_norm_to_full_original": 0.7065182834836224,
+          "not_additive_percentage_due_to_signed_complex_cancellation": true
+        },
+        {
+          "original_native_physical_semidiscrete_mode_band_hz": [
+            400,
+            800
+          ],
+          "original_coarse_mode_count": 3514,
+          "original_fine_mode_count": 3408,
+          "original_signed_complex_delta_40_80": [
+            [
+              -19.70917615834839,
+              5.098325460709286
+            ],
+            [
+              -19.921038539177427,
+              10.342833261552002
+            ]
+          ],
+          "relative_complex_delta_norm_to_full_original": 0.500572630659043,
+          "not_additive_percentage_due_to_signed_complex_cancellation": true
+        },
+        {
+          "original_native_physical_semidiscrete_mode_band_hz": [
+            800,
+            1000000000
+          ],
+          "original_coarse_mode_count": 60835,
+          "original_fine_mode_count": 85817,
+          "original_signed_complex_delta_40_80": [
+            [
+              75.64590621315355,
+              -0.8321750441020839
+            ],
+            [
+              75.95213564954591,
+              -1.6779414132271406
+            ]
+          ],
+          "relative_complex_delta_norm_to_full_original": 1.7710404699343338,
+          "not_additive_percentage_due_to_signed_complex_cancellation": true
+        }
+      ],
+      "all_original_3D_mode_signed_reconstruction_conservation": true
+    },
+    {
+      "original_coarse_ppw": 40,
+      "original_fine_ppw": 44,
+      "original_full_250ms_signed_delta": [
+        [
+          87.5306099400231,
+          30.22209256197671
+        ],
+        [
+          192.6856915371808,
+          104.45611476843209
+        ]
+      ],
+      "original_full_native_PPWave_two_frequency_refinement": {
+        "complex_rms_relative": 0.9587423413785209,
+        "magnitude_max_relative": 0.5439913897220687,
+        "magnitude_max_db": 6.820539139654738,
+        "phase_max_deg": 150.62981979481725,
+        "mask_floor": 0.7570309679890443,
+        "compared_frequency_count": 2,
+        "frequency_metrics": [
+          {
+            "frequency_hz": 40.0,
+            "masked_in": true,
+            "magnitude_absolute": 35.5956146986766,
+            "magnitude_relative": 0.5439913897220687,
+            "magnitude_db": 6.820539139654738,
+            "phase_deg": 150.62981979481725,
+            "complex_relative": 1.4151815280125104
+          },
+          {
+            "frequency_hz": 80.0,
+            "masked_in": true,
+            "magnitude_absolute": 77.33358490918297,
+            "magnitude_relative": 0.32303865796753367,
+            "magnitude_db": 3.3887226210191153,
+            "phase_deg": 62.7444492819896,
+            "complex_relative": 0.9155512944726406
+          }
+        ]
+      },
+      "original_full_signed_band_causal_differences": [
+        {
+          "original_native_physical_semidiscrete_mode_band_hz": [
+            0,
+            100
+          ],
+          "original_coarse_mode_count": 15,
+          "original_fine_mode_count": 15,
+          "original_signed_complex_delta_40_80": [
+            [
+              17.115567606867838,
+              32.20447932896852
+            ],
+            [
+              123.05672273117996,
+              105.05689773161458
+            ]
+          ],
+          "relative_complex_delta_norm_to_full_original": 0.6970819493301155,
+          "not_additive_percentage_due_to_signed_complex_cancellation": true
+        },
+        {
+          "original_native_physical_semidiscrete_mode_band_hz": [
+            100,
+            200
+          ],
+          "original_coarse_mode_count": 60,
+          "original_fine_mode_count": 59,
+          "original_signed_complex_delta_40_80": [
+            [
+              11.64698946379607,
+              1.197171300602525
+            ],
+            [
+              15.786759013679536,
+              4.768244899955235
+            ]
+          ],
+          "relative_complex_delta_norm_to_full_original": 0.0850008853894887,
+          "not_additive_percentage_due_to_signed_complex_cancellation": true
+        },
+        {
+          "original_native_physical_semidiscrete_mode_band_hz": [
+            200,
+            400
+          ],
+          "original_coarse_mode_count": 423,
+          "original_fine_mode_count": 409,
+          "original_signed_complex_delta_40_80": [
+            [
+              -40.62892717728498,
+              7.082187161845244
+            ],
+            [
+              -45.14968346092992,
+              15.528941259345128
+            ]
+          ],
+          "relative_complex_delta_norm_to_full_original": 0.26515999807073637,
+          "not_additive_percentage_due_to_signed_complex_cancellation": true
+        },
+        {
+          "original_native_physical_semidiscrete_mode_band_hz": [
+            400,
+            800
+          ],
+          "original_coarse_mode_count": 3408,
+          "original_fine_mode_count": 3238,
+          "original_signed_complex_delta_40_80": [
+            [
+              -24.281384258810437,
+              -10.800448573953595
+            ],
+            [
+              -24.929459595709687,
+              -21.992253621166366
+            ]
+          ],
+          "relative_complex_delta_norm_to_full_original": 0.17887209092249934,
+          "not_additive_percentage_due_to_signed_complex_cancellation": true
+        },
+        {
+          "original_native_physical_semidiscrete_mode_band_hz": [
+            800,
+            1000000000
+          ],
+          "original_coarse_mode_count": 85817,
+          "original_fine_mode_count": 113018,
+          "original_signed_complex_delta_40_80": [
+            [
+              123.67836430582301,
+              0.5387033439527044
+            ],
+            [
+              123.92135284980026,
+              1.0942844979602018
+            ]
+          ],
+          "relative_complex_delta_norm_to_full_original": 0.7358420367673324,
+          "not_additive_percentage_due_to_signed_complex_cancellation": true
+        }
+      ],
+      "all_original_3D_mode_signed_reconstruction_conservation": true
+    }
+  ],
+  "actual_original_point_q0_full_wave_acceptance_still_failed": true,
+  "original_PFFDTD_native_source_solver_HDF5_unmodified": true
+}
