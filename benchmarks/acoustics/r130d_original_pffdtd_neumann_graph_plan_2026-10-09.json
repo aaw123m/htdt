@@ -1,0 +1,72 @@
+{
+  "schema_version": "htdt.r130d.original-pffdtd-neumann-graph-audit-plan-1",
+  "date_jst": "2026-10-09",
+  "issue": 938,
+  "pr": 1055,
+  "purpose": "Independently audit algebraic self-adjointness, zero row sum, and room-connected boundary-edge reciprocity of exact original native PFFDTD seven-point cartesian rigid Neumann operator, before observing its graph metrics.",
+  "geometry_source": {
+    "five_frozen_original_ppw": [
+      28,
+      32,
+      36,
+      40,
+      44
+    ],
+    "from_original_raw_h5_only": true,
+    "pin_upstream_sha": "aa319f6c86517cb95aabfae8656277da62c3ead5",
+    "committed_prior_two_native_wave_evidence": "benchmarks/acoustics/r130d_original_point_quadratic_pffdtd_evidence_2026-10-09.json",
+    "required_original_exact_vox_out_sha256": "the five per-grid original_solver_geometry_sha256 values in committed prior evidence",
+    "source_position_m": [
+      1.5,
+      2,
+      2
+    ],
+    "receiver_position_m": [
+      2.5,
+      2,
+      2
+    ]
+  },
+  "matrix": {
+    "grid_node_order": "numpy C-order ravel (Nx,Ny,Nz) x major",
+    "offset_order": [
+      "+Ny*Nz",
+      "-Ny*Nz",
+      "+Nz",
+      "-Nz",
+      "+1",
+      "-1"
+    ],
+    "boundary_node_rows": "nb_stencil_bn_cart: L_ii = -sum(adj_bn[i]) and L_i_neighbor = adj_bn[i,d]",
+    "nonboundary_rows": "nb_stencil_air_cart: L_ii=-6 and 6 neighbors +1 for all strictly interior nodes",
+    "reference_kernel_file": "pffdtd-pin/python/fdtd/sim_fdtd.py",
+    "active_domain": "reachability from frozen source nearest air/interior node using native directed edges; do not add artificial external air connected components",
+    "outside_halo": "exclude native ghost nodes at grid index 0 or N-1 from active edge counts",
+    "graph_symmetry": "all native interior active edges must possess reverse edge in active room graph; if asymmetric preserve directed counts and representative IDs",
+    "conservation": "every evaluated interior row L applied to constant 1 must equal 0",
+    "quadratic_form": "for deterministic finite float fields u and v, compute u.Lv - v.Lu and report actual relative magnitude; no corrective symmetrization",
+    "native_kernel_crosscheck": "run pinned numba nb_stencil_air_cart and nb_stencil_bn_cart on frozen original mask and compare sampled full-domain rows with independently reconstructed graph action",
+    "do_not_change_boundary_or_solver": true
+  },
+  "gate": {
+    "expected_symmetry_mismatch_count": 0,
+    "expected_zero_row_sum_residual_max": 1e-12,
+    "do_not_claim_physical_pass_even_if_symmetric": true,
+    "no_threshold_changes": true,
+    "diagnostic_always_keep_failures": true
+  },
+  "resource_limits": {
+    "max_native_original_grid_cells": 1700000,
+    "max_graph_visited_nodes": 400000,
+    "max_cases": 5,
+    "max_probe_fields": 2,
+    "max_sampled_row_checks": 10000
+  },
+  "authority": {
+    "original_8_node_fullband": "SELF_CONVERGENCE_FAILED",
+    "physical_validation": "NOT_VALIDATED",
+    "product": "NO_GO",
+    "pr_draft": true,
+    "issue_open": true
+  }
+}
