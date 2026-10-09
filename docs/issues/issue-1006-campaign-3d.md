@@ -41,7 +41,12 @@ checklist UI to the room for spatial intent and holdout distribution.
   `NavigationTargetKind.MEASUREMENT_CAMPAIGN` is added to the room
   workspace mount's `focus_kinds` (and the app composition's `_make_room`
   focus port), so the link lands on `focus_campaign_overlay`: arm →
-  `set_context('acoustics')` → re-render → `TargetFocusResult`.
+  `set_context('acoustics')` → re-render → `TargetFocusResult`. The room
+  REGISTRATION declares the same kinds via
+  `build_canonical_workspace_registrations(focus_kinds=...)` — an
+  unmounted destination resolves capabilities from the registration, so
+  the FIRST click in a fresh session is focusable, not degraded to
+  `request_entity`.
 - Marker→cell sync is bounded by honesty: a selected cell's
   `target_entity_id` joins a design point only through
   `acoustic_reference_position` within
