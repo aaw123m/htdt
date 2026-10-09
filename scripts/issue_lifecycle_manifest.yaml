@@ -111,14 +111,14 @@ entries:
   - docs/issues/issue-805-standards-coverage.md
   close_when_gates_clear: true
 - issue: 806
-  lifecycle: structural_followup_remaining
+  lifecycle: acceptance_remaining
   landed:
     prs:
     - 819
     commits: []
   remaining_gates:
-  - kind: structural
-    description: プロバイダアダプタ実装（#838 REW/CamillaDSP/miniDSP で追跡）
+  - kind: physical
+    description: 実機受理 — REW/CamillaDSP/miniDSP/Equalizer APO アダプタでのデプロイ/読戻し/ロールバック検証（アダプタ実装は #838 PRs #857/#858 で着地、実機検証は #838 ゲートと同一追跡）
   evidence_refs:
   - docs/issues/issue-806-deployment.md
   close_when_gates_clear: true
