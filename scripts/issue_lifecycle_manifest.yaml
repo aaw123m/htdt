@@ -1001,3 +1001,17 @@ entries:
   - backend/tests/test_issue_1009_treatment_overlay.py
   - backend/src/htdt/room_treatment_overlay.py
   close_when_gates_clear: true
+
+- issue: 1011
+  lifecycle: structural_followup_remaining
+  landed:
+    prs: [1059]
+    commits: [fd579148]
+  remaining_gates:
+  - kind: structural
+    description: 'M3 — 3D waypoint authoring/preview/edit UI (docs/issues/issue-1011-cable-routes.md に structural note)。M1 一覧+exact-binding、M2 CableRunGeometry 権威 (v116) は着地済み'
+  evidence_refs:
+  - docs/issues/issue-1011-cable-routes.md
+  - backend/tests/test_issue_1011_cable_routes.py
+  - backend/src/htdt/cad_cable_run_geometry.py
+  close_when_gates_clear: true
