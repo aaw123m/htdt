@@ -960,3 +960,16 @@ entries:
   - docs/issues/issue-1013-lighting-states.md
   - backend/tests/test_issue_1013_lighting_states.py
   close_when_gates_clear: true
+
+- issue: 1012
+  lifecycle: acceptance_remaining
+  landed:
+    prs: [1058]
+    commits: [3644796d]
+  remaining_gates:
+  - kind: manual
+    description: 'オペレータ受入 — 実機器プロファイルでの RU elevation・fit 表・移動確認フローの実機確認 (子が実GUI Mesa GL で検証済)'
+  evidence_refs:
+  - docs/issues/issue-1012-rack-workspace.md
+  - backend/tests/test_issue_1012_rack_workspace.py
+  close_when_gates_clear: true
