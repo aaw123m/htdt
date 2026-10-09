@@ -1353,3 +1353,16 @@ entries:
   - docs/issues/issue-985-async-export.md
   - backend/tests/test_issue_985_async_export.py
   close_when_gates_clear: true
+
+- issue: 982
+  lifecycle: acceptance_remaining
+  landed:
+    prs: [1087]
+    commits: [0ca713e34f364097ebee605ace3cfa8a293b8fbd]
+  remaining_gates:
+  - kind: manual
+    description: 'オペレータ受入 — 対象別インスペクタ折りたたみ・危険編集プレビュー・200%DPI/狭幅の実画面確認、操作数比較は #936 レーンへ'
+  evidence_refs:
+  - docs/issues/issue-982-geom-inspector.md
+  - backend/tests/test_issue_982_geom_inspector.py
+  close_when_gates_clear: true
