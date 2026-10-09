@@ -1,0 +1,111 @@
+{
+  "schema_version": "htdt.r130d.original-q0-conforming-roof-p1-consistent-mass-plan-1",
+  "date_jst": "2026-10-09",
+  "issue": 938,
+  "pr": 1055,
+  "objective": "Prospectively isolate physical Galerkin mass consistency, which remained approximate in the previously observed physical roof-conforming P1 mass-lumped FEM FAIL. Compare same true sloping-roof P1 triangles, same 8node original q0 source/receiver and native clocks with standard non-diagonal P1 FEM exact consistent mass, all generalized physical modes and original three gates across ALL PPW28/32/36/40/44.",
+  "preobserved_baseline": {
+    "prior_mass_lumped_FEM_evidence": "benchmarks/acoustics/r130d_original_q0_conforming_roof_p1_fem_multigrid_evidence_2026-10-09.json",
+    "known_lumped_PPW28_32_36_40_44_results_before_this_plan": true,
+    "prior_FEM_mesh_and_source_coupling_unchanged": true,
+    "prior_FEM_yz_nodes": [
+      1081,
+      1359,
+      1716,
+      2101,
+      2497
+    ],
+    "prior_3D_FEM_modes": [
+      37835,
+      53001,
+      75504,
+      102949,
+      132341
+    ],
+    "prior_FEM_mass_lumped_relative_complex_by_pair": [
+      0.15229048259476563,
+      0.1787136237508971,
+      0.40717874888166433,
+      0.5785506308265708
+    ],
+    "new_consistent_mass_outcomes_NOT_known_before_plan": true
+  },
+  "frozen": {
+    "upstream_PFFDTD_sha": "aa319f6c86517cb95aabfae8656277da62c3ead5",
+    "original_raw_source_evidence": "benchmarks/acoustics/r130d_original_point_quadratic_pffdtd_evidence_2026-10-09.json",
+    "ppw": [
+      28,
+      32,
+      36,
+      40,
+      44
+    ],
+    "physical_source_xyz": [
+      1.5,
+      2,
+      2
+    ],
+    "physical_receiver_xyz": [
+      2.5,
+      2,
+      2
+    ],
+    "original_eight_input_weights_and_indices": true,
+    "original_q0_sample_one_then_zero": true,
+    "original_native_individual_dt_nt_h": true,
+    "room_m3": 56,
+    "roof_z_y0": 4,
+    "roof_slope_per_y": 0.25,
+    "record_s": 0.25,
+    "frequency_hz": [
+      40,
+      80
+    ],
+    "c_m_s": 343.2,
+    "rho_kg_m3": 1.2
+  },
+  "new_operator": {
+    "geometry_mesh": "identical existing P1 exact true 56m3 sloped roof conforming triangles; all original native Cartesian interior nodes and native roof grid-line intersections retained, no add/delete/move mesh points",
+    "x_consistent_M": "true 1D P1 physical interval elemental dx/6 * [[2,1],[1,2]], add over all x segments, no lumping",
+    "yz_consistent_M": "true 2D P1 triangular elemental area/12 * [[2,1,1],[1,2,1],[1,1,2]], assemble all original true roof triangles, no lumping",
+    "same_x_K_yz_K": "retain true prior P1 c²∫gradNa dot gradNb exactly, Neumann natural, symmetric",
+    "true_3D_M_K": "M=MxConsistent kron MyzConsistent (genuine off-diagonal true physical mass), K=Kx kron MyzConsistent+MxConsistent kron Kyz (tensor-product Galerkin)",
+    "modal_basis": "all generalized K v = lambda M v, vT M v = 1, retain exact analytical rigid Neumann zero mode",
+    "source_and_receiver": "same original SHA-pinned 8node q0 weights at exact same Cartesian mesh vertices; original F=c² original point basis forcing (weak), original receiver nodal weights, no mass fitting",
+    "time": "native same beta=1/4 average-acceleration Newmark, q0 8node modal A=dt²*c²*(vsrc)*(vrecv)/(1+dt²lambda/4); original full N native samples and forward/center/backward pressure",
+    "no_high_mode_filter_or_smoothing_taper_damping_source_reposition": true,
+    "all_3D_true_FE_modes_complete": true
+  },
+  "verification": {
+    "exact_consistent_x_mass_row_sums_equal_prior_lumped_x": true,
+    "exact_consistent_yz_mass_row_sums_equal_prior_lumped_yz": true,
+    "exact_total_true_3D_mass_volume_m3": 56,
+    "true_full_3D_offdiagonal_M_positive_definite": true,
+    "true_full_operator_neumann_constant_null": true,
+    "true_all_generalized_modes_M_orthonormal_and_residual": true,
+    "source_weight_identity_and_original_true_SHA": true,
+    "baseline_lumped_signed_from_preobserved_evidence_exact_relative_max": 2e-10,
+    "all_4_adjacent_original_complex_mag_phase": true,
+    "original_complex_gate": 0.2,
+    "original_magnitude_gate": 0.25,
+    "original_phase_deg_gate": 15,
+    "no_favorable_bin_or_pair_selection": true,
+    "save_all_complex_signed_per_grid_and_unfavorable_bins": true,
+    "independent_manufactured_variational_mass_energy_test": true
+  },
+  "limits": {
+    "max_true_3D_FEM_DOF": 180000,
+    "max_yz_vertices": 3000,
+    "max_ppw_cases": 5,
+    "new_upstream_PFFDTD_wave_runs": 0,
+    "new_github_actions_runs": 0,
+    "retain_scratch": true
+  },
+  "authority": {
+    "original_PFFDTD_q0": "SELF_CONVERGENCE_FAILED",
+    "independent_physics": "NOT_VALIDATED",
+    "product": "NO_GO",
+    "pr_draft": true,
+    "issue_open": true
+  }
+}
