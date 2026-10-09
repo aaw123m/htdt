@@ -17,7 +17,10 @@ from pathlib import Path
 from typing import Callable, Iterable, Literal
 
 from PySide6.QtCore import QDate, QObject, Qt, Signal
+from PySide6.QtGui import QBrush, QPalette
 from PySide6.QtWidgets import (
+    QAbstractItemView,
+    QApplication,
     QComboBox,
     QDateEdit,
     QFileDialog,
@@ -47,9 +50,21 @@ from .error_boundary import (
     report_boundary_failure,
 )
 from .navigation_target import (
+    NavigationIntent,
     NavigationTarget,
     NavigationTargetKind,
     navigation_target_from_uri,
+)
+from .reference_library_browser import (
+    STATUS_ALL,
+    STATUS_ATTENTION,
+    STATUS_LATEST,
+    STATUS_UNQUALIFIED,
+    category_label,
+    collect_library_rows,
+    compare_rows,
+    filter_rows,
+    row_status_label,
 )
 from .automatic_backup import AutomaticBackupScheduler
 from .project_library_repository import ProjectLibraryRepository
@@ -4541,33 +4556,77 @@ _LIBRARY_SCOPE_LABELS = {
 
 
 class ReferenceLibraryPage(QWidget):
-    """Reference library: equipment/source definitions shared across projects.
+    """Reference library: cross-search, compare, provenance (#990).
 
-    ``library_index`` (the #630 hub read model) renders one additional
-    read-only section per registered authority family — speakers, materials,
-    standards profiles — so shared authorities are discoverable in one place.
+    ``library_index`` (the #630 hub read model) drives the 横断検索・比較
+    tab: one deferred-rendered results table over every authority family,
+    a detail pane with exact authority identity/version/SHA/provenance/
+    rights state, and a two-row compare that never merges entries. The
+    区分別一覧 tab keeps the original equipment table and per-family
+    sections. ``detail_resolver`` is a zero-arg factory returning the
+    per-refresh record resolver, ``usage_resolver`` a zero-arg factory
+    returning ``semantic_key → usage sites``, and ``open_target`` a
+    navigation sink — all read-only projections; the page mutates nothing.
     """
 
     manage_requested = Signal()
+
+    _RESULTS_PAGE_SIZE = 50
 
     def __init__(
         self,
         list_definitions: Callable[[], tuple],
         library_index=None,
+        *,
+        detail_resolver=None,
+        usage_resolver=None,
+        open_target=None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self._list_definitions = list_definitions
         self._library_index = library_index
+        self._detail_resolver = detail_resolver
+        self._usage_resolver = usage_resolver
+        self._open_target = open_target
+        self._all_rows: tuple = ()
+        self._filtered_rows: list = []
+        self._rows_by_key: dict[str, object] = {}
+        self._shown_count = 0
         layout = _page_layout(
             self,
             "ライブラリ",
-            "機材・ソース定義のライブラリです（プロジェクト共通）。",
+            "機材・材料・規格プロファイルの参照ライブラリです（プロジェクト共通）。",
         )
+        if library_index is None:
+            self._build_listing_section(layout)
+        else:
+            self._tabs = QTabWidget(self)
+            self._tabs.setAccessibleName("ライブラリの表示切替")
+            browser = QWidget(self)
+            browser_layout = QVBoxLayout(browser)
+            browser_layout.setContentsMargins(0, 8, 0, 0)
+            browser_layout.setSpacing(8)
+            self._build_browser_section(browser_layout)
+            listing = QWidget(self)
+            listing_layout = QVBoxLayout(listing)
+            listing_layout.setContentsMargins(0, 8, 0, 0)
+            listing_layout.setSpacing(8)
+            self._build_listing_section(listing_layout)
+            listing_layout.addStretch(1)
+            self._tabs.addTab(browser, "横断検索・比較")
+            self._tabs.addTab(listing, "区分別一覧")
+            layout.addWidget(self._tabs, 1)
+        self.refresh()
+
+    # --- 区分別一覧 (legacy per-family sections) ------------------------
+
+    def _build_listing_section(self, layout: QVBoxLayout) -> None:
         self.table = QTableWidget(0, 3)
         self.table.setToolTip(
             "登録済みの機材・ソース定義の一覧です。列の見出しにカーソルを合わせると各列の説明が表示されます。"
         )
+        self.table.setAccessibleName("機材定義の一覧")
         self.table.setHorizontalHeaderLabels(("メーカー", "モデル", "バージョン"))
         for _col, _tip in enumerate((
             "機材の製造メーカー名",
@@ -4593,12 +4652,13 @@ class ReferenceLibraryPage(QWidget):
         manage = QPushButton("機材ライブラリを管理…")
         manage.setToolTip("機材・素材・ソース定義の登録・編集を行う管理画面を開きます")
         manage.setWhatsThis("機材・素材・ソース定義の登録・編集を行う管理画面を開きます")
+        manage.setAccessibleName("機材ライブラリを管理")
         manage.clicked.connect(lambda: self.manage_requested.emit())
         layout.addWidget(manage)
 
         self._family_frames: dict[str, tuple[QLabel, QTableWidget]] = {}
-        if library_index is not None:
-            for family in library_index.families():
+        if self._library_index is not None:
+            for family in self._library_index.families():
                 header = QLabel(
                     _LIBRARY_FAMILY_TITLES.get(str(family), str(family)),
                     self,
@@ -4607,6 +4667,9 @@ class ReferenceLibraryPage(QWidget):
                 table = QTableWidget(0, 4, self)
                 table.setToolTip(
                     "この区分で登録されている項目の一覧です。列の見出しにカーソルを合わせると各列の説明が表示されます。"
+                )
+                table.setAccessibleName(
+                    f"{_LIBRARY_FAMILY_TITLES.get(str(family), str(family))}の一覧"
                 )
                 table.setHorizontalHeaderLabels(
                     ("名前", "区分", "スコープ", "バージョン")
@@ -4632,7 +4695,537 @@ class ReferenceLibraryPage(QWidget):
                 layout.addWidget(header)
                 layout.addWidget(table)
                 self._family_frames[str(family)] = (header, table)
-        self.refresh()
+
+    # --- 横断検索・比較 (issue #990) -------------------------------------
+
+    def _filter_combo(self, name: str, tooltip: str) -> QComboBox:
+        combo = QComboBox(self)
+        combo.setAccessibleName(name)
+        combo.setToolTip(tooltip)
+        combo.setWhatsThis(tooltip)
+        combo.currentIndexChanged.connect(self._on_filters_changed)
+        return combo
+
+    def _build_browser_section(self, layout: QVBoxLayout) -> None:
+        filters = QHBoxLayout()
+        self.search_edit = QLineEdit(self)
+        self.search_edit.setPlaceholderText(
+            "機材名・メーカー・型番・規格・材料・出典・IDを検索"
+        )
+        self.search_edit.setClearButtonEnabled(True)
+        self.search_edit.setAccessibleName("ライブラリ横断検索")
+        self.search_edit.setToolTip(
+            "名前・メーカー・型番・役割・authority ID・規格・材料カテゴリ・"
+            "出典・バージョンを横断検索します"
+        )
+        self.search_edit.textChanged.connect(self._on_filters_changed)
+        filters.addWidget(self.search_edit, 1)
+        self.family_combo = self._filter_combo(
+            "種別フィルター", "機材・材料・規格などの種別で絞り込みます"
+        )
+        self.category_combo = self._filter_combo(
+            "区分フィルター", "カテゴリ・区分で絞り込みます"
+        )
+        self.source_combo = self._filter_combo(
+            "出典フィルター", "データの出典・発行元で絞り込みます"
+        )
+        self.status_combo = self._filter_combo(
+            "状態フィルター",
+            "最新のみ・要注意（旧版や根拠不足）・アーカイブ・未適格で絞り込みます",
+        )
+        for combo in (
+            self.family_combo,
+            self.category_combo,
+            self.source_combo,
+            self.status_combo,
+        ):
+            filters.addWidget(combo)
+        layout.addLayout(filters)
+        hint = QLabel(
+            "Ctrl/Shiftキーで2件を選ぶと差分比較が表示されます。",
+            self,
+        )
+        set_typography_role(hint, TypographyRole.SECONDARY)
+        layout.addWidget(hint)
+
+        self.results_table = QTableWidget(0, 6, self)
+        self.results_table.setAccessibleName("ライブラリ検索結果")
+        self.results_table.setToolTip(
+            "検索・絞り込みの結果です。行を選ぶと下に正確な識別情報・出典・"
+            "権利状態が表示されます。"
+        )
+        self.results_table.setHorizontalHeaderLabels(
+            ("名前", "種別", "区分", "スコープ", "バージョン", "状態")
+        )
+        for _col, _tip in enumerate((
+            "項目の表示名（同名の別項目は個別の行のままです）",
+            "項目の種別（機材・材料・規格プロファイルなど）",
+            "項目の区分（カテゴリ・登録種別）",
+            "この項目が有効な範囲",
+            "登録されている定義のバージョン",
+            "最新・旧版・根拠不足・アーカイブなどの状態",
+        )):
+            self.results_table.horizontalHeaderItem(_col).setToolTip(_tip)
+        self.results_table.horizontalHeader().setSectionResizeMode(
+            0, QHeaderView.ResizeMode.Stretch
+        )
+        self.results_table.setEditTriggers(
+            QTableWidget.EditTrigger.NoEditTriggers
+        )
+        self.results_table.setSelectionBehavior(
+            QTableWidget.SelectionBehavior.SelectRows
+        )
+        self.results_table.setSelectionMode(
+            QAbstractItemView.SelectionMode.ExtendedSelection
+        )
+        self.results_table.itemSelectionChanged.connect(
+            self._on_results_selection_changed
+        )
+        layout.addWidget(self.results_table, 1)
+
+        pager_row = QHBoxLayout()
+        self._more_button = QPushButton("さらに読み込む", self)
+        self._more_button.setAccessibleName("検索結果をさらに読み込む")
+        self._more_button.setToolTip(
+            "結果を50件ずつ追加で表示します。"
+        )
+        self._more_button.clicked.connect(self._results_load_more)
+        self._count_label = QLabel(self)
+        set_typography_role(self._count_label, TypographyRole.SECONDARY)
+        self._count_label.setAccessibleName("検索結果の件数")
+        pager_row.addWidget(self._more_button)
+        pager_row.addStretch(1)
+        pager_row.addWidget(self._count_label)
+        layout.addLayout(pager_row)
+
+        self._detail_frame = QFrame(self)
+        detail_layout = QVBoxLayout(self._detail_frame)
+        detail_layout.setContentsMargins(4, 4, 4, 4)
+        self._detail_title = QLabel("", self._detail_frame)
+        set_typography_role(self._detail_title, TypographyRole.SECTION_TITLE)
+        self._detail_title.setAccessibleName("選択した項目の詳細")
+        detail_layout.addWidget(self._detail_title)
+        self._detail_table = QTableWidget(0, 2, self._detail_frame)
+        self._detail_table.setAccessibleName("項目の詳細情報")
+        self._detail_table.setToolTip(
+            "authority kind・ID・バージョン・SHA・出典・根拠区分・権利状態"
+            "です。"
+        )
+        self._detail_table.setHorizontalHeaderLabels(("項目", "値"))
+        self._detail_table.horizontalHeader().setSectionResizeMode(
+            0, QHeaderView.ResizeMode.ResizeToContents
+        )
+        self._detail_table.horizontalHeader().setSectionResizeMode(
+            1, QHeaderView.ResizeMode.Stretch
+        )
+        self._detail_table.verticalHeader().setVisible(False)
+        self._detail_table.setEditTriggers(
+            QTableWidget.EditTrigger.NoEditTriggers
+        )
+        self._detail_table.setMaximumHeight(180)
+        detail_layout.addWidget(self._detail_table)
+
+        self._usage_header = QLabel(
+            "利用箇所（現在のプロジェクト）", self._detail_frame
+        )
+        set_typography_role(self._usage_header, TypographyRole.SECTION_TITLE)
+        detail_layout.addWidget(self._usage_header)
+        self._usage_empty = QLabel(
+            "現在のプロジェクトでは使われていません。", self._detail_frame
+        )
+        set_typography_role(self._usage_empty, TypographyRole.SECONDARY)
+        self._usage_empty.setWordWrap(True)
+        detail_layout.addWidget(self._usage_empty)
+        self._usage_table = QTableWidget(0, 3, self._detail_frame)
+        self._usage_table.setAccessibleName("この項目の利用箇所")
+        self._usage_table.setToolTip(
+            "現在のプロジェクト内でこの項目を参照している箇所です。"
+            "「開く」でその場所へ移動します（参照のみ・変更しません）。"
+        )
+        self._usage_table.setHorizontalHeaderLabels(
+            ("利用箇所", "参照の解決", "操作")
+        )
+        self._usage_table.horizontalHeader().setSectionResizeMode(
+            0, QHeaderView.ResizeMode.Stretch
+        )
+        self._usage_table.setEditTriggers(
+            QTableWidget.EditTrigger.NoEditTriggers
+        )
+        self._usage_table.setMaximumHeight(120)
+        detail_layout.addWidget(self._usage_table)
+
+        self._compare_frame = QFrame(self._detail_frame)
+        compare_layout = QVBoxLayout(self._compare_frame)
+        compare_layout.setContentsMargins(0, 8, 0, 0)
+        compare_title = QLabel("選択した2件の差分", self._compare_frame)
+        set_typography_role(compare_title, TypographyRole.SECTION_TITLE)
+        compare_layout.addWidget(compare_title)
+        self._compare_table = QTableWidget(0, 3, self._compare_frame)
+        self._compare_table.setAccessibleName("2件の差分比較")
+        self._compare_table.setToolTip(
+            "2件の項目の識別情報・出典・権利状態の差分です。"
+            "同名・別バージョンの項目は自動で統合されません。"
+        )
+        self._compare_table.setHorizontalHeaderLabels(
+            ("項目", "A", "B")
+        )
+        self._compare_table.horizontalHeader().setSectionResizeMode(
+            1, QHeaderView.ResizeMode.Stretch
+        )
+        self._compare_table.horizontalHeader().setSectionResizeMode(
+            2, QHeaderView.ResizeMode.Stretch
+        )
+        self._compare_table.setEditTriggers(
+            QTableWidget.EditTrigger.NoEditTriggers
+        )
+        self._compare_table.setMaximumHeight(160)
+        compare_layout.addWidget(self._compare_table)
+        self._dependents_label = QLabel("", self._compare_frame)
+        self._dependents_label.setWordWrap(True)
+        set_typography_role(
+            self._dependents_label, TypographyRole.SECONDARY
+        )
+        compare_layout.addWidget(self._dependents_label)
+        self._dependents_frame = QFrame(self._compare_frame)
+        self._dependents_layout = QVBoxLayout(self._dependents_frame)
+        self._dependents_layout.setContentsMargins(0, 0, 0, 0)
+        self._dependents_layout.setSpacing(2)
+        compare_layout.addWidget(self._dependents_frame)
+        detail_layout.addWidget(self._compare_frame)
+        self._compare_frame.setVisible(False)
+
+        scroll = QScrollArea(self)
+        scroll.setWidgetResizable(True)
+        scroll.setWidget(self._detail_frame)
+        scroll.setMaximumHeight(340)
+        scroll.setAccessibleName("項目の詳細・比較パネル")
+        self._detail_scroll = scroll
+        layout.addWidget(scroll)
+        self._detail_scroll.setVisible(False)
+
+    def _on_filters_changed(self) -> None:
+        self._apply_filters()
+
+    def _rebuild_filter_combos(self) -> None:
+        families = sorted({row.family for row in self._all_rows})
+        categories = sorted(
+            {row.category for row in self._all_rows if row.category}
+        )
+        sources = sorted(
+            {
+                source
+                for row in self._all_rows
+                for source in row.sources
+            }
+        )
+        specs = (
+            (
+                self.family_combo,
+                "すべての種別",
+                [
+                    (
+                        _LIBRARY_FAMILY_TITLES.get(family, family),
+                        family,
+                    )
+                    for family in families
+                ],
+            ),
+            (
+                self.category_combo,
+                "すべての区分",
+                [
+                    (category_label(category), category)
+                    for category in categories
+                ],
+            ),
+            (
+                self.source_combo,
+                "すべての出典",
+                [(source, source) for source in sources],
+            ),
+            (
+                self.status_combo,
+                "すべて（アーカイブを除く）",
+                [
+                    ("最新のみ", STATUS_LATEST),
+                    ("要注意（旧版・根拠不足・記録なし）", STATUS_ATTENTION),
+                    ("アーカイブ・未適格", STATUS_UNQUALIFIED),
+                ],
+            ),
+        )
+        for combo, first_label, items in specs:
+            current = combo.currentData()
+            combo.blockSignals(True)
+            combo.clear()
+            combo.addItem(first_label, None)
+            for label, value in items:
+                combo.addItem(str(label), value)
+            index = combo.findData(current)
+            if index >= 0:
+                combo.setCurrentIndex(index)
+            combo.blockSignals(False)
+
+    def _apply_filters(self) -> None:
+        self._filtered_rows = filter_rows(
+            self._all_rows,
+            query=self.search_edit.text(),
+            family=self.family_combo.currentData(),
+            category=self.category_combo.currentData(),
+            source=self.source_combo.currentData(),
+            status=self.status_combo.currentData() or STATUS_ALL,
+        )
+        self._shown_count = 0
+        self.results_table.setRowCount(0)
+        self._results_load_more()
+
+    def _results_load_more(self) -> None:
+        total = len(self._filtered_rows)
+        start = self._shown_count
+        end = min(start + self._RESULTS_PAGE_SIZE, total)
+        for row in self._filtered_rows[start:end]:
+            table_row = self.results_table.rowCount()
+            self.results_table.insertRow(table_row)
+            values = (
+                row.entry.display_name,
+                _LIBRARY_FAMILY_TITLES.get(row.family, row.family),
+                category_label(row.category),
+                _LIBRARY_SCOPE_LABELS.get(
+                    str(row.entry.scope), str(row.entry.scope)
+                ),
+                row.entry.version,
+                row_status_label(row),
+            )
+            for column, value in enumerate(values):
+                cell = QTableWidgetItem(str(value))
+                if column == 0:
+                    cell.setData(Qt.ItemDataRole.UserRole, row.semantic_key)
+                self.results_table.setItem(table_row, column, cell)
+        self._shown_count = end
+        first = 1 if end else 0
+        self._count_label.setText(f"全{total}件 · {first}–{end}件を表示")
+        self._more_button.setEnabled(end < total)
+
+    def _selected_result_rows(self) -> list:
+        selected = sorted(
+            {
+                index.row()
+                for index in self.results_table.selectionModel().selectedRows()
+            }
+        )
+        keys = []
+        for row in selected:
+            item = self.results_table.item(row, 0)
+            if item is not None:
+                keys.append(item.data(Qt.ItemDataRole.UserRole))
+        return [
+            self._rows_by_key[key]
+            for key in keys
+            if key in self._rows_by_key
+        ]
+
+    def _on_results_selection_changed(self) -> None:
+        rows = self._selected_result_rows()
+        if not rows:
+            self._detail_scroll.setVisible(False)
+            return
+        self._detail_scroll.setVisible(True)
+        self._show_detail(rows[-1])
+        if len(rows) >= 2:
+            self._show_compare(rows[-2], rows[-1])
+        else:
+            self._compare_frame.setVisible(False)
+
+    def _show_detail(self, row) -> None:
+        entry = row.entry
+        self._detail_title.setText(
+            f"{entry.display_name} — {entry.identity} v{entry.version}"
+        )
+        self._detail_table.setRowCount(0)
+        for label, value in row.detail_fields:
+            table_row = self._detail_table.rowCount()
+            self._detail_table.insertRow(table_row)
+            self._detail_table.setItem(table_row, 0, QTableWidgetItem(label))
+            self._detail_table.setItem(
+                table_row, 1, QTableWidgetItem(str(value))
+            )
+        self._usage_table.setRowCount(0)
+        sites = row.usage_sites
+        self._usage_empty.setVisible(not sites)
+        self._usage_table.setVisible(bool(sites))
+        for site in sites:
+            table_row = self._usage_table.rowCount()
+            self._usage_table.insertRow(table_row)
+            self._usage_table.setItem(
+                table_row, 0, QTableWidgetItem(site.label)
+            )
+            self._usage_table.setItem(
+                table_row, 1, QTableWidgetItem(site.resolution)
+            )
+            button = QPushButton("開く", self._usage_table)
+            button.setAccessibleName(f"{site.label}を開く")
+            button.setToolTip(
+                "この項目を利用している箇所へ移動します（参照のみ）。"
+            )
+            button.clicked.connect(
+                lambda _checked=False, s=site: self._open_usage_site(s)
+            )
+            self._usage_table.setCellWidget(table_row, 2, button)
+
+    def _show_compare(self, a, b) -> None:
+        comparison = compare_rows(a, b)
+        self._compare_frame.setVisible(True)
+        if comparison is None:
+            self._compare_table.setRowCount(0)
+            self._dependents_label.setText(
+                "異なる種別の項目は比較できません。"
+            )
+            self._clear_dependents()
+            return
+        self._compare_table.setRowCount(0)
+        for label, value_a, value_b in comparison.fields:
+            table_row = self._compare_table.rowCount()
+            self._compare_table.insertRow(table_row)
+            self._compare_table.setItem(
+                table_row, 0, QTableWidgetItem(label)
+            )
+            cell_a = QTableWidgetItem(value_a)
+            cell_b = QTableWidgetItem(value_b)
+            if value_a != value_b:
+                brush = self._diff_brush()
+                cell_a.setBackground(brush)
+                cell_b.setBackground(brush)
+            self._compare_table.setItem(table_row, 1, cell_a)
+            self._compare_table.setItem(table_row, 2, cell_b)
+        dependents = comparison.dependents_a + comparison.dependents_b
+        if dependents:
+            self._dependents_label.setText(
+                "この参照は正確なID・バージョン・SHAに紐づいています。"
+                "入れ替えると現在の参照は古い版を指したままになります。"
+                f"依存している成果物: {len(dependents)}件"
+            )
+        else:
+            self._dependents_label.setText(
+                "現在のプロジェクトでこの2件を参照する成果物はありません。"
+            )
+        self._show_dependents(dependents)
+
+    @staticmethod
+    def _diff_brush() -> QBrush:
+        palette = QApplication.palette()
+        return QBrush(
+            palette.color(QPalette.ColorRole.AlternateBase)
+        )
+
+    def _clear_dependents(self) -> None:
+        while self._dependents_layout.count():
+            item = self._dependents_layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+
+    def _show_dependents(self, sites) -> None:
+        self._clear_dependents()
+        for site in sites:
+            button = QPushButton(f"開く: {site.label}", self._dependents_frame)
+            button.setAccessibleName(f"依存先 {site.label}を開く")
+            button.setToolTip(
+                "この項目を参照している成果物へ移動します（参照のみ）。"
+            )
+            button.clicked.connect(
+                lambda _checked=False, s=site: self._open_usage_site(s)
+            )
+            self._dependents_layout.addWidget(button)
+
+    def _open_usage_site(self, site) -> None:
+        if self._open_target is None:
+            return
+        kind = (
+            NavigationTargetKind.SCENE_ENTITY
+            if site.kind == 'scene_entity'
+            else NavigationTargetKind.INSTALLED_EQUIPMENT_INSTANCE
+        )
+        self._open_target(
+            NavigationTarget(
+                kind=kind,
+                object_ids=(site.target_id,),
+                preferred_destination=WorkspaceId.ROOM,
+                intent=NavigationIntent.INSPECT,
+                referrer='reference_library',
+            )
+        )
+
+    def _refresh_browser(self) -> None:
+        if self._library_index is None:
+            return
+        try:
+            usages = (
+                self._usage_resolver() if self._usage_resolver else {}
+            )
+            resolver = (
+                self._detail_resolver()
+                if self._detail_resolver is not None
+                else None
+            )
+            self._all_rows = collect_library_rows(
+                self._library_index,
+                detail_resolver=resolver,
+                usage_sites=usages,
+            )
+        except Exception:  # noqa: BLE001 - a broken provider must not blank the page
+            self._all_rows = ()
+        self._rows_by_key = {
+            row.semantic_key: row for row in self._all_rows
+        }
+        self._rebuild_filter_combos()
+        self._apply_filters()
+
+    def _reveal_row(self, row) -> bool:
+        """Make ``row`` visible+selected, resetting filters when needed."""
+
+        def _visible() -> int | None:
+            for table_row in range(self.results_table.rowCount()):
+                item = self.results_table.item(table_row, 0)
+                if (
+                    item is not None
+                    and item.data(Qt.ItemDataRole.UserRole)
+                    == row.semantic_key
+                ):
+                    return table_row
+            return None
+
+        target = _visible()
+        if target is None:
+            self.search_edit.blockSignals(True)
+            self.search_edit.clear()
+            self.search_edit.blockSignals(False)
+            for combo in (
+                self.family_combo,
+                self.category_combo,
+                self.source_combo,
+            ):
+                combo.blockSignals(True)
+                combo.setCurrentIndex(0)
+                combo.blockSignals(False)
+            self.status_combo.blockSignals(True)
+            status_value = (
+                STATUS_UNQUALIFIED
+                if (row.archived or row.record_missing)
+                else STATUS_ALL
+            )
+            status_index = self.status_combo.findData(status_value)
+            self.status_combo.setCurrentIndex(
+                status_index if status_index >= 0 else 0
+            )
+            self.status_combo.blockSignals(False)
+            self._apply_filters()
+            target = _visible()
+        if target is None:
+            return False
+        self.results_table.selectRow(target)
+        self._tabs.setCurrentIndex(0)
+        return True
+
+    # --- lifecycle -------------------------------------------------------
 
     def refresh(self) -> None:
         self.table.setRowCount(0)
@@ -4657,6 +5250,7 @@ class ReferenceLibraryPage(QWidget):
                 self.table.setItem(row, column, item)
         self.empty_label.setVisible(self.table.rowCount() == 0)
         self._refresh_family_sections()
+        self._refresh_browser()
 
     def _refresh_family_sections(self) -> None:
         if self._library_index is None:
@@ -4692,6 +5286,7 @@ class ReferenceLibraryPage(QWidget):
                     table.setItem(row, column, cell)
 
     def focus_definition(self, definition_id: str) -> TargetFocusResult:
+        focused = False
         for row in range(self.table.rowCount()):
             model = self.table.item(row, 1)
             if (
@@ -4699,7 +5294,22 @@ class ReferenceLibraryPage(QWidget):
                 and model.data(Qt.ItemDataRole.UserRole) == definition_id
             ):
                 self.table.selectRow(row)
-                return TargetFocusResult(focused=True)
+                focused = True
+                break
+        if self._library_index is not None:
+            target_row = next(
+                (
+                    row
+                    for row in self._all_rows
+                    if row.entry.identity == definition_id
+                    and row.family == 'equipment'
+                ),
+                None,
+            )
+            if target_row is not None:
+                focused = self._reveal_row(target_row) or focused
+        if focused:
+            return TargetFocusResult(focused=True)
         return TargetFocusResult(
             focused=False,
             message="ライブラリ内に該当の定義が見つかりません",

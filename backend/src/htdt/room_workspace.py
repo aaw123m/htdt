@@ -4577,6 +4577,11 @@ class RoomWorkspace(QWidget):
             self.system_expansion.equipment_repository,
             document_id,
         )
+        # #990: scene→Library deep link — open the selected equipment
+        # definition in the reference library (reference only).
+        self.installation_panel.libraryRequested.connect(
+            self._open_equipment_in_library
+        )
         # #1012: ラック配置ワークスペース — the #562 rack authority's 2D RU
         # elevation + fit surface; lives with the equipment-assignment
         # context like the installation writers above it.
@@ -6678,6 +6683,30 @@ class RoomWorkspace(QWidget):
             render(label)
         if label:
             self._set_status(f"吸着: {label}")
+
+    def _open_equipment_in_library(self, definition_id: str) -> None:
+        """#990: open one equipment definition in the reference Library.
+
+        Reference only — navigation resolves the typed target and focuses
+        the library row; no binding or project data is touched.
+        """
+
+        if self._on_navigate is None:
+            return
+        from .navigation_target import (
+            NavigationIntent,
+            NavigationTargetKind,
+        )
+        from .workflow_navigation import ApplicationDestinationId
+
+        self._on_navigate(
+            WorkspaceDeepLink(
+                ApplicationDestinationId.LIBRARY,
+                entity_id=definition_id,
+                kind=NavigationTargetKind.EQUIPMENT_DEFINITION.value,
+                intent=NavigationIntent.PROVENANCE.value,
+            )
+        )
 
     # -- objects panel (#480/#482) -----------------------------------------------------
 

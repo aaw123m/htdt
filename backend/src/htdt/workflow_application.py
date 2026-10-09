@@ -156,6 +156,10 @@ from .capture_watch_runner import CaptureWatchRunner
 from .storage_watch_runner import StorageWatchRunner
 from .data_management_ui import build_data_management_component
 from .reference_library_sources import build_reference_library_index
+from .reference_library_browser import (
+    build_reference_library_detail_resolver,
+    collect_usage_sites,
+)
 from .file_dialog_memory import FileDialogMemoryStore
 from .equipment_catalog_export import export_equipment_catalog_snapshot
 from .equipment_library import EquipmentLibraryDialog, EquipmentLibraryService
@@ -3317,8 +3321,32 @@ class WorkflowApplicationComposition:
                 raise
             report_boundary_failure(exc, operation='参考ライブラリ索引の構築')
             library_index = None
+        detail_resolver = None
+        usage_resolver = None
+        open_target = None
+        if library_index is not None:
+            # #990: read-only projections rebuilt per refresh — the detail
+            # factory re-opens the canonical repositories each call so
+            # entries added via 管理 never show a stale 記録なし.
+            detail_resolver = (
+                lambda: build_reference_library_detail_resolver(
+                    self.repository, self.data_dir
+                )
+            )
+            usage_resolver = lambda: collect_usage_sites(  # noqa: E731
+                self.repository, self.document_id
+            )
+            open_target = lambda target: QTimer.singleShot(  # noqa: E731
+                0,
+                self.shell,
+                lambda: self.shell.navigate_to_target(target),
+            )
         page = sys.modules[__name__].ReferenceLibraryPage(
-            service.definitions, library_index=library_index
+            service.definitions,
+            library_index=library_index,
+            detail_resolver=detail_resolver,
+            usage_resolver=usage_resolver,
+            open_target=open_target,
         )
 
         def manage() -> None:
