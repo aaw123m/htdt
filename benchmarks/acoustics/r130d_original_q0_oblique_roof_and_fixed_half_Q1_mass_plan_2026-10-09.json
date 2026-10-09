@@ -1,0 +1,95 @@
+{
+  "schema_version": "htdt.r130d.original-q0-true-roof-normal-and-theory-blended-Q1-plan-1",
+  "date_jst": "2026-10-09",
+  "issue": 938,
+  "pr": 1055,
+  "objective": "First diagnose exact oblique roof Neumann normal vs original Cartesian stair-step graph pseudo-normals on every original real native PPW. Independently build a fixed, mathematically derived dispersion-cancelling half-consistent/half-positive-row-lumped Q1 mass, with true physical roof Q1 weak form, every native original 8node q0 and whole 250ms full signed q0 40/80 plus fixed causal roof echo. Compare original native PFFDTD and preobserved pure consistent and pure positive lump Q1; no parameter tuned to observed 5grid.",
+  "frozen_original": {
+    "original_pffdtd_sha": "aa319f6c86517cb95aabfae8656277da62c3ead5",
+    "native_ppw": [
+      28,
+      32,
+      36,
+      40,
+      44
+    ],
+    "raw_native_HDF5_evidence": "benchmarks/acoustics/r130d_original_point_quadratic_pffdtd_evidence_2026-10-09.json",
+    "true_Q1_consistent_5grid_evidence": "benchmarks/acoustics/r130d_original_q0_exact_roof_cut_Q1_variational_evidence_2026-10-09.json",
+    "true_Q1_lumped_5grid_evidence": "benchmarks/acoustics/r130d_original_q0_exact_roof_Q1_lumped_mass_evidence_2026-10-09.json",
+    "true_first_roof_original_raw_evidence": "benchmarks/acoustics/r130d_original_q0_first_roof_echo_causal_weak_evidence_2026-10-09.json",
+    "source_position_m": [
+      1.5,
+      2,
+      2
+    ],
+    "receiver_position_m": [
+      2.5,
+      2,
+      2
+    ],
+    "actual_source_input_eight_native_flat_ixyz_and_strength_per_node_sha": true,
+    "actual_receiver_eight_native_flat_ixyz_and_original_out_alpha_sha": true,
+    "original_impulse": "q[0]=1 q[n>0]=0, original native source strength (c*dt/h)^2/h",
+    "all_native_h_Ts_Nt_exact": true,
+    "c_m_s": 343.2,
+    "rho_kg_m3": 1.2,
+    "full_unmodified_record_s": 0.25,
+    "signed_frequencies_hz": [
+      40,
+      80
+    ],
+    "original_pressure_native_1sided_centered_same": true,
+    "complex_rms_gate": 0.2,
+    "magnitude_max_gate": 0.25,
+    "phase_max_deg_gate": 15,
+    "all_three_gates_all_four_pairs_and_monotone_required": true,
+    "no_mode_truncation_source_smoothing_taper_frequency_fit_or_grid_shift": true
+  },
+  "normal_diagnostic": {
+    "exact_sloped_roof_plane": "z=4-.25*y",
+    "roof_true_unit_normal_yz": "(.25,1)/sqrt(1+.25^2)",
+    "roof_tangential_affine_function": "u(y,z)=y-.25*z, exact normal derivative 0 at roof",
+    "original_staircase_cartesian_boundary": "original raw HDF5 native occupied y-z graph; each occupied-to-unoccupied y or z neighbor across sloping physical roof is a coordinate-axis pseudo-normal; count y-cut vs z-cut roof faces on each grid, excluding physical y=0/4 z=0 walls and including only physical roof transitions",
+    "staircase_normal_flux_error_for_exact_roof_tangential_field": "abs(∂y u)=1 on stair y interface, abs(∂z u)=.25 on stair z interface, even though true n⋅∇u=0; weighted RMS and face counts per original PPW",
+    "physical_Q1_normal_flux": "exact Q1 interpolation of affine u=y-.25z; ∇u=(1,-.25) and true roof unit normal, so exact zero flux on every genuine cut polygon roof segment",
+    "no_claim_stair_flux_error_alone_equals_original_full_wave_error": true
+  },
+  "theory_predetermined_new_solver": {
+    "parameter_free_midpoint_consistent_lump_mass": "Mx_half =.5*Mx_consistent + .5*diag(Mx_consistent*1); Myz_half=.5*Myz_Q1_consistent + .5*diag(Myz_Q1_consistent*1); NO gain chosen after seeing any new score",
+    "theoretical_uniform_1D_dispersion": "K symbol 4c²sin²(xi/2)/h ; consistent mass symbol h(2/3+cos(xi)/3); lump mass symbol h; exact 50:50 blend m/h=5/6+cos(xi)/6, leading xi² spatial phase error cancels analytically so lambda/(c² k²)=1+O((kh)^4) on UNIFORM infinite grid. Does not imply 4th order on sloping roof or solve full point Green automatically.",
+    "fixed_tensor_operator": "M=Mx_half ⊗ Myz_half; K=Kx ⊗ Myz_half + Mx_half ⊗ Kyz_true_cut_Q1; true roof weak flux and stiffness still physically integrated, both tensor mass factors change; room true56m3 and true affine energy 112c².",
+    "source_receiver": "all original HDF5 source and receiver eight Cartesian Q1 nodes and exact original 8-point weights unchanged",
+    "native_time": "original dt,Nt with implicit beta=.25 Newmark; original unmodified full 250ms pressure P/Q, all true physical modes including high frequencies, no modal cutoff, no damping or fitted numerical parameter",
+    "fixed_independent_first_echo": "true roof image center 0.0089668767033651 s, support radius .0011s, widths [.00035,.0006,.00085] s, original 64source/receiver first image analytic, roof witness diagnostic only",
+    "whole_room_gate_not_weak_causal_gate": true
+  },
+  "checks": {
+    "mathematical_1D_phase_small_wavenumber_O_kh4_without_fit": true,
+    "all_positivity_of_M_Gram_mass_modes": true,
+    "exact_positive_sliver_support_kept": true,
+    "exact_true_physical_neumann_rigid_mode_K1": true,
+    "true_roof_affine_3D_weak_gradient_energy_112c2": true,
+    "true_physical_3D_volume_56m3": true,
+    "actual_SHA_native_source_receiver_fullwaves_all_five": true,
+    "all_full_3D_generalized_physical_eigenmodes_including_high": true,
+    "native_Newmark_causal_weak_vs_independent_synthetic_trace": true,
+    "real_original_full_250ms_signed_frozen_40_80_three_gate_all4": true,
+    "independent_original_roof_native_weak_all3widths_without_posthoc_window": true,
+    "never_replace_canonical_original_PFFDTD_or_external_physics_authority": true
+  },
+  "limits": {
+    "max_ppw_cases": 5,
+    "max_physical_3D_modes": 180000,
+    "max_native_cut_yz_modes": 3300,
+    "no_new_upstream_native_PFFDTD_waves": 0,
+    "no_GitHub_Actions_runs": 0,
+    "preserve_scratch": true
+  },
+  "authority": {
+    "original_pffdtd_q0": "SELF_CONVERGENCE_FAILED",
+    "external_physical": "NOT_VALIDATED",
+    "product": "NO_GO",
+    "pr_draft": true,
+    "issue_open": true
+  }
+}
