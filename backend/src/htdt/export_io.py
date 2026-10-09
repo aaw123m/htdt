@@ -6,7 +6,9 @@ paths the same guarantee without duplicating the pattern per call site.
 
 - :func:`write_bytes_atomic` / :func:`write_text_atomic` publish a single
   file: a crash mid-write leaves the previous file (or no file), never a
-  truncated artifact.
+  truncated artifact. Temp-name creation retries only on collisions —
+  a write-denied directory fails on the first attempt rather than
+  stalling inside ``tempfile.mkstemp``'s catch-all retry.
 - :func:`write_export_generation` publishes a coherent file GROUP as one
   generation directory ``<base>[-N]/``: members are staged, hashed into
   ``manifest.json``, then the staging directory is renamed into place —
@@ -25,13 +27,38 @@ import json
 import os
 from pathlib import Path
 import shutil
-import tempfile
 from typing import Iterator
 
 
 _STAGING_SUFFIX = '.export-staging'
 _MANIFEST_NAME = 'manifest.json'
 _MANIFEST_SCHEMA = 'export-generation/v1'
+_TEMP_ATTEMPTS = 64
+
+
+def _sibling_temp(path: Path):
+    """Create a fresh sibling temp file; returns (fd, Path).
+
+    Collision-only retry: ``tempfile.mkstemp`` retries ANY OSError up to
+    ~10000 times, which turns an ACL write-denial on Windows (invisible
+    to ``os.access``) into a multi-minute stall. A denied create must
+    fail on the first attempt; only a name collision is worth a retry.
+    """
+
+    for _ in range(_TEMP_ATTEMPTS):
+        candidate = (
+            path.parent / f'.{path.name}.{os.urandom(8).hex()}.tmp'
+        )
+        try:
+            descriptor = os.open(
+                candidate, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o666
+            )
+        except FileExistsError:
+            continue
+        return descriptor, candidate
+    raise FileExistsError(
+        f'could not allocate export staging name beside {path.name}'
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -49,10 +76,7 @@ def write_bytes_atomic(path: str | Path, data: bytes) -> Path:
 
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    descriptor, temp_name = tempfile.mkstemp(
-        prefix=f'.{path.name}.', suffix='.tmp', dir=path.parent
-    )
-    temp = Path(temp_name)
+    descriptor, temp = _sibling_temp(path)
     try:
         with os.fdopen(descriptor, 'wb') as handle:
             handle.write(data)

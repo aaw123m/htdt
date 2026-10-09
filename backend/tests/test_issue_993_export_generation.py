@@ -273,3 +273,33 @@ def test_bom_suffix_member_encoding(tmp_path) -> None:
     assert not (
         generation.directory / 'export.json'
     ).read_bytes().startswith(b'\xef\xbb\xbf')
+
+
+def test_write_denied_temp_creation_fails_fast(tmp_path, monkeypatch) -> None:
+    # ACL-denied dir: mkstemp retried ~10000x (minutes); ours fails once.
+    attempts = {'n': 0}
+
+    def denied(*args, **kwargs):
+        attempts['n'] += 1
+        raise PermissionError('access denied')
+
+    monkeypatch.setattr(export_io.os, 'open', denied)
+    with pytest.raises(PermissionError):
+        export_io.write_text_atomic(tmp_path / 'out.txt', 'x')
+    assert attempts['n'] == 1
+
+
+def test_temp_name_collision_retries_then_succeeds(tmp_path, monkeypatch) -> None:
+    real_open = os.open
+    attempts = {'n': 0}
+
+    def collide_once(*args, **kwargs):
+        attempts['n'] += 1
+        if attempts['n'] == 1:
+            raise FileExistsError('name taken')
+        return real_open(*args, **kwargs)
+
+    monkeypatch.setattr(export_io.os, 'open', collide_once)
+    path = export_io.write_text_atomic(tmp_path / 'out.txt', 'ok')
+    assert attempts['n'] == 2
+    assert path.read_text(encoding='utf-8') == 'ok'
