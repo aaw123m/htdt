@@ -1254,7 +1254,7 @@ entries:
   lifecycle: acceptance_remaining
   landed:
     prs: [1080]
-    commits: [08da9bba]
+    commits: [08da9bba847a9fe98d375149bb3a4d622940f5a0]
   remaining_gates:
   - kind: manual
     description: 'オペレータ受入 — 差分確認ダイアログ・カテゴリ選択・元の設定に戻す動線の実画面確認'
