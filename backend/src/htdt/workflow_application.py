@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -190,6 +191,7 @@ from .project_lifecycle import ProjectLibrary, ProjectNotFoundError
 from .project_bundle import (
     BUNDLE_EXTENSION,
     BundleImportConflictError,
+    collect_project_bundle,
     export_project_bundle,
     import_project_bundle,
 )
@@ -701,7 +703,10 @@ class _AnalysisExportWriteResult:
 
 
 def _write_analysis_export(
-    target: Path, export: AnalysisExportBundle
+    target: Path,
+    export: AnalysisExportBundle,
+    *,
+    exclude_members: frozenset[str] = frozenset(),
 ) -> tuple[Path, ...]:
     """Publish the three members as one ``analysis-N/`` generation dir.
 
@@ -709,14 +714,20 @@ def _write_analysis_export(
     overwrites or mixes with a previous export — a fresh ``analysis-N``
     directory is reserved, staged and published as a whole or not at
     all (see :func:`htdt.export_io.write_export_generation`).
+    ``exclude_members`` drops member filenames the export preflight
+    withheld (#989).
     """
     generation = write_export_generation(
         target,
         'analysis',
         {
-            'export.csv': render_analysis_csv(export),
-            'export.json': render_analysis_json(export),
-            'report.html': render_analysis_html(export),
+            name: content
+            for name, content in {
+                'export.csv': render_analysis_csv(export),
+                'export.json': render_analysis_json(export),
+                'report.html': render_analysis_html(export),
+            }.items()
+            if name not in exclude_members
         },
         bom_suffixes=('.csv',),
     )
@@ -2397,13 +2408,130 @@ class WorkflowApplicationComposition:
         #927: the dirty/running state is resolved BEFORE the bundle is
         written so the serialized project is always one exact generation —
         and the default file name stamps that generation's head revision.
+
+        #989: before any destination is chosen the dependency closure is
+        collected and reviewed through the export preflight — per-table/
+        per-asset classifications, sizes, risk flags and the send scope
+        (完全再現用 / 外部レビュー用). External shares build an allowlist
+        ``ExportRedactionManifest``; denied elements are physically
+        omitted from the archive and recorded as omissions.
         """
         if not self._require_bound_project() or self._bundle_busy:
             return
         decision = self._project_snapshot_decision('エクスポート')
         if decision is None:
             return
+        self._begin_bundle_job("エクスポート内容を検査しています…")
+        self._bundle_pool.start(
+            "project.bundle.export.preflight",
+            lambda _cancel_event: collect_project_bundle(
+                self.repository, self.document_id
+            ),
+            self._bundle_job_completed,
+        )
+
+    def _bundle_preflight_done(self, plan, error) -> None:
+        """UI half of the bundle preflight (#989): review → manifest → write."""
+        from .cad_code_policy_repository import CadCodePolicyRepository
+        from .export_preflight import (
+            BUNDLE_VERDICT_MEMBER,
+            PreflightPlan,
+            analyze_bundle_plan,
+            build_manifest,
+            ensure_export_policy,
+            evaluate_elements,
+            record_confirmations,
+            stored_classification_map,
+            verdict_payload,
+        )
+        from .export_preflight_dialog import ExportPreflightDialog
+
+        if isinstance(error, Exception):
+            warn_user(self.shell, "エクスポート内容を検査できませんでした", error)
+            return
+        if plan is None:
+            return
+        code_repository = CadCodePolicyRepository(self.repository)
+        stored = stored_classification_map(code_repository, self.document_id)
         head = self.repository.current_head(self.document_id)
+        preflight = PreflightPlan(
+            export_kind='project_bundle',
+            document_id=self.document_id,
+            source_revision_id=plan.head_revision_id,
+            source_sha256=(
+                None if head is None else head.content_hash
+            ),
+            elements=analyze_bundle_plan(plan, stored),
+            payload=plan,
+        )
+        dialog = ExportPreflightDialog(
+            preflight,
+            title='プロジェクトのエクスポート',
+            default_scope='private_archive',
+            parent=self.shell,
+        )
+        if dialog.exec() != ExportPreflightDialog.DialogCode.Accepted:
+            return
+        scope = dialog.scope()
+        # The operator's confirmations become sealed authority before the
+        # manifest/eligibility evaluation reads them.
+        record_confirmations(code_repository, preflight)
+        preflight.policy = ensure_export_policy(
+            code_repository, self.document_id
+        )
+        write_plan = plan
+        if scope == 'external_review':
+            try:
+                build_manifest(
+                    code_repository,
+                    preflight,
+                    bundle_kind='client_package',
+                    policy=preflight.policy,
+                )
+            except ValueError as exc:
+                QMessageBox.warning(self.shell, "出力できません", str(exc))
+                return
+            blockers = evaluate_elements(preflight)
+            if blockers:
+                QMessageBox.warning(
+                    self.shell,
+                    "出力できません",
+                    "外部送付の条件を満たさない項目があります:\n"
+                    + "\n".join(blockers),
+                )
+                return
+            write_plan = plan.apply_exclusions(
+                exclude_tables=frozenset(
+                    element.element_id[len('table:'):]
+                    for element in preflight.excluded()
+                    if element.kind == 'table'
+                ),
+                exclude_asset_digests=frozenset(
+                    element.element_id[len('asset:'):]
+                    for element in preflight.excluded()
+                    if element.kind == 'asset'
+                ),
+                exclusion_reason=(
+                    'export preflight: excluded from external sharing '
+                    '(classification/rights unconfirmed or non-exportable)'
+                ),
+            )
+            preflight.payload = write_plan
+        # The reviewed plan pins the head at collection time — a mid-flow
+        # source change invalidates the review and forces a fresh pass.
+        current = self.repository.current_head(self.document_id)
+        if (
+            write_plan.head_revision_id is not None
+            and current is not None
+            and current.revision_id != write_plan.head_revision_id
+        ):
+            QMessageBox.warning(
+                self.shell,
+                "再検査が必要です",
+                "検査中にプロジェクトの内容が変更されました。"
+                "最新の内容で再度エクスポート検査を行ってください。",
+            )
+            return
         revision_tag = (
             '' if head is None else f'-{head.revision_id[:8]}'
         )
@@ -2420,6 +2548,15 @@ class WorkflowApplicationComposition:
         )
         if not selected:
             return
+        # The approved verdict travels inside the archive so a receiver
+        # can inspect what passed review and what was withheld.
+        preflight_verdict = verdict_payload(
+            preflight,
+            scope=scope,
+            destination=selected,
+            written_members=list(write_plan.member_names()),
+        )
+        self._last_export_preflight = (preflight, scope, selected)
         # Runs on the bundle worker pool — a large project's snapshot
         # + zip walk used to freeze the UI thread for tens of seconds
         # (#REV19). The pool relays the completion onto the UI thread, so
@@ -2434,9 +2571,138 @@ class WorkflowApplicationComposition:
                 self.repository,
                 self.document_id,
                 Path(selected),
+                write_plan=write_plan,
+                extra_members={
+                    BUNDLE_VERDICT_MEMBER: json.dumps(
+                        preflight_verdict, ensure_ascii=False, indent=2,
+                        sort_keys=True,
+                    ).encode('utf-8'),
+                },
             ),
             self._bundle_job_completed,
         )
+
+    def _run_export_preflight(
+        self,
+        preflight,
+        *,
+        title: str,
+        bundle_kind: str,
+        default_scope: str,
+    ) -> bool:
+        """Shared preflight flow for member-file exports (#989).
+
+        Shows the review dialog, persists the operator's confirmed
+        classifications + export policy, and for external scope builds
+        the allowlist ``ExportRedactionManifest`` and runs the canonical
+        eligibility gate. Returns True when the export may proceed —
+        ``preflight`` then carries the approved include/exclude marks.
+        """
+        from .cad_code_policy_repository import CadCodePolicyRepository
+        from .export_preflight import (
+            build_manifest,
+            ensure_export_policy,
+            evaluate_elements,
+            record_confirmations,
+        )
+        from .export_preflight_dialog import ExportPreflightDialog
+
+        code_repository = CadCodePolicyRepository(self.repository)
+        dialog = ExportPreflightDialog(
+            preflight,
+            title=title,
+            default_scope=default_scope,
+            parent=self.shell,
+        )
+        if dialog.exec() != ExportPreflightDialog.DialogCode.Accepted:
+            return False
+        scope = dialog.scope()
+        record_confirmations(code_repository, preflight)
+        preflight.policy = ensure_export_policy(
+            code_repository, self.document_id
+        )
+        if scope == 'external_review':
+            try:
+                build_manifest(
+                    code_repository,
+                    preflight,
+                    bundle_kind=bundle_kind,
+                    policy=preflight.policy,
+                )
+            except ValueError as exc:
+                QMessageBox.warning(self.shell, "出力できません", str(exc))
+                return False
+            blockers = evaluate_elements(preflight)
+            if blockers:
+                QMessageBox.warning(
+                    self.shell,
+                    "出力できません",
+                    "外部送付の条件を満たさない項目があります:\n"
+                    + "\n".join(blockers),
+                )
+                return False
+        self._last_export_preflight = (preflight, scope)
+        return True
+
+    def _export_postcheck(self, preflight_state) -> list[str]:
+        """Post-export verification for #989 — inspect + verdict sidecar.
+
+        Returns extra detail lines for the completion dialog. Runs on the
+        UI thread after the write job: re-opens the artifact, checks the
+        member set against the approved selection and re-scans for
+        secret-like content, then saves the verdict JSON beside the
+        output. Nothing is transmitted anywhere.
+        """
+        from .export_preflight import (
+            inspect_exported,
+            verdict_payload,
+            write_verdict_sidecar,
+        )
+
+        if not preflight_state:
+            return []
+        preflight, scope, destination = preflight_state
+        lines: list[str] = []
+        try:
+            payload = preflight.payload
+            expected = (
+                list(payload.member_names())
+                if hasattr(payload, 'member_names')
+                else preflight.expected_member_names()
+            )
+            inspection = inspect_exported(
+                Path(destination), expected_members=expected
+            )
+            payload = verdict_payload(
+                preflight,
+                scope=scope,
+                destination=destination,
+                written_members=inspection.get('actual_members', []),
+                inspection=inspection,
+            )
+            sidecar = write_verdict_sidecar(Path(destination), payload)
+            verdict = inspection.get('verdict')
+            if verdict == 'ok':
+                lines.append(
+                    '検査: 出力内容は承認済みの選択と一致し、'
+                    '機密パターンは検出されませんでした。'
+                )
+            else:
+                lines.append(
+                    f'検査: {verdict} — 詳細は検査レコードを確認してください。'
+                )
+            if preflight.reproducibility() == 'degraded':
+                lines.append(
+                    '再現性: degraded — 除外項目あり（incomplete）。'
+                )
+            if preflight.manifest is not None:
+                lines.append(
+                    f'出力マニフェスト: {preflight.manifest.manifest_id}'
+                )
+            lines.append(f'検査レコード: {sidecar.name}')
+        except Exception as exc:  # inspection must never break the export
+            lines.append(f'検査レコードの保存に失敗: {exc}')
+        return lines
 
     def _import_project_bundle(self) -> None:
         """#488: staged import; a document-id collision is offered the
@@ -5320,6 +5586,62 @@ class WorkflowApplicationComposition:
                 self.shell, "設置ハンドオフを作成できませんでした", exc
             )
             return
+        # #989: sensitive-data preflight BEFORE the package preview —
+        # the operator reviews each member file's classification, rights
+        # and risk flags; external shares build an allowlist manifest
+        # and withheld members are physically not written.
+        from .export_preflight import (
+            PreflightPlan,
+            analyze_member_files,
+            stored_classification_map,
+        )
+        from .cad_code_policy_repository import CadCodePolicyRepository
+        from .installation_handoff import (
+            HANDOFF_DIMENSIONS_FILENAME,
+            HANDOFF_ENTITIES_FILENAME,
+            HANDOFF_REPORT_FILENAME,
+            HANDOFF_SETTINGS_FILENAME,
+            render_dimension_sheets_csv,
+            render_handoff_report_html,
+            render_installation_csv,
+            render_settings_csv,
+        )
+
+        member_contents = {
+            'report': render_handoff_report_html(handoff),
+            'dimensions': render_dimension_sheets_csv(handoff),
+            'settings': render_settings_csv(handoff),
+            'entities': render_installation_csv(handoff.output),
+        }
+        member_filenames = {
+            'report': HANDOFF_REPORT_FILENAME,
+            'dimensions': HANDOFF_DIMENSIONS_FILENAME,
+            'settings': HANDOFF_SETTINGS_FILENAME,
+            'entities': HANDOFF_ENTITIES_FILENAME,
+        }
+        head = self.repository.current_head(self.document_id)
+        preflight = PreflightPlan(
+            export_kind='installation_handoff',
+            document_id=self.document_id,
+            source_revision_id=scene_revision_id,
+            source_sha256=(None if head is None else head.content_hash),
+            elements=analyze_member_files(
+                member_contents,
+                stored_classification_map(
+                    CadCodePolicyRepository(self.repository),
+                    self.document_id,
+                ),
+                filename_map=member_filenames,
+            ),
+            payload=member_contents,
+        )
+        if not self._run_export_preflight(
+            preflight,
+            title='設置ハンドオフ',
+            bundle_kind='client_package',
+            default_scope='external_review',
+        ):
+            return
         preview = QDialog(self.shell)
         preview.setWindowTitle("設置ハンドオフプレビュー")
         preview_layout = QVBoxLayout(preview)
@@ -5347,19 +5669,33 @@ class WorkflowApplicationComposition:
         )
         if not directory:
             return
+        excluded_keys = frozenset(
+            element.element_id[len('member:'):]
+            for element in preflight.excluded()
+            if element.kind == 'member'
+        )
         try:
-            outputs = write_handoff_package(handoff, directory)
+            outputs = write_handoff_package(
+                handoff, directory, exclude_members=excluded_keys
+            )
         except EXPECTED_OPERATION_ERRORS as exc:
             warn_user(
                 self.shell, "設置ハンドオフを書き出せませんでした", exc
             )
             return
-        QMessageBox.information(
-            self.shell,
-            "設置ハンドオフを書き出しました",
+        self._last_export_preflight = (*self._last_export_preflight, directory)
+        box = QMessageBox(self.shell)
+        box.setWindowTitle("設置ハンドオフを書き出しました")
+        box.setIcon(QMessageBox.Icon.Information)
+        box.setText(
             "次のファイルを書き出しました:\n"
-            + "\n".join(str(path) for path in outputs.values()),
+            + "\n".join(str(path) for path in outputs.values())
         )
+        box.setDetailedText("\n".join(
+            self._export_postcheck(self._last_export_preflight)
+        ))
+        self._last_export_preflight = None
+        box.exec()
 
     def _open_deliverables(self) -> None:
         """Project Deliverables Center (#900).
@@ -5717,6 +6053,43 @@ class WorkflowApplicationComposition:
             series=result.series,
             metadata=result.metadata,
         )
+        # #989: sensitive-data preflight — the operator reviews each
+        # member's classification/rights/risk before the destination
+        # prompt; external shares gate through the allowlist manifest.
+        from .cad_code_policy_repository import CadCodePolicyRepository
+        from .export_preflight import (
+            PreflightPlan,
+            analyze_member_files,
+            stored_classification_map,
+        )
+
+        members = {
+            'export.csv': render_analysis_csv(export),
+            'export.json': render_analysis_json(export),
+            'report.html': render_analysis_html(export),
+        }
+        head = self.repository.current_head(self.document_id)
+        preflight = PreflightPlan(
+            export_kind='analysis_export',
+            document_id=self.document_id,
+            source_revision_id=None,
+            source_sha256=(None if head is None else head.content_hash),
+            elements=analyze_member_files(
+                members,
+                stored_classification_map(
+                    CadCodePolicyRepository(self.repository),
+                    self.document_id,
+                ),
+            ),
+            payload=members,
+        )
+        if not self._run_export_preflight(
+            preflight,
+            title='解析エクスポート',
+            bundle_kind='client_package',
+            default_scope='external_review',
+        ):
+            return
         directory = file_dialog_memory.get_existing_directory(
             self.shell,
             "解析エクスポートの保存先フォルダー",
@@ -5725,6 +6098,12 @@ class WorkflowApplicationComposition:
         )
         if not directory:
             return
+        self._analysis_export_preflight = (preflight, directory)
+        excluded_members = frozenset(
+            element.element_id[len('member:'):]
+            for element in preflight.excluded()
+            if element.kind == 'member'
+        )
         comparisons_failed = any(
             meta.key == 'omitted.comparisons' for meta in result.metadata
         )
@@ -5734,7 +6113,10 @@ class WorkflowApplicationComposition:
             "project.bundle.analysis_export.write",
             lambda _cancel_event: _AnalysisExportWriteResult(
                 export=export,
-                written=_write_analysis_export(Path(directory), export),
+                written=_write_analysis_export(
+                    Path(directory), export,
+                    exclude_members=excluded_members,
+                ),
                 omitted_measurements=omitted,
                 comparisons_failed=comparisons_failed,
             ),
@@ -5769,6 +6151,21 @@ class WorkflowApplicationComposition:
             details.append(
                 "保存済み比較を検証できなかったため、比較は除外しました"
             )
+        preflight_state = getattr(self, '_analysis_export_preflight', None)
+        if preflight_state:
+            preflight, directory = preflight_state
+            self._last_export_preflight = (
+                preflight,
+                getattr(self, '_last_export_preflight', (None, None))[1]
+                if isinstance(getattr(self, '_last_export_preflight', None), tuple)
+                else 'external_review',
+                directory,
+            )
+            details.extend(
+                self._export_postcheck(self._last_export_preflight)
+            )
+            self._analysis_export_preflight = None
+            self._last_export_preflight = None
         box.setDetailedText("\n".join(details))
         box.exec()
 
@@ -5826,6 +6223,9 @@ class WorkflowApplicationComposition:
         if task_key.startswith("project.bundle.analysis_export.write"):
             self._analysis_export_write_done(result, error)
             return
+        if task_key.startswith("project.bundle.export.preflight"):
+            self._bundle_preflight_done(result, error)
+            return
         if task_key.startswith("project.bundle.export"):
             if isinstance(error, Exception):
                 QMessageBox.warning(
@@ -5843,7 +6243,12 @@ class WorkflowApplicationComposition:
                 f"{result.row_count} 件のレコードと {result.asset_count} 件の"
                 "アセットを書き出しました。"
             )
-            box.setDetailedText(f"マニフェストSHA-256: {result.manifest_sha256}")
+            details = [f"マニフェストSHA-256: {result.manifest_sha256}"]
+            details.extend(
+                self._export_postcheck(getattr(self, '_last_export_preflight', None))
+            )
+            self._last_export_preflight = None
+            box.setDetailedText('\n'.join(details))
             box.exec()
             return
         if task_key.startswith("project.bundle.import"):

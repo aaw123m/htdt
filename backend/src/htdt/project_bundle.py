@@ -377,17 +377,169 @@ def _remap_payload_json(payload: str, value_map: dict[str, str]) -> str:
 # ---------------------------------------------------------------------------
 
 
+class BundleWritePlan:
+    """The collected export content of one project (#989).
+
+    ``collect_project_bundle`` computes the full dependency closure once;
+    the preflight dialog reviews exactly this plan (per-table row counts,
+    payload bytes and the managed-asset set are all pinned), and the
+    approved plan — optionally reduced via ``apply_exclusions`` — is what
+    ``export_project_bundle`` writes. Export therefore always ships the
+    exact reviewed selection against the exact pinned source.
+    """
+
+    def __init__(
+        self,
+        *,
+        document_id: str,
+        manifest: ProjectBundleManifest,
+        db_payloads: dict[str, bytes],
+        asset_files: dict[str, tuple[int, Path]],
+        exported: dict[str, list[dict]],
+        asset_sources: dict[str, set[str]],
+        document_tables: tuple[str, ...],
+        asset_filenames: dict[str, str] | None = None,
+    ) -> None:
+        self.document_id = document_id
+        self.manifest = manifest
+        self.db_payloads = db_payloads
+        self.asset_files = asset_files
+        self.exported = exported
+        #: digest -> tables whose exported rows referenced it
+        self.asset_sources = asset_sources
+        self.document_tables = document_tables
+        #: digest -> declared filename in its asset row (display only)
+        self.asset_filenames = asset_filenames or {}
+
+    @property
+    def asset_file_list(self) -> list[tuple[str, int, Path]]:
+        return [
+            (digest, size, asset_path)
+            for digest, (size, asset_path) in self.asset_files.items()
+        ]
+
+    @property
+    def table_count(self) -> int:
+        return len(self.manifest.tables)
+
+    @property
+    def row_count(self) -> int:
+        return sum(summary.row_count for summary in self.manifest.tables)
+
+    @property
+    def asset_count(self) -> int:
+        return len(self.manifest.assets)
+
+    @property
+    def asset_bytes(self) -> int:
+        return sum(entry.size_bytes for entry in self.manifest.assets)
+
+    @property
+    def head_revision_id(self) -> str | None:
+        return self.manifest.root.head_revision_id
+
+    def member_names(self) -> tuple[str, ...]:
+        """Exact member list the archive will carry."""
+        return tuple(
+            ['manifest.json']
+            + sorted(self.db_payloads)
+            + sorted(f'assets/{digest}' for digest in self.asset_files)
+        )
+
+    def apply_exclusions(
+        self,
+        *,
+        exclude_tables: frozenset[str] = frozenset(),
+        exclude_asset_digests: frozenset[str] = frozenset(),
+        exclusion_reason: str = 'export preflight excluded this element',
+    ) -> 'BundleWritePlan':
+        """A plan minus the excluded tables/assets, omissions recorded.
+
+        Exclusion is explicit and self-documenting: the reduced manifest
+        gains one ``BundleOmission`` per dropped element, so the archive
+        itself carries why content is missing. Dependent (non-document)
+        rows already collected stay — they are separate data, not the
+        excluded table's content.
+        """
+        if not exclude_tables and not exclude_asset_digests:
+            return self
+        kept_summaries = [
+            summary
+            for summary in self.manifest.tables
+            if summary.table not in exclude_tables
+        ]
+        kept_assets = [
+            entry
+            for entry in self.manifest.assets
+            if entry.sha256 not in exclude_asset_digests
+        ]
+        omissions = list(self.manifest.omissions)
+        for table in sorted(exclude_tables):
+            omissions.append(
+                BundleOmission(
+                    subject=f'db/{table}.jsonl',
+                    reason=exclusion_reason,
+                )
+            )
+        for digest in sorted(exclude_asset_digests):
+            omissions.append(
+                BundleOmission(
+                    subject=f'assets/{digest}',
+                    reason=exclusion_reason,
+                )
+            )
+        manifest = ProjectBundleManifest(
+            source_htdt_version=self.manifest.source_htdt_version,
+            exported_at_utc=self.manifest.exported_at_utc,
+            root=self.manifest.root,
+            tables=tuple(kept_summaries),
+            assets=tuple(kept_assets),
+            dependencies=self.manifest.dependencies,
+            omissions=tuple(omissions),
+            import_events=self.manifest.import_events,
+        )
+        manifest = manifest.model_copy(
+            update={'manifest_sha256': manifest.identity_hash()}
+        )
+        return BundleWritePlan(
+            document_id=self.document_id,
+            manifest=manifest,
+            db_payloads={
+                name: body
+                for name, body in self.db_payloads.items()
+                if name not in {f'db/{t}.jsonl' for t in exclude_tables}
+            },
+            asset_files={
+                digest: entry
+                for digest, entry in self.asset_files.items()
+                if digest not in exclude_asset_digests
+            },
+            exported={
+                table: rows
+                for table, rows in self.exported.items()
+                if table not in exclude_tables
+            },
+            asset_sources=self.asset_sources,
+            document_tables=self.document_tables,
+            asset_filenames=self.asset_filenames,
+        )
+
+
 def export_project_bundle(
     repository: SceneRepository,
     document_id: str,
     destination: Path,
     *,
     display_name: str | None = None,
+    write_plan: BundleWritePlan | None = None,
+    extra_members: dict[str, bytes] | None = None,
 ) -> ProjectBundleExportResult:
     """Write ``destination`` as a ``.htdtproject`` for *document_id*.
 
     Fails closed when a referenced managed asset is missing or corrupt —
-    that is an integrity error, never a silent omission.
+    that is an integrity error, never a silent omission. ``write_plan``
+    passes an already-reviewed collection (#989 preflight); without it
+    the closure is collected here as before.
     """
 
     destination = Path(destination)
@@ -412,6 +564,43 @@ def export_project_bundle(
         raise ProjectBundleError(
             'bundle destination is inside the managed asset store'
         )
+
+    plan = write_plan or collect_project_bundle(
+        repository, document_id, display_name=display_name
+    )
+    _write_bundle(
+        destination,
+        plan.manifest,
+        plan.db_payloads,
+        plan.asset_file_list,
+        extra_members=extra_members,
+    )
+    return ProjectBundleExportResult(
+        archive_path=str(destination),
+        document_id=plan.document_id,
+        table_count=plan.table_count,
+        row_count=plan.row_count,
+        asset_count=plan.asset_count,
+        asset_bytes=plan.asset_bytes,
+        manifest_sha256=str(plan.manifest.manifest_sha256),
+    )
+
+
+def collect_project_bundle(
+    repository: SceneRepository,
+    document_id: str,
+    *,
+    display_name: str | None = None,
+) -> BundleWritePlan:
+    """Compute the full dependency closure for *document_id* (#989).
+
+    This is the collection half of ``export_project_bundle``: document
+    tables, the identity-reachability walk and the managed-asset closure,
+    integrity checks included — returned as a reviewable plan the writer
+    can later apply verbatim (or after preflight exclusions).
+    """
+    db_path = Path(repository.path)
+    data_dir = db_path.parent
 
     with closing(_connect(db_path)) as connection:
         require_native_tables(connection, 'scene_revisions')
@@ -508,6 +697,8 @@ def export_project_bundle(
         store = ManagedAssetStore(data_dir / MANAGED_ASSETS_DIRNAME)
         asset_entries: list[BundleAssetEntry] = []
         asset_files: dict[str, tuple[int, Path]] = {}
+        asset_sources: dict[str, set[str]] = {}
+        asset_filenames: dict[str, str] = {}
         for table, sha_column, size_column, path_column, where in (
             _ASSET_TABLES
         ):
@@ -516,6 +707,7 @@ def export_project_bundle(
                 if not _row_matches_asset_where(record, where):
                     continue
                 digest = str(record[sha_column])
+                asset_sources.setdefault(digest, set()).add(table)
                 if not _SHA256_RE.match(digest):
                     raise ProjectBundleError(
                         'managed asset row carries a malformed digest '
@@ -565,6 +757,7 @@ def export_project_bundle(
                 if digest in asset_files:
                     continue
                 filename = str(record.get('filename') or '')
+                asset_filenames[digest] = filename
                 asset_entries.append(
                     BundleAssetEntry(
                         sha256=digest,
@@ -576,11 +769,6 @@ def export_project_bundle(
                     )
                 )
                 asset_files[digest] = (size, asset_path)
-        asset_file_list = [
-            (digest, size, asset_path)
-            for digest, (size, asset_path) in asset_files.items()
-        ]
-
         library = ProjectLibraryRepository(repository)
         project_entry = library.get_by_document_id(document_id)
         head_row = connection.execute(
@@ -631,15 +819,15 @@ def export_project_bundle(
             update={'manifest_sha256': manifest.identity_hash()}
         )
 
-    _write_bundle(destination, manifest, db_payloads, asset_file_list)
-    return ProjectBundleExportResult(
-        archive_path=str(destination),
+    return BundleWritePlan(
         document_id=document_id,
-        table_count=len(table_summaries),
-        row_count=row_count,
-        asset_count=len(asset_entries),
-        asset_bytes=sum(entry.size_bytes for entry in asset_entries),
-        manifest_sha256=manifest.manifest_sha256,
+        manifest=manifest,
+        db_payloads=db_payloads,
+        asset_files=asset_files,
+        exported=exported,
+        asset_sources=asset_sources,
+        document_tables=tuple(sorted(document_tables)),
+        asset_filenames=asset_filenames,
     )
 
 
@@ -648,6 +836,8 @@ def _write_bundle(
     manifest: ProjectBundleManifest,
     db_payloads: dict[str, bytes],
     asset_files: list[tuple[str, int, Path]],
+    *,
+    extra_members: dict[str, bytes] | None = None,
 ) -> None:
     destination.parent.mkdir(parents=True, exist_ok=True)
     descriptor, temp_name = tempfile.mkstemp(
@@ -671,6 +861,8 @@ def _write_bundle(
                 ),
             )
             for name, body in sorted(db_payloads.items()):
+                bundle.writestr(name, body)
+            for name, body in sorted((extra_members or {}).items()):
                 bundle.writestr(name, body)
             for digest, size, asset_path in sorted(asset_files):
                 # Stream the file straight into the member, hashing the
@@ -761,6 +953,11 @@ def _validate_bundle_members(archive: zipfile.ZipFile) -> set[str]:
                 raise BundleManifestInvalidError(
                     f'unsafe bundle member name: {name}'
                 )
+            names.add(name)
+        elif name == 'privacy/preflight-verdict.json':
+            # #989: the export preflight verdict travels inside the
+            # archive — imported or not, the receiver can inspect what
+            # privacy review the bundle passed and what was withheld.
             names.add(name)
         else:
             raise BundleManifestInvalidError(

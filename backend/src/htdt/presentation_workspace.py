@@ -1288,6 +1288,11 @@ class PresentationWorkspace(QWidget):
                 self, '出力', 'セッションを選択してください'
             )
             return
+        # #989: sensitive-data preflight. Sealed packages cannot drop
+        # members, so external scope blocks when any category is
+        # ineligible — the gate is whole-or-nothing by design.
+        if not self._export_preflight(kind, session):
+            return
         package_dir = self._validated_export_dir(
             f'{kind}-{session.session_id[:8]}'
         )
@@ -1328,6 +1333,89 @@ class PresentationWorkspace(QWidget):
             expected_sheets=expected_sheets,
         )
         self._export_runner.start(job)
+
+    def _export_preflight(self, kind: str, session) -> bool:
+        """#989 review gate for sealed review/proposal packages."""
+        from .cad_code_policy_repository import CadCodePolicyRepository
+        from .export_preflight import (
+            PreflightPlan,
+            analyze_member_categories,
+            build_manifest,
+            ensure_export_policy,
+            evaluate_elements,
+            record_confirmations,
+            stored_classification_map,
+        )
+        from .export_preflight_dialog import ExportPreflightDialog
+
+        code_repository = CadCodePolicyRepository(self.repository)
+        categories = (
+            {'rendered_frames': 'レンダリング画像（撮影済み視点）',
+             'drawing_sheets': '図面シート',
+             'spec_manifest': '仕様・マニフェスト（セッション固有情報）'}
+            if kind == 'review'
+            else {'rendered_frames': 'レンダリング画像（撮影済み視点）',
+                  'drawing_sheets': '図面シート',
+                  'spec_manifest': '仕様・マニフェスト（セッション固有情報）'}
+        )
+        head = self.repository.current_head(self.document_id)
+        plan = PreflightPlan(
+            export_kind=f'presentation_{kind}',
+            document_id=self.document_id,
+            source_revision_id=session.scene_revision_id,
+            source_sha256=(None if head is None else head.content_hash),
+            elements=analyze_member_categories(
+                categories,
+                stored_classification_map(
+                    code_repository, self.document_id
+                ),
+            ),
+            member_exclusion_supported=False,
+        )
+        dialog = ExportPreflightDialog(
+            plan,
+            title='プレゼン出力',
+            default_scope='external_review',
+            parent=self,
+        )
+        if dialog.exec() != ExportPreflightDialog.DialogCode.Accepted:
+            return False
+        scope = dialog.scope()
+        self._export_preflight_scope = scope
+        record_confirmations(code_repository, plan)
+        plan.policy = ensure_export_policy(
+            code_repository, self.document_id
+        )
+        if scope == 'external_review':
+            if plan.excluded():
+                QMessageBox.warning(
+                    self,
+                    '出力できません',
+                    '外部送付の条件を満たさない要素があるため、'
+                    'パッケージ全体の出力を停止しました。',
+                )
+                return False
+            try:
+                build_manifest(
+                    code_repository,
+                    plan,
+                    bundle_kind='client_package',
+                    policy=plan.policy,
+                )
+            except ValueError as exc:
+                QMessageBox.warning(self, '出力できません', str(exc))
+                return False
+            blockers = evaluate_elements(plan)
+            if blockers:
+                QMessageBox.warning(
+                    self,
+                    '出力できません',
+                    '外部送付の条件を満たさない項目があります:\n'
+                    + '\n'.join(blockers),
+                )
+                return False
+        self._export_preflight_plan = plan
+        return True
 
     def _export_job_started(self, job: PresentationExportJob) -> None:
         self.export_review_button.setEnabled(False)

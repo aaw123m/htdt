@@ -572,7 +572,10 @@ def _write_staged_text(path: Path, content: str) -> None:
 
 
 def write_handoff_package(
-    handoff: InstallationHandoff, directory: str | Path
+    handoff: InstallationHandoff,
+    directory: str | Path,
+    *,
+    exclude_members: frozenset[str] = frozenset(),
 ) -> dict[str, Path]:
     """Write the handoff package into ``directory`` and return its paths.
 
@@ -612,6 +615,11 @@ def write_handoff_package(
         'settings': '\ufeff' + render_settings_csv(handoff),
         'entities': '\ufeff' + render_installation_csv(handoff.output),
     }
+    # #989 export preflight: members the review excluded are dropped
+    # before the manifest is rendered, so the manifest's digests always
+    # describe exactly the shipped set — never a withheld file.
+    for excluded_key in exclude_members:
+        member_contents.pop(excluded_key, None)
     manifest_content = render_handoff_manifest_json(
         handoff,
         files={
