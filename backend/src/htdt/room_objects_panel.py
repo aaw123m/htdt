@@ -33,6 +33,7 @@ from PySide6.QtWidgets import (
     QAbstractItemView,
     QComboBox,
     QHBoxLayout,
+    QHeaderView,
     QLabel,
     QLineEdit,
     QPushButton,
@@ -265,6 +266,15 @@ class RoomObjectsPanel(QWidget):
             "ダブルクリックで3Dフォーカス"
         )
         self.tree.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+        # Name column takes all slack — the ~265px dock leaves only ~65px
+        # otherwise; kind/state markers shrink to their short content.
+        self.tree.header().setSectionResizeMode(
+            0, QHeaderView.ResizeMode.Stretch
+        )
+        for _col in (1, 2, 3):
+            self.tree.header().setSectionResizeMode(
+                _col, QHeaderView.ResizeMode.ResizeToContents
+            )
         # Kind groups are real tree parents — the header keeps its expander.
         self.tree.setRootIsDecorated(True)
         self.tree.setUniformRowHeights(True)
@@ -516,8 +526,13 @@ class RoomObjectsPanel(QWidget):
                     if entity_id in problems:
                         item.setToolTip(
                             0,
-                            "要対応: " + "、".join(problems[entity_id]),
+                            f"{entity.name} — 要対応: "
+                            + "、".join(problems[entity_id]),
                         )
+                    else:
+                        # Long names elide in the narrow dock — keep the
+                        # full name reachable on hover.
+                        item.setToolTip(0, entity.name)
                     if entity_id in hidden:
                         item.setForeground(
                             0,
