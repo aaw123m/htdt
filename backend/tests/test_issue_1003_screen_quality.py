@@ -928,3 +928,40 @@ def test_unscaled_quantity_is_read_only_with_reason(tmp_path):
     assert scene.read_only
     assert all(m.state == 'unscaled' for m in scene.markers)
     assert 'no absolute color scale' in scene.read_only_reason_viewport
+
+
+def test_panel_set_combo_is_populated_from_repository(tmp_path):
+    """Regression: the workspace must call sync_quality_map_sets — the
+    combo starts with only the placeholder, so without the call the
+    feature is unreachable from the UI."""
+    from PySide6.QtWidgets import QApplication
+
+    from htdt.room_video_panel import RoomVideoPanel
+    from htdt.room_workspace import RoomWorkspace
+
+    _app = QApplication.instance() or QApplication([])
+    scene_repository, spatial, _assets, revision = _repos(tmp_path)
+    plan = _plan()
+    measurement_set = _save_set(
+        spatial, plan, _lum_observations(plan)
+    )
+
+    panel = RoomVideoPanel()
+    assert panel.quality_map_set.count() == 0  # empty until synced
+    panel.sync_quality_map_sets(
+        spatial.list_measurement_sets(DOC)
+    )
+    ids = [
+        panel.quality_map_set.itemData(i)
+        for i in range(panel.quality_map_set.count())
+    ]
+    assert measurement_set.set_id in ids
+
+    # The workspace sync path itself must be wired — guards against the
+    # call-site going missing again.
+    import inspect
+    import htdt.room_workspace as ws_mod
+
+    assert 'sync_quality_map_sets' in inspect.getsource(
+        ws_mod.RoomWorkspace._sync_video_panel
+    )

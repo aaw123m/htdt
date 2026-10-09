@@ -6871,6 +6871,13 @@ class RoomWorkspace(QWidget):
             screen_transfers,
             self.controller.direct_view_repository.list_specifications(),
         )
+        # #1003: repopulate the measurement-set combo on every sync — the
+        # append-only store may have gained sets since the last paint.
+        self.video_panel.sync_quality_map_sets(
+            self.controller.spatial_image_repository.list_measurement_sets(
+                self.controller.document_id
+            )
+        )
         missing = video_workspace_missing_inputs(
             self.controller.committed_document, workspace
         )
