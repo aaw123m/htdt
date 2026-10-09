@@ -652,6 +652,7 @@ _LIFECYCLE_TABLE_LABELS = {
     "cad_solver_budget_profiles": "ソルバー計算予算プロファイル",
     "cad_compute_observations": "計算資源観測レコード",
     "cad_accuracy_cost_envelopes": "精度-コストエンベロープ",
+    "cad_prerun_estimates": "実行前計算コスト推定レコード",
     "cad_jitter_profiles": "ジッタ測定プロファイル",
     "cad_jitter_observations": "ジッタ観測レコード",
     "cad_jitter_transfer_measurements": "ジッタ伝達測定",

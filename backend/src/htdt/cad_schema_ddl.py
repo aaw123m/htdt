@@ -5895,6 +5895,14 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
     """
     ,
     """
+    CREATE TABLE IF NOT EXISTS cad_prerun_estimates ( seq INTEGER PRIMARY KEY AUTOINCREMENT, estimate_id TEXT NOT NULL UNIQUE, estimate_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, job_kind TEXT NOT NULL, solver_id TEXT NOT NULL, confidence TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_prest_doc ON cad_prerun_estimates(document_id, seq ASC)
+    """
+    ,
+    """
     CREATE TABLE IF NOT EXISTS cad_jitter_profiles ( seq INTEGER PRIMARY KEY AUTOINCREMENT, profile_id TEXT NOT NULL UNIQUE, profile_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, spectrum_capable INTEGER NOT NULL, payload_json TEXT NOT NULL )
     """
     ,
@@ -10163,6 +10171,7 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_solver_budget_profiles',
     'cad_compute_observations',
     'cad_accuracy_cost_envelopes',
+    'cad_prerun_estimates',
     'cad_jitter_profiles',
     'cad_jitter_observations',
     'cad_jitter_transfer_measurements',

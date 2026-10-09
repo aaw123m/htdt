@@ -41,6 +41,7 @@ from .native_worker import (
     WorkerShutdownReport,
 )
 from .cad_joint_optimization import JointDspVariable
+from .prerun_cost_card import PrerunCostCard
 from .joint_optimization_context import (
     DEFAULT_MAGNITUDE_BAND_HZ,
     JointBaseline,
@@ -156,6 +157,12 @@ class JointOptimizationPanel(QWidget):
         self.preflight_label = QLabel()
         self.preflight_label.setWordWrap(True)
         layout.addWidget(self.preflight_label)
+
+        # #991: pre-run compute-cost card — shows the estimate for the
+        # spec the authoring controls would create, or the selected
+        # persisted spec, before the operator commits a run.
+        self.prerun_card = PrerunCostCard(self)
+        layout.addWidget(self.prerun_card)
 
         actions = QHBoxLayout()
         self.create_button = QPushButton('ジョイント最適化仕様を保存', self)
@@ -425,6 +432,11 @@ class JointOptimizationPanel(QWidget):
             f'{estimate.candidate_budget}（{state}）'
             + detail
         )
+        # #991: while no persisted spec is selected the card previews the
+        # estimate for the spec these authoring controls would create —
+        # the operator can adjust mode/budget and see the cost update.
+        if self._selected_spec_id() is None:
+            self._show_authoring_estimate(baseline, mode, dsp_variables)
         self.create_button.setEnabled(
             estimate.within_budget and not missing
         )
@@ -433,6 +445,53 @@ class JointOptimizationPanel(QWidget):
             if not missing
             else '作成に不足している権威: ' + ' / '.join(missing)
         )
+
+    def _show_authoring_estimate(
+        self,
+        baseline: JointBaseline,
+        mode: JointSearchMode,
+        dsp_variables,
+    ) -> None:
+        try:
+            estimate = self.context.prerun_estimate_for_authoring(
+                baseline,
+                mode=mode,
+                dsp_variables=dsp_variables,
+                candidate_budget=self.budget_spin.value(),
+            )
+        except Exception as exc:  # noqa: BLE001 - shown fail-closed
+            self.prerun_card.show_unavailable(
+                operation_error_message(exc)
+            )
+            return
+        try:
+            observations = (
+                self.context.field_metric_repository.prerun_observations(
+                    estimate
+                )
+            )
+        except Exception:  # noqa: BLE001 - history is advisory
+            observations = ()
+        self.prerun_card.show_estimate(estimate, observations)
+
+    def _show_spec_estimate(self, spec_id: str) -> None:
+        """Show the sealed estimate for the selected persisted spec."""
+        try:
+            estimate = self.context.prerun_estimate_for_spec(spec_id)
+        except Exception as exc:  # noqa: BLE001 - shown fail-closed
+            self.prerun_card.show_unavailable(
+                operation_error_message(exc)
+            )
+            return
+        try:
+            observations = (
+                self.context.field_metric_repository.prerun_observations(
+                    estimate
+                )
+            )
+        except Exception:  # noqa: BLE001 - history is advisory
+            observations = ()
+        self.prerun_card.show_estimate(estimate, observations)
 
     def _create_spec(self) -> None:
         baseline = self._baseline
@@ -519,7 +578,16 @@ class JointOptimizationPanel(QWidget):
             self.execute_button.setToolTip(
                 '保存済みの仕様を選択すると実行できます。'
             )
+            # #991: nothing selected → the card follows the authoring
+            # controls (refreshed by _refresh_preflight).
+            if self._baseline is not None:
+                self._show_authoring_estimate(
+                    self._baseline,
+                    self._mode(),
+                    self._selected_dsp_variables(),
+                )
             return
+        self._show_spec_estimate(spec_id)
         reasons = self._spec_staleness(spec_id)
         if reasons:
             self.execute_button.setEnabled(False)
@@ -529,6 +597,12 @@ class JointOptimizationPanel(QWidget):
                     _STALE_REASON_LABELS.get(reason, reason)
                     for reason in reasons
                 )
+            )
+            return
+        if self.prerun_card.blocking:
+            self.execute_button.setEnabled(False)
+            self.execute_button.setToolTip(
+                '計算リソース見積もりが実行をブロックしています。'
             )
             return
         self.execute_button.setEnabled(True)
@@ -541,6 +615,14 @@ class JointOptimizationPanel(QWidget):
             return
         spec_id = self._selected_spec_id()
         if spec_id is None or self.is_running():
+            return
+        # #991: re-check the estimate at commit — blocking reasons stay
+        # fail-closed even if selection raced the last refresh.
+        self._show_spec_estimate(spec_id)
+        if self.prerun_card.blocking:
+            self.execution_label.setText(
+                '計算リソース見積もりが実行をブロックしました。'
+            )
             return
         key = f'joint-{spec_id}'
 

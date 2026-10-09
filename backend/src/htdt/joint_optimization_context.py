@@ -15,15 +15,20 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from time import perf_counter
 from typing import Literal, Sequence
+
+from .cad_authority_resolver import AuthorityRef
 
 from .cad_calibration import CadCalibrationPlan
 from .cad_calibration_repository import CadCalibrationRepository
 from .cad_display_labels import measurement_reason_label
 from .cad_extended_search_repository import CadExtendedSearchRepository
+from .cad_field_metric_repository import CadFieldMetricRepository
 from .cad_joint_execution import (
     JointExecutionResult,
     assess_joint_spec_staleness,
+    joint_decision_vector_count,
     run_joint_execution,
 )
 from .cad_joint_optimization import (
@@ -49,8 +54,16 @@ from .cad_search_repository import CadSearchRepository
 from .cad_system_variant import SystemVariant
 from .cad_system_variant_repository import CadSystemVariantRepository
 from .cad_robustness_repository import CadRobustnessRepository
+from .cad_prerun_estimate import (
+    PrerunEstimate,
+    estimate_prerun_cost,
+    plan_for_joint_execution,
+    record_prerun_observation,
+)
 from .optimization_objectives import ObjectiveDefinition
 from .optimization_robustness import RobustnessSpec
+from .perf_budget import _total_memory_bytes
+from .perf_harness import process_rss_bytes
 
 DspParameterName = Literal[
     'gain_db',
@@ -253,6 +266,17 @@ class JointOptimizationContext:
             extended_search_repository=self.extended_repository,
         )
         self._joint_repository: CadJointOptimizationRepository | None = None
+        self._field_metric_repository: CadFieldMetricRepository | None = (
+            None
+        )
+
+    @property
+    def field_metric_repository(self) -> CadFieldMetricRepository:
+        if self._field_metric_repository is None:
+            self._field_metric_repository = CadFieldMetricRepository(
+                self.repository
+            )
+        return self._field_metric_repository
 
     @property
     def joint_repository(self) -> CadJointOptimizationRepository:
@@ -636,6 +660,86 @@ class JointOptimizationContext:
         return spec
 
     # ------------------------------------------------------------------
+    # Pre-run estimate (#991): the sealed estimate is pinned to the exact
+    # spec axes and persisted before execution commits so observed-vs-
+    # predicted comparison stays auditable.
+    # ------------------------------------------------------------------
+
+    def _estimate_for_plan(self, plan) -> PrerunEstimate:
+        device_memory = _total_memory_bytes()
+        limits = (
+            {'peak_memory_bytes': float(device_memory)}
+            if device_memory is not None
+            else None
+        )
+        return estimate_prerun_cost(
+            plan,
+            budget_limits=limits,
+            device_memory_bytes=(
+                float(device_memory) if device_memory is not None else None
+            ),
+        )
+
+    def prerun_estimate_for_spec(self, spec_id: str) -> PrerunEstimate:
+        """Estimate for the exact persisted spec the panel would run."""
+
+        spec = self.joint_repository.get_spec(spec_id)
+        if spec is None:
+            raise ValueError(
+                'joint optimization spec is not persisted: ' + spec_id
+            )
+        plan = plan_for_joint_execution(
+            document_id=self.document_id,
+            scene_revision_id=spec.scene_revision_id,
+            scene_content_hash=spec.scene_content_hash,
+            spec_id=spec.spec_id,
+            spec_sha256=spec.semantic_sha256,
+            evaluator_version=spec.evaluator.evaluator_version,
+            decision_vector_count=joint_decision_vector_count(spec),
+            candidate_budget=spec.candidate_budget,
+            physical_variable_count=len(spec.physical_variables),
+            dsp_variable_count=len(spec.dsp_variables),
+            objective_count=len(spec.objectives),
+        )
+        return self._estimate_for_plan(plan)
+
+    def prerun_estimate_for_authoring(
+        self,
+        baseline: JointBaseline,
+        *,
+        mode: JointSearchMode,
+        dsp_variables: Sequence[JointDspVariable],
+        candidate_budget: int,
+    ) -> PrerunEstimate:
+        """Estimate for the spec the current authoring options would
+        create — lets the operator adjust bounds before committing."""
+
+        estimate = self.estimate_candidates(
+            baseline,
+            mode=mode,
+            dsp_variables=dsp_variables,
+            candidate_budget=candidate_budget,
+        )
+        physical_variables = physical_variables_from_authority(
+            baseline.physical_search_spec,
+            baseline.extended_search_spec,  # type: ignore[arg-type]
+        )
+        plan = plan_for_joint_execution(
+            document_id=self.document_id,
+            scene_revision_id=baseline.scene_revision.revision_id,
+            scene_content_hash=baseline.scene_revision.content_hash,
+            spec_id='',
+            spec_sha256='',
+            evaluator_version='joint-evaluation-1',
+            decision_vector_count=estimate.combined_candidate_count,
+            candidate_budget=candidate_budget,
+            physical_variable_count=len(physical_variables),
+            dsp_variable_count=len(dsp_variables),
+            objective_count=len(baseline.objective_definitions),
+        )
+        return self._estimate_for_plan(plan)
+
+    # ------------------------------------------------------------------
     # Spec execution (#945): the same exact baseline authorities the spec
     # was authored against drive the bounded canonical execution pass.
     # ------------------------------------------------------------------
@@ -707,7 +811,19 @@ class JointOptimizationContext:
                 'joint execution requires a resolved baseline: current '
                 'SceneRevision, base SystemVariant, and physical search spec'
             )
-        return run_joint_execution(
+        # #991: seal + persist the pre-run estimate before the run starts.
+        # An estimate that cannot be persisted never blocks a runnable
+        # spec — it simply leaves the run without a recorded prediction.
+        prerun_estimate: PrerunEstimate | None = None
+        try:
+            prerun_estimate = self.prerun_estimate_for_spec(spec_id)
+            self.field_metric_repository.save_prerun_estimate(
+                prerun_estimate
+            )
+        except Exception:  # noqa: BLE001 - estimation is advisory
+            prerun_estimate = None
+        started_at = perf_counter()
+        result = run_joint_execution(
             repository=self.joint_repository,
             spec=spec,
             baseline=baseline.scene_revision,
@@ -731,4 +847,29 @@ class JointOptimizationContext:
             is_cancelled=is_cancelled,
             on_progress=on_progress,
         )
+        if prerun_estimate is not None and not result.cancelled:
+            elapsed_s = perf_counter() - started_at
+            if elapsed_s > 0:
+                try:
+                    observation = record_prerun_observation(
+                        document_id=self.document_id,
+                        estimate=prerun_estimate,
+                        run_ref=AuthorityRef(
+                            kind='joint_execution',
+                            ref_id=result.result_id,
+                            ref_sha256=result.execution_sha256,
+                        ),
+                        runtime_s=elapsed_s,
+                        process_rss_bytes=process_rss_bytes(),
+                        hardware_label='windows-box',
+                        observed_at_utc=datetime.now(
+                            timezone.utc
+                        ).isoformat(timespec='seconds'),
+                    )
+                    self.field_metric_repository.save_compute_observation(
+                        observation
+                    )
+                except Exception:  # noqa: BLE001 - never fabricate actuals
+                    pass
+        return result
 

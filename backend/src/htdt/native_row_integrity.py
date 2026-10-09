@@ -6264,6 +6264,18 @@ _ROW_BINDINGS: dict[str, tuple[str, tuple[RowBinding, ...], tuple[ExtraCheck, ..
         ),
         (),
     ),
+    'cad_prerun_estimates': (
+        'payload_json',
+        (
+            _b('estimate_id', 'estimate_id'),
+            _b('estimate_sha256', 'estimate_sha256'),
+            _b('document_id', 'document_id'),
+            _b('job_kind', 'plan', 'job_kind'),
+            _b('solver_id', 'plan', 'solver_id'),
+            _b('confidence', 'confidence'),
+        ),
+        (),
+    ),
     'cad_jitter_profiles': (
         'payload_json',
         (

@@ -5990,6 +5990,13 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         ('envelope_id',),
         _get('field_metric', 'get_cost_envelope'),
     ),
+    # REV74: #991 sealed pre-run estimate authority.
+    _ReplayProbe(
+        'prerun_estimate',
+        'cad_prerun_estimates',
+        ('estimate_id',),
+        _get('field_metric', 'get_prerun_estimate'),
+    ),
     # REV59-DIGCHAIN: #745/#744/#739/#650 signal-integrity authorities
     _ReplayProbe(
         'jitter_profile',
