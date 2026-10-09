@@ -2060,6 +2060,11 @@ class CaptureInboxPage(QWidget):
         if self._list_missions is not None:
             self._tabs.addTab(self._build_missions_tab(), "ミッション")
         layout.addWidget(self._tabs, 1)
+        # Seed the fold state now: hidden secondary widgets don't count
+        # toward minimumSizeHint, so the page's minimum width stays small
+        # instead of pinning the whole shell above a 1366px screen.
+        # The first real resizeEvent recomputes and unfolds when it fits.
+        self._sync_action_layout()
         self.refresh()
 
     # -- mass-arrival triage (#988) --------------------------------------
@@ -4155,8 +4160,14 @@ class ActivityPage(QWidget):
         self._events_cache: tuple | None = None
         self._events_cache_doc: str | None | object = _CACHE_MISS
         self._displayed_events: list = []
+        # The page hosts three stacked sections (operations, timeline,
+        # revisions) whose natural height exceeds a 768px screen. Build
+        # the body inside a scroll area so the mount's minimumSizeHint
+        # stays small instead of inflating the whole shell (QStackedWidget
+        # takes the max over children).
+        body = QWidget(self)
         layout = _page_layout(
-            self,
+            body,
             "アクティビティ",
             "実行中の操作・プロジェクトの記録（最新順）です。"
             "タイムラインの行をダブルクリックすると、"
@@ -4362,6 +4373,15 @@ class ActivityPage(QWidget):
         self.empty_label.setWordWrap(True)
         self.empty_label.setVisible(False)
         layout.addWidget(self.empty_label)
+        scroll = QScrollArea(self)
+        scroll.setObjectName("activityScroll")
+        scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        scroll.setWidgetResizable(True)
+        scroll.setAccessibleName("アクティビティ一覧")
+        scroll.setWidget(body)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.addWidget(scroll)
         self._sync_scope_headings()
         self.refresh()
 
