@@ -1,0 +1,1477 @@
+{
+  "schema_version": "htdt.r130d.original-q0-true-roof-sevenpoint-CFL-eigenvector-localization-evidence-1",
+  "preregistered_plan_sha256_lf": "1fc15ea8f16582f5d6d21779d6d2f0485b9a5a3bf95c9896ce232e10b95aa608",
+  "preregistered_plan": {
+    "schema_version": "htdt.r130d.original-q0-true-roof-sevenpoint-CFL-eigenvector-localization-plan-1",
+    "date_jst": "2026-10-10",
+    "repo": "aaw123m/htdt",
+    "issue": 53,
+    "draft_pr": 118,
+    "question": "Separate physically short-supported cut-roof nodes, y-z eigenvector mass localization, and x-Neumann modes for the already observed native explicit leapfrog CFL failures without modifying any q0 acceptance.",
+    "prospective_gate": "This complete plan must exist on the live GitHub working branch before any new real native HDF5 five-grid localization is computed; check plan bytes and live remote SHA, fail closed.",
+    "original": {
+      "pffdtd_sha": "aa319f6c86517cb95aabfae8656277da62c3ead5",
+      "ppw": [
+        28,
+        32,
+        36,
+        40,
+        44
+      ],
+      "source_xyz_m": [
+        1.5,
+        2,
+        2
+      ],
+      "receiver_xyz_m": [
+        2.5,
+        2,
+        2
+      ],
+      "full_record_seconds": 0.25,
+      "signed_frequency_hz": [
+        40,
+        80
+      ],
+      "native_h_dt_Nt_and_8node_q0_and_8node_receiver_from_sha": true,
+      "original_acceptance": {
+        "complex_rms_relative": 0.2,
+        "magnitude_max_relative": 0.25,
+        "phase_max_deg": 15,
+        "strict_monotonicity": true
+      },
+      "unchanged_native_original_graph_and_raw_hdf5": true
+    },
+    "operator": {
+      "same_previous_7point_experiment_commit": "902f7b4a7a21d2500abb8db91b49b7bf426be0c9",
+      "same_previous_full_CFL_evidence_commit": "63d74e7d85f4495b8e948ee97344eaf627d6e83d",
+      "Mx": "physical positive row-sum x-P1",
+      "Myz": "physical positive row-sum true roof cut-Q1",
+      "Kx": "true x-Neumann P1",
+      "Kyz": "full wet Cartesian 5point flux + exact inclined natural-Neumann cut-Q1",
+      "physical_volume_m3": 56,
+      "full_generalized_eigenspectra_no_cut": true
+    },
+    "predeclared_analysis": {
+      "cut_yz_node_area_ratio_bins_to_native_h2": [
+        0,
+        0.01,
+        0.05,
+        0.1,
+        0.5,
+        1,
+        2
+      ],
+      "diagnostic_cumulative_cut_mass_thresholds": [
+        0.01,
+        0.05,
+        0.1,
+        0.5
+      ],
+      "geometric_roof_distance_abs_le_h_multiplier": [
+        1,
+        2
+      ],
+      "highest_yz_eigenvector_count": 3,
+      "highest_diagonal_Rayleigh_yz_nodes_count": 5,
+      "roof_band_defined_by_absolute_signed_distance": "abs(4-0.25*y-z) <= multiplier*h; include above-roof positive-support exterior Q1 nodes",
+      "mass_norm_mode_fraction": "sum_i Myz_ii v_i^2 / (vT Myz v)",
+      "baseline_support_area_fraction": "sum_i Myz_ii / sum_i Myz_ii",
+      "mass_localization_enrichment": "mode_mass_fraction / physical_support_area_fraction, null if support area zero",
+      "node_diagonal_Rayleigh_yz": "Kyz_ii / Myz_ii; exact basis-node Rayleigh, provable <= complete yz lambda_max",
+      "global_diagonal_Rayleigh_bound": "max_i Kx_ii/Mx_ii + max_j Kyz_jj/Myz_jj; provable <= lambda_3d_max",
+      "high_eigenvalue_split": "lambda3d_max=lambda_x_max+lambda_yz_max; report x and yz fractional contributions",
+      "native_leapfrog_limit": "native dt\u00b2 lambda <4, report all unstable 3D modes, never suppress or rescore",
+      "all_five_vs_published_CFL": "verify five max dt\u00b2lambda and unstable mode counts against previous pinned full evidence to 2e-9 absolute for CFL and exact counts",
+      "full_3d_true_mass_symmetric_constant_and_affine": "preserve volume and Neumann constant and previously established affine check"
+    },
+    "interpretation": "Eigenmode mass concentration and local Rayleigh lower bound are physical diagnostics. Do not claim specific roof sliver causes full original q0 nonconvergence without independent causal validation. Exact node diagonal Rayleigh explains CFL bound but not q0 transfer directly.",
+    "caps": {
+      "five_grids_only": true,
+      "all_native_original_modes": true,
+      "max_yz_modes": 3300,
+      "max_3d_modes": 180000,
+      "new_original_pffdtd_wave_runs": 0,
+      "new_github_actions": 0,
+      "keep_scratch": true
+    },
+    "release": {
+      "original_PFFDTD": "SELF_CONVERGENCE_FAILED",
+      "independent_physics": "NOT_VALIDATED",
+      "product": "NO_GO",
+      "issue_open": true,
+      "PR_draft": true
+    }
+  },
+  "preregistered_remote_commit": "34547c88234695b7eadc96b191531ef9fba2ae9f",
+  "original_PFFDTD": "SELF_CONVERGENCE_FAILED",
+  "independent_physics": "NOT_VALIDATED",
+  "product": "NO_GO",
+  "new_original_pffdtd_waves": 0,
+  "new_github_actions_runs": 0,
+  "original_native_unmodified_250ms_q0_convergence_still_failed": true,
+  "full_original_native_five_grid_cfl_eigenvector_results": [
+    {
+      "ppw": 28,
+      "native_comms_SHA": "4404a9818a8f0c673c97e8ede8665367100aecb3d2f2f8481bc532bc45fd6b6c",
+      "native_voxel_SHA": "9d8b598fc1e2077840ba5a51e8f2db72c30ad4b6991ae88d3174bac72acf9fc8",
+      "native_original_h_m": 0.12257142857142857,
+      "native_original_dt_s": 0.00020599032818587005,
+      "native_original_Nt": 1214,
+      "original_8_source_and_8_receiver_interpolation_errors": [
+        5.551115123125783e-17,
+        1.1102230246251565e-16
+      ],
+      "original_native_total_8point_q0_strength": 2.7140664335664337,
+      "all_original_full_modes_instability_count": 2717,
+      "max_original_native_dt2_lambda": 49.03825206335568,
+      "original_frozen_explicit_native_CFL_stable": false,
+      "preobserved_complete_cfl_verified": true,
+      "x_exact_generalized_mode_proof": {
+        "all_physical_consistent_mass_generalized_modes_retained": true,
+        "exact_rigid_neumann_constant_mode": true,
+        "first_unmodified_numeric_zero_eigenvalue": -1.1352243697039634e-09,
+        "strict_max_all_eigenpair_residual": 1.1641532182693481e-10,
+        "strict_max_M_orthogonality_residual": 7.962412845494056e-15,
+        "first_nonzero_physical_frequency_hz": 42.88292303983671
+      },
+      "yz_exact_generalized_mode_proof": {
+        "full_original_native_Q1_Galerkin_modes_retained_no_cut": true,
+        "analytic_exact_neumann_rigid_zero": true,
+        "raw_lapack_first_eigenvalue_roundoff_1_s2": -8.788013874982748e-09,
+        "raw_neumann_zero_to_full_spectrum_ratio": 4.9310668344180106e-17,
+        "strict_all_original_Q1_modes_generalized_residual": 3.7301419989851355e-10,
+        "strict_M_orthonormality_Gram_maxerror": 3.147482274812319e-14,
+        "physical_first_nonzero_original_Q1_frequency_hz": 41.944131677822085,
+        "highest_true_original_Q1_eigenvalue_1_s2": 178217293.9462897
+      },
+      "full_raw_mass_sliver_and_roof_localization": {
+        "positive_original_x_node_count": 35,
+        "positive_original_yz_node_count": 1081,
+        "full_untruncated_3d_modes": 37835,
+        "true_x_length_m": 4.0,
+        "true_yz_area_m2": 13.999999999999986,
+        "true_3d_volume_m3": 55.99999999999994,
+        "minimum_positive_yz_physical_area_m2": 6.667221678795476e-11,
+        "min_yz_area_fraction_of_h2": 4.437786447870018e-09,
+        "maximum_x_lambda_per_s2": 977472618.719254,
+        "maximum_yz_lambda_per_s2": 178217293.9462897,
+        "full_max_3d_lambda_per_s2": 1155689912.6655438,
+        "full_native_dt2_max_lambda": 49.03825206335568,
+        "maximum_x_eigenvalue_fraction_of_full_max": 0.8457914255431718,
+        "maximum_yz_eigenvalue_fraction_of_full_max": 0.15420857445682812,
+        "local_x_diagonal_Rayleigh_node_index": 34,
+        "local_x_max_diagonal_Rayleigh_per_s2": 872820530.8128984,
+        "local_yz_max_diagonal_Rayleigh_per_s2": 132681165.38556764,
+        "full_3d_single_basis_Rayleigh_lowerbound_per_s2": 1005501696.1984661,
+        "full_dt2_single_basis_Rayleigh_lowerbound": 42.6654633634254,
+        "basis_node_Rayleigh_fraction_of_true_lambda_max": 0.870044538053745,
+        "basis_node_alone_certifies_native_leapfrog_unstable": true,
+        "roof_and_small_area_original_physical_support": {
+          "abs_true_roof_distance_le_1h": {
+            "nodes": 70,
+            "baseline_physical_support_mass_fraction": 0.030764105518560108
+          },
+          "abs_true_roof_distance_le_2h": {
+            "nodes": 114,
+            "baseline_physical_support_mass_fraction": 0.06576520772594789
+          },
+          "positive_node_area_lt_0.01_h2": {
+            "nodes": 45,
+            "baseline_physical_support_mass_fraction": 0.0002635222294519328
+          },
+          "positive_node_area_lt_0.05_h2": {
+            "nodes": 54,
+            "baseline_physical_support_mass_fraction": 0.0006130212272653683
+          },
+          "positive_node_area_lt_0.1_h2": {
+            "nodes": 56,
+            "baseline_physical_support_mass_fraction": 0.0007756958269601582
+          },
+          "positive_node_area_lt_0.5_h2": {
+            "nodes": 138,
+            "baseline_physical_support_mass_fraction": 0.013839561817501457
+          }
+        },
+        "top_three_true_generalized_yz_eigenvector_localization": [
+          {
+            "descending_mode_rank": 1,
+            "native_crosssection_index": 1080,
+            "true_yz_lambda_per_s2": 178217293.9462897,
+            "native_dt2_yz_lambda": 7.562118944544689,
+            "M_orthonormality_self_error": 6.661338147750939e-16,
+            "fractions": {
+              "abs_true_roof_distance_le_1h": {
+                "eigenvector_M_mass_fraction": 0.9970352630829268,
+                "baseline_physical_support_mass_fraction": 0.030764105518560108,
+                "M_mass_enrichment": 32.4090444456905
+              },
+              "abs_true_roof_distance_le_2h": {
+                "eigenvector_M_mass_fraction": 0.9999999767061281,
+                "baseline_physical_support_mass_fraction": 0.06576520772594789,
+                "M_mass_enrichment": 15.205608121444047
+              },
+              "positive_node_area_lt_0.01_h2": {
+                "eigenvector_M_mass_fraction": 0.9950583639433227,
+                "baseline_physical_support_mass_fraction": 0.0002635222294519328,
+                "M_mass_enrichment": 3775.994025296542
+              },
+              "positive_node_area_lt_0.05_h2": {
+                "eigenvector_M_mass_fraction": 0.9950583639439083,
+                "baseline_physical_support_mass_fraction": 0.0006130212272653683,
+                "M_mass_enrichment": 1623.203764709377
+              },
+              "positive_node_area_lt_0.1_h2": {
+                "eigenvector_M_mass_fraction": 0.9980238767175964,
+                "baseline_physical_support_mass_fraction": 0.0007756958269601582,
+                "M_mass_enrichment": 1286.6175658424131
+              },
+              "positive_node_area_lt_0.5_h2": {
+                "eigenvector_M_mass_fraction": 0.9999894383729333,
+                "baseline_physical_support_mass_fraction": 0.013839561817501457,
+                "M_mass_enrichment": 72.25585979957475
+              }
+            }
+          },
+          {
+            "descending_mode_rank": 2,
+            "native_crosssection_index": 1079,
+            "true_yz_lambda_per_s2": 118912012.46471886,
+            "native_dt2_yz_lambda": 5.045676332984774,
+            "M_orthonormality_self_error": 1.3322676295501878e-15,
+            "fractions": {
+              "abs_true_roof_distance_le_1h": {
+                "eigenvector_M_mass_fraction": 0.09405134542404779,
+                "baseline_physical_support_mass_fraction": 0.030764105518560108,
+                "M_mass_enrichment": 3.057177962392121
+              },
+              "abs_true_roof_distance_le_2h": {
+                "eigenvector_M_mass_fraction": 0.15357770310969326,
+                "baseline_physical_support_mass_fraction": 0.06576520772594789,
+                "M_mass_enrichment": 2.3352424240743126
+              },
+              "positive_node_area_lt_0.01_h2": {
+                "eigenvector_M_mass_fraction": 0.98193827368315,
+                "baseline_physical_support_mass_fraction": 0.0002635222294519328,
+                "M_mass_enrichment": 3726.206611584008
+              },
+              "positive_node_area_lt_0.05_h2": {
+                "eigenvector_M_mass_fraction": 0.9819389604179202,
+                "baseline_physical_support_mass_fraction": 0.0006130212272653683,
+                "M_mass_enrichment": 1601.802542463758
+              },
+              "positive_node_area_lt_0.1_h2": {
+                "eigenvector_M_mass_fraction": 0.9820061981877848,
+                "baseline_physical_support_mass_fraction": 0.0007756958269601582,
+                "M_mass_enrichment": 1265.968133457837
+              },
+              "positive_node_area_lt_0.5_h2": {
+                "eigenvector_M_mass_fraction": 0.982498695038207,
+                "baseline_physical_support_mass_fraction": 0.013839561817501457,
+                "M_mass_enrichment": 70.9920377533733
+              }
+            }
+          },
+          {
+            "descending_mode_rank": 3,
+            "native_crosssection_index": 1078,
+            "true_yz_lambda_per_s2": 118614022.1601194,
+            "native_dt2_yz_lambda": 5.033032003818934,
+            "M_orthonormality_self_error": 2.220446049250313e-16,
+            "fractions": {
+              "abs_true_roof_distance_le_1h": {
+                "eigenvector_M_mass_fraction": 0.11724891379362752,
+                "baseline_physical_support_mass_fraction": 0.030764105518560108,
+                "M_mass_enrichment": 3.8112245364290143
+              },
+              "abs_true_roof_distance_le_2h": {
+                "eigenvector_M_mass_fraction": 0.18758539673887004,
+                "baseline_physical_support_mass_fraction": 0.06576520772594789,
+                "M_mass_enrichment": 2.852350098559144
+              },
+              "positive_node_area_lt_0.01_h2": {
+                "eigenvector_M_mass_fraction": 0.9819358149464061,
+                "baseline_physical_support_mass_fraction": 0.0002635222294519328,
+                "M_mass_enrichment": 3726.197281301895
+              },
+              "positive_node_area_lt_0.05_h2": {
+                "eigenvector_M_mass_fraction": 0.9819366914606866,
+                "baseline_physical_support_mass_fraction": 0.0006130212272653683,
+                "M_mass_enrichment": 1601.7988411935041
+              },
+              "positive_node_area_lt_0.1_h2": {
+                "eigenvector_M_mass_fraction": 0.982136325834519,
+                "baseline_physical_support_mass_fraction": 0.0007756958269601582,
+                "M_mass_enrichment": 1266.1358894805091
+              },
+              "positive_node_area_lt_0.5_h2": {
+                "eigenvector_M_mass_fraction": 0.9827582863625228,
+                "baseline_physical_support_mass_fraction": 0.013839561817501457,
+                "M_mass_enrichment": 71.01079494581472
+              }
+            }
+          }
+        ],
+        "top_five_yz_diagonal_Rayleigh_nodes": [
+          {
+            "active_yz_index": 69,
+            "position_yz_m": [
+              0.06128571428571428,
+              4.106142857142856
+            ],
+            "positive_exact_physical_node_area_m2": 1.5290677151174445e-05,
+            "node_area_fraction_of_h2": 0.0010177666666769196,
+            "absolute_signed_roof_distance_h": 0.9909673659673612,
+            "cut_roof_band_1h": true,
+            "yz_basis_vector_Rayleigh_per_s2": 132681165.38556764,
+            "native_dt2_full_xnode_plus_yznode_Rayleigh_lowerbound": 42.6654633634254
+          },
+          {
+            "active_yz_index": 1055,
+            "position_yz_m": [
+              4.106142857142856,
+              0.06128571428571428
+            ],
+            "positive_exact_physical_node_area_m2": 0.00011808035714287225,
+            "node_area_fraction_of_h2": 0.007859576806256135,
+            "absolute_signed_roof_distance_h": 23.759032634032636,
+            "cut_roof_band_1h": false,
+            "yz_basis_vector_Rayleigh_per_s2": 84762671.53135593,
+            "native_dt2_full_xnode_plus_yznode_Rayleigh_lowerbound": 40.632185098757155
+          },
+          {
+            "active_yz_index": 1079,
+            "position_yz_m": [
+              4.106142857142856,
+              3.003
+            ],
+            "positive_exact_physical_node_area_m2": 6.569486214328872e-05,
+            "node_area_fraction_of_h2": 0.004372732495776957,
+            "absolute_signed_roof_distance_h": 0.24096736596736545,
+            "cut_roof_band_1h": true,
+            "yz_basis_vector_Rayleigh_per_s2": 79697082.71091886,
+            "native_dt2_full_xnode_plus_yznode_Rayleigh_lowerbound": 40.417241956393845
+          },
+          {
+            "active_yz_index": 1072,
+            "position_yz_m": [
+              4.106142857142856,
+              2.145
+            ],
+            "positive_exact_physical_node_area_m2": 0.00013494897959185427,
+            "node_area_fraction_of_h2": 0.008982373492864171,
+            "absolute_signed_roof_distance_h": 6.759032634032636,
+            "cut_roof_band_1h": false,
+            "yz_basis_vector_Rayleigh_per_s2": 79392044.32281634,
+            "native_dt2_full_xnode_plus_yznode_Rayleigh_lowerbound": 40.40429856284093
+          },
+          {
+            "active_yz_index": 1074,
+            "position_yz_m": [
+              4.106142857142856,
+              2.390142857142857
+            ],
+            "positive_exact_physical_node_area_m2": 0.0001349489795918544,
+            "node_area_fraction_of_h2": 0.00898237349286418,
+            "absolute_signed_roof_distance_h": 4.759032634032636,
+            "cut_roof_band_1h": false,
+            "yz_basis_vector_Rayleigh_per_s2": 79392044.32281633,
+            "native_dt2_full_xnode_plus_yznode_Rayleigh_lowerbound": 40.40429856284093
+          }
+        ],
+        "preserved_original_full_physical_operator_without_mode_filter": true
+      },
+      "new_eigensolver_seconds": 2.2602389003150165
+    },
+    {
+      "ppw": 32,
+      "native_comms_SHA": "716199c1cb8f9d982cdafe7deaccdf630073a2b0d8cdec17fcaf3dff52f4b60b",
+      "native_voxel_SHA": "8f3ebd62703c40793d68fdf703e098bbecc568cc9beb227cfa126b8042954e3b",
+      "native_original_h_m": 0.10725,
+      "native_original_dt_s": 0.0001802415371626363,
+      "native_original_Nt": 1388,
+      "original_8_source_and_8_receiver_interpolation_errors": [
+        1.3877787807814457e-17,
+        3.469446951953614e-18
+      ],
+      "original_native_total_8point_q0_strength": 3.10179020979021,
+      "all_original_full_modes_instability_count": 1542,
+      "max_original_native_dt2_lambda": 7.119886413187025,
+      "original_frozen_explicit_native_CFL_stable": false,
+      "preobserved_complete_cfl_verified": true,
+      "x_exact_generalized_mode_proof": {
+        "all_physical_consistent_mass_generalized_modes_retained": true,
+        "exact_rigid_neumann_constant_mode": true,
+        "first_unmodified_numeric_zero_eigenvalue": -3.7202002825380768e-09,
+        "strict_max_all_eigenpair_residual": 5.206251464550825e-10,
+        "strict_max_M_orthogonality_residual": 9.171684324286653e-15,
+        "first_nonzero_physical_frequency_hz": 42.88686609899544
+      },
+      "yz_exact_generalized_mode_proof": {
+        "full_original_native_Q1_Galerkin_modes_retained_no_cut": true,
+        "analytic_exact_neumann_rigid_zero": true,
+        "raw_lapack_first_eigenvalue_roundoff_1_s2": -5.917022359999605e-11,
+        "raw_neumann_zero_to_full_spectrum_ratio": 5.597026358754827e-19,
+        "strict_all_original_Q1_modes_generalized_residual": 4.241245457478282e-10,
+        "strict_M_orthonormality_Gram_maxerror": 2.0317081350640365e-14,
+        "physical_first_nonzero_original_Q1_frequency_hz": 41.94779182819082,
+        "highest_true_original_Q1_eigenvalue_1_s2": 105717250.20991266
+      },
+      "full_raw_mass_sliver_and_roof_localization": {
+        "positive_original_x_node_count": 39,
+        "positive_original_yz_node_count": 1359,
+        "full_untruncated_3d_modes": 53001,
+        "true_x_length_m": 4.0,
+        "true_yz_area_m2": 13.999999999999986,
+        "true_3d_volume_m3": 55.99999999999994,
+        "minimum_positive_yz_physical_area_m2": 6.562459420719826e-06,
+        "min_yz_area_fraction_of_h2": 0.0005705215182025594,
+        "maximum_x_lambda_per_s2": 113443763.26913738,
+        "maximum_yz_lambda_per_s2": 105717250.20991266,
+        "full_max_3d_lambda_per_s2": 219161013.47905004,
+        "full_native_dt2_max_lambda": 7.119886413187025,
+        "maximum_x_eigenvalue_fraction_of_full_max": 0.5176274806740737,
+        "maximum_yz_eigenvalue_fraction_of_full_max": 0.4823725193259263,
+        "local_x_diagonal_Rayleigh_node_index": 0,
+        "local_x_max_diagonal_Rayleigh_per_s2": 81920000.00000007,
+        "local_yz_max_diagonal_Rayleigh_per_s2": 87039999.99998508,
+        "full_3d_single_basis_Rayleigh_lowerbound_per_s2": 168959999.99998516,
+        "full_dt2_single_basis_Rayleigh_lowerbound": 5.489005499999517,
+        "basis_node_Rayleigh_fraction_of_true_lambda_max": 0.7709400377277245,
+        "basis_node_alone_certifies_native_leapfrog_unstable": true,
+        "roof_and_small_area_original_physical_support": {
+          "abs_true_roof_distance_le_1h": {
+            "nodes": 78,
+            "baseline_physical_support_mass_fraction": 0.03214324524620926
+          },
+          "abs_true_roof_distance_le_2h": {
+            "nodes": 126,
+            "baseline_physical_support_mass_fraction": 0.0627901294642861
+          },
+          "positive_node_area_lt_0.01_h2": {
+            "nodes": 9,
+            "baseline_physical_support_mass_fraction": 4.218723913320311e-06
+          },
+          "positive_node_area_lt_0.05_h2": {
+            "nodes": 22,
+            "baseline_physical_support_mass_fraction": 0.0002633541092114247
+          },
+          "positive_node_area_lt_0.1_h2": {
+            "nodes": 31,
+            "baseline_physical_support_mass_fraction": 0.0009572879471020898
+          },
+          "positive_node_area_lt_0.5_h2": {
+            "nodes": 152,
+            "baseline_physical_support_mass_fraction": 0.02077582196548046
+          }
+        },
+        "top_three_true_generalized_yz_eigenvector_localization": [
+          {
+            "descending_mode_rank": 1,
+            "native_crosssection_index": 1358,
+            "true_yz_lambda_per_s2": 105717250.20991266,
+            "native_dt2_yz_lambda": 3.434437546443458,
+            "M_orthonormality_self_error": 2.220446049250313e-16,
+            "fractions": {
+              "abs_true_roof_distance_le_1h": {
+                "eigenvector_M_mass_fraction": 0.33618680781500293,
+                "baseline_physical_support_mass_fraction": 0.03214324524620926,
+                "M_mass_enrichment": 10.459018846413784
+              },
+              "abs_true_roof_distance_le_2h": {
+                "eigenvector_M_mass_fraction": 0.9999947124079098,
+                "baseline_physical_support_mass_fraction": 0.0627901294642861,
+                "M_mass_enrichment": 15.925985834711314
+              },
+              "positive_node_area_lt_0.01_h2": {
+                "eigenvector_M_mass_fraction": 0.6635522961333943,
+                "baseline_physical_support_mass_fraction": 4.218723913320311e-06,
+                "M_mass_enrichment": 157287.44278294122
+              },
+              "positive_node_area_lt_0.05_h2": {
+                "eigenvector_M_mass_fraction": 0.9752362234517261,
+                "baseline_physical_support_mass_fraction": 0.0002633541092114247,
+                "M_mass_enrichment": 3703.1365349564053
+              },
+              "positive_node_area_lt_0.1_h2": {
+                "eigenvector_M_mass_fraction": 0.9828384858490397,
+                "baseline_physical_support_mass_fraction": 0.0009572879471020898,
+                "M_mass_enrichment": 1026.6905467934666
+              },
+              "positive_node_area_lt_0.5_h2": {
+                "eigenvector_M_mass_fraction": 0.9831098833982101,
+                "baseline_physical_support_mass_fraction": 0.02077582196548046,
+                "M_mass_enrichment": 47.319903156258825
+              }
+            }
+          },
+          {
+            "descending_mode_rank": 2,
+            "native_crosssection_index": 1357,
+            "true_yz_lambda_per_s2": 105716880.50304452,
+            "native_dt2_yz_lambda": 3.4344255357721005,
+            "M_orthonormality_self_error": 0.0,
+            "fractions": {
+              "abs_true_roof_distance_le_1h": {
+                "eigenvector_M_mass_fraction": 0.3361645953544084,
+                "baseline_physical_support_mass_fraction": 0.03214324524620926,
+                "M_mass_enrichment": 10.45832780042809
+              },
+              "abs_true_roof_distance_le_2h": {
+                "eigenvector_M_mass_fraction": 0.9999947526452734,
+                "baseline_physical_support_mass_fraction": 0.0627901294642861,
+                "M_mass_enrichment": 15.925986475534383
+              },
+              "positive_node_area_lt_0.01_h2": {
+                "eigenvector_M_mass_fraction": 0.6635747707148597,
+                "baseline_physical_support_mass_fraction": 4.218723913320311e-06,
+                "M_mass_enrichment": 157292.77012408208
+              },
+              "positive_node_area_lt_0.05_h2": {
+                "eigenvector_M_mass_fraction": 0.9752525928598194,
+                "baseline_physical_support_mass_fraction": 0.0002633541092114247,
+                "M_mass_enrichment": 3703.198692361666
+              },
+              "positive_node_area_lt_0.1_h2": {
+                "eigenvector_M_mass_fraction": 0.9828433604229911,
+                "baseline_physical_support_mass_fraction": 0.0009572879471020898,
+                "M_mass_enrichment": 1026.6956388600347
+              },
+              "positive_node_area_lt_0.5_h2": {
+                "eigenvector_M_mass_fraction": 0.9831107974674163,
+                "baseline_physical_support_mass_fraction": 0.02077582196548046,
+                "M_mass_enrichment": 47.31994715303583
+              }
+            }
+          },
+          {
+            "descending_mode_rank": 3,
+            "native_crosssection_index": 1356,
+            "true_yz_lambda_per_s2": 105716817.49444261,
+            "native_dt2_yz_lambda": 3.434423488810912,
+            "M_orthonormality_self_error": 8.881784197001252e-16,
+            "fractions": {
+              "abs_true_roof_distance_le_1h": {
+                "eigenvector_M_mass_fraction": 0.3361617196165253,
+                "baseline_physical_support_mass_fraction": 0.03214324524620926,
+                "M_mass_enrichment": 10.458238334107529
+              },
+              "abs_true_roof_distance_le_2h": {
+                "eigenvector_M_mass_fraction": 0.9999947336661489,
+                "baseline_physical_support_mass_fraction": 0.0627901294642861,
+                "M_mass_enrichment": 15.925986173271518
+              },
+              "positive_node_area_lt_0.01_h2": {
+                "eigenvector_M_mass_fraction": 0.6635775982379055,
+                "baseline_physical_support_mass_fraction": 4.218723913320311e-06,
+                "M_mass_enrichment": 157293.4403559114
+              },
+              "positive_node_area_lt_0.05_h2": {
+                "eigenvector_M_mass_fraction": 0.9752556277806793,
+                "baseline_physical_support_mass_fraction": 0.0002633541092114247,
+                "M_mass_enrichment": 3703.210216468387
+              },
+              "positive_node_area_lt_0.1_h2": {
+                "eigenvector_M_mass_fraction": 0.9828453102589677,
+                "baseline_physical_support_mass_fraction": 0.0009572879471020898,
+                "M_mass_enrichment": 1026.6976756933432
+              },
+              "positive_node_area_lt_0.5_h2": {
+                "eigenvector_M_mass_fraction": 0.9831116983688651,
+                "baseline_physical_support_mass_fraction": 0.02077582196548046,
+                "M_mass_enrichment": 47.31999051601085
+              }
+            }
+          }
+        ],
+        "top_five_yz_diagonal_Rayleigh_nodes": [
+          {
+            "active_yz_index": 1174,
+            "position_yz_m": [
+              3.378375,
+              3.271125
+            ],
+            "positive_exact_physical_node_area_m2": 6.562459420720052e-06,
+            "node_area_fraction_of_h2": 0.000570521518202579,
+            "absolute_signed_roof_distance_h": 1.0789627039627048,
+            "cut_roof_band_1h": false,
+            "yz_basis_vector_Rayleigh_per_s2": 87039999.99998508,
+            "native_dt2_full_xnode_plus_yznode_Rayleigh_lowerbound": 5.489005499999517
+          },
+          {
+            "active_yz_index": 914,
+            "position_yz_m": [
+              2.520375,
+              3.4856249999999998
+            ],
+            "positive_exact_physical_node_area_m2": 6.562459420719826e-06,
+            "node_area_fraction_of_h2": 0.0005705215182025594,
+            "absolute_signed_roof_distance_h": 1.0789627039627008,
+            "cut_roof_band_1h": false,
+            "yz_basis_vector_Rayleigh_per_s2": 87039999.99998392,
+            "native_dt2_full_xnode_plus_yznode_Rayleigh_lowerbound": 5.48900549999948
+          },
+          {
+            "active_yz_index": 494,
+            "position_yz_m": [
+              1.2333749999999999,
+              3.8073749999999995
+            ],
+            "positive_exact_physical_node_area_m2": 6.56245942072013e-06,
+            "node_area_fraction_of_h2": 0.0005705215182025857,
+            "absolute_signed_roof_distance_h": 1.0789627039627008,
+            "cut_roof_band_1h": false,
+            "yz_basis_vector_Rayleigh_per_s2": 87039999.99998215,
+            "native_dt2_full_xnode_plus_yznode_Rayleigh_lowerbound": 5.489005499999423
+          },
+          {
+            "active_yz_index": 778,
+            "position_yz_m": [
+              2.0913749999999998,
+              3.592875
+            ],
+            "positive_exact_physical_node_area_m2": 6.562459420720582e-06,
+            "node_area_fraction_of_h2": 0.0005705215182026251,
+            "absolute_signed_roof_distance_h": 1.0789627039627008,
+            "cut_roof_band_1h": false,
+            "yz_basis_vector_Rayleigh_per_s2": 87039999.99998078,
+            "native_dt2_full_xnode_plus_yznode_Rayleigh_lowerbound": 5.4890054999993785
+          },
+          {
+            "active_yz_index": 1298,
+            "position_yz_m": [
+              3.8073749999999995,
+              3.163875
+            ],
+            "positive_exact_physical_node_area_m2": 6.56245942072063e-06,
+            "node_area_fraction_of_h2": 0.0005705215182026293,
+            "absolute_signed_roof_distance_h": 1.0789627039627048,
+            "cut_roof_band_1h": false,
+            "yz_basis_vector_Rayleigh_per_s2": 87039999.99997988,
+            "native_dt2_full_xnode_plus_yznode_Rayleigh_lowerbound": 5.489005499999349
+          }
+        ],
+        "preserved_original_full_physical_operator_without_mode_filter": true
+      },
+      "new_eigensolver_seconds": 3.247909899801016
+    },
+    {
+      "ppw": 36,
+      "native_comms_SHA": "3cd05bcee5f8fed08da3dc94ff2ac90b92969b293daf2db77b4bac8d0c51a2f9",
+      "native_voxel_SHA": "433c1d334419006b1185a4ef275545d329244d0808b2a3c12a3200e7af4e3d50",
+      "native_original_h_m": 0.09533333333333333,
+      "native_original_dt_s": 0.00016021469970012116,
+      "native_original_Nt": 1561,
+      "original_8_source_and_8_receiver_interpolation_errors": [
+        2.7755575615628914e-17,
+        2.7755575615628914e-17
+      ],
+      "original_native_total_8point_q0_strength": 3.4895139860139857,
+      "all_original_full_modes_instability_count": 3581,
+      "max_original_native_dt2_lambda": 7.947688759825884,
+      "original_frozen_explicit_native_CFL_stable": false,
+      "preobserved_complete_cfl_verified": true,
+      "x_exact_generalized_mode_proof": {
+        "all_physical_consistent_mass_generalized_modes_retained": true,
+        "exact_rigid_neumann_constant_mode": true,
+        "first_unmodified_numeric_zero_eigenvalue": -1.1546267622331848e-09,
+        "strict_max_all_eigenpair_residual": 1.1641532182693481e-10,
+        "strict_max_M_orthogonality_residual": 2.5704388747690983e-14,
+        "first_nonzero_physical_frequency_hz": 42.88962805213076
+      },
+      "yz_exact_generalized_mode_proof": {
+        "full_original_native_Q1_Galerkin_modes_retained_no_cut": true,
+        "analytic_exact_neumann_rigid_zero": true,
+        "raw_lapack_first_eigenvalue_roundoff_1_s2": -5.730608530956534e-10,
+        "raw_neumann_zero_to_full_spectrum_ratio": 4.030604774726973e-18,
+        "strict_all_original_Q1_modes_generalized_residual": 4.804034211052971e-10,
+        "strict_M_orthonormality_Gram_maxerror": 7.188694084447889e-14,
+        "physical_first_nonzero_original_Q1_frequency_hz": 41.950378058844315,
+        "highest_true_original_Q1_eigenvalue_1_s2": 142177386.55223808
+      },
+      "full_raw_mass_sliver_and_roof_localization": {
+        "positive_original_x_node_count": 44,
+        "positive_original_yz_node_count": 1716,
+        "full_untruncated_3d_modes": 75504,
+        "true_x_length_m": 4.0,
+        "true_yz_area_m2": 13.999999999999986,
+        "true_3d_volume_m3": 55.99999999999994,
+        "minimum_positive_yz_physical_area_m2": 2.8813009411530283e-07,
+        "min_yz_area_fraction_of_h2": 3.170290536258162e-05,
+        "maximum_x_lambda_per_s2": 167447692.96374473,
+        "maximum_yz_lambda_per_s2": 142177386.55223808,
+        "full_max_3d_lambda_per_s2": 309625079.5159828,
+        "full_native_dt2_max_lambda": 7.947688759825884,
+        "maximum_x_eigenvalue_fraction_of_full_max": 0.5408079126713671,
+        "maximum_yz_eigenvalue_fraction_of_full_max": 0.45919208732863287,
+        "local_x_diagonal_Rayleigh_node_index": 43,
+        "local_x_max_diagonal_Rayleigh_per_s2": 123544800.41955553,
+        "local_yz_max_diagonal_Rayleigh_per_s2": 110159999.99995765,
+        "full_3d_single_basis_Rayleigh_lowerbound_per_s2": 233704800.41951317,
+        "full_dt2_single_basis_Rayleigh_lowerbound": 5.998910095768379,
+        "basis_node_Rayleigh_fraction_of_true_lambda_max": 0.7547993230549961,
+        "basis_node_alone_certifies_native_leapfrog_unstable": true,
+        "roof_and_small_area_original_physical_support": {
+          "abs_true_roof_distance_le_1h": {
+            "nodes": 88,
+            "baseline_physical_support_mass_fraction": 0.02585537032518788
+          },
+          "abs_true_roof_distance_le_2h": {
+            "nodes": 143,
+            "baseline_physical_support_mass_fraction": 0.053090321428571924
+          },
+          "positive_node_area_lt_0.01_h2": {
+            "nodes": 22,
+            "baseline_physical_support_mass_fraction": 5.834139066952805e-05
+          },
+          "positive_node_area_lt_0.05_h2": {
+            "nodes": 26,
+            "baseline_physical_support_mass_fraction": 0.00011328310693937305
+          },
+          "positive_node_area_lt_0.1_h2": {
+            "nodes": 38,
+            "baseline_physical_support_mass_fraction": 0.0006011945624142148
+          },
+          "positive_node_area_lt_0.5_h2": {
+            "nodes": 172,
+            "baseline_physical_support_mass_fraction": 0.012837547775156534
+          }
+        },
+        "top_three_true_generalized_yz_eigenvector_localization": [
+          {
+            "descending_mode_rank": 1,
+            "native_crosssection_index": 1715,
+            "true_yz_lambda_per_s2": 142177386.55223808,
+            "native_dt2_yz_lambda": 3.6495157910627616,
+            "M_orthonormality_self_error": 0.0,
+            "fractions": {
+              "abs_true_roof_distance_le_1h": {
+                "eigenvector_M_mass_fraction": 0.5171080022920759,
+                "baseline_physical_support_mass_fraction": 0.02585537032518788,
+                "M_mass_enrichment": 20.000023043116798
+              },
+              "abs_true_roof_distance_le_2h": {
+                "eigenvector_M_mass_fraction": 0.9999975937192851,
+                "baseline_physical_support_mass_fraction": 0.053090321428571924,
+                "M_mass_enrichment": 18.835779607488128
+              },
+              "positive_node_area_lt_0.01_h2": {
+                "eigenvector_M_mass_fraction": 0.9453490679959549,
+                "baseline_physical_support_mass_fraction": 5.834139066952805e-05,
+                "M_mass_enrichment": 16203.745868020842
+              },
+              "positive_node_area_lt_0.05_h2": {
+                "eigenvector_M_mass_fraction": 0.9864174552739016,
+                "baseline_physical_support_mass_fraction": 0.00011328310693937305,
+                "M_mass_enrichment": 8707.542385837045
+              },
+              "positive_node_area_lt_0.1_h2": {
+                "eigenvector_M_mass_fraction": 0.9864174558244152,
+                "baseline_physical_support_mass_fraction": 0.0006011945624142148,
+                "M_mass_enrichment": 1640.7624378092546
+              },
+              "positive_node_area_lt_0.5_h2": {
+                "eigenvector_M_mass_fraction": 0.9867210139612931,
+                "baseline_physical_support_mass_fraction": 0.012837547775156534,
+                "M_mass_enrichment": 76.8621103689923
+              }
+            }
+          },
+          {
+            "descending_mode_rank": 2,
+            "native_crosssection_index": 1714,
+            "true_yz_lambda_per_s2": 141171077.13214698,
+            "native_dt2_yz_lambda": 3.623685086135798,
+            "M_orthonormality_self_error": 8.881784197001252e-16,
+            "fractions": {
+              "abs_true_roof_distance_le_1h": {
+                "eigenvector_M_mass_fraction": 0.49060845581949863,
+                "baseline_physical_support_mass_fraction": 0.02585537032518788,
+                "M_mass_enrichment": 18.975108445519183
+              },
+              "abs_true_roof_distance_le_2h": {
+                "eigenvector_M_mass_fraction": 0.9999962533586626,
+                "baseline_physical_support_mass_fraction": 0.053090321428571924,
+                "M_mass_enrichment": 18.8357543606901
+              },
+              "positive_node_area_lt_0.01_h2": {
+                "eigenvector_M_mass_fraction": 0.9638852414522854,
+                "baseline_physical_support_mass_fraction": 5.834139066952805e-05,
+                "M_mass_enrichment": 16521.464956366333
+              },
+              "positive_node_area_lt_0.05_h2": {
+                "eigenvector_M_mass_fraction": 0.9638852414522854,
+                "baseline_physical_support_mass_fraction": 0.00011328310693937305,
+                "M_mass_enrichment": 8508.640586350957
+              },
+              "positive_node_area_lt_0.1_h2": {
+                "eigenvector_M_mass_fraction": 0.9870770332995575,
+                "baseline_physical_support_mass_fraction": 0.0006011945624142148,
+                "M_mass_enrichment": 1641.8595493208652
+              },
+              "positive_node_area_lt_0.5_h2": {
+                "eigenvector_M_mass_fraction": 0.9872766550389471,
+                "baseline_physical_support_mass_fraction": 0.012837547775156534,
+                "M_mass_enrichment": 76.9053928624549
+              }
+            }
+          },
+          {
+            "descending_mode_rank": 3,
+            "native_crosssection_index": 1713,
+            "true_yz_lambda_per_s2": 141069261.58281308,
+            "native_dt2_yz_lambda": 3.6210716082538337,
+            "M_orthonormality_self_error": 1.1102230246251565e-15,
+            "fractions": {
+              "abs_true_roof_distance_le_1h": {
+                "eigenvector_M_mass_fraction": 0.489948880350019,
+                "baseline_physical_support_mass_fraction": 0.02585537032518788,
+                "M_mass_enrichment": 18.949598253199987
+              },
+              "abs_true_roof_distance_le_2h": {
+                "eigenvector_M_mass_fraction": 0.9999969891705324,
+                "baseline_physical_support_mass_fraction": 0.053090321428571924,
+                "M_mass_enrichment": 18.83576822031366
+              },
+              "positive_node_area_lt_0.01_h2": {
+                "eigenvector_M_mass_fraction": 0.9650323945719246,
+                "baseline_physical_support_mass_fraction": 5.834139066952805e-05,
+                "M_mass_enrichment": 16541.12772248271
+              },
+              "positive_node_area_lt_0.05_h2": {
+                "eigenvector_M_mass_fraction": 0.9650323945728339,
+                "baseline_physical_support_mass_fraction": 0.00011328310693937305,
+                "M_mass_enrichment": 8518.767013419756
+              },
+              "positive_node_area_lt_0.1_h2": {
+                "eigenvector_M_mass_fraction": 0.9881095001135269,
+                "baseline_physical_support_mass_fraction": 0.0006011945624142148,
+                "M_mass_enrichment": 1643.5769081902192
+              },
+              "positive_node_area_lt_0.5_h2": {
+                "eigenvector_M_mass_fraction": 0.9882608324417371,
+                "baseline_physical_support_mass_fraction": 0.012837547775156534,
+                "M_mass_enrichment": 76.98205683442427
+              }
+            }
+          }
+        ],
+        "top_five_yz_diagonal_Rayleigh_nodes": [
+          {
+            "active_yz_index": 1579,
+            "position_yz_m": [
+              3.670333333333333,
+              3.193666666666666
+            ],
+            "positive_exact_physical_node_area_m2": 2.8813009411540157e-07,
+            "node_area_fraction_of_h2": 3.170290536259248e-05,
+            "absolute_signed_roof_distance_h": 1.1669580419580334,
+            "cut_roof_band_1h": false,
+            "yz_basis_vector_Rayleigh_per_s2": 110159999.99995765,
+            "native_dt2_full_xnode_plus_yznode_Rayleigh_lowerbound": 5.998910095768379
+          },
+          {
+            "active_yz_index": 1715,
+            "position_yz_m": [
+              4.051666666666666,
+              3.0983333333333327
+            ],
+            "positive_exact_physical_node_area_m2": 2.881300941153637e-07,
+            "node_area_fraction_of_h2": 3.1702905362588314e-05,
+            "absolute_signed_roof_distance_h": 1.1669580419580334,
+            "cut_roof_band_1h": false,
+            "yz_basis_vector_Rayleigh_per_s2": 110159999.99995032,
+            "native_dt2_full_xnode_plus_yznode_Rayleigh_lowerbound": 5.998910095768191
+          },
+          {
+            "active_yz_index": 1439,
+            "position_yz_m": [
+              3.2889999999999997,
+              3.2889999999999997
+            ],
+            "positive_exact_physical_node_area_m2": 2.881300941153998e-07,
+            "node_area_fraction_of_h2": 3.170290536259229e-05,
+            "absolute_signed_roof_distance_h": 1.166958041958038,
+            "cut_roof_band_1h": false,
+            "yz_basis_vector_Rayleigh_per_s2": 110159999.99995013,
+            "native_dt2_full_xnode_plus_yznode_Rayleigh_lowerbound": 5.998910095768187
+          },
+          {
+            "active_yz_index": 515,
+            "position_yz_m": [
+              1.001,
+              3.8609999999999998
+            ],
+            "positive_exact_physical_node_area_m2": 2.881300941153375e-07,
+            "node_area_fraction_of_h2": 3.1702905362585434e-05,
+            "absolute_signed_roof_distance_h": 1.166958041958038,
+            "cut_roof_band_1h": false,
+            "yz_basis_vector_Rayleigh_per_s2": 110159999.99994652,
+            "native_dt2_full_xnode_plus_yznode_Rayleigh_lowerbound": 5.998910095768094
+          },
+          {
+            "active_yz_index": 1295,
+            "position_yz_m": [
+              2.907666666666666,
+              3.3843333333333327
+            ],
+            "positive_exact_physical_node_area_m2": 2.8813009411535614e-07,
+            "node_area_fraction_of_h2": 3.170290536258749e-05,
+            "absolute_signed_roof_distance_h": 1.1669580419580334,
+            "cut_roof_band_1h": false,
+            "yz_basis_vector_Rayleigh_per_s2": 110159999.99994612,
+            "native_dt2_full_xnode_plus_yznode_Rayleigh_lowerbound": 5.998910095768084
+          }
+        ],
+        "preserved_original_full_physical_operator_without_mode_filter": true
+      },
+      "new_eigensolver_seconds": 4.246392299886793
+    },
+    {
+      "ppw": 40,
+      "native_comms_SHA": "64a4f45cf19b92bb7a8a1ffd24af05e10877c99000e29bf985637b18e287763a",
+      "native_voxel_SHA": "c7c1894826c4774393987855e533081f615b22d510ec6042aacda12acbe0daaf",
+      "native_original_h_m": 0.0858,
+      "native_original_dt_s": 0.00014419322973010905,
+      "native_original_Nt": 1734,
+      "original_8_source_and_8_receiver_interpolation_errors": [
+        1.1102230246251565e-16,
+        5.551115123125783e-17
+      ],
+      "original_native_total_8point_q0_strength": 3.877237762237762,
+      "all_original_full_modes_instability_count": 5289,
+      "max_original_native_dt2_lambda": 59.576915581343,
+      "original_frozen_explicit_native_CFL_stable": false,
+      "preobserved_complete_cfl_verified": true,
+      "x_exact_generalized_mode_proof": {
+        "all_physical_consistent_mass_generalized_modes_retained": true,
+        "exact_rigid_neumann_constant_mode": true,
+        "first_unmodified_numeric_zero_eigenvalue": 6.392739117163758e-09,
+        "strict_max_all_eigenpair_residual": 1.0347220135521596e-09,
+        "strict_max_M_orthogonality_residual": 4.573593148731093e-14,
+        "first_nonzero_physical_frequency_hz": 42.89171174335201
+      },
+      "yz_exact_generalized_mode_proof": {
+        "full_original_native_Q1_Galerkin_modes_retained_no_cut": true,
+        "analytic_exact_neumann_rigid_zero": true,
+        "raw_lapack_first_eigenvalue_roundoff_1_s2": -2.553115155196719e-09,
+        "raw_neumann_zero_to_full_spectrum_ratio": 6.317764539114545e-18,
+        "strict_all_original_Q1_modes_generalized_residual": 5.408882532133234e-10,
+        "strict_M_orthonormality_Gram_maxerror": 3.9246383920499284e-14,
+        "physical_first_nonzero_original_Q1_frequency_hz": 41.952296144757256,
+        "highest_true_original_Q1_eigenvalue_1_s2": 404116858.0104358
+      },
+      "full_raw_mass_sliver_and_roof_localization": {
+        "positive_original_x_node_count": 49,
+        "positive_original_yz_node_count": 2101,
+        "full_untruncated_3d_modes": 102949,
+        "true_x_length_m": 3.9999999999999996,
+        "true_yz_area_m2": 13.999999999999986,
+        "true_3d_volume_m3": 55.999999999999936,
+        "minimum_positive_yz_physical_area_m2": 3.2259931392110094e-06,
+        "min_yz_area_fraction_of_h2": 0.0004382166391199528,
+        "maximum_x_lambda_per_s2": 2461303064.318764,
+        "maximum_yz_lambda_per_s2": 404116858.0104358,
+        "full_max_3d_lambda_per_s2": 2865419922.3292,
+        "full_native_dt2_max_lambda": 59.576915581343,
+        "maximum_x_eigenvalue_fraction_of_full_max": 0.85896766653247,
+        "maximum_yz_eigenvalue_fraction_of_full_max": 0.14103233346753008,
+        "local_x_diagonal_Rayleigh_node_index": 48,
+        "local_x_max_diagonal_Rayleigh_per_s2": 2220496559.524942,
+        "local_yz_max_diagonal_Rayleigh_per_s2": 290764435.36013424,
+        "full_3d_single_basis_Rayleigh_lowerbound_per_s2": 2511260994.885076,
+        "full_dt2_single_basis_Rayleigh_lowerbound": 52.213353836589604,
+        "basis_node_Rayleigh_fraction_of_true_lambda_max": 0.8764024341827567,
+        "basis_node_alone_certifies_native_leapfrog_unstable": true,
+        "roof_and_small_area_original_physical_support": {
+          "abs_true_roof_distance_le_1h": {
+            "nodes": 98,
+            "baseline_physical_support_mass_fraction": 0.02761477951098087
+          },
+          "abs_true_roof_distance_le_2h": {
+            "nodes": 159,
+            "baseline_physical_support_mass_fraction": 0.05214334535714318
+          },
+          "positive_node_area_lt_0.01_h2": {
+            "nodes": 50,
+            "baseline_physical_support_mass_fraction": 0.00014702848647619416
+          },
+          "positive_node_area_lt_0.05_h2": {
+            "nodes": 62,
+            "baseline_physical_support_mass_fraction": 0.00035903310469050375
+          },
+          "positive_node_area_lt_0.1_h2": {
+            "nodes": 65,
+            "baseline_physical_support_mass_fraction": 0.0004883804512738903
+          },
+          "positive_node_area_lt_0.5_h2": {
+            "nodes": 192,
+            "baseline_physical_support_mass_fraction": 0.012125812990559655
+          }
+        },
+        "top_three_true_generalized_yz_eigenvector_localization": [
+          {
+            "descending_mode_rank": 1,
+            "native_crosssection_index": 2100,
+            "true_yz_lambda_per_s2": 404116858.0104358,
+            "native_dt2_yz_lambda": 8.402271425234854,
+            "M_orthonormality_self_error": 6.661338147750939e-16,
+            "fractions": {
+              "abs_true_roof_distance_le_1h": {
+                "eigenvector_M_mass_fraction": 0.2993925711884998,
+                "baseline_physical_support_mass_fraction": 0.02761477951098087,
+                "M_mass_enrichment": 10.841751282839247
+              },
+              "abs_true_roof_distance_le_2h": {
+                "eigenvector_M_mass_fraction": 0.99999999740992,
+                "baseline_physical_support_mass_fraction": 0.05214334535714318,
+                "M_mass_enrichment": 19.177902579143378
+              },
+              "positive_node_area_lt_0.01_h2": {
+                "eigenvector_M_mass_fraction": 0.9962524585140833,
+                "baseline_physical_support_mass_fraction": 0.00014702848647619416,
+                "M_mass_enrichment": 6775.914534598638
+              },
+              "positive_node_area_lt_0.05_h2": {
+                "eigenvector_M_mass_fraction": 0.9962524585142356,
+                "baseline_physical_support_mass_fraction": 0.00035903310469050375,
+                "M_mass_enrichment": 2774.820609851652
+              },
+              "positive_node_area_lt_0.1_h2": {
+                "eigenvector_M_mass_fraction": 0.9986378633647149,
+                "baseline_physical_support_mass_fraction": 0.0004883804512738903,
+                "M_mass_enrichment": 2044.7949150296056
+              },
+              "positive_node_area_lt_0.5_h2": {
+                "eigenvector_M_mass_fraction": 0.9999936322521141,
+                "baseline_physical_support_mass_fraction": 0.012125812990559655,
+                "M_mass_enrichment": 82.46817207478313
+              }
+            }
+          },
+          {
+            "descending_mode_rank": 2,
+            "native_crosssection_index": 2099,
+            "true_yz_lambda_per_s2": 270102281.1640906,
+            "native_dt2_yz_lambda": 5.6158822230009084,
+            "M_orthonormality_self_error": 1.1102230246251565e-15,
+            "fractions": {
+              "abs_true_roof_distance_le_1h": {
+                "eigenvector_M_mass_fraction": 0.05093872562100847,
+                "baseline_physical_support_mass_fraction": 0.02761477951098087,
+                "M_mass_enrichment": 1.8446182270169116
+              },
+              "abs_true_roof_distance_le_2h": {
+                "eigenvector_M_mass_fraction": 0.100254053823592,
+                "baseline_physical_support_mass_fraction": 0.05214334535714318,
+                "M_mass_enrichment": 1.9226624823728935
+              },
+              "positive_node_area_lt_0.01_h2": {
+                "eigenvector_M_mass_fraction": 0.9855320201648371,
+                "baseline_physical_support_mass_fraction": 0.00014702848647619416,
+                "M_mass_enrichment": 6703.000512247045
+              },
+              "positive_node_area_lt_0.05_h2": {
+                "eigenvector_M_mass_fraction": 0.9855320201670379,
+                "baseline_physical_support_mass_fraction": 0.00035903310469050375,
+                "M_mass_enrichment": 2744.9614180190797
+              },
+              "positive_node_area_lt_0.1_h2": {
+                "eigenvector_M_mass_fraction": 0.9856283552516214,
+                "baseline_physical_support_mass_fraction": 0.0004883804512738903,
+                "M_mass_enrichment": 2018.1568543145227
+              },
+              "positive_node_area_lt_0.5_h2": {
+                "eigenvector_M_mass_fraction": 0.9856293212907241,
+                "baseline_physical_support_mass_fraction": 0.012125812990559655,
+                "M_mass_enrichment": 81.28356606341109
+              }
+            }
+          },
+          {
+            "descending_mode_rank": 3,
+            "native_crosssection_index": 2098,
+            "true_yz_lambda_per_s2": 269770101.91401196,
+            "native_dt2_yz_lambda": 5.60897565583929,
+            "M_orthonormality_self_error": 2.220446049250313e-16,
+            "fractions": {
+              "abs_true_roof_distance_le_1h": {
+                "eigenvector_M_mass_fraction": 0.055360702424458785,
+                "baseline_physical_support_mass_fraction": 0.02761477951098087,
+                "M_mass_enrichment": 2.0047490294986745
+              },
+              "abs_true_roof_distance_le_2h": {
+                "eigenvector_M_mass_fraction": 0.10811759948623514,
+                "baseline_physical_support_mass_fraction": 0.05214334535714318,
+                "M_mass_enrichment": 2.07346879540831
+              },
+              "positive_node_area_lt_0.01_h2": {
+                "eigenvector_M_mass_fraction": 0.9855297820061448,
+                "baseline_physical_support_mass_fraction": 0.00014702848647619416,
+                "M_mass_enrichment": 6702.985289627633
+              },
+              "positive_node_area_lt_0.05_h2": {
+                "eigenvector_M_mass_fraction": 0.9855297820085648,
+                "baseline_physical_support_mass_fraction": 0.00035903310469050375,
+                "M_mass_enrichment": 2744.9551841692096
+              },
+              "positive_node_area_lt_0.1_h2": {
+                "eigenvector_M_mass_fraction": 0.9857127923140437,
+                "baseline_physical_support_mass_fraction": 0.0004883804512738903,
+                "M_mass_enrichment": 2018.3297462929015
+              },
+              "positive_node_area_lt_0.5_h2": {
+                "eigenvector_M_mass_fraction": 0.9857144266894413,
+                "baseline_physical_support_mass_fraction": 0.012125812990559655,
+                "M_mass_enrichment": 81.29058459476923
+              }
+            }
+          }
+        ],
+        "top_five_yz_diagonal_Rayleigh_nodes": [
+          {
+            "active_yz_index": 97,
+            "position_yz_m": [
+              0.042899999999999994,
+              4.0755
+            ],
+            "positive_exact_physical_node_area_m2": 5.264504141289454e-06,
+            "node_area_fraction_of_h2": 0.0007151265399135863,
+            "absolute_signed_roof_distance_h": 1.0049533799533774,
+            "cut_roof_band_1h": false,
+            "yz_basis_vector_Rayleigh_per_s2": 290764435.36013424,
+            "native_dt2_full_xnode_plus_yznode_Rayleigh_lowerbound": 52.213353836589604
+          },
+          {
+            "active_yz_index": 2099,
+            "position_yz_m": [
+              4.0755,
+              2.9601
+            ],
+            "positive_exact_physical_node_area_m2": 4.573449066204306e-05,
+            "node_area_fraction_of_h2": 0.006212541045479412,
+            "absolute_signed_roof_distance_h": 0.24504662004661829,
+            "cut_roof_band_1h": true,
+            "yz_basis_vector_Rayleigh_per_s2": 193802527.23387137,
+            "native_dt2_full_xnode_plus_yznode_Rayleigh_lowerbound": 50.197352143424645
+          },
+          {
+            "active_yz_index": 2065,
+            "position_yz_m": [
+              4.0755,
+              0.042899999999999994
+            ],
+            "positive_exact_physical_node_area_m2": 4.641437500001116e-05,
+            "node_area_fraction_of_h2": 0.006304896055771697,
+            "absolute_signed_roof_distance_h": 34.24504662004662,
+            "cut_roof_band_1h": false,
+            "yz_basis_vector_Rayleigh_per_s2": 192597357.3351757,
+            "native_dt2_full_xnode_plus_yznode_Rayleigh_lowerbound": 50.17229462750655
+          },
+          {
+            "active_yz_index": 2098,
+            "position_yz_m": [
+              4.0755,
+              2.8743
+            ],
+            "positive_exact_physical_node_area_m2": 5.3045000000012974e-05,
+            "node_area_fraction_of_h2": 0.007205595492310542,
+            "absolute_signed_roof_distance_h": 1.245046620046622,
+            "cut_roof_band_1h": false,
+            "yz_basis_vector_Rayleigh_per_s2": 180269732.42502967,
+            "native_dt2_full_xnode_plus_yznode_Rayleigh_lowerbound": 49.915982502757586
+          },
+          {
+            "active_yz_index": 2086,
+            "position_yz_m": [
+              4.0755,
+              1.8447
+            ],
+            "positive_exact_physical_node_area_m2": 5.30450000000128e-05,
+            "node_area_fraction_of_h2": 0.007205595492310517,
+            "absolute_signed_roof_distance_h": 13.24504662004662,
+            "cut_roof_band_1h": false,
+            "yz_basis_vector_Rayleigh_per_s2": 180269732.42502964,
+            "native_dt2_full_xnode_plus_yznode_Rayleigh_lowerbound": 49.915982502757586
+          }
+        ],
+        "preserved_original_full_physical_operator_without_mode_filter": true
+      },
+      "new_eigensolver_seconds": 5.972279999870807
+    },
+    {
+      "ppw": 44,
+      "native_comms_SHA": "41c537b663ef11aa7404a248862f89398dec80fd3b6c794f4ecce4a0a8577ee4",
+      "native_voxel_SHA": "4a7cb6c30c013adc31d5b1910d50cef003cacbdd37a271ac3efa7a39956e505b",
+      "native_original_h_m": 0.078,
+      "native_original_dt_s": 0.00013108475430009911,
+      "native_original_Nt": 1908,
+      "original_8_source_and_8_receiver_interpolation_errors": [
+        6.938893903907228e-18,
+        1.734723475976807e-18
+      ],
+      "original_native_total_8point_q0_strength": 4.264961538461538,
+      "all_original_full_modes_instability_count": 2906,
+      "max_original_native_dt2_lambda": 7.164276550231688,
+      "original_frozen_explicit_native_CFL_stable": false,
+      "preobserved_complete_cfl_verified": true,
+      "x_exact_generalized_mode_proof": {
+        "all_physical_consistent_mass_generalized_modes_retained": true,
+        "exact_rigid_neumann_constant_mode": true,
+        "first_unmodified_numeric_zero_eigenvalue": 6.030798744179048e-10,
+        "strict_max_all_eigenpair_residual": 6.68755109251713e-10,
+        "strict_max_M_orthogonality_residual": 8.1543191957787e-15,
+        "first_nonzero_physical_frequency_hz": 42.89311466429842
+      },
+      "yz_exact_generalized_mode_proof": {
+        "full_original_native_Q1_Galerkin_modes_retained_no_cut": true,
+        "analytic_exact_neumann_rigid_zero": true,
+        "raw_lapack_first_eigenvalue_roundoff_1_s2": -2.8877592201072227e-09,
+        "raw_neumann_zero_to_full_spectrum_ratio": 1.426370770200088e-17,
+        "strict_all_original_Q1_modes_generalized_residual": 5.711242546875377e-10,
+        "strict_M_orthonormality_Gram_maxerror": 4.4700354528970365e-14,
+        "physical_first_nonzero_original_Q1_frequency_hz": 41.95361156834701,
+        "highest_true_original_Q1_eigenvalue_1_s2": 202455019.44085228
+      },
+      "full_raw_mass_sliver_and_roof_localization": {
+        "positive_original_x_node_count": 53,
+        "positive_original_yz_node_count": 2497,
+        "full_untruncated_3d_modes": 132341,
+        "true_x_length_m": 4.0,
+        "true_yz_area_m2": 13.999999999999986,
+        "true_3d_volume_m3": 55.99999999999994,
+        "minimum_positive_yz_physical_area_m2": 2.467538232112507e-06,
+        "min_yz_area_fraction_of_h2": 0.0004055782761526146,
+        "maximum_x_lambda_per_s2": 214479614.9307129,
+        "maximum_yz_lambda_per_s2": 202455019.44085228,
+        "full_max_3d_lambda_per_s2": 416934634.3715652,
+        "full_native_dt2_max_lambda": 7.164276550231688,
+        "maximum_x_eigenvalue_fraction_of_full_max": 0.514420240606762,
+        "maximum_yz_eigenvalue_fraction_of_full_max": 0.48557975939323794,
+        "local_x_diagonal_Rayleigh_node_index": 0,
+        "local_x_max_diagonal_Rayleigh_per_s2": 154880000.00000015,
+        "local_yz_max_diagonal_Rayleigh_per_s2": 164559999.99994868,
+        "full_3d_single_basis_Rayleigh_lowerbound_per_s2": 319439999.99994886,
+        "full_dt2_single_basis_Rayleigh_lowerbound": 5.489005499999121,
+        "basis_node_Rayleigh_fraction_of_true_lambda_max": 0.7661632631729731,
+        "basis_node_alone_certifies_native_leapfrog_unstable": true,
+        "roof_and_small_area_original_physical_support": {
+          "abs_true_roof_distance_le_1h": {
+            "nodes": 106,
+            "baseline_physical_support_mass_fraction": 0.022902293862090632
+          },
+          "abs_true_roof_distance_le_2h": {
+            "nodes": 172,
+            "baseline_physical_support_mass_fraction": 0.04519003571428613
+          },
+          "positive_node_area_lt_0.01_h2": {
+            "nodes": 13,
+            "baseline_physical_support_mass_fraction": 2.291285501247565e-06
+          },
+          "positive_node_area_lt_0.05_h2": {
+            "nodes": 29,
+            "baseline_physical_support_mass_fraction": 0.000139420185391884
+          },
+          "positive_node_area_lt_0.1_h2": {
+            "nodes": 42,
+            "baseline_physical_support_mass_fraction": 0.0006368733103919256
+          },
+          "positive_node_area_lt_0.5_h2": {
+            "nodes": 208,
+            "baseline_physical_support_mass_fraction": 0.01466268975091568
+          }
+        },
+        "top_three_true_generalized_yz_eigenvector_localization": [
+          {
+            "descending_mode_rank": 1,
+            "native_crosssection_index": 2496,
+            "true_yz_lambda_per_s2": 202455019.44085228,
+            "native_dt2_yz_lambda": 3.4788276834881198,
+            "M_orthonormality_self_error": 8.881784197001252e-16,
+            "fractions": {
+              "abs_true_roof_distance_le_1h": {
+                "eigenvector_M_mass_fraction": 0.3598972281137816,
+                "baseline_physical_support_mass_fraction": 0.022902293862090632,
+                "M_mass_enrichment": 15.714462065719404
+              },
+              "abs_true_roof_distance_le_2h": {
+                "eigenvector_M_mass_fraction": 0.9999953084201523,
+                "baseline_physical_support_mass_fraction": 0.04519003571428613,
+                "M_mass_enrichment": 22.128668247633613
+              },
+              "positive_node_area_lt_0.01_h2": {
+                "eigenvector_M_mass_fraction": 0.6398310733037154,
+                "baseline_physical_support_mass_fraction": 2.291285501247565e-06,
+                "M_mass_enrichment": 279245.4597889868
+              },
+              "positive_node_area_lt_0.05_h2": {
+                "eigenvector_M_mass_fraction": 0.9745274386647135,
+                "baseline_physical_support_mass_fraction": 0.000139420185391884,
+                "M_mass_enrichment": 6989.85900732738
+              },
+              "positive_node_area_lt_0.1_h2": {
+                "eigenvector_M_mass_fraction": 0.983458399277774,
+                "baseline_physical_support_mass_fraction": 0.0006368733103919256,
+                "M_mass_enrichment": 1544.1978541580952
+              },
+              "positive_node_area_lt_0.5_h2": {
+                "eigenvector_M_mass_fraction": 0.9839525998759033,
+                "baseline_physical_support_mass_fraction": 0.01466268975091568,
+                "M_mass_enrichment": 67.10587324637731
+              }
+            }
+          },
+          {
+            "descending_mode_rank": 2,
+            "native_crosssection_index": 2495,
+            "true_yz_lambda_per_s2": 202391714.60931912,
+            "native_dt2_yz_lambda": 3.4777399030959897,
+            "M_orthonormality_self_error": 1.3322676295501878e-15,
+            "fractions": {
+              "abs_true_roof_distance_le_1h": {
+                "eigenvector_M_mass_fraction": 0.35955569207029886,
+                "baseline_physical_support_mass_fraction": 0.022902293862090632,
+                "M_mass_enrichment": 15.699549321802165
+              },
+              "abs_true_roof_distance_le_2h": {
+                "eigenvector_M_mass_fraction": 0.9999955285781825,
+                "baseline_physical_support_mass_fraction": 0.04519003571428613,
+                "M_mass_enrichment": 22.12867311946048
+              },
+              "positive_node_area_lt_0.01_h2": {
+                "eigenvector_M_mass_fraction": 0.6402085119000164,
+                "baseline_physical_support_mass_fraction": 2.291285501247565e-06,
+                "M_mass_enrichment": 279410.1876660215
+              },
+              "positive_node_area_lt_0.05_h2": {
+                "eigenvector_M_mass_fraction": 0.974844345814397,
+                "baseline_physical_support_mass_fraction": 0.000139420185391884,
+                "M_mass_enrichment": 6992.1320436799915
+              },
+              "positive_node_area_lt_0.1_h2": {
+                "eigenvector_M_mass_fraction": 0.9837957364382088,
+                "baseline_physical_support_mass_fraction": 0.0006368733103919256,
+                "M_mass_enrichment": 1544.7275311832277
+              },
+              "positive_node_area_lt_0.5_h2": {
+                "eigenvector_M_mass_fraction": 0.9839654089677347,
+                "baseline_physical_support_mass_fraction": 0.01466268975091568,
+                "M_mass_enrichment": 67.10674683042286
+              }
+            }
+          },
+          {
+            "descending_mode_rank": 3,
+            "native_crosssection_index": 2494,
+            "true_yz_lambda_per_s2": 202390710.0544306,
+            "native_dt2_yz_lambda": 3.477722641615561,
+            "M_orthonormality_self_error": 8.881784197001252e-16,
+            "fractions": {
+              "abs_true_roof_distance_le_1h": {
+                "eigenvector_M_mass_fraction": 0.3595258897924927,
+                "baseline_physical_support_mass_fraction": 0.022902293862090632,
+                "M_mass_enrichment": 15.698248042638356
+              },
+              "abs_true_roof_distance_le_2h": {
+                "eigenvector_M_mass_fraction": 0.9999955563407379,
+                "baseline_physical_support_mass_fraction": 0.04519003571428613,
+                "M_mass_enrichment": 22.12867373381174
+              },
+              "positive_node_area_lt_0.01_h2": {
+                "eigenvector_M_mass_fraction": 0.640238501815641,
+                "baseline_physical_support_mass_fraction": 2.291285501247565e-06,
+                "M_mass_enrichment": 279423.276351656
+              },
+              "positive_node_area_lt_0.05_h2": {
+                "eigenvector_M_mass_fraction": 0.974868513914177,
+                "baseline_physical_support_mass_fraction": 0.000139420185391884,
+                "M_mass_enrichment": 6992.305390887298
+              },
+              "positive_node_area_lt_0.1_h2": {
+                "eigenvector_M_mass_fraction": 0.9838020270521712,
+                "baseline_physical_support_mass_fraction": 0.0006368733103919256,
+                "M_mass_enrichment": 1544.7374085228175
+              },
+              "positive_node_area_lt_0.5_h2": {
+                "eigenvector_M_mass_fraction": 0.9839664201704673,
+                "baseline_physical_support_mass_fraction": 0.01466268975091568,
+                "M_mass_enrichment": 67.10681579476365
+              }
+            }
+          }
+        ],
+        "top_five_yz_diagonal_Rayleigh_nodes": [
+          {
+            "active_yz_index": 2496,
+            "position_yz_m": [
+              4.017,
+              3.081
+            ],
+            "positive_exact_physical_node_area_m2": 2.467538232112829e-06,
+            "node_area_fraction_of_h2": 0.0004055782761526675,
+            "absolute_signed_roof_distance_h": 1.0929487179487156,
+            "cut_roof_band_1h": false,
+            "yz_basis_vector_Rayleigh_per_s2": 164559999.99994868,
+            "native_dt2_full_xnode_plus_yznode_Rayleigh_lowerbound": 5.489005499999121
+          },
+          {
+            "active_yz_index": 2332,
+            "position_yz_m": [
+              3.705,
+              3.159
+            ],
+            "positive_exact_physical_node_area_m2": 2.46753823211276e-06,
+            "node_area_fraction_of_h2": 0.0004055782761526561,
+            "absolute_signed_roof_distance_h": 1.0929487179487156,
+            "cut_roof_band_1h": false,
+            "yz_basis_vector_Rayleigh_per_s2": 164559999.99994794,
+            "native_dt2_full_xnode_plus_yznode_Rayleigh_lowerbound": 5.489005499999108
+          },
+          {
+            "active_yz_index": 2164,
+            "position_yz_m": [
+              3.393,
+              3.2369999999999997
+            ],
+            "positive_exact_physical_node_area_m2": 2.4675382321127387e-06,
+            "node_area_fraction_of_h2": 0.00040557827615265264,
+            "absolute_signed_roof_distance_h": 1.0929487179487156,
+            "cut_roof_band_1h": false,
+            "yz_basis_vector_Rayleigh_per_s2": 164559999.99994653,
+            "native_dt2_full_xnode_plus_yznode_Rayleigh_lowerbound": 5.489005499999084
+          },
+          {
+            "active_yz_index": 1992,
+            "position_yz_m": [
+              3.081,
+              3.315
+            ],
+            "positive_exact_physical_node_area_m2": 2.467538232112891e-06,
+            "node_area_fraction_of_h2": 0.0004055782761526777,
+            "absolute_signed_roof_distance_h": 1.0929487179487156,
+            "cut_roof_band_1h": false,
+            "yz_basis_vector_Rayleigh_per_s2": 164559999.99994314,
+            "native_dt2_full_xnode_plus_yznode_Rayleigh_lowerbound": 5.489005499999024
+          },
+          {
+            "active_yz_index": 1816,
+            "position_yz_m": [
+              2.7689999999999997,
+              3.393
+            ],
+            "positive_exact_physical_node_area_m2": 2.467538232112795e-06,
+            "node_area_fraction_of_h2": 0.0004055782761526619,
+            "absolute_signed_roof_distance_h": 1.0929487179487156,
+            "cut_roof_band_1h": false,
+            "yz_basis_vector_Rayleigh_per_s2": 164559999.9999407,
+            "native_dt2_full_xnode_plus_yznode_Rayleigh_lowerbound": 5.489005499998983
+          }
+        ],
+        "preserved_original_full_physical_operator_without_mode_filter": true
+      },
+      "new_eigensolver_seconds": 7.029815100133419
+    }
+  ],
+  "entire_complete_eigenbasis_no_truncation": true,
+  "original_native_all_five_unstable_no_unqualified_250ms_leapfrog_scores": true
+}
