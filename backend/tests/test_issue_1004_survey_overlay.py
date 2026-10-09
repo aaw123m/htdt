@@ -22,6 +22,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from PySide6.QtCore import QPointF
 
 from htdt.cad_geometry_survey import (
     GeometryFrameDeclaration,
@@ -702,6 +703,49 @@ def test_viewport_near_zoom_shows_labels(tmp_path: Path) -> None:
     )
 
 
+def test_viewport_wheel_zoom_live_toggles_labels(tmp_path: Path) -> None:
+    _qapp()
+    from htdt.room_viewport import RoomViewport3D
+
+    fixture = _fixture(tmp_path)
+    scene = _resolve(fixture)
+    viewport = RoomViewport3D()
+    camera = viewport.plotter.camera
+    camera.SetParallelProjection(1)
+    camera.SetParallelScale(2.0)
+    viewport.render_survey_overlay(scene)
+    assert any(
+        name.startswith('survey-overlay-labels')
+        for name in viewport.plotter.renderer.actors
+    )
+
+    # Wheel-zoom far out: zoom_by alone schedules a debounced re-render —
+    # the visible-span gate re-evaluates without any resolver re-run.
+    # -25 notches lifts the parallel scale past the 12m floor threshold.
+    viewport.zoom_by(-25.0, QPointF(0.0, 0.0))
+    assert viewport._survey_zoom_timer.isActive()
+    viewport._survey_zoom_refresh()
+    assert not any(
+        'survey-overlay-labels-' in name
+        for name in viewport.plotter.renderer.actors
+        if isinstance(name, str)
+    )
+    assert 'survey-overlay-status' in viewport.plotter.renderer.actors
+
+    # Zoom back in: labels come back through the same hook.
+    viewport.zoom_by(30.0, QPointF(0.0, 0.0))
+    viewport._survey_zoom_refresh()
+    assert any(
+        name.startswith('survey-overlay-labels')
+        for name in viewport.plotter.renderer.actors
+    )
+
+    # Disarming stops the live toggle entirely.
+    viewport.clear_survey_overlay()
+    viewport.zoom_by(5.0, QPointF(0.0, 0.0))
+    assert not viewport._survey_zoom_timer.isActive()
+
+
 # ---------------------------------------------------------------------------
 # Panel (Qt) — narrow / DPI200
 # ---------------------------------------------------------------------------
@@ -749,12 +793,19 @@ def test_panel_narrow_layout_and_dpi200(tmp_path: Path) -> None:
     panel.resize(260, 700)
     panel.show()
     assert panel.elements.width() <= panel.width() + 20
-    font = app.font()
-    font.setPointSizeF(font.pointSizeF() * 2.0)
-    app.setFont(font)
-    panel.resize(320, 900)
-    panel.show_scene(controller.resolve('delta_mm'))
-    assert panel.elements.topLevelItemCount() >= 1
+    # Simulate DPI 200% via the app font — and RESTORE it, otherwise the
+    # doubled font leaks into later suites sharing this QApplication and
+    # inflates their size hints past the compact-layout threshold.
+    original_font = app.font()
+    try:
+        font = app.font()
+        font.setPointSizeF(font.pointSizeF() * 2.0)
+        app.setFont(font)
+        panel.resize(320, 900)
+        panel.show_scene(controller.resolve('delta_mm'))
+        assert panel.elements.topLevelItemCount() >= 1
+    finally:
+        app.setFont(original_font)
     panel.close()
     panel.deleteLater()
 

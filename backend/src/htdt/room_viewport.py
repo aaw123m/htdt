@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Iterator
 
 import numpy as np
 import pyvista as pv
-from PySide6.QtCore import QPointF, QRectF, Qt, Signal
+from PySide6.QtCore import QPointF, QRectF, Qt, QTimer, Signal
 from PySide6.QtWidgets import QFrame, QRubberBand, QVBoxLayout, QWidget
 from pyvistaqt import QtInteractor
 from shapely.geometry import Polygon
@@ -1110,6 +1110,14 @@ class RoomViewport3D(QFrame):
         # (fixed axis, render coordinate) of the current display slice —
         # the probe's click-ray fallback surface (#999).
         self._field_probe_plane: tuple[int, float] | None = None
+        # Survey overlay (#1004): the armed scene lets wheel-zoom
+        # re-evaluate the visible-span label gate; re-rendering is
+        # debounced so a zoom drag costs one repaint, not one per notch.
+        self._survey_overlay_scene = None
+        self._survey_zoom_timer = QTimer(self)
+        self._survey_zoom_timer.setSingleShot(True)
+        self._survey_zoom_timer.setInterval(180)
+        self._survey_zoom_timer.timeout.connect(self._survey_zoom_refresh)
         self.plotter.set_background(DARK_THEME.viewport.background.hex)
         self.plotter.enable_anti_aliasing("fxaa")
         self.interactor.installEventFilter(self)
@@ -1467,6 +1475,10 @@ class RoomViewport3D(QFrame):
                 self._OVERLAY_ACTOR_PREFIXES
             ):
                 self.plotter.remove_actor(name)
+        # Swept survey actors disarm the zoom-refresh cache; the
+        # compositor re-arms it iff it re-renders the overlay right away.
+        self._survey_overlay_scene = None
+        self._survey_zoom_timer.stop()
 
     def _render_category_legend(self, categories: set[str]) -> None:
         """Small category key — appears only when two or more categories show.
@@ -4214,6 +4226,10 @@ class RoomViewport3D(QFrame):
             name='survey-overlay-status',
             render=False,
         )
+        # Arm the zoom-refresh hook only once the paint is complete: a
+        # mid-render exception must not leave the overlay "armed" with a
+        # partial actor set that wheel-zoom would keep repainting.
+        self._survey_overlay_scene = scene
         self._render()
 
     def _survey_surface_outline(self, target) -> pv.PolyData | None:
@@ -4289,6 +4305,8 @@ class RoomViewport3D(QFrame):
     def clear_survey_overlay(self) -> None:
         """Remove every survey-overlay actor, labels, and status text."""
 
+        self._survey_overlay_scene = None
+        self._survey_zoom_timer.stop()
         renderer = getattr(self.plotter, 'renderer', None)
         actors = getattr(renderer, 'actors', None)
         if actors:
@@ -4297,6 +4315,19 @@ class RoomViewport3D(QFrame):
                     'survey-overlay-'
                 ):
                     self.plotter.remove_actor(name)
+
+    def _survey_zoom_refresh(self) -> None:
+        """Debounced zoom hook: re-evaluate the visible-span label gate.
+
+        Wheel zoom never re-runs the compositor, so without this the
+        zoomed-out aggregate view (and its near-zoom labels) could only
+        change on an unrelated re-resolve. Re-rendering the armed scene
+        is read-only — the resolver cache is untouched.
+        """
+
+        scene = self._survey_overlay_scene
+        if scene is not None:
+            self.render_survey_overlay(scene)
 
     def pick_actor_candidates(self, position: QPointF) -> tuple[str, ...]:
         """Entity ids under a Qt display point, ordered front-to-back."""
@@ -4529,6 +4560,8 @@ class RoomViewport3D(QFrame):
             camera.Zoom(factor)
         self.plotter.reset_camera_clipping_range()
         self._render()
+        if self._survey_overlay_scene is not None:
+            self._survey_zoom_timer.start()
 
     def open_context_menu(
         self,
