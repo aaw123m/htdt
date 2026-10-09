@@ -1140,3 +1140,17 @@ entries:
   - backend/src/htdt/cad_ifc_diff.py
   - backend/src/htdt/ifc_diff_review_panel.py
   close_when_gates_clear: true
+
+- issue: 968
+  lifecycle: acceptance_remaining
+  landed:
+    prs: [1071]
+    commits: [29ddf6a9]
+  remaining_gates:
+  - kind: manual
+    description: 'オペレータ受入 — 実運用測定データでの再測定キュー生成・却下・変換→キャンペーン投入の実機確認 (子が実GUI Mesa GL で検証済)'
+  evidence_refs:
+  - docs/issues/issue-968-remeasure-queue.md
+  - backend/tests/test_issue_968_remeasure_queue.py
+  - backend/src/htdt/measurement/domain/cad_remeasure_queue.py
+  close_when_gates_clear: true
