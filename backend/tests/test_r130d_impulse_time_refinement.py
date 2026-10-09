@@ -87,7 +87,15 @@ def test_spatial_and_temporal_metrics_recomputed_from_true_complex_numbers():
         assert row["metrics"]["normalized_complex_l2"]==pytest.approx(
             np.linalg.norm(a-b)/np.linalg.norm(b),abs=1e-12)
     result=evaluate(plan,old,[x["actual_fine_result"] for x in e["cases"]])
-    assert result["diagnostic"]==e["diagnostic"]
+    # BLAS vector reductions can differ by a few ULPs across Windows
+    # runners. Keep categorical PASS/FAIL/NO_GO bit-identical; permit
+    # only a tight 1e-11 replay tolerance for floating metrics.
+    for key,frozen in e["diagnostic"].items():
+        fresh=result["diagnostic"][key]
+        if isinstance(frozen,float):
+            assert fresh==pytest.approx(frozen,rel=1e-11,abs=1e-11)
+        else:
+            assert fresh==frozen
     for x,y in zip(result["cases"],e["cases"]):
         assert x["fixed_grid_halved_dt_metrics"]["normalized_complex_l2"]==pytest.approx(
             y["fixed_grid_halved_dt_metrics"]["normalized_complex_l2"],abs=1e-12)
