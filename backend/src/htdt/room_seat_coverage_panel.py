@@ -76,6 +76,7 @@ class RoomSeatCoveragePanel(QWidget):
 
         self.evaluation_combo = QComboBox()
         self.evaluation_combo.setObjectName('seatCoverageEvaluation')
+        self.evaluation_combo.setAccessibleName('カバレッジ評価の選択')
         self.evaluation_combo.setToolTip(
             '表示するカバレッジ評価（バリアント＋音源の組み合わせ）。'
             '現行シーン以外の評価は履歴として淡色表示されます'
@@ -92,6 +93,7 @@ class RoomSeatCoveragePanel(QWidget):
 
         self.frequency_combo = QComboBox()
         self.frequency_combo.setObjectName('seatCoverageFrequency')
+        self.frequency_combo.setAccessibleName('表示周波数')
         self.frequency_combo.setToolTip(
             '表示周波数 — 評価の要求グリッド上の値のみ選択可能です'
             '（グリッド外はブロックされ、補間は行いません）'
@@ -103,6 +105,7 @@ class RoomSeatCoveragePanel(QWidget):
 
         self.quantity_combo = QComboBox()
         self.quantity_combo.setObjectName('seatCoverageQuantity')
+        self.quantity_combo.setAccessibleName('比較量')
         self.quantity_combo.setToolTip(
             '比較量 — 相対指向性レベル / オフアキシス損失 / 適合判定'
         )
@@ -118,6 +121,7 @@ class RoomSeatCoveragePanel(QWidget):
 
         self.baseline_combo = QComboBox()
         self.baseline_combo.setObjectName('seatCoverageBaseline')
+        self.baseline_combo.setAccessibleName('A/B 比較の基準評価')
         self.baseline_combo.setToolTip(
             'A/B 比較の基準評価 — 同一ベースラインリビジョン・同一耳位置・'
             '同一周波数グリッドの組み合わせでのみ座席ごとのΔを表示します'
@@ -135,6 +139,7 @@ class RoomSeatCoveragePanel(QWidget):
 
         self.seat_table = QTableWidget()
         self.seat_table.setObjectName('seatCoverageTable')
+        self.seat_table.setAccessibleName('座席別カバレッジ一覧')
         self.seat_table.setColumnCount(5)
         self.seat_table.setHorizontalHeaderLabels(
             ['座席', '値', '判定', 'Δ', '優先度']

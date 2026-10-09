@@ -1166,6 +1166,7 @@ class ProjectLibraryPage(QWidget):
         controls.addWidget(self.search_edit, 1)
         self.sort_combo = QComboBox(self)
         self.sort_combo.setObjectName("projectLibrarySort")
+        self.sort_combo.setAccessibleName("プロジェクト一覧の並べ替え")
         for _label, _key in (
             ("最近使った順", PROJECT_SORT_RECENT),
             ("作成日時", PROJECT_SORT_CREATED),
@@ -1177,6 +1178,7 @@ class ProjectLibraryPage(QWidget):
         controls.addWidget(self.sort_combo)
         self.state_combo = QComboBox(self)
         self.state_combo.setObjectName("projectLibraryState")
+        self.state_combo.setAccessibleName("プロジェクトの状態絞り込み")
         for _label, _key in (
             ("全件", PROJECT_FILTER_ALL),
             ("作業中", PROJECT_FILTER_ACTIVE),
@@ -4264,6 +4266,7 @@ class ActivityPage(QWidget):
             self._sync_range_edit_visibility()
             self.search_edit = QLineEdit()
             self.search_edit.setPlaceholderText("タイムラインを検索")
+            self.search_edit.setAccessibleName("タイムラインを検索")
             self.search_edit.setClearButtonEnabled(True)
             self.search_edit.setToolTip(
                 "内容・詳細・プロジェクト名で絞り込みます。"

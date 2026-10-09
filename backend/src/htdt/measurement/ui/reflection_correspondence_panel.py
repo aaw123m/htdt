@@ -200,6 +200,7 @@ class ReflectionCorrespondencePanel(QWidget):
         gate_row.addWidget(QLabel('〜', measured_card))
         self.gate_end = QDoubleSpinBox(measured_card)
         self.gate_end.setObjectName('correspondence_gate_end')
+        self.gate_end.setAccessibleName('ゲート終了時刻')
         self.gate_end.setRange(0.0, 60_000.0)
         self.gate_end.setDecimals(2)
         gate_row.addWidget(self.gate_end)
@@ -250,12 +251,14 @@ class ReflectionCorrespondencePanel(QWidget):
         self.predicted_table = self._make_table(
             ('予測パス', '到達 ms', '面', '版', '状態'),
             'correspondence_predicted_table',
+            '予測反射パス一覧',
             predicted_card,
         )
         tables_row.addWidget(self.predicted_table, 1)
         self.observed_table = self._make_table(
             ('観測イベント', '時刻 ms', '幅 ms', '抽出', 'DOA'),
             'correspondence_observed_table',
+            '観測イベント一覧',
             predicted_card,
         )
         tables_row.addWidget(self.observed_table, 1)
@@ -267,6 +270,7 @@ class ReflectionCorrespondencePanel(QWidget):
                 'アルゴリズム', '根拠次元', '役割', '参照',
             ),
             'correspondence_pairing_table',
+            '予測・観測対応一覧',
             predicted_card,
         )
         predicted_layout.addWidget(self.pairing_table, 2)
@@ -299,10 +303,15 @@ class ReflectionCorrespondencePanel(QWidget):
     # -- helpers -------------------------------------------------------------
 
     def _make_table(
-        self, headers: tuple[str, ...], name: str, parent: QWidget
+        self,
+        headers: tuple[str, ...],
+        name: str,
+        accessible_name: str,
+        parent: QWidget,
     ) -> QTableWidget:
         table = QTableWidget(parent)
         table.setObjectName(name)
+        table.setAccessibleName(accessible_name)
         table.setColumnCount(len(headers))
         table.setHorizontalHeaderLabels(headers)
         table.verticalHeader().setVisible(False)
