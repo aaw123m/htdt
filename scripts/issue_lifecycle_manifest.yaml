@@ -1154,3 +1154,17 @@ entries:
   - backend/tests/test_issue_968_remeasure_queue.py
   - backend/src/htdt/measurement/domain/cad_remeasure_queue.py
   close_when_gates_clear: true
+
+- issue: 971
+  lifecycle: acceptance_remaining
+  landed:
+    prs: [1072]
+    commits: [2c64feb6]
+  remaining_gates:
+  - kind: manual
+    description: 'オペレータ受入 — 実プロジェクトでのブリーフ再計算→次の一手/欠落証拠ボタン遷移の実機確認 (実GUI Mesa GL で検証済)'
+  evidence_refs:
+  - docs/issues/issue-971-brief-next-step.md
+  - backend/tests/test_issue_971_brief_next_step.py
+  - backend/src/htdt/decision_brief_panel.py
+  close_when_gates_clear: true
