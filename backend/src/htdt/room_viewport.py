@@ -138,6 +138,9 @@ class RoomOverlayState:
     operational_clearance: bool = False
     # Zone-kind filter for the clearance layer; defaults to every kind.
     operational_zone_kinds: frozenset[str] = frozenset(OPERATIONAL_ZONE_KIND_VOCAB)
+    # #1004: read-only as-built survey overlay — None or one of
+    # ('tier', 'uncertainty_mm', 'verification', 'delta_mm').
+    survey_mode: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -398,6 +401,53 @@ def _planar_polygon_mesh(geometry, surface) -> pv.PolyData | None:
         faces.extend((3, *(remap[idx] for idx in ids)))
     if not faces:
         return None
+    return pv.PolyData(points, np.asarray(faces, dtype=np.int64))
+
+
+def _semantic_surface_overlay_mesh(geometry, surface) -> pv.PolyData | None:
+    """Render mesh for the triangle subset one semantic surface covers.
+
+    Domain +Y rear maps to render -Y (same convention as
+    ``_planar_polygon_mesh``).
+    """
+
+    triangle_ids = set(surface.triangle_ids)
+    triangles = [
+        triangle
+        for triangle in geometry.triangles
+        if triangle.triangle_id in triangle_ids
+    ]
+    if not triangles:
+        return None
+    vertex_ids = sorted(
+        {
+            index
+            for triangle in triangles
+            for index in (triangle.a, triangle.b, triangle.c)
+        }
+    )
+    remap = {old: new for new, old in enumerate(vertex_ids)}
+    points = np.asarray(
+        [
+            (
+                geometry.vertices[i].x_m,
+                -geometry.vertices[i].y_m,
+                geometry.vertices[i].z_m,
+            )
+            for i in vertex_ids
+        ],
+        dtype=float,
+    )
+    faces: list[int] = []
+    for triangle in triangles:
+        faces.extend(
+            (
+                3,
+                remap[triangle.a],
+                remap[triangle.b],
+                remap[triangle.c],
+            )
+        )
     return pv.PolyData(points, np.asarray(faces, dtype=np.int64))
 
 
@@ -1404,6 +1454,7 @@ class RoomViewport3D(QFrame):
         'cable-route-',
         'abdiff-',
         'campaign-overlay-',
+        'survey-overlay-',
     )
 
     def _remove_overlay_actors(self) -> None:
@@ -3964,6 +4015,277 @@ class RoomViewport3D(QFrame):
         if actors:
             for name in tuple(actors):
                 if isinstance(name, str) and name.startswith('quality-map-'):
+                    self.plotter.remove_actor(name)
+
+    # -- as-built survey overlay (#1004) -----------------------------------
+
+    #: Per-mode bucket fills. 'unknown'/record-less buckets always resolve
+    #: to the same grey — a no-data element is never painted 0mm-green.
+    _SURVEY_MODE_COLORS: dict[str, dict[str, str]] = {
+        'tier': {
+            't0': '#6E7B8A',
+            't1': '#8FB8C9',
+            't2': '#E4C06B',
+            't3': '#35B779',
+            't4': '#FDE725',
+            'unknown': '#6E7B8A',
+        },
+        'uncertainty_mm': {
+            'le5': '#35B779',
+            'le25': '#FDE725',
+            'le50': '#E1B15A',
+            'gt50': '#E58383',
+            'unknown': '#6E7B8A',
+        },
+        'verification': {
+            'verified': '#68B98A',
+            'unverified': '#E1B15A',
+            'stale': '#E8A05C',
+            'failed': '#E58383',
+            'unknown': '#6E7B8A',
+        },
+        'delta_mm': {
+            'delta_le2': '#35B779',
+            'delta_le10': '#FDE725',
+            'delta_le50': '#E1B15A',
+            'delta_gt50': '#E58383',
+            'delta_na': '#6E7B8A',
+            'none': '#6E7B8A',
+            'unknown': '#6E7B8A',
+        },
+    }
+    _SURVEY_CONTROL_COLORS: dict[str, str] = {
+        'pass': '#68B98A',
+        'fail': '#E58383',
+        'evidence_only': '#8FB8C9',
+        'reg_used': '#9B88A0',
+        'unmapped': '#6E7B8A',
+    }
+
+    def render_survey_overlay(self, scene) -> None:
+        """Draw one resolved SurveyOverlayScene (#1004).
+
+        Must run inside ``deferred_render()`` from the compositor. Fills
+        carry the mode bucket colour; per-element text and control labels
+        appear only at near zoom — zoomed out the scene keeps the
+        aggregate counts + ASCII legend so thin detail is never
+        exaggerated. ``delta_mm`` mode draws label+number on the surface
+        only: the authority carries no displacement direction, so no
+        arrows are ever invented.
+        """
+
+        self.clear_survey_overlay()
+        colors = self._SURVEY_MODE_COLORS.get(scene.mode, {})
+        unknown_fill = self._SURVEY_MODE_COLORS['verification']['unknown']
+        camera = getattr(self.plotter, 'camera', None)
+        zoomed_out = False
+        if camera is not None:
+            try:
+                zoomed_out = float(camera.GetDistance()) > max(
+                    scene.scene_diagonal_m * 2.5, 12.0
+                )
+            except Exception:
+                zoomed_out = False
+
+        label_points: list = []
+        label_texts: list = []
+        for index, item in enumerate(scene.elements):
+            target = item.target
+            if target is None:
+                continue
+            color = colors.get(item.bucket, unknown_fill)
+            name = f'survey-overlay-item-{index}'
+            mesh = None
+            if target.kind == 'surface':
+                mesh = _planar_polygon_mesh(
+                    target.compiled_geometry, target.surface
+                )
+            elif target.kind == 'semantic_surface':
+                mesh = _semantic_surface_overlay_mesh(
+                    target.semantic_geometry, target.semantic_surface
+                )
+            elif target.kind == 'entity':
+                body, _glyphs, _envelope = entity_render_meshes(target.entity)
+                mesh = body
+            if mesh is not None:
+                fill_actor = self.plotter.add_mesh(
+                    mesh,
+                    color=color,
+                    opacity=0.38,
+                    pickable=False,
+                    lighting=False,
+                    name=f'{name}-fill',
+                    render=False,
+                )
+                edge = self._survey_surface_outline(target)
+                if edge is not None:
+                    edge_actor = self.plotter.add_mesh(
+                        edge,
+                        color=color,
+                        line_width=3,
+                        pickable=False,
+                        lighting=False,
+                        name=f'{name}-edge',
+                        render=False,
+                    )
+                    for actor in (fill_actor, edge_actor):
+                        mapper = actor.GetMapper()
+                        mapper.SetResolveCoincidentTopologyToPolygonOffset()
+                        mapper.SetResolveCoincidentTopologyPolygonOffsetParameters(
+                            -2.0, -2.0
+                        )
+                else:
+                    mapper = fill_actor.GetMapper()
+                    mapper.SetResolveCoincidentTopologyToPolygonOffset()
+                    mapper.SetResolveCoincidentTopologyPolygonOffsetParameters(
+                        -2.0, -2.0
+                    )
+            if not zoomed_out:
+                label_points.append(
+                    _domain_to_render_tuple(target.centroid_domain)
+                )
+                label_texts.append(item.label_ascii)
+
+        marker_radius = max(scene.scene_diagonal_m * 0.006, 0.02)
+        for index, item in enumerate(scene.controls):
+            if not item.anchors:
+                continue
+            color = self._SURVEY_CONTROL_COLORS.get(
+                item.bucket, self._SURVEY_CONTROL_COLORS['unmapped']
+            )
+            name = f'survey-overlay-ctrl-{index}'
+            render_anchors = [
+                _domain_to_render_tuple(point) for point in item.anchors
+            ]
+            for point in render_anchors:
+                self.plotter.add_mesh(
+                    pv.Sphere(
+                        radius=marker_radius, center=point, theta_resolution=12
+                    ),
+                    color=color,
+                    pickable=False,
+                    lighting=False,
+                    name=f'{name}-pt',
+                    render=False,
+                )
+            if len(render_anchors) >= 2:
+                self.plotter.add_mesh(
+                    pv.Line(render_anchors[0], render_anchors[-1]),
+                    color=color,
+                    line_width=3,
+                    pickable=False,
+                    lighting=False,
+                    name=f'{name}-line',
+                    render=False,
+                )
+            if not zoomed_out:
+                mid = render_anchors[len(render_anchors) // 2]
+                label_points.append(mid)
+                label_texts.append(item.label_ascii)
+
+        if label_points:
+            self.plotter.add_point_labels(
+                label_points,
+                label_texts,
+                font_size=22,
+                text_color='#F2F5F8',
+                shape_color='#1B232C',
+                shape_opacity=0.75,
+                always_visible=True,
+                pickable=False,
+                name='survey-overlay-labels',
+                render=False,
+            )
+        self.plotter.add_text(
+            '\n'.join(scene.viewport_lines),
+            position='upper_left',
+            font_size=9,
+            color=DARK_THEME.text.secondary.hex,
+            name='survey-overlay-status',
+            render=False,
+        )
+        self._render()
+
+    def _survey_surface_outline(self, target) -> pv.PolyData | None:
+        """Closed ring outline for a resolved target (render coords)."""
+
+        try:
+            if target.kind == 'surface':
+                points = [
+                    _domain_to_render_tuple(
+                        target.compiled_geometry.vertices[i].point()
+                    )
+                    for i in target.surface.outer_vertex_indices
+                ]
+            elif target.kind == 'semantic_surface':
+                tri_ids = set(target.semantic_surface.triangle_ids)
+                vertex_ids = sorted(
+                    {
+                        index
+                        for triangle in target.semantic_geometry.triangles
+                        if triangle.triangle_id in tri_ids
+                        for index in (triangle.a, triangle.b, triangle.c)
+                    }
+                )
+                if not vertex_ids:
+                    return None
+                # Hull outline is not derivable without topology walking —
+                # draw the wireframe edges instead (honest, no invented
+                # boundary).
+                edges: list[tuple[int, int]] = []
+                id_to_new = {
+                    old: new for new, old in enumerate(vertex_ids)
+                }
+                for triangle in target.semantic_geometry.triangles:
+                    if triangle.triangle_id not in tri_ids:
+                        continue
+                    edges.extend(
+                        (
+                            (triangle.a, triangle.b),
+                            (triangle.b, triangle.c),
+                            (triangle.c, triangle.a),
+                        )
+                    )
+                pts = np.asarray(
+                    [
+                        _domain_to_render_tuple(
+                            (
+                                target.semantic_geometry.vertices[i].x_m,
+                                target.semantic_geometry.vertices[i].y_m,
+                                target.semantic_geometry.vertices[i].z_m,
+                            )
+                        )
+                        for i in vertex_ids
+                    ],
+                    dtype=float,
+                )
+                lines: list[int] = []
+                for a, b in edges:
+                    lines.extend((2, id_to_new[a], id_to_new[b]))
+                mesh = pv.PolyData(pts)
+                mesh.lines = np.asarray(lines, dtype=np.int64)
+                return mesh
+            elif target.kind == 'entity':
+                _body, _glyphs, envelope = entity_render_meshes(
+                    target.entity
+                )
+                return envelope
+        except (KeyError, IndexError, TypeError, ValueError):
+            return None
+        if len(points) < 3:
+            return None
+        return pv.lines_from_points(np.asarray(points, dtype=float), close=True)
+
+    def clear_survey_overlay(self) -> None:
+        """Remove every survey-overlay actor, labels, and status text."""
+
+        renderer = getattr(self.plotter, 'renderer', None)
+        actors = getattr(renderer, 'actors', None)
+        if actors:
+            for name in tuple(actors):
+                if isinstance(name, str) and name.startswith(
+                    'survey-overlay-'
+                ):
                     self.plotter.remove_actor(name)
 
     def pick_actor_candidates(self, position: QPointF) -> tuple[str, ...]:

@@ -455,6 +455,7 @@ _LAZY_IMPORTS = {
     ),
     'RoomAcousticsTabs': ('.room_acoustics_panel', 'RoomAcousticsTabs'),
     'RoomTreatmentPanel': ('.room_acoustics_panel', 'RoomTreatmentPanel'),
+    'RoomSurveyPanel': ('.room_survey_panel', 'RoomSurveyPanel'),
     'SurfaceMaterialPanel': ('.room_acoustics_panel', 'SurfaceMaterialPanel'),
     'ReflectionGuidancePanel': (
         '.reflection_guidance_ui',
@@ -4240,12 +4241,19 @@ class WorkflowApplicationComposition:
             dispatch_repository=prediction_lane.dispatch_repository,
         )
         intake_panel = _self.GeometryIntakePanel()
+        # #1004: the survey panel mounts on the geometry dock — the click
+        # target for authority detail (campaign/instrument/calibration,
+        # hashes, blocked-task reasons) since overlay actors stay
+        # unpickable. Mode combo mirrors the OverlayControls 測量 group.
+        survey_panel = _self.RoomSurveyPanel(workspace.survey_overlay)
         geometry_dock = QWidget()
         dock_layout = QVBoxLayout(geometry_dock)
         dock_layout.setContentsMargins(0, 0, 0, 0)
         dock_layout.addWidget(geometry_panel)
         dock_layout.addWidget(intake_panel)
+        dock_layout.addWidget(survey_panel)
         dock_layout.addStretch(1)
+        workspace.bind_survey_overlay(survey_panel)
 
         def _refresh_geometry_dock() -> None:
             refresh = getattr(geometry_panel, 'refresh', None)

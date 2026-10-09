@@ -10,7 +10,15 @@ from typing import Protocol, cast
 from uuid import uuid4
 
 from PySide6.QtCore import QSignalBlocker, QSize, Qt, Signal
-from PySide6.QtGui import QColor, QCursor, QGuiApplication, QKeySequence, QShortcut
+from PySide6.QtGui import (
+    QAction,
+    QActionGroup,
+    QColor,
+    QCursor,
+    QGuiApplication,
+    QKeySequence,
+    QShortcut,
+)
 from PySide6.QtWidgets import (
     QAbstractSpinBox,
     QApplication,
@@ -281,6 +289,11 @@ from .room_viewport import (
 )
 from .room_field_overlay import FieldOverlay3DRequest, RoomFieldOverlayController
 from .room_campaign_overlay import RoomCampaignOverlayController
+from .room_survey_overlay import (
+    MODE_LABELS,
+    SURVEY_OVERLAY_MODES,
+    RoomSurveyOverlayController,
+)
 from .room_treatment_overlay import RoomTreatmentOverlayController
 from .room_screen_quality_map import ScreenQualityMapController
 from .room_viewport import (
@@ -3937,7 +3950,12 @@ class OverlayControls(QFrame):
         self.focus = QCheckBox("選択に集中")
         self.focus.setToolTip("選択中の物体以外を薄く表示し、編集対象に集中しやすくします")
         self.grid.setChecked(True)
-        for toggle in (self.grid, self.labels, self.acoustics, self.focus):
+        for toggle in (
+            self.grid,
+            self.labels,
+            self.acoustics,
+            self.focus,
+        ):
             toggle.toggled.connect(lambda checked=False: self.changed.emit())
             self._layout.addWidget(toggle)
 
@@ -3986,6 +4004,32 @@ class OverlayControls(QFrame):
         self.focus_action.toggled.connect(self.focus.setChecked)
         self.labels.toggled.connect(self.labels_action.setChecked)
         self.focus.toggled.connect(self.focus_action.setChecked)
+        # #1004: survey overlay master toggle lives in the 表示… menu
+        # only — like the treatment overlay it adds zero toolbar width so
+        # the compact-layout minimum is unchanged. ``self.survey`` is the
+        # checkable action itself (same toggled/setChecked API the
+        # workspace and panel bind to); the overlay only reads it — the
+        # authority itself is never touched.
+        self.survey = self.more_menu.addAction("測量")
+        self.survey.setCheckable(True)
+        self.survey.setToolTip(
+            "竣工測量の証跡階層・不確かさ・検証状態をCAD面に重ねて表示します"
+        )
+        self.survey.toggled.connect(lambda checked=False: self.changed.emit())
+        survey_modes_menu = self.more_menu.addMenu("測量モード")
+        self._survey_mode = 'verification'
+        self._survey_mode_group = QActionGroup(self.more_menu)
+        self._survey_mode_group.setExclusive(True)
+        self._survey_mode_actions: dict[str, QAction] = {}
+        for mode in SURVEY_OVERLAY_MODES:
+            action = survey_modes_menu.addAction(MODE_LABELS[mode])
+            action.setCheckable(True)
+            self._survey_mode_group.addAction(action)
+            self._survey_mode_actions[mode] = action
+            action.triggered.connect(
+                lambda checked=False, m=mode: self.set_survey_mode(m)
+            )
+        self._survey_mode_actions['verification'].setChecked(True)
         self.more_menu.addSeparator()
         self.grid_snap_action = self.more_menu.addAction("グリッド吸着")
         self.grid_snap_action.setCheckable(True)
@@ -4066,12 +4110,32 @@ class OverlayControls(QFrame):
         )
         self._layout.setSpacing(4 if compact else 10)
 
+    @property
+    def survey_mode(self) -> str | None:
+        """Active #1004 mode, or None while the survey toggle is off."""
+
+        if not self.survey.isChecked():
+            return None
+        return self._survey_mode
+
+    def set_survey_mode(self, mode: str) -> None:
+        """Select a #1004 display mode and arm the survey toggle."""
+
+        if mode not in SURVEY_OVERLAY_MODES:
+            raise ValueError(f'unknown survey overlay mode {mode!r}')
+        self._survey_mode = mode
+        self._survey_mode_actions[mode].setChecked(True)
+        if not self.survey.isChecked():
+            self.survey.setChecked(True)
+        self.changed.emit()
+
     def state(self) -> RoomOverlayState:
         return RoomOverlayState(
             grid=self.grid.isChecked(),
             labels=self.labels.isChecked(),
             acoustics=self.acoustics.isChecked(),
             focus_selection=self.focus.isChecked(),
+            survey_mode=self.survey_mode,
         )
 
 
@@ -4200,6 +4264,14 @@ class RoomWorkspace(QWidget):
             self.controller.spatial_image_repository,
             document_id,
         )
+        # #1004 survey overlay: the controller owns the survey repository
+        # and re-pins every authority hash per render — a scene edit or a
+        # survey/project identity change can never leave stale colours.
+        self.survey_overlay = RoomSurveyOverlayController(
+            repository,
+            document_id,
+        )
+        self.survey_panel = None
         # Esc exits probe mode only — armed while 3D probing so normal Esc
         # behaviour elsewhere is untouched.
         self._field_probe_esc = QShortcut(
@@ -4595,6 +4667,33 @@ class RoomWorkspace(QWidget):
         self.right_stack.addWidget(self._geometry_page)
         if self.current_context == "geometry":
             self.right_stack.setCurrentWidget(self._geometry_page)
+
+    def bind_survey_overlay(self, panel) -> None:
+        """Wire a RoomSurveyPanel into the #1004 overlay loop.
+
+        The panel's mode combo is a second view onto the OverlayControls
+        mode group — both drive the same ``survey_mode`` state so they can
+        never disagree.
+        """
+
+        self.survey_panel = panel
+        panel.modeChanged.connect(self._survey_mode_selected)
+
+    def set_survey_mode(self, mode: str) -> None:
+        """Arm the survey overlay and select its display mode (#1004)."""
+
+        # set_survey_mode emits changed → _render; no second render here.
+        self.overlay_controls.set_survey_mode(mode)
+
+    def _survey_mode_selected(self, mode: object) -> None:
+        """Panel combo → the shared overlay-controls survey state."""
+
+        if mode == 'off':
+            if self.overlay_controls.survey.isChecked():
+                # toggled → changed → _render
+                self.overlay_controls.survey.setChecked(False)
+            return
+        self.set_survey_mode(str(mode))
 
     def attach_acoustics_panel(self, panel: QWidget) -> None:
         if self._acoustics_page is not None:
@@ -6033,6 +6132,14 @@ class RoomWorkspace(QWidget):
             )
             if callable(clear_treatment):
                 clear_treatment()
+        if context_id != 'geometry':
+            # #1004: survey overlay colours live only on the geometry
+            # context; a context switch or head change must not leak them.
+            clear_survey = getattr(
+                self.viewport, 'clear_survey_overlay', None
+            )
+            if callable(clear_survey):
+                clear_survey()
         self._update_responsive_layout()
         if context_id == "geometry" and self._geometry_page is not None:
             self.right_stack.setCurrentWidget(self._geometry_page)
@@ -8223,6 +8330,29 @@ class RoomWorkspace(QWidget):
                             )
                 else:
                     self.viewport.clear_campaign_overlay()
+            # #1004: as-built survey overlay — geometry context only, the
+            # resolver re-checks the current head + every authority hash
+            # per render so stale survey colours cannot survive one frame.
+            render_survey = getattr(
+                self.viewport, 'render_survey_overlay', None
+            )
+            survey_scene = None
+            if callable(render_survey):
+                if (
+                    self.current_context == 'geometry'
+                    and overlays.survey_mode
+                ):
+                    survey_scene = self.survey_overlay.resolve(
+                        overlays.survey_mode
+                    )
+                    if survey_scene is None:
+                        self.viewport.clear_survey_overlay()
+                    else:
+                        render_survey(survey_scene)
+                else:
+                    self.viewport.clear_survey_overlay()
+            if self.survey_panel is not None:
+                self.survey_panel.show_scene(survey_scene)
 
     def _current_lighting_scene(self):
         """Current persisted LightingScene for this document, or None.
