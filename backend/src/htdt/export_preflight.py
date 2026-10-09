@@ -676,7 +676,7 @@ def verdict_payload(
             }
             for element in plan.excluded()
         ],
-        'destination': destination,
+        'destination': str(destination),
         'written_members': written_members,
         'inspection': inspection or {},
     }
