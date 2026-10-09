@@ -163,6 +163,8 @@ from ...navigation_target import NavigationTargetKind
 from ...dynamic_a11y import (
     DynamicAnnouncer,
     capture_focus,
+    disabled_hint,
+    reason_label,
     restore_focus,
 )
 from ...workflow_navigation import WorkspaceDeepLink, WorkspaceId
@@ -5243,8 +5245,10 @@ class MeasurementPageWorkspace(QWidget):
         layout.addWidget(spatial_card)
 
         lifecycle_card, lifecycle_layout = _card("ライフサイクルと添付", host)
-        self.disposition_label = QLabel("測定を選択してください", lifecycle_card)
-        self.disposition_label.setWordWrap(True)
+        # #975: reason_label — the disabled-gated explanations are
+        # keyboard-focusable on the same screen.
+        self.disposition_label = reason_label(
+            "測定を選択してください", lifecycle_card)
         lifecycle_layout.addWidget(self.disposition_label)
         disposition_row = QHBoxLayout()
         self.disposition_combo = QComboBox(lifecycle_card)
@@ -5320,8 +5324,8 @@ class MeasurementPageWorkspace(QWidget):
         layout.addWidget(report_card)
 
         retake_card, retake_layout = _card("再測定ガイダンス", host)
-        self.retake_label = QLabel("測定を選択してください", retake_card)
-        self.retake_label.setWordWrap(True)
+        self.retake_label = reason_label(
+            "測定を選択してください", retake_card)
         retake_layout.addWidget(self.retake_label)
         retake_row = QHBoxLayout()
         retake_row.addStretch(1)
@@ -5523,10 +5527,8 @@ class MeasurementPageWorkspace(QWidget):
             # its reason readable — never enabled-and-silent.
             self._sync_quality_actions_enabled(
                 False,
-                reason=(
-                    '保存済み測定がありません — '
-                    '測定を取り込むと各操作を実行できます'
-                ),
+                reason='保存済み測定がありません',
+                resolution='測定を取り込むと各操作を実行できます',
             )
             self._update_context_label()
             restore_focus(
@@ -5558,7 +5560,11 @@ class MeasurementPageWorkspace(QWidget):
         restore_focus(self, focus_token, fallback=self.quality_table)
 
     def _sync_quality_actions_enabled(
-        self, enabled: bool, *, reason: str | None = None
+        self,
+        enabled: bool,
+        *,
+        reason: str | None = None,
+        resolution: str | None = None,
     ) -> None:
         """#975: the selection-gated quality actions.
 
@@ -5578,9 +5584,11 @@ class MeasurementPageWorkspace(QWidget):
         for button in buttons:
             button.setEnabled(enabled)
         if not enabled:
-            text = (
-                reason
-                or '一覧から測定を選択すると、各操作を実行できます'
+            text = disabled_hint(
+                'quality-actions',
+                reason or '測定が選択されていません',
+                resolution
+                or '一覧から測定を選択すると、各操作を実行できます',
             )
             self.disposition_label.setText(text)
             self.retake_label.setText(text)

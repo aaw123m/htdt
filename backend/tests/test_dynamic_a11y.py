@@ -683,7 +683,21 @@ def test_quality_actions_disabled_with_reason_when_no_selection(
     ):
         assert not button.isEnabled()
         assert button.toolTip()
+    from PySide6.QtCore import Qt
+
     assert '測定' in workspace.disposition_label.text()
+    # #975 contract: reason AND resolution path on-screen, and the label
+    # itself is Tab-reachable — a disabled button drops out of Tab order.
+    assert '解消' in workspace.disposition_label.text()
+    assert '解消' in workspace.retake_label.text()
+    assert (
+        workspace.disposition_label.focusPolicy()
+        == Qt.FocusPolicy.StrongFocus
+    )
+    assert (
+        workspace.retake_label.focusPolicy()
+        == Qt.FocusPolicy.StrongFocus
+    )
     workspace.close()
     workspace.deleteLater()
 
