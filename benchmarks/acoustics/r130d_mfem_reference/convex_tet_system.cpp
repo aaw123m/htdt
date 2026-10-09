@@ -1,0 +1,312 @@
+#include "mfem.hpp"
+
+#include <cmath>
+#include <fstream>
+#include <vector>
+#include <array>
+#include <algorithm>
+#include <iomanip>
+#include <iostream>
+#include <stdexcept>
+#include <string>
+
+namespace
+{
+
+void WriteSparseMatrixJson(std::ofstream &os, const char *name, mfem::SparseMatrix &matrix)
+{
+   const int rows = matrix.Height();
+   const int cols = matrix.Width();
+   const int nnz = matrix.NumNonZeroElems();
+   const int *row_offsets = matrix.GetI();
+   const int *column_indices = matrix.GetJ();
+   const double *values = matrix.GetData();
+
+   os << "  \"" << name << "\": {\n";
+   os << "    \"rows\": " << rows << ",\n";
+   os << "    \"cols\": " << cols << ",\n";
+   os << "    \"nnz\": " << nnz << ",\n";
+   os << "    \"row_offsets\": [";
+   for (int i = 0; i <= rows; ++i)
+   {
+      if (i) { os << ", "; }
+      os << row_offsets[i];
+   }
+   os << "],\n";
+   os << "    \"column_indices\": [";
+   for (int i = 0; i < nnz; ++i)
+   {
+      if (i) { os << ", "; }
+      os << column_indices[i];
+   }
+   os << "],\n";
+   os << "    \"values\": [";
+   for (int i = 0; i < nnz; ++i)
+   {
+      if (i) { os << ", "; }
+      os << values[i];
+   }
+   os << "]\n";
+   os << "  }";
+}
+
+void WriteVectorJson(std::ofstream &os, const char *name, const mfem::Vector &vector)
+{
+   os << "  \"" << name << "\": [";
+   for (int i = 0; i < vector.Size(); ++i)
+   {
+      if (i) { os << ", "; }
+      os << vector[i];
+   }
+   os << "]";
+}
+
+mfem::Mesh BuildIndependentConvexMesh(const std::string &path,
+                                     int &base_elements,
+                                     double &base_volume)
+{
+   std::ifstream input(path);
+   if (!input) { throw std::runtime_error("cannot read independent tetra mesh: " + path); }
+   int vertices=0, tets=0;
+   input >> vertices >> tets;
+   if (!input || vertices<4 || vertices>100 || tets<1 || tets>64)
+   {
+      throw std::runtime_error("invalid bounded independent tetra mesh header");
+   }
+   mfem::Mesh mesh(3,vertices,tets,0,3);
+   std::vector<std::array<double,3>> coords(vertices);
+   for (int i=0; i<vertices; ++i)
+   {
+      for (int j=0; j<3; ++j)
+      {
+         input >> coords[i][j];
+         if (!input || !std::isfinite(coords[i][j]) ||
+             coords[i][j]<-1e-9 || coords[i][j]>4.0+1e-9)
+         {
+            throw std::runtime_error("invalid independent tetra mesh vertex");
+         }
+      }
+      mesh.AddVertex(coords[i].data());
+   }
+   base_volume=0.0;
+   for (int i=0; i<tets; ++i)
+   {
+      int v[4]={0,0,0,0};
+      for (int j=0;j<4;++j)
+      {
+         input >> v[j];
+         if (!input || v[j]<0 || v[j]>=vertices)
+         {
+            throw std::runtime_error("invalid independent tetra connectivity");
+         }
+      }
+      if (v[0]==v[1] || v[0]==v[2] || v[0]==v[3] ||
+          v[1]==v[2] || v[1]==v[3] || v[2]==v[3])
+      {
+         throw std::runtime_error("duplicate tetra vertex");
+      }
+      const auto &a=coords[v[0]], &b=coords[v[1]];
+      const auto &c=coords[v[2]], &d=coords[v[3]];
+      const double ux=b[0]-a[0], uy=b[1]-a[1], uz=b[2]-a[2];
+      const double vx=c[0]-a[0], vy=c[1]-a[1], vz=c[2]-a[2];
+      const double wx=d[0]-a[0], wy=d[1]-a[1], wz=d[2]-a[2];
+      const double det=ux*(vy*wz-vz*wy)-uy*(vx*wz-vz*wx)+uz*(vx*wy-vy*wx);
+      if (!(det>1e-10)) { throw std::runtime_error("nonpositive tetra Jacobian"); }
+      base_volume+=det/6.0;
+      mesh.AddTet(v,1);
+   }
+   std::string trailing;
+   if (input >> trailing) { throw std::runtime_error("unexpected independent mesh trailer"); }
+   if (!(base_volume>1.0 && base_volume<=64.0))
+   {
+      throw std::runtime_error("invalid independent tetra volume");
+   }
+   mesh.FinalizeTetMesh(1,0,true);
+   base_elements=tets;
+   return mesh;
+}
+
+void WriteSystem(
+   const std::string &path,
+   int order,
+   int uniform_refinements,
+   int elements,
+   int ndofs,
+   double base_volume_m3,
+   double density_kg_m3,
+   double sound_speed_m_s,
+   double source_x,
+   double source_y,
+   double source_z,
+   double receiver_x,
+   double receiver_y,
+   double receiver_z,
+   mfem::SparseMatrix &mass,
+   mfem::SparseMatrix &stiffness,
+   const mfem::Vector &source,
+   const mfem::Vector &receiver)
+{
+   std::ofstream os(path, std::ios::binary);
+   if (!os)
+   {
+      throw std::runtime_error("cannot open output file: " + path);
+   }
+   os << std::setprecision(17);
+   os << "{\n";
+   os << "  \"schema_version\": \"htdt.r130d.independent-convex-mfem-system-1\",\n";
+   os << "  \"mfem_version\": \"" << MFEM_VERSION_STRING << "\",\n";
+   os << "  \"fixture_id\": \"r130d-experimental-independent-convex-polyhedron\",\n";
+   os << "  \"geometry\": \"independent-convex-tetrahedral-polyhedron\",\n";
+   os << "  \"base_volume_m3\": " << base_volume_m3 << ",\n";
+   os << "  \"boundary_model\": \"natural_neumann_rigid\",\n";
+   os << "  \"primary_field\": \"velocity_potential_phi\",\n";
+   os << "  \"governing_equation\": \"M*phi_tt+Kc2*phi=c^2*b*q\",\n";
+   os << "  \"mass_assembly\": \"MFEM MassIntegrator\",\n";
+   os << "  \"stiffness_assembly\": \"MFEM DiffusionIntegrator(c^2)\",\n";
+   os << "  \"source_functional_assembly\": \"MFEM DomainLFIntegrator(DeltaCoefficient)\",\n";
+   os << "  \"receiver_functional_assembly\": \"MFEM DomainLFIntegrator(DeltaCoefficient)\",\n";
+   os << "  \"matrix_format\": \"csr_full\",\n";
+   os << "  \"order\": " << order << ",\n";
+   os << "  \"uniform_refinements\": " << uniform_refinements << ",\n";
+   os << "  \"elements\": " << elements << ",\n";
+   os << "  \"ndofs\": " << ndofs << ",\n";
+   os << "  \"density_kg_m3\": " << density_kg_m3 << ",\n";
+   os << "  \"sound_speed_m_s\": " << sound_speed_m_s << ",\n";
+   os << "  \"source_position_m\": [" << source_x << ", " << source_y << ", " << source_z << "],\n";
+   os << "  \"receiver_position_m\": [" << receiver_x << ", " << receiver_y << ", " << receiver_z << "],\n";
+   os << "  \"source_normalization\": \"volume_velocity_m3_s\",\n";
+   WriteSparseMatrixJson(os, "mass_matrix", mass);
+   os << ",\n";
+   WriteSparseMatrixJson(os, "stiffness_c2_matrix", stiffness);
+   os << ",\n";
+   WriteVectorJson(os, "source_functional", source);
+   os << ",\n";
+   WriteVectorJson(os, "receiver_functional", receiver);
+   os << "\n}\n";
+}
+
+int Main(int argc, char *argv[])
+{
+   double density = 1.2;
+   double sound_speed = 343.2;
+   double source_x = 1.5, source_y = 2.0, source_z = 2.0;
+   double receiver_x = 2.5, receiver_y = 2.0, receiver_z = 2.0;
+   int order = 2;
+   int refinements = 0;
+   std::string output;
+   std::string mesh_path;
+   double expected_volume = 0.0;
+
+   for (int i = 1; i < argc; ++i)
+   {
+      const std::string arg = argv[i];
+      auto value = [&](const char *name)
+      {
+         if (i + 1 >= argc)
+         {
+            throw std::runtime_error(std::string("missing value for ") + name);
+         }
+         return std::string(argv[++i]);
+      };
+      if (arg == "--density") { density = std::stod(value("--density")); }
+      else if (arg == "--sound-speed") { sound_speed = std::stod(value("--sound-speed")); }
+      else if (arg == "--source-x") { source_x = std::stod(value("--source-x")); }
+      else if (arg == "--source-y") { source_y = std::stod(value("--source-y")); }
+      else if (arg == "--source-z") { source_z = std::stod(value("--source-z")); }
+      else if (arg == "--receiver-x") { receiver_x = std::stod(value("--receiver-x")); }
+      else if (arg == "--receiver-y") { receiver_y = std::stod(value("--receiver-y")); }
+      else if (arg == "--receiver-z") { receiver_z = std::stod(value("--receiver-z")); }
+      else if (arg == "--order") { order = std::stoi(value("--order")); }
+      else if (arg == "--uniform-refinements") { refinements = std::stoi(value("--uniform-refinements")); }
+      else if (arg == "--output") { output = value("--output"); }
+      else if (arg == "--mesh") { mesh_path = value("--mesh"); }
+      else if (arg == "--expected-volume") { expected_volume = std::stod(value("--expected-volume")); }
+      else { throw std::runtime_error("unknown argument: " + arg); }
+   }
+
+   if (output.empty() || mesh_path.empty()) { throw std::runtime_error("--output and --mesh required"); }
+   if (!(density > 0.0 && sound_speed > 0.0) || order < 1 || refinements < 0 || refinements > 4)
+   {
+      throw std::runtime_error("invalid physical/discretization input");
+   }
+
+   int base_elements=0;
+   double base_volume=0;
+   mfem::Mesh mesh = BuildIndependentConvexMesh(mesh_path,base_elements,base_volume);
+   if (expected_volume<=0 || std::abs(base_volume-expected_volume)>1e-8*expected_volume)
+   { throw std::runtime_error("independent tetra volume differs from preregistered analytic volume"); }
+   for (int level = 0; level < refinements; ++level)
+   {
+      mesh.UniformRefinement();
+   }
+   const int expected_elements = base_elements * static_cast<int>(std::pow(8.0, refinements));
+   if (mesh.GetNE() != expected_elements)
+   {
+      throw std::runtime_error("unexpected tetrahedral refinement element count");
+   }
+
+   mfem::H1_FECollection fec(order, 3);
+   mfem::FiniteElementSpace fes(&mesh, &fec);
+
+   mfem::BilinearForm mass(&fes);
+   mass.AddDomainIntegrator(new mfem::MassIntegrator);
+   mass.Assemble();
+   mass.Finalize();
+
+   mfem::ConstantCoefficient c2(sound_speed * sound_speed);
+   mfem::BilinearForm stiffness(&fes);
+   stiffness.AddDomainIntegrator(new mfem::DiffusionIntegrator(c2));
+   stiffness.Assemble();
+   stiffness.Finalize();
+
+   mfem::DeltaCoefficient source_delta(source_x, source_y, source_z, 1.0);
+   mfem::LinearForm source(&fes);
+   source.AddDomainIntegrator(new mfem::DomainLFIntegrator(source_delta));
+   source.Assemble();
+
+   mfem::DeltaCoefficient receiver_delta(receiver_x, receiver_y, receiver_z, 1.0);
+   mfem::LinearForm receiver(&fes);
+   receiver.AddDomainIntegrator(new mfem::DomainLFIntegrator(receiver_delta));
+   receiver.Assemble();
+
+   if (!(source.Norml2() > 0.0) || !(receiver.Norml2() > 0.0))
+   {
+      throw std::runtime_error("source or receiver functional is empty");
+   }
+
+   WriteSystem(
+      output,
+      order,
+      refinements,
+      mesh.GetNE(),
+      fes.GetVSize(),
+      base_volume,
+      density,
+      sound_speed,
+      source_x,
+      source_y,
+      source_z,
+      receiver_x,
+      receiver_y,
+      receiver_z,
+      mass.SpMat(),
+      stiffness.SpMat(),
+      source,
+      receiver);
+   return 0;
+}
+
+} // namespace
+
+int main(int argc, char *argv[])
+{
+   try
+   {
+      return Main(argc, argv);
+   }
+   catch (const std::exception &exc)
+   {
+      std::cerr << "r130d_convex_independent_mfem_system failed: " << exc.what() << std::endl;
+      return 2;
+   }
+}
