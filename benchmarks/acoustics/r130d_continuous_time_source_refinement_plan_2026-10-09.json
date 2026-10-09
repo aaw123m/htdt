@@ -1,0 +1,74 @@
+{
+  "schema_version": "htdt.r130d.continuous-time-source-integrator-only-plan-1",
+  "issue": 938,
+  "date": "2026-10-09",
+  "purpose": "Isolate implicit-midpoint time discretization at fixed spatial operators and identical continuous-time input; source model DIFFERENT from original q0 sampled impulse and diagnostic only",
+  "room": "sloped 56 m3 Neumann, sound speed 343.2m/s, density 1.2kg/m3",
+  "source_xyz_m": [
+    1.5,
+    2,
+    2
+  ],
+  "receiver_xyz_m": [
+    2.5,
+    2,
+    2
+  ],
+  "source": {
+    "function": "q(t)=exp(-0.5*((t-0.040)/0.004)^2) m3/s, continuous in seconds",
+    "center_s": 0.04,
+    "sigma_s": 0.004,
+    "amplitude_m3_s": 1,
+    "temporal_samples": "sample q(t) exactly at implicit-midpoint times (n+0.5)*dt without fitting, interpolation or readjustment",
+    "not_original_discrete_impulse": true,
+    "observations_hz": [
+      40,
+      80
+    ],
+    "T_s": 0.25,
+    "signed_fourier": "P_T/Q_T exp(+i2pi f t_mid), no taper or frequency mask"
+  },
+  "dt_levels_s": [
+    0.00025,
+    0.000125,
+    0.0000625
+  ],
+  "spatial_fixed": {
+    "fv_n": 20,
+    "mfem_P2_r": 2,
+    "pinned_mfem_raw_sha256": "e61410d4a69000c39975762b9986008974353953f7d8d9f100f9953a33c5ecb4",
+    "mfem_git_pin": "d964264cdb9a13e94a201b6c236c7721e0c8765f",
+    "boundary": "natural rigid Neumann",
+    "point_source_receiver": "existing grid-interpolated delta linear forms are held fixed within each method at all three dt; not a Gaussian spatial source"
+  },
+  "numerics": {
+    "solver": "implicit midpoint 2nd-order wave integrator",
+    "FV": "sparse direct factorization",
+    "MFEM": "Jacobi PCG",
+    "rtol": 1e-11,
+    "atol": 0,
+    "maxiter": 350,
+    "true_linear_relative_residual_limit": 1e-8
+  },
+  "metrics": {
+    "record_both_complex_bins_magnitude_phase_all_levels": true,
+    "compare_adjacent_complex_l2": true,
+    "compute_last_first_error_ratio": true,
+    "reference_order_2_ratio_target": 0.25,
+    "diagnostic_order_ratio_upper_bound": 0.4,
+    "diagnostic_finest_complex_l2_bound": 0.01,
+    "failing_threshold_does_not_redefine_input": true
+  },
+  "limits": {
+    "max_wave_steps": 4000,
+    "max_total_steps_per_method": 7000,
+    "max_mfem_dofs": 729
+  },
+  "authority": {
+    "original_fullband_impulse": "SELF_CONVERGENCE_FAILED",
+    "original_discrete_impulse_candidate": "NOT_QUALIFIED",
+    "product_ready": false,
+    "physical_validation": "NOT_VALIDATED",
+    "issue938": "OPEN"
+  }
+}
