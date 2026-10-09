@@ -1570,6 +1570,7 @@ class OptimizationWorkflowWorkspace(QWidget):
             self.system_expansion.scene_repository,
             self.system_expansion.document_id,
             on_status=self._set_status,
+            on_navigate=self._on_navigate,
         )
         layout.addWidget(self.decision_brief_panel)
 

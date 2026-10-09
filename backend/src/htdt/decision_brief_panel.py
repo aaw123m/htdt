@@ -44,6 +44,7 @@ from .cad_design_comparison_repository import (
     CadDesignComparisonRepository,
 )
 from .cad_repository import SceneRepository
+from .workflow_navigation import WorkspaceDeepLink, WorkspaceId
 from .ui_theme import (
     SemanticState,
     SurfaceRole,
@@ -101,6 +102,56 @@ _BASIS_LABELS = {
 }
 
 
+# #971: the next step and every missing-evidence row navigate to the
+# surface where that evidence is produced. Routes are keyed ONLY on the
+# sealed record's declared fields (recommendation kind / gap gate) —
+# never parsed from free text — so an action whose producer has no
+# resolvable surface degrades to a disabled button with the reason
+# shown, instead of a dead link that silently does nothing.
+_REC_ROUTES: dict[str, WorkspaceDeepLink] = {
+    'apply_candidate': WorkspaceDeepLink(
+        WorkspaceId.OPTIMIZATION, 'candidates'
+    ),
+    'remeasure': WorkspaceDeepLink(WorkspaceId.MEASUREMENT, 'acquisition'),
+    'verify_channel': WorkspaceDeepLink(
+        WorkspaceId.MEASUREMENT, 'calibration'
+    ),
+    'deploy': WorkspaceDeepLink(WorkspaceId.MEASUREMENT, 'calibration'),
+    # collect_evidence resolves per-gap below.
+}
+
+_GAP_GATE_ROUTES: dict[str, WorkspaceDeepLink] = {
+    'solver_gate': WorkspaceDeepLink(WorkspaceId.ROOM, 'acoustics'),
+    'channel_verify': WorkspaceDeepLink(
+        WorkspaceId.MEASUREMENT, 'calibration'
+    ),
+    'deployment': WorkspaceDeepLink(WorkspaceId.MEASUREMENT, 'calibration'),
+    'campaign': WorkspaceDeepLink(WorkspaceId.MEASUREMENT, 'campaign'),
+    'production_gate': WorkspaceDeepLink(
+        WorkspaceId.OPTIMIZATION, 'validation'
+    ),
+    'comparison': WorkspaceDeepLink(WorkspaceId.OPTIMIZATION, 'comparison'),
+}
+
+
+def _gap_route(gap_gate: str) -> WorkspaceDeepLink | None:
+    return _GAP_GATE_ROUTES.get(gap_gate)
+
+
+def _recommendation_route(action: DecisionAction) -> WorkspaceDeepLink | None:
+    """Deep link for the action's next step — or None when no surface
+    can honestly produce it."""
+
+    kind = action.recommendation.kind
+    if kind == 'collect_evidence':
+        for gap in action.gaps:
+            link = _gap_route(gap.gate)
+            if link is not None:
+                return link
+        return None
+    return _REC_ROUTES.get(kind)
+
+
 class DecisionBriefPanel(QFrame):
     """Comparison-page surface for the sealed next-action brief."""
 
@@ -112,11 +163,13 @@ class DecisionBriefPanel(QFrame):
         brief_repository: CadDecisionBriefRepository | None = None,
         comparison_repository: CadDesignComparisonRepository | None = None,
         on_status: 'Callable[[str], None] | None' = None,
+        on_navigate: 'Callable[[WorkspaceDeepLink], bool] | None' = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self._scene_repository = scene_repository
         self._document_id = document_id
+        self._on_navigate = on_navigate
         self._evidence_resolver = DecisionBriefEvidenceResolver(
             scene_repository
         )
@@ -300,12 +353,90 @@ class DecisionBriefPanel(QFrame):
         self.ranking_label.setText(brief.ranking_explanation)
         self._clear_actions()
         for action in brief.actions:
-            row = QLabel(self._action_text(action))
-            row.setWordWrap(True)
-            row.setTextInteractionFlags(
-                row.textInteractionFlags()
+            self._actions_layout.addWidget(self._action_widget(action))
+
+    def _action_widget(self, action: DecisionAction) -> QWidget:
+        """One action card: the verdict text plus navigable next-step /
+        missing-evidence buttons (#971). Every button's destination is
+        declared data (rec kind / gap gate), so an unroutable step shows
+        as a disabled button with the reason instead of a dead click."""
+
+        card = QWidget()
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(0, 0, 0, 4)
+        layout.setSpacing(4)
+        text = QLabel(self._action_text(action))
+        text.setWordWrap(True)
+        text.setTextInteractionFlags(text.textInteractionFlags())
+        layout.addWidget(text)
+
+        nav_row = QHBoxLayout()
+        nav_row.setContentsMargins(0, 0, 0, 0)
+        nav_row.setSpacing(6)
+
+        rec_link = _recommendation_route(action)
+        rec_kind = _REC_KIND_LABELS.get(
+            action.recommendation.kind, action.recommendation.kind
+        )
+        rec_button = QPushButton(f'次の一手へ: {rec_kind}')
+        rec_button.setAccessibleName(
+            f'次の一手 {action.rank}: {rec_kind}'
+        )
+        self._wire_nav_button(
+            rec_button, rec_link,
+            unreachable_reason=(
+                'この「次の一手」の作業先はまだ接続されていません。'
+            ),
+        )
+        nav_row.addWidget(rec_button)
+
+        for gap in action.gaps:
+            gate_label = _GATE_LABELS.get(gap.gate, gap.gate)
+            gap_button = QPushButton(f'{gate_label} の証拠を作る画面へ')
+            gap_button.setAccessibleName(
+                f'{action.rank} の欠落証拠 {gate_label} の生成画面へ'
             )
-            self._actions_layout.addWidget(row)
+            self._wire_nav_button(
+                gap_button, _gap_route(gap.gate),
+                unreachable_reason=(
+                    f'{gate_label} の証拠を生成する画面は'
+                    'まだ接続されていません。'
+                ),
+            )
+            nav_row.addWidget(gap_button)
+
+        nav_row.addStretch(1)
+        layout.addLayout(nav_row)
+        return card
+
+    def _wire_nav_button(
+        self,
+        button: QPushButton,
+        link: WorkspaceDeepLink | None,
+        *,
+        unreachable_reason: str,
+    ) -> None:
+        if link is None or self._on_navigate is None:
+            button.setEnabled(False)
+            button.setToolTip(unreachable_reason)
+            return
+        button.setToolTip(
+            f'{link.workspace}/{link.section or ""} へ移動します。'
+        )
+        button.clicked.connect(
+            lambda _checked=False, target=link, b=button:
+                self._navigate(target, b)
+        )
+
+    def _navigate(
+        self, link: WorkspaceDeepLink, _button: QPushButton
+    ) -> None:
+        try:  # error-boundary: navigation must report, not crash the page
+            resolved = self._on_navigate(link)
+        except Exception:  # noqa: BLE001
+            resolved = False
+        if not resolved:
+            self._set_status('その画面へ移動できませんでした。')
 
     # -- compose ------------------------------------------------------------
 
