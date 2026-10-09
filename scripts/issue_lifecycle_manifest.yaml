@@ -1098,3 +1098,16 @@ entries:
   - backend/tests/test_issue_1001_seat_coverage.py
   - backend/src/htdt/room_seat_coverage_overlay.py
   close_when_gates_clear: true
+
+- issue: 1002
+  lifecycle: acceptance_remaining
+  landed:
+    prs: [1068]
+    commits: [6c9598e3]
+  remaining_gates:
+  - kind: manual
+    description: 'オペレータ受入 — 実ETC測定でのピーク対応レビュー・仮説保存(manual_expert_label)・3D経路描画の実機確認 (子が実GUI Mesa GL で検証済)'
+  evidence_refs:
+  - docs/issues/issue-1002-etc-correspondence.md
+  - backend/tests/test_issue_1002_etc_correspondence.py
+  close_when_gates_clear: true
