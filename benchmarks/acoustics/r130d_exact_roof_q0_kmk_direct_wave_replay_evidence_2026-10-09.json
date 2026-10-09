@@ -1,0 +1,237 @@
+{
+  "schema_version": "htdt.r130d.exact-roof-q0-kmk-direct-wave-replay-evidence-1",
+  "plan_sha256_lf": "2f88a8bd5e18a378a0e22a38270b2bab5a0c99bc3139cde1cd9ed0fbbb4cea4d",
+  "preregistered_plan": {
+    "schema_version": "htdt.r130d.exact-roof-q0-kmk-direct-cg-replay-plan-1",
+    "date_jst": "2026-10-09",
+    "issue": 938,
+    "pr": 1055,
+    "purpose": "Independent numerical time-domain full-state SHA-pinned q0 run of the actual newly implemented conservative K+(h^2/(12c^2))K M^-1K exact-roof FV solver. Validate previously frozen all-mode analytical evidence, NOT new physics/source and NOT native PFFDTD.",
+    "frozen": {
+      "full_mode_candidate_evidence": "benchmarks/acoustics/r130d_exact_roof_q0_kmk_dispersion_evidence_2026-10-09.json",
+      "prior_original_pffdtd_sha_evidence": "benchmarks/acoustics/r130d_original_point_quadratic_pffdtd_evidence_2026-10-09.json",
+      "frozen_upstream_sha": "aa319f6c86517cb95aabfae8656277da62c3ead5",
+      "ppw": [
+        40,
+        44
+      ],
+      "source_xyz_m": [
+        1.5,
+        2,
+        2
+      ],
+      "receiver_xyz_m": [
+        2.5,
+        2,
+        2
+      ],
+      "original_raw_eight_point_source_receiver_hdf5_sha_checks": true,
+      "original_native_each_dt_Nt": true,
+      "original_q0": "q0=1 and zero after n=0; true native HDF5 source total source strength and eight trilinear weights",
+      "record_s": 0.25,
+      "scored_frequency_hz": [
+        40,
+        80
+      ],
+      "rho": 1.2,
+      "c": 343.2,
+      "roof_exact_volume": 56
+    },
+    "numerical": {
+      "mass": "unchanged exact roof native node dual cell physical volumes",
+      "stiffness": "true sparse K4=K+(h^2/(12c^2))KM^-1K",
+      "time": "native-clock implicit average acceleration Newmark beta=1/4 with previous source-free update, q0 after observing phi0",
+      "linear_solver": "Jacobi preconditioned SciPy CG; each true relative residual checked",
+      "cg_rtol": 1e-10,
+      "cg_atol": 1e-12,
+      "cg_maxiter": 500,
+      "max_true_relative_residual": 5e-10,
+      "max_energy_drift": 1e-06,
+      "full_state_all_cells": true,
+      "pressure_derivative": "same endpoint-inclusive second order physical pressure p=rho du/dt",
+      "frequency_transfer": "original finite_record_pressure_transfer 250ms Q0 signed, no taper or smoothing",
+      "compare_independent_spectral_exact_all_modes_relative_complex_max": 2e-05,
+      "save_both_fullwave_complex_bins_and_failures": true,
+      "do_not_modify_original_pffdtd": true
+    },
+    "acceptance": {
+      "original_complex_limit": 0.2,
+      "original_magnitude_limit": 0.25,
+      "original_phase_deg_limit": 15,
+      "report_all_metrics_and_failure": true,
+      "one_pair_not_full_convergence_qualification": true
+    },
+    "limits": {
+      "max_fullwave_cases": 2,
+      "max_additional_original_native_PFFDTD_waves": 0,
+      "new_github_actions_runs": 0,
+      "do_not_delete_or_clean_scratch": true
+    },
+    "authority": {
+      "original_pffdtd_q0": "SELF_CONVERGENCE_FAILED",
+      "physics": "NOT_VALIDATED",
+      "product": "NO_GO",
+      "pr_draft": true,
+      "issue_open": true
+    }
+  },
+  "original_PFFDTD_q0": "SELF_CONVERGENCE_FAILED",
+  "physical_validation": "NOT_VALIDATED",
+  "product": "NO_GO",
+  "new_PFFDTD_wave_runs": 0,
+  "new_Actions_runs": 0,
+  "actual_true_corrected_KmkK_fv_direct_wave_cases": [
+    {
+      "ppw": 40,
+      "original_comms_sha256": "64a4f45cf19b92bb7a8a1ffd24af05e10877c99000e29bf985637b18e287763a",
+      "original_voxel_sha256": "c7c1894826c4774393987855e533081f615b22d510ec6042aacda12acbe0daaf",
+      "native_timestep_s": 0.00014419322973010905,
+      "native_samples": 1734,
+      "true_active_wave_dofs": 91415,
+      "original_q0_source_strength": 3.877237762237762,
+      "exact_roof_volume_m3": 55.99999999999979,
+      "true_new_full_state_250ms_pressure_signed_P_over_Q_40_80": [
+        [
+          -46.40266969813922,
+          4.747860890415557
+        ],
+        [
+          -24.777270189541724,
+          -209.2135724509363
+        ]
+      ],
+      "previous_independent_ALL_mode_signed_40_80": [
+        [
+          -46.402669503979254,
+          4.747861014947548
+        ],
+        [
+          -24.777269737279163,
+          -209.21357236262227
+        ]
+      ],
+      "actual_full_state_vs_independent_modal_complex_relative": 2.388165296362666e-09,
+      "CG_solver_and_energy_diagnostics": {
+        "linear_solver": "Jacobi-preconditioned scipy sparse CG with verified true residual",
+        "linear_solve_count": 1734,
+        "maximum_CG_iterations": 18,
+        "total_CG_iterations": 31189,
+        "maximum_true_linear_relative_residual": 9.67192304743913e-11,
+        "newmark_midpoint_homogeneous_energy_probes": [
+          {
+            "sample_index": 1,
+            "modified_midpoint_discrete_energy": 135442.62412958185
+          },
+          {
+            "sample_index": 433,
+            "modified_midpoint_discrete_energy": 135442.62421092344
+          },
+          {
+            "sample_index": 867,
+            "modified_midpoint_discrete_energy": 135442.62429276344
+          },
+          {
+            "sample_index": 1733,
+            "modified_midpoint_discrete_energy": 135442.6244503865
+          }
+        ],
+        "relative_energy_drift_after_source": 2.3685649675073098e-09,
+        "original_discrete_q0_unchanged": true,
+        "no_point_source_smoothing_or_taper": true
+      },
+      "original_physical_source_receiver_q0_unmodified": true,
+      "wall_seconds": 84.74415690009482
+    },
+    {
+      "ppw": 44,
+      "original_comms_sha256": "41c537b663ef11aa7404a248862f89398dec80fd3b6c794f4ecce4a0a8577ee4",
+      "original_voxel_sha256": "4a7cb6c30c013adc31d5b1910d50cef003cacbdd37a271ac3efa7a39956e505b",
+      "native_timestep_s": 0.00013108475430009911,
+      "native_samples": 1908,
+      "true_active_wave_dofs": 123032,
+      "original_q0_source_strength": 4.264961538461538,
+      "exact_roof_volume_m3": 56.000000000000234,
+      "true_new_full_state_250ms_pressure_signed_P_over_Q_40_80": [
+        [
+          3.371821076215884,
+          5.282508523703342
+        ],
+        [
+          24.624618535085858,
+          -208.24395850290435
+        ]
+      ],
+      "previous_independent_ALL_mode_signed_40_80": [
+        [
+          3.371823566459719,
+          5.282508477162281
+        ],
+        [
+          24.6246210396406,
+          -208.243958356486
+        ]
+      ],
+      "actual_full_state_vs_independent_modal_complex_relative": 1.6851311657513428e-08,
+      "CG_solver_and_energy_diagnostics": {
+        "linear_solver": "Jacobi-preconditioned scipy sparse CG with verified true residual",
+        "linear_solve_count": 1908,
+        "maximum_CG_iterations": 18,
+        "total_CG_iterations": 34321,
+        "maximum_true_linear_relative_residual": 9.580977802247392e-11,
+        "newmark_midpoint_homogeneous_energy_probes": [
+          {
+            "sample_index": 1,
+            "modified_midpoint_discrete_energy": 115901.5744492226
+          },
+          {
+            "sample_index": 477,
+            "modified_midpoint_discrete_energy": 115901.57452835196
+          },
+          {
+            "sample_index": 954,
+            "modified_midpoint_discrete_energy": 115901.57461192779
+          },
+          {
+            "sample_index": 1907,
+            "modified_midpoint_discrete_energy": 115901.57477110872
+          }
+        ],
+        "relative_energy_drift_after_source": 2.7772368527879705e-09,
+        "original_discrete_q0_unchanged": true,
+        "no_point_source_smoothing_or_taper": true
+      },
+      "original_physical_source_receiver_q0_unmodified": true,
+      "wall_seconds": 123.87756709987298
+    }
+  ],
+  "actual_corrected_full_state_PP40_44_original_three_gate_metrics": {
+    "complex_rms_relative": 0.3343250172993989,
+    "magnitude_max_relative": 6.443059910020387,
+    "magnitude_max_db": 17.435030293814457,
+    "phase_max_deg": 116.7079592623038,
+    "mask_floor": 0.663113248932321,
+    "compared_frequency_count": 2,
+    "frequency_metrics": [
+      {
+        "frequency_hz": 40.0,
+        "masked_in": true,
+        "magnitude_absolute": 40.37803171657567,
+        "magnitude_relative": 6.443059910020387,
+        "magnitude_db": 17.435030293814457,
+        "phase_deg": 116.7079592623038,
+        "complex_relative": 7.942896488203688
+      },
+      {
+        "frequency_hz": 80.0,
+        "masked_in": true,
+        "magnitude_absolute": 0.9808346376492239,
+        "magnitude_relative": 0.0046774385339931005,
+        "magnitude_db": 0.040532993330185195,
+        "phase_deg": 13.497954934823412,
+        "complex_relative": 0.23563482794973717
+      }
+    ]
+  },
+  "full_state_pair_passes_frozen_original_gate": false,
+  "experimental_wave_not_original_pffdtd_qualification": true
+}
