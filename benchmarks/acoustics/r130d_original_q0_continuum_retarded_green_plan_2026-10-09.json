@@ -1,0 +1,83 @@
+{
+  "schema_version": "htdt.r130d.continuum-retarded-point-green-reference-plan-1",
+  "created_jst": "2026-10-09",
+  "issue": 938,
+  "pr": 1055,
+  "scientific_goal": "Independently separate original native 8-node Cartesian source/receiver geometry interpolation error from singular free-space retarded point Green physics, before assuming additional numeric spatial schemes can fix the original 250ms broadband q0 problem. Compute all five SHA-pinned actual native HDF5 eightpoint weights in analytic continuum 3D retarded Green, plus exactly one first-image planar reflection per true Neumann face with specular-foot validity; DO NOT use finite-reflection model as full-room 250ms physical qualification.",
+  "prospective_original_frozen": {
+    "upstream_sha": "aa319f6c86517cb95aabfae8656277da62c3ead5",
+    "ppw": [
+      28,
+      32,
+      36,
+      40,
+      44
+    ],
+    "raw_native_HDF5_evidence": "benchmarks/acoustics/r130d_original_point_quadratic_pffdtd_evidence_2026-10-09.json",
+    "native_actual_full_modes_evidence": "benchmarks/acoustics/r130d_original_pffdtd_native_full_modal_q0_evidence_2026-10-09.json",
+    "point_source_xyz_m": [
+      1.5,
+      2,
+      2
+    ],
+    "point_receiver_xyz_m": [
+      2.5,
+      2,
+      2
+    ],
+    "source_original_input_sum_in_sigs": true,
+    "source_original_8node_SHA": true,
+    "receiver_original_8node_SHA": true,
+    "native_Ts_Nt_h_original": true,
+    "original_q0_0_1_later_0": true,
+    "full_actual_record_s": 0.25,
+    "freq_hz": [
+      40,
+      80
+    ],
+    "sound_speed_m_s": 343.2,
+    "rho_kg_m3": 1.2,
+    "original_full_signed_complex_gate": 0.2,
+    "original_full_magnitude_gate": 0.25,
+    "original_full_phase_deg_gate": 15,
+    "original_original_status": "SELF_CONVERGENCE_FAILED"
+  },
+  "retarded_reference": {
+    "equation": "free-space retarded wave Green in 3D G(r,t)=δ(t-r/c)/(4πr) at r>0; for signed exp(+iωt) time Fourier integral G+(ω,r)=exp(+iωr/c)/(4πr). Point impulse native pressure derivative multiplies common -iω rho; normalized eightnode-vs-true-point ratio cancels unknown fixed q0 physical force scale.",
+    "original_eightnode_spatial_functional": "sum_{i=0..7,j=0..7} original_in_sigs[i,0]/sum(in_sigs[:,0]) * original_out_alpha[j] * exp(+iω||x_i-x_j||/c)/(4π||x_i-x_j||); original eight points and real comms/voxel SHAs verified",
+    "true_point": "exp(+iω*1m/c)/(4π*1m)",
+    "first_reflections": "six individual rigid planar image sources x=0 x=4 y=0 y=4 z=0 z=4-.25*y, reflect geometric source through corresponding infinite plane then receiver; specular reflection foot on finite original wall face required, compute from image source to receiver and line-plane intersection",
+    "causal_arrival": "direct travel 1/c and shortest single valid image arrival; direct-only continuum valid before first reflected arrival (in simple constant-c geometric acoustics) but not full native 250ms Neumann response",
+    "record": "report all five original HDF5 spatially weighted signed 40/80 image/direct coefficients and unweighted true-point baseline plus both finite 250ms original saved signed native P_T/Q_T. Signed complex 40/80 intrinsic original three gates recomputed unchanged; analytic direct field is diagnostic only, not an alternate pass criterion.",
+    "geometry": "true 56m3 wedge x0..4 y0..4 0<=z<=4-.25y; reflective walls individually planar first bounce",
+    "finite_record_interpretation": "retarded one-shot direct pulse reaches receiver within original T, so unwindowed distributional first-arrival integral equals infinite-time direct Green; reflected and multibounce path contributions in 250ms unknown from first images alone; no whole-room physical equivalence claim",
+    "no_amplitude_fit_or_q0_change": true,
+    "no_modal_cutoff_or_frequency_bin_mask": true
+  },
+  "acceptance": {
+    "geometry_8node_max_relative_complex_at_40_80_report_all": true,
+    "original_8node_5grid_all_pairs_and_three_gates_recompute": true,
+    "independent_analytic_images_on_plane_reflection_law_tests": true,
+    "analytic_source_receiver_swap_reciprocity": true,
+    "analytic_point_green_rotation_translation_invariance": true,
+    "nonzero_true_min_direct_reflection_time_gap": true,
+    "exact_eight_weight_and_flat_index_mass_moments": true,
+    "source_receiver_physical_position_fixed": true,
+    "all_unfavorable_results": true,
+    "no_physical_qualification_claim": true
+  },
+  "limits": {
+    "max_five_grid_cases": 5,
+    "max_image_planes": 6,
+    "no_native_pffdtd_reruns": 0,
+    "no_github_actions_runs": 0,
+    "preserve_scratch": true
+  },
+  "release": {
+    "original_PFFDTD": "SELF_CONVERGENCE_FAILED",
+    "independent_physics": "NOT_VALIDATED",
+    "product": "NO_GO",
+    "pr_draft": true,
+    "issue_open": true
+  }
+}
