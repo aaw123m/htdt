@@ -1,0 +1,649 @@
+{
+  "schema_version": "htdt.r130d.fixed-spatial-impulse-observed-1",
+  "plan_sha256": "26b1c8d7f9c9297f51a2c39071868d70917bafd075a3e80db589df10e2d2df3c",
+  "plan": {
+    "schema_version": "htdt.r130d.fixed-spatial-gaussian-impulse-diagnostic-plan-1",
+    "date": "2026-10-09",
+    "issue": 938,
+    "pr": 1055,
+    "purpose": "Isolate fixed-physical-width source and receiver operator sensitivity from original point-like source/receiver, while keeping the original q[0]=1 temporal impulse. This is a changed spatial model and NEVER original-impulse qualification.",
+    "geometry": {
+      "kind": "original 56 m3 exactly planar sloped room",
+      "domain": "0<=x<=4, 0<=y<=4, 0<=z<=4-0.25*y",
+      "volume_m3": 56,
+      "source_xyz_m": [
+        1.5,
+        2,
+        2
+      ],
+      "receiver_xyz_m": [
+        2.5,
+        2,
+        2
+      ],
+      "sound_speed_m_s": 343.2,
+      "density_kg_m3": 1.2,
+      "boundary": "natural rigid Neumann"
+    },
+    "spatial_kernel": {
+      "kind": "positive isotropic Gaussian exp(-|x-x0|^2/(2*sigma^2)) over physical air domain",
+      "width_parameter": "sigma_m",
+      "sigma_m": [
+        0.35,
+        0.7
+      ],
+      "source_and_receiver_identical_kernel_rule": true,
+      "integral_over_domain_normalized_to_one_separately_at_each_grid": true,
+      "retains_full_room_gaussian_tail": true,
+      "source_force": "c^2 * volume_integral(N_i * normalized_gaussian_source) * q_mid",
+      "receiver_pressure": "rho * sum(volume_integral(N_i * normalized_gaussian_receiver) * v_mid_i)",
+      "fv_integration": "tensor Gauss-Legendre 4 points x,y,z, exact roof-clipped integration z upper=min(zcell_hi,4-0.25*y), piecewise split at roof crossing within y-cell",
+      "mfem_integration": "MFEM H1 P2 DomainLFIntegrator GaussianCoefficient on independently triangulated sloped room; integration rule explicitly order 10; normalize by sum of P2 linear-form weights (partition of unity)",
+      "point_model_control": "existing point-source/receiver exact-discrete q0 evidence, unchanged; no Gaussian temporal source"
+    },
+    "temporal_source": {
+      "waveform": "q[0]=1, q[n>0]=0",
+      "dt_s": 0.00025,
+      "steps": 1000,
+      "duration_s": 0.25,
+      "frequency_bins_hz": [
+        40,
+        80
+      ],
+      "phase_convention": "P_T/Q_T with exp(+i*2*pi*f*t_mid), same time midpoint samples for both",
+      "window": "un-tapered finite record",
+      "frequency_mask": "none",
+      "temporal_smoothing": false
+    },
+    "spatial_levels": {
+      "fv_n": [
+        12,
+        20,
+        32
+      ],
+      "independent_mfem_P2_r": [
+        2,
+        3,
+        4
+      ],
+      "mfem_pinned_commit": "d964264cdb9a13e94a201b6c236c7721e0c8765f",
+      "original_r4_raw_system_sha256": "e1c67d02db77a6e8775a0a59d8e75fa996434d58f8efae077f4cec2cf2c831ed"
+    },
+    "metrics": {
+      "record_each_level_all_complex_bins": true,
+      "record_per_frequency_magnitude_and_phase": true,
+      "record_adjacent_fv_and_mfem_relative_complex_L2": true,
+      "record_adjacent_max_magnitude_and_phase": true,
+      "record_finest_cross_method": true,
+      "reference_thresholds_unchanged_from_original_impulse": {
+        "fv_complex_l2_max": 0.2,
+        "fv_max_magnitude_relative": 0.25,
+        "fv_max_phase_deg": 15,
+        "mfem_complex_l2_max": 0.05,
+        "mfem_max_magnitude_relative": 0.08,
+        "mfem_max_phase_deg": 5,
+        "cross_complex_l2_max": 0.35,
+        "cross_max_magnitude_relative": 0.4,
+        "cross_max_magnitude_db": 3,
+        "cross_max_phase_deg": 25
+      },
+      "claim": "diagnostic per sigma only; any PASS does not change original impulse, general CAD, or production authority"
+    },
+    "linear_solver": {
+      "method": "Jacobi-PCG for independent P2, direct sparse LU for FV",
+      "rtol": 1e-11,
+      "atol": 0,
+      "maxiter": 350,
+      "true_relative_residual_max": 1e-08
+    },
+    "limits": {
+      "max_wave_steps": 1000,
+      "max_fv_n": 32,
+      "max_mfem_dofs": 35937,
+      "max_gaussian_width_cases": 2,
+      "max_fem_raw_json_bytes": 120000000,
+      "max_integration_order": 10,
+      "CI_job_timeout_minutes": 45
+    },
+    "integrity": {
+      "fail_closed_on_missing_levels_or_nonfinite_bands": true,
+      "no_post_hoc_width_or_threshold_changes": true,
+      "no_dropped_phase_or_amplitude_values": true,
+      "preserve_independent_fem_sparse_system_hash": true,
+      "commit_this_plan_before_any_numerical_result": true
+    },
+    "authority": {
+      "original_fullband_PFFDTD": "SELF_CONVERGENCE_FAILED",
+      "original_discrete_impulse_candidate": "NOT_QUALIFIED",
+      "physical_measurement": "NOT_VALIDATED",
+      "issue938": "OPEN",
+      "pr1055": "DRAFT",
+      "production_ready": false
+    }
+  },
+  "fv_levels": {
+    "0.35": [
+      {
+        "n": 12,
+        "dofs": 1584,
+        "integration": {
+          "total_quadrature_volume_m3": 56.00000000000079,
+          "max_cut_cell_volume_quadrature_error_m3": 1.1796119636642288e-16,
+          "quadrature_points_per_dimension": 4
+        },
+        "complex_40_80_hz": [
+          [
+            23.564631071963387,
+            21.93460009654554
+          ],
+          [
+            63.76497715245971,
+            -43.20553420757646
+          ]
+        ],
+        "magnitude_40_80_hz": [
+          32.19345459799426,
+          77.02396054096263
+        ],
+        "phase_deg_40_80_hz": [
+          42.94822972128894,
+          -34.120572780060776
+        ],
+        "worst_true_relative_linear_residual": 5.542133188710968e-16,
+        "maximum_cg_iterations": 0,
+        "sampled_time_impulse_q0_only": true
+      },
+      {
+        "n": 20,
+        "dofs": 7200,
+        "integration": {
+          "total_quadrature_volume_m3": 56.00000000000537,
+          "max_cut_cell_volume_quadrature_error_m3": 3.8163916471489756e-17,
+          "quadrature_points_per_dimension": 4
+        },
+        "complex_40_80_hz": [
+          [
+            37.77624011857563,
+            10.273282446384004
+          ],
+          [
+            86.39798716031503,
+            -122.86142461487681
+          ]
+        ],
+        "magnitude_40_80_hz": [
+          39.148239420431985,
+          150.1983416810952
+        ],
+        "phase_deg_40_80_hz": [
+          15.21370717825636,
+          -54.88454127744022
+        ],
+        "worst_true_relative_linear_residual": 9.131542370435886e-16,
+        "maximum_cg_iterations": 0,
+        "sampled_time_impulse_q0_only": true
+      },
+      {
+        "n": 32,
+        "dofs": 29184,
+        "integration": {
+          "total_quadrature_volume_m3": 55.99999999999999,
+          "max_cut_cell_volume_quadrature_error_m3": 8.673617379884035e-19,
+          "quadrature_points_per_dimension": 4
+        },
+        "complex_40_80_hz": [
+          [
+            42.16433648063383,
+            5.8903667172148895
+          ],
+          [
+            76.64530800920299,
+            -147.17239544334026
+          ]
+        ],
+        "magnitude_40_80_hz": [
+          42.57379112688206,
+          165.93437624662505
+        ],
+        "phase_deg_40_80_hz": [
+          7.952763266290034,
+          -62.49013535367172
+        ],
+        "worst_true_relative_linear_residual": 1.827192967931092e-15,
+        "maximum_cg_iterations": 0,
+        "sampled_time_impulse_q0_only": true
+      }
+    ],
+    "0.7": [
+      {
+        "n": 12,
+        "dofs": 1584,
+        "integration": {
+          "total_quadrature_volume_m3": 56.00000000000079,
+          "max_cut_cell_volume_quadrature_error_m3": 1.1796119636642288e-16,
+          "quadrature_points_per_dimension": 4
+        },
+        "complex_40_80_hz": [
+          [
+            18.63547755359877,
+            16.463958702635505
+          ],
+          [
+            29.744747008077578,
+            -20.31303563379162
+          ]
+        ],
+        "magnitude_40_80_hz": [
+          24.866502766025842,
+          36.019014301258
+        ],
+        "phase_deg_40_80_hz": [
+          41.45975832968664,
+          -34.3296259034245
+        ],
+        "worst_true_relative_linear_residual": 5.596691367179109e-16,
+        "maximum_cg_iterations": 0,
+        "sampled_time_impulse_q0_only": true
+      },
+      {
+        "n": 20,
+        "dofs": 7200,
+        "integration": {
+          "total_quadrature_volume_m3": 56.00000000000537,
+          "max_cut_cell_volume_quadrature_error_m3": 3.8163916471489756e-17,
+          "quadrature_points_per_dimension": 4
+        },
+        "complex_40_80_hz": [
+          [
+            22.830933847329824,
+            11.323210409972754
+          ],
+          [
+            35.458048647664626,
+            -51.82096499751172
+          ]
+        ],
+        "magnitude_40_80_hz": [
+          25.484635259890734,
+          62.790808460900436
+        ],
+        "phase_deg_40_80_hz": [
+          26.379532772246815,
+          -55.618451164033736
+        ],
+        "worst_true_relative_linear_residual": 9.143216624552883e-16,
+        "maximum_cg_iterations": 0,
+        "sampled_time_impulse_q0_only": true
+      },
+      {
+        "n": 32,
+        "dofs": 29184,
+        "integration": {
+          "total_quadrature_volume_m3": 55.99999999999999,
+          "max_cut_cell_volume_quadrature_error_m3": 8.673617379884035e-19,
+          "quadrature_points_per_dimension": 4
+        },
+        "complex_40_80_hz": [
+          [
+            21.973103659775333,
+            9.403689470347329
+          ],
+          [
+            28.269729230739205,
+            -61.096757709639185
+          ]
+        ],
+        "magnitude_40_80_hz": [
+          23.900766935350703,
+          67.32006679593883
+        ],
+        "phase_deg_40_80_hz": [
+          23.169164102710035,
+          -65.16981908699972
+        ],
+        "worst_true_relative_linear_residual": 1.805375447261548e-15,
+        "maximum_cg_iterations": 0,
+        "sampled_time_impulse_q0_only": true
+      }
+    ]
+  },
+  "mfem_levels": {
+    "0.35": [
+      {
+        "r": 2,
+        "dofs": 729,
+        "mfem_reference_raw_sha256": "e61410d4a69000c39975762b9986008974353953f7d8d9f100f9953a33c5ecb4",
+        "independent_gaussian_functionals_sha256": "4c0bf9a3d09a5c37383f70364995d11d6885516334dc64e64b10b57986e3d6c7",
+        "complex_40_80_hz": [
+          [
+            26.820072251366373,
+            3.714382240541235
+          ],
+          [
+            11.776903247784253,
+            -160.19064565598305
+          ]
+        ],
+        "magnitude_40_80_hz": [
+          27.07605789248798,
+          160.62296973281371
+        ],
+        "phase_deg_40_80_hz": [
+          7.884886998653866,
+          -85.79529071025492
+        ],
+        "worst_true_relative_linear_residual": 9.99414077343903e-12,
+        "maximum_cg_iterations": 42,
+        "sampled_time_impulse_q0_only": true
+      },
+      {
+        "r": 3,
+        "dofs": 4913,
+        "mfem_reference_raw_sha256": "6a43a624223fa512152059d103c4d841723fa1266ea8a22842322fb50db42511",
+        "independent_gaussian_functionals_sha256": "090baa497d90739f2dbb24062eaa98e73dba28103c3399d4d135e25f3835751d",
+        "complex_40_80_hz": [
+          [
+            39.77145334231682,
+            2.6144872062198394
+          ],
+          [
+            58.6628180287794,
+            -161.7585549226541
+          ]
+        ],
+        "magnitude_40_80_hz": [
+          39.85729599849407,
+          172.06730168670336
+        ],
+        "phase_deg_40_80_hz": [
+          3.7610860132429824,
+          -70.06648604604938
+        ],
+        "worst_true_relative_linear_residual": 9.995815756280252e-12,
+        "maximum_cg_iterations": 36,
+        "sampled_time_impulse_q0_only": true
+      },
+      {
+        "r": 4,
+        "dofs": 35937,
+        "mfem_reference_raw_sha256": "e1c67d02db77a6e8775a0a59d8e75fa996434d58f8efae077f4cec2cf2c831ed",
+        "independent_gaussian_functionals_sha256": "ae527d0af6c9d0a983acb80042fc278693cf3c1baa23ff0da0a2412e0c55d799",
+        "complex_40_80_hz": [
+          [
+            33.39282686414442,
+            2.844941731342441
+          ],
+          [
+            53.72302758263304,
+            -160.16646376268923
+          ]
+        ],
+        "magnitude_40_80_hz": [
+          33.5137968519453,
+          168.936259597782
+        ],
+        "phase_deg_40_80_hz": [
+          4.869623146464323,
+          -71.45751961936756
+        ],
+        "worst_true_relative_linear_residual": 9.984853088318556e-12,
+        "maximum_cg_iterations": 32,
+        "sampled_time_impulse_q0_only": true
+      }
+    ],
+    "0.7": [
+      {
+        "r": 2,
+        "dofs": 729,
+        "mfem_reference_raw_sha256": "e61410d4a69000c39975762b9986008974353953f7d8d9f100f9953a33c5ecb4",
+        "independent_gaussian_functionals_sha256": "4c0bf9a3d09a5c37383f70364995d11d6885516334dc64e64b10b57986e3d6c7",
+        "complex_40_80_hz": [
+          [
+            17.088753255856833,
+            7.766353397872856
+          ],
+          [
+            3.483400246776048,
+            -67.7100707617278
+          ]
+        ],
+        "magnitude_40_80_hz": [
+          18.770768043428824,
+          67.79961474696907
+        ],
+        "phase_deg_40_80_hz": [
+          24.44044872083368,
+          -87.05496787427482
+        ],
+        "worst_true_relative_linear_residual": 9.999557100173263e-12,
+        "maximum_cg_iterations": 40,
+        "sampled_time_impulse_q0_only": true
+      },
+      {
+        "r": 3,
+        "dofs": 4913,
+        "mfem_reference_raw_sha256": "6a43a624223fa512152059d103c4d841723fa1266ea8a22842322fb50db42511",
+        "independent_gaussian_functionals_sha256": "090baa497d90739f2dbb24062eaa98e73dba28103c3399d4d135e25f3835751d",
+        "complex_40_80_hz": [
+          [
+            20.655802125268124,
+            8.184925198696302
+          ],
+          [
+            20.59114092103437,
+            -66.11367607466252
+          ]
+        ],
+        "magnitude_40_80_hz": [
+          22.21835191787377,
+          69.24603417189536
+        ],
+        "phase_deg_40_80_hz": [
+          21.616099376486392,
+          -72.70077109980049
+        ],
+        "worst_true_relative_linear_residual": 9.995178558247483e-12,
+        "maximum_cg_iterations": 35,
+        "sampled_time_impulse_q0_only": true
+      },
+      {
+        "r": 4,
+        "dofs": 35937,
+        "mfem_reference_raw_sha256": "e1c67d02db77a6e8775a0a59d8e75fa996434d58f8efae077f4cec2cf2c831ed",
+        "independent_gaussian_functionals_sha256": "ae527d0af6c9d0a983acb80042fc278693cf3c1baa23ff0da0a2412e0c55d799",
+        "complex_40_80_hz": [
+          [
+            20.776951788986885,
+            8.335733945590377
+          ],
+          [
+            21.639374100202176,
+            -65.44330471993574
+          ]
+        ],
+        "magnitude_40_80_hz": [
+          22.38674130045624,
+          68.92814116248069
+        ],
+        "phase_deg_40_80_hz": [
+          21.860706060699442,
+          -71.70310125795488
+        ],
+        "worst_true_relative_linear_residual": 9.993676746212274e-12,
+        "maximum_cg_iterations": 31,
+        "sampled_time_impulse_q0_only": true
+      }
+    ]
+  },
+  "mfem_status": "ACTUALLY_SOLVED",
+  "waveform_q0_sha256": "54ddad6daf320b3e443bfbf77b7b38536a643142addba4e6888a2004fd4324a6",
+  "comparisons": {
+    "0.35": {
+      "fv_adjacent": [
+        {
+          "normalized_complex_l2": 0.5464947393585083,
+          "complex_relative_by_hz": [
+            0.469589035971666,
+            0.5513303254433495
+          ],
+          "magnitude_relative_by_hz": [
+            0.17765255667686372,
+            0.487185013636823
+          ],
+          "phase_difference_deg_by_hz": [
+            27.734522543032583,
+            20.76396849737945
+          ]
+        },
+        {
+          "normalized_complex_l2": 0.1571340170569274,
+          "complex_relative_by_hz": [
+            0.14567749418772116,
+            0.15785901400344832
+          ],
+          "magnitude_relative_by_hz": [
+            0.08046151436786425,
+            0.09483287864439666
+          ],
+          "phase_difference_deg_by_hz": [
+            7.260943911966326,
+            7.605594076231498
+          ]
+        }
+      ],
+      "mfem_adjacent": [
+        {
+          "normalized_complex_l2": 0.27561222282535824,
+          "complex_relative_by_hz": [
+            0.32611347827977616,
+            0.272638224573312
+          ],
+          "magnitude_relative_by_hz": [
+            0.3206749927664185,
+            0.0665107887536195
+          ],
+          "phase_difference_deg_by_hz": [
+            4.123800985410885,
+            15.728804664205548
+          ]
+        },
+        {
+          "normalized_complex_l2": 0.04776539179976007,
+          "complex_relative_by_hz": [
+            0.1904525534630019,
+            0.03072175109350698
+          ],
+          "magnitude_relative_by_hz": [
+            0.1892802291119861,
+            0.018533866538634255
+          ],
+          "phase_difference_deg_by_hz": [
+            1.1085371332213414,
+            1.391033573318191
+          ]
+        }
+      ],
+      "cross_finest": {
+        "normalized_complex_l2": 0.16221052115258205,
+        "complex_relative_by_hz": [
+          0.277054526745252,
+          0.15597084932718844
+        ],
+        "magnitude_relative_by_hz": [
+          0.27033625330371575,
+          0.017769325296440746
+        ],
+        "phase_difference_deg_by_hz": [
+          3.0831401198257105,
+          8.967384265695836
+        ]
+      }
+    },
+    "0.7": {
+      "fv_adjacent": [
+        {
+          "normalized_complex_l2": 0.4825764540787068,
+          "complex_relative_by_hz": [
+            0.26037046051559143,
+            0.5099748589539326
+          ],
+          "magnitude_relative_by_hz": [
+            0.024255104597778795,
+            0.42636485842212274
+          ],
+          "phase_difference_deg_by_hz": [
+            15.08022555743983,
+            21.288825260609233
+          ]
+        },
+        {
+          "normalized_complex_l2": 0.16688760758558943,
+          "complex_relative_by_hz": [
+            0.08796716229615299,
+            0.1743178154843375
+          ],
+          "magnitude_relative_by_hz": [
+            0.06626851468089891,
+            0.06727946882119888
+          ],
+          "phase_difference_deg_by_hz": [
+            3.2103686695367752,
+            9.551367922965989
+          ]
+        }
+      ],
+      "mfem_adjacent": [
+        {
+          "normalized_complex_l2": 0.2413728404550646,
+          "complex_relative_by_hz": [
+            0.16164670383517568,
+            0.24813063399801427
+          ],
+          "magnitude_relative_by_hz": [
+            0.1551682990344348,
+            0.02088811933020914
+          ],
+          "phase_difference_deg_by_hz": [
+            2.8243493443472865,
+            14.354196774474335
+          ]
+        },
+        {
+          "normalized_complex_l2": 0.017375025077072195,
+          "complex_relative_by_hz": [
+            0.008641000367577513,
+            0.018051597423937808
+          ],
+          "magnitude_relative_by_hz": [
+            0.00752183537221829,
+            0.004611948096283672
+          ],
+          "phase_difference_deg_by_hz": [
+            0.24460668421304846,
+            0.9976698418456084
+          ]
+        }
+      ],
+      "cross_finest": {
+        "normalized_complex_l2": 0.11160926808107786,
+        "complex_relative_by_hz": [
+          0.07162855587479693,
+          0.11501915442760553
+        ],
+        "magnitude_relative_by_hz": [
+          0.06763046102040796,
+          0.023329721931006776
+        ],
+        "phase_difference_deg_by_hz": [
+          1.3084580420105942,
+          6.533282170955157
+        ]
+      }
+    }
+  },
+  "original_fullband_PFFDTD": "SELF_CONVERGENCE_FAILED",
+  "original_discrete_impulse_candidate": "NOT_QUALIFIED",
+  "physical_validation": "NOT_VALIDATED",
+  "production_ready": false,
+  "spatial_model_changed_from_original_point_source": true
+}
