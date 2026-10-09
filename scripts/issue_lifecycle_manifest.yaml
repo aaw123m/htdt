@@ -1400,7 +1400,7 @@ entries:
       commits: [73a90e8f98463b9895466f9f7f09cff3f04826f0]
     remaining_gates:
       - kind: manual
-        description: Operator acceptance of the dynamic-a11y UX (announcements, disabled-reason Tab reachability); spec decision pending on Enter activating a focused non-dialog button; pre-existing unnamed controls remain outside scope.
+        description: Operator acceptance of the dynamic-a11y UX (announcements, disabled-reason Tab reachability); spec decision RESOLVED by operator 2026-10-09: Enter must NOT activate a focused non-dialog button (Space only, Windows standard) — no code change; pre-existing unnamed controls remain outside scope.
     evidence_refs:
       - docs/issues/issue-975-dynamic-a11y.md
       - backend/tests/test_dynamic_a11y.py
