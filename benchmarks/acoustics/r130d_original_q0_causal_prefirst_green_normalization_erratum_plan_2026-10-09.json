@@ -1,0 +1,97 @@
+{
+  "schema_version": "htdt.r130d.original-q0-causal-prefirst-green-amplitude-correction-plan-1",
+  "created_jst": "2026-10-09",
+  "issue": 938,
+  "pr": 1055,
+  "diagnostic_erratum": "An already executed first preregistered source-to-Green weak test incorrectly multiplied expected weak pressure by c². Original incorrect plan 0c405ce1233d060d343756a4c9771c958ec02a99 and first outcomes have been OBSERVED. Preserve historical first JSON untouched and explicitly mark its wave-vs-theory absolute ratios INVALID due to units. No retrospective claims that observed widths were prospectively correct. Apply rigorous wave-operator fundamental-solution normalization to NEW predeclared widths only.",
+  "original_preobserved_first_experiment": {
+    "preregistered_commit": "0c405ce1233d060d343756a4c9771c958ec02a99",
+    "prospectively_wrong_formula": "W=-rho*c²*sum_64 sw*rw*w_prime(r/c)/(4πr)",
+    "already_computed_widths_s": [
+      0.0005,
+      0.0008,
+      0.0012
+    ],
+    "already_observed_old_normalized_per_grid_values": true,
+    "first_evidence_keep_filename": "benchmarks/acoustics/r130d_original_q0_causal_prefirst_weak_evidence_2026-10-09.json",
+    "old_analytic_absolute_comparison_INVALID": true
+  },
+  "theoretical_correction": {
+    "original_leapfrog_injection": "native in_sigs[:,0] sums to c²*dt²/h³ and yields equivalent PDE [(1/c²)∂t²−∇²] phi = delta_spatial * q(t) with q(t) a unit-height native one-sample source; native q pulse area dt",
+    "causal_fundamental_for_PDE_L": "L=(1/c²)∂t²−∇² has causal retarded G=δ(t-r/c)/(4πr) for r>0",
+    "full_source_equation": "[∂t²−c²∇²]phi=c² delta_spatial q(t), and for source q0 sample approximation q(t)=1 on first dt and 0 afterwards; continuum short impulse gives phi≈dt*G (not dt*c²*G)",
+    "pressure_normalization": "p=rho*∂t phi; normalized source Q_T=dt; integrated pressure response weak ∫p(t)*w(t) dt/Q_T = -rho*sum_64 sw_i rw_j w_prime(rij/c)/(4πrij), NO extra c²",
+    "no_fitted_amplitude": true,
+    "not_a_native_solver_kernel_change": true
+  },
+  "fixed_experiment": {
+    "new_not_previously_computed_widths_s": [
+      0.00065,
+      0.001,
+      0.0015
+    ],
+    "previous_widths_must_be_treated_as_exploratory": true,
+    "original_source_m": [
+      1.5,
+      2,
+      2
+    ],
+    "original_receiver_m": [
+      2.5,
+      2,
+      2
+    ],
+    "original_real_HDF5_sha_and_fullwave": "benchmarks/acoustics/r130d_original_point_quadratic_pffdtd_evidence_2026-10-09.json",
+    "previous_exact_all_original_modal_waves": "benchmarks/acoustics/r130d_original_pffdtd_native_full_modal_q0_evidence_2026-10-09.json",
+    "prior_true_single_point_green": "benchmarks/acoustics/r130d_original_q0_continuum_retarded_green_evidence_2026-10-09.json",
+    "PPW": [
+      28,
+      32,
+      36,
+      40,
+      44
+    ],
+    "native_original_q0_HDF5_8node_weights_and_indices_unchanged": true,
+    "original_full250ms_time_all_modes_preserved": true,
+    "physical_witness_center_s": 0.002913752913752914,
+    "physical_compact_support_radius_s": 0.0032,
+    "physical_witness_formula": "x/sigma exp(-x²/(2sigma²)) exp(1-1/(1-(x/R)²)) inside |x|<R, else zero. Analytic derivative exactly, fixed no time shift.",
+    "original_sampled_forward_center_backward_pressure_unchanged": true,
+    "original_rho": 1.2,
+    "original_c_m_s": 343.2,
+    "no_damping_taper_posthoc_phase_fit_or_modal_mask": true,
+    "original_complete_signed_40_80_frozen_three_gates": [
+      0.2,
+      0.25,
+      15
+    ],
+    "all_four_pairs_original_still_scored": true,
+    "all_previous_lowband_and_highband_original_full_time_metrics_kept": true,
+    "original_first_reflection_s": 0.0089668767033651,
+    "physical_witness_upper_end_s": 0.006113752913752914
+  },
+  "tests": {
+    "analytic_derived_corrected_green_vs_independent_source_leapfrog_dimension_test": true,
+    "gaussian_test_derivative_signed_validation_on_new_widths": true,
+    "analytic_8node_true_point_and_all_reflected_wall_causality": true,
+    "original_full_250ms_native_40_80_and_SHA_exact_replay": true,
+    "all_five_original_distributions_report_real_values_no_relative_gate_substitution": true,
+    "all_3_new_widths_and_original_three_gates_all_four_pairs": true,
+    "report_errors_even_if_uncorrected_and_corrected_differ_widely": true,
+    "original_first_wrong_absolute_scores_invalid_and_not_overwritten": true
+  },
+  "limits": {
+    "new_original_pffdtd_wave_runs": 0,
+    "new_github_actions_runs": 0,
+    "preserve_scratch": true,
+    "max_cases": 5,
+    "max_new_witness_widths": 3
+  },
+  "release": {
+    "original_PFFDTD": "SELF_CONVERGENCE_FAILED",
+    "physical_reference": "NOT_VALIDATED",
+    "product": "NO_GO",
+    "draft_pr": true,
+    "issue_open": true
+  }
+}
