@@ -11,6 +11,12 @@ on:
       - 'backend/tests/test_r130d_convex_obj_import.py'
       - 'backend/tests/test_r130d_convex_sliver_and_optin.py'
       - 'backend/tests/test_r130d_convex_high_resolution_evidence.py'
+      - 'backend/tests/test_r130d_convex_independent_mfem_contract.py'
+      - 'backend/tests/test_r130d_convex_mfem_actual_evidence.py'
+      - 'benchmarks/acoustics/r130d_convex_independent_mfem_*'
+      - 'benchmarks/acoustics/r130d_convex_high_fv_vs_mfem_r4_supplemental_2026-10-09.json'
+      - 'scripts/assess_r130d_convex_high_fv_mfem.py'
+      - 'scripts/run_r130d_convex_independent_mfem_drive.py'
       - 'benchmarks/acoustics/r130d_convex_obj_fixtures/**'
       - 'benchmarks/acoustics/r130d_convex_high_resolution_followup*'
       - 'scripts/run_r130d_experimental_convex_obj_wave.py'
@@ -70,6 +76,8 @@ jobs:
           Copy-Item backend/tests/test_r130d_convex_obj_import.py scratch/tests/
           Copy-Item backend/tests/test_r130d_convex_sliver_and_optin.py scratch/tests/
           Copy-Item backend/tests/test_r130d_convex_high_resolution_evidence.py scratch/tests/
+          Copy-Item backend/tests/test_r130d_convex_independent_mfem_contract.py scratch/tests/
+          Copy-Item backend/tests/test_r130d_convex_mfem_actual_evidence.py scratch/tests/
           Copy-Item backend/tests/test_r130d_convex_multiplane_evidence.py scratch/tests/
           Copy-Item backend/tests/test_r130d_embedded_neumann_fv_evidence.py scratch/tests/
           Copy-Item backend/tests/test_r130d_fv_mfem_same_drive.py scratch/tests/
@@ -77,7 +85,7 @@ jobs:
           Copy-Item backend/tests/test_r130d_mfem_ref4_same_drive.py scratch/tests/
           Copy-Item backend/tests/test_r130d_mfem_ref4_same_source_result.py scratch/tests/
           $env:PYTHONPATH = Join-Path $pwd 'backend/src'
-          python -m pytest -q scratch/tests/test_r130d_convex_obj_import.py scratch/tests/test_r130d_convex_sliver_and_optin.py scratch/tests/test_r130d_convex_high_resolution_evidence.py scratch/tests/test_r130d_embedded_convex_cutcell.py scratch/tests/test_r130d_convex_multiplane_evidence.py scratch/tests/test_r130d_embedded_neumann_fv.py scratch/tests/test_r130d_embedded_neumann_fv_evidence.py scratch/tests/test_r130d_fv_mfem_same_drive.py scratch/tests/test_r130d_candidate_same_source_qualification.py scratch/tests/test_r130d_mfem_ref4_same_drive.py scratch/tests/test_r130d_mfem_ref4_same_source_result.py --tb=short
+          python -m pytest -q scratch/tests/test_r130d_convex_independent_mfem_contract.py scratch/tests/test_r130d_convex_mfem_actual_evidence.py scratch/tests/test_r130d_convex_obj_import.py scratch/tests/test_r130d_convex_sliver_and_optin.py scratch/tests/test_r130d_convex_high_resolution_evidence.py scratch/tests/test_r130d_embedded_convex_cutcell.py scratch/tests/test_r130d_convex_multiplane_evidence.py scratch/tests/test_r130d_embedded_neumann_fv.py scratch/tests/test_r130d_embedded_neumann_fv_evidence.py scratch/tests/test_r130d_fv_mfem_same_drive.py scratch/tests/test_r130d_candidate_same_source_qualification.py scratch/tests/test_r130d_mfem_ref4_same_drive.py scratch/tests/test_r130d_mfem_ref4_same_source_result.py --tb=short
       - name: Recompute modal benchmark and compare frozen evidence
         shell: pwsh
         env:
@@ -276,3 +284,46 @@ jobs:
                   assert abs(r['complex_l2_relative']-s['complex_l2_relative'])<1e-6
           print('PASS: both convex rooms actual Gaussian FV n24/n28/n32 recorded and honest')
           '@ | python -
+      - name: Re-evaluate 8 pinned independently driven convex MFEM levels without any synthetic pass
+        shell: pwsh
+        env:
+          PYTHONUTF8: '1'
+        run: |
+          python scripts/run_r130d_convex_independent_mfem_drive.py `
+            --plan benchmarks/acoustics/r130d_convex_independent_mfem_plan_2026-10-09.json `
+            --mesh-provenance benchmarks/acoustics/r130d_convex_mfem_tetra_mesh_provenance_2026-10-09.json `
+            --levels benchmarks/acoustics/r130d_convex_independent_mfem_all_level_driven_evidence_2026-10-09.json `
+            --fv-evidence benchmarks/acoustics/r130d_convex_multiplane_cutcell_evidence_2026-10-09.json `
+            --output scratch/ci_convex_independent_numerical_gate.json
+          if ($LASTEXITCODE -ne 0) { throw 'independent MFEM evidence failed' }
+          python scripts/assess_r130d_convex_high_fv_mfem.py `
+            --high-fv benchmarks/acoustics/r130d_convex_high_resolution_followup_evidence_2026-10-09.json `
+            --actual-mfem benchmarks/acoustics/r130d_convex_independent_mfem_all_level_driven_evidence_2026-10-09.json `
+            --candidate-verdict scratch/ci_convex_independent_numerical_gate.json `
+            --output scratch/ci_convex_n32_supplemental.json
+          if ($LASTEXITCODE -ne 0) { throw 'supplemental high FV/MFEM comparison failed' }
+          @'
+          import json
+          def j(p):return json.load(open(p,encoding='utf-8'))
+          actual=j('scratch/ci_convex_independent_numerical_gate.json')
+          frozen=j('benchmarks/acoustics/r130d_convex_independent_mfem_same_source_evidence_2026-10-09.json')
+          supplemental=j('scratch/ci_convex_n32_supplemental.json')
+          fixed=j('benchmarks/acoustics/r130d_convex_high_fv_vs_mfem_r4_supplemental_2026-10-09.json')
+          assert actual['plan']==frozen['plan']
+          assert actual['original_r130d_impulse']=='SELF_CONVERGENCE_FAILED'
+          assert actual['production_enabled'] is False
+          for x,y in zip(actual['cases'],frozen['cases']):
+              assert x['room']==y['room']
+              assert x['experimental_numeric_candidate_pass'] is True
+              assert abs(x['cross_fv_n20_vs_mfem_r4']['normalized_complex_l2']-y['cross_fv_n20_vs_mfem_r4']['normalized_complex_l2'])<1e-11
+              assert abs(x['mfem_adjacent'][-1]['normalized_complex_l2']-y['mfem_adjacent'][-1]['normalized_complex_l2'])<1e-11
+          assert supplemental['original_r130d_impulse']=='SELF_CONVERGENCE_FAILED'
+          assert supplemental['production_ready'] is False
+          assert supplemental['new_geometries_high_resolution_full_monotonicity_gate']=='NOT_QUALIFIED'
+          for x,y in zip(supplemental['cases'],fixed['cases']):
+              assert x['room']==y['room']
+              assert x['fv_magnitude_max_strict_decrease'] is False
+              assert abs(x['comparisons'][-1]['complex_relative']-y['comparisons'][-1]['complex_relative'])<1e-11
+          print('PASS 8 original independent P2 time-domain records, 2 bounded numeric gates; full-product NO_GO')
+          '@ | python -
+          if ($LASTEXITCODE -ne 0) { throw 'frozen independent reference evidence mismatch' }
