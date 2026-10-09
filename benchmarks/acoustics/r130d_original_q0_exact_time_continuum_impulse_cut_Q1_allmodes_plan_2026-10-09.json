@@ -1,0 +1,96 @@
+{
+  "schema_version": "htdt.r130d.original-q0-allmode-exact-semidescrete-impulse-time-plan-1",
+  "date_jst": "2026-10-09",
+  "issue": 938,
+  "pr": 1055,
+  "objective": "Determine whether original-q0 full 250ms signed40/80 nonconvergence for physically exact sloped-roof Q1 is driven chiefly by native implicit beta=1/4 Newmark temporal phase/amplitude error versus true physical spatial Neumann discretization. Eliminate TIME-stepping phase error with mathematical exact continuous-time semidiscrete causal delta impulse Green and sample on unchanged original native dt. Retain original waveform only as canonical control; new experimental scheme never qualifies original upstream.",
+  "prospective_observed_controls": {
+    "raw_pffdtd": "benchmarks/acoustics/r130d_original_point_quadratic_pffdtd_evidence_2026-10-09.json",
+    "true_exact_cut_Q1_consistent": "benchmarks/acoustics/r130d_original_q0_exact_roof_cut_Q1_variational_evidence_2026-10-09.json",
+    "true_exact_cut_Q1_row_lump": "benchmarks/acoustics/r130d_original_q0_exact_roof_Q1_lumped_mass_evidence_2026-10-09.json",
+    "true_exact_cut_Q1_half_mass": "benchmarks/acoustics/r130d_original_q0_oblique_roof_theory_half_Q1_evidence_2026-10-09.json",
+    "original_first_roof_echo": "benchmarks/acoustics/r130d_original_q0_first_roof_echo_causal_weak_evidence_2026-10-09.json"
+  },
+  "original_unchanged": {
+    "pffdtd_upstream_SHA": "aa319f6c86517cb95aabfae8656277da62c3ead5",
+    "ppw": [
+      28,
+      32,
+      36,
+      40,
+      44
+    ],
+    "source_xyz": [
+      1.5,
+      2,
+      2
+    ],
+    "receiver_xyz": [
+      2.5,
+      2,
+      2
+    ],
+    "original_native_8_input_8_output_HDF5_SHA_flatindices_weights_unchanged": true,
+    "q0_one_native_sample": "q[0]=1; q[n>0]=0; in_sigs[:,0] sum=c²dt²/h³",
+    "native_h_Ts_Nt_each_grid_unchanged": true,
+    "physical_roof": "z=4-.25y; x in [0,4], y in [0,4], z in [0,4-.25y]; 56m3",
+    "sound_speed_m_s": 343.2,
+    "density_kg_m3": 1.2,
+    "original_full_wave_record_s": 0.25,
+    "original_signed_40_80_bins": [
+      40,
+      80
+    ],
+    "original_pressure_forward_center_backward_exact_native": true,
+    "original_full_complex_rms_gate": 0.2,
+    "original_full_magnitude_max_gate": 0.25,
+    "original_full_phase_max_deg": 15,
+    "original_all_adjacent_pairs_three_gates_and_monotone": true
+  },
+  "new_explicit_nonoriginal_physical_model": {
+    "all_three_mass_arms": [
+      "fully_consistent_Q1",
+      "positive_row_sum_Q1",
+      "theory_half_Q1"
+    ],
+    "mass_families_fixed_before_scores": true,
+    "true_cut_Q1_weak_Neumann_K_and_all_original_active_Q1_sliver_nodes_unchanged": true,
+    "exact_point_source_and_receiver_original_HDF5_8node_distribution": true,
+    "spatial_input_force_normalization": "original unit q0 temporal impulse has area dt, semidiscrete equation M phiddot+K phi=c²*s*dt δ(t); all eigenmode source-receiver factor c²*dt; no gain fit",
+    "exact_continuum_time_modal_response": "phi_n = (c² dt * S_e / sqrt(lambda_e))*sin(n sqrt(lambda_e) dt), with exact lambda=0 limit phi_n=c² dt² S_e n; compare to original same-clock native beta=1/4 Newmark q0 modal response (no temporal phase renormalization).",
+    "exact_all_modes_native_sample_pressure": "P sampled from phi using EXACT original one-sided endpoints and centered interior finite difference. Its high-mode factor sin(sqrt(lambda)dt)/(sqrt(lambda)dt) is mathematically induced by ORIGINAL sampled centered pressure observation, NOT imposed high-mode cutoff, taper, or adjustable anti-alias filter.",
+    "original_time_sampling": "all original N sample times n*Ts through whole native Nt including 250ms; signed Fourier exp(+i2πft), original q[0]=1 gives P_T/Q_T=Σ_n p[n] exp(+i2πf n dt) for both frozen bins, no window/taper",
+    "allmode_exact_closed_form_pressure_integral": "finite signed original discrete sum over sampled exact causal sine modal pressures; independent brute sampled trace for synthetic eigenpairs incl high modes and rigid zero",
+    "physics_difference_disclosure": "Experimental exact continuous-time semidiscrete impulse is a DIFFERENT integrator/source timing convention from original PFFDTD and prior implicit Newmark; cannot make original upstream validated. Instantaneous delta at original q0 n=0 has area dt and makes φ_1≈c²dt²S in low-mode limit.",
+    "first_roof_causal_diagnostic": "frozen original true roof image center 0.0089668767033651 s, radius=.0011s, widths [.00035,.0006,.00085] s, compare all original 64 pairs; never use as full250ms acceptance",
+    "do_not_tune_eigenfrequencies_source_amplitude_or_phase": true,
+    "no_high_mode_cutoff_or_spatial_operator_smoothing": true
+  },
+  "comparisons": {
+    "original_real_PFFDTD_four_pairs_recompute_three_gates": true,
+    "all_three_original_real_Newmark_Q1_frozen_5grid_scores_preserved": true,
+    "all_three_new_exact_time_Q1_full_four_pairs_three_gates_and_monotonicity": true,
+    "all_three_new_exact_time_Q1_roof_causal_three_widths_each_PPWs": true,
+    "all_five_original_SHA_pinned_native_HDF5": true,
+    "all_positive_mass_and_true_affine_neumann_stiffness_energy": true,
+    "uniform_zero_mode_and_every_high_mode_retained": true,
+    "all_signed_perbin_complex_and_adverse_outcomes": true,
+    "neither_analytic_roof_image_nor_short_causal_window_substitutes_full250ms": true
+  },
+  "limits": {
+    "max_PPWs": 5,
+    "max_experimental_mass_families": 3,
+    "max_total_3D_modes_per_arm": 180000,
+    "max_cross_section_Q1_modes": 3300,
+    "upstream_PFFDTD_reruns": 0,
+    "github_Actions_manual_runs": 0,
+    "preserve_scratch": true
+  },
+  "authority": {
+    "canonical_pffdtd_q0": "SELF_CONVERGENCE_FAILED",
+    "independent_BRAS_MFEM_qualified": "NOT_VALIDATED",
+    "product": "NO_GO",
+    "keep_pr_draft": true,
+    "keep_issue_open": true
+  }
+}
