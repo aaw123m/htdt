@@ -1,0 +1,869 @@
+{
+  "schema_version": "htdt.r130d.original-native-pffdtd-high-ppw-window-partition-evidence-1",
+  "plan_sha256_lf": "17674711cfa7b55ee77680db3d1f8355d2264d5925188816fd59ecdacde03f1a",
+  "preregistered_plan": {
+    "schema_version": "htdt.r130d.original-native-pffdtd-high-ppw-window-partition-plan-1",
+    "date_jst": "2026-10-09",
+    "issue": 938,
+    "pr": 1055,
+    "purpose": "Isolate, using unchanged original native eight-node q0 source/receiver 0.25 s PFFDTD outputs, contributions of fixed physical-time record segments to signed 40/80 Hz spatial adjacent error. No new solver wave run, source alteration, posthoc frequency gate, or acceptance promotion.",
+    "original_pffdtd": {
+      "frozen_ppw": [
+        28,
+        32,
+        36,
+        40,
+        44
+      ],
+      "upstream_sha": "aa319f6c86517cb95aabfae8656277da62c3ead5",
+      "original_native_high_ppw_evidence_sha256": "9a0c7c4cf6080fdd75ce42a4e4a4a08256973b1d8c73724974073782dd9aeb34",
+      "source_control_evidence": "benchmarks/acoustics/r130d_original_point_quadratic_pffdtd_evidence_2026-10-09.json",
+      "original_8_node_comms_sha_by_ppw": {
+        "28": "4404a9818a8f0c673c97e8ede8665367100aecb3d2f2f8481bc532bc45fd6b6c",
+        "32": "716199c1cb8f9d982cdafe7deaccdf630073a2b0d8cdec17fcaf3dff52f4b60b",
+        "36": "3cd05bcee5f8fed08da3dc94ff2ac90b92969b293daf2db77b4bac8d0c51a2f9",
+        "40": "64a4f45cf19b92bb7a8a1ffd24af05e10877c99000e29bf985637b18e287763a",
+        "44": "41c537b663ef11aa7404a248862f89398dec80fd3b6c794f4ecce4a0a8577ee4"
+      },
+      "exact_rigid_room": true,
+      "exact_source_xyz_m": [
+        1.5,
+        2,
+        2
+      ],
+      "exact_receiver_xyz_m": [
+        2.5,
+        2,
+        2
+      ],
+      "temporal_source": "original eight-node trilinear, unit discrete volume velocity impulse q[0]=1 and q[n>0]=0",
+      "record_s": [
+        0,
+        0.25
+      ],
+      "frequencies_hz": [
+        40,
+        80
+      ],
+      "no_taper": true,
+      "pressure_conversion": "original p=rho*d(phi)/dt centered interior and second-order one-sided endpoints",
+      "density_kg_m3": 1.2
+    },
+    "window": {
+      "physical_intervals_s": [
+        [
+          0,
+          0.05
+        ],
+        [
+          0.05,
+          0.15
+        ],
+        [
+          0.15,
+          0.25
+        ]
+      ],
+      "rule": "half-open, include n with left native sample timestamp t=n*Ts in [start,end); every n in exactly one segment",
+      "signed_DFT": "exp(+i2pi*f*n*Ts) times raw physical pressure sample; no window taper; source Q_T=Ts exactly, cancels numerator native Ts",
+      "complex_transfer_component": "P_segment(f) / original full-period Q_T(f), with the original full unit q0 source (not segment-local Q)",
+      "conservation_identity": "sum of three signed complex partition contributions reproduces original full finite-record P_T/Q_T at both Hz and each PPW to relative tolerance 1e-10",
+      "unaltered_full_record": "original exact recorded 40/80 Hz controls must match freshly recomputed native full finite DTFT per PPW before partitioning",
+      "no_time_domain_wave_change": true
+    },
+    "analysis": {
+      "adjacent_pairs": [
+        [
+          28,
+          32
+        ],
+        [
+          32,
+          36
+        ],
+        [
+          36,
+          40
+        ],
+        [
+          40,
+          44
+        ]
+      ],
+      "comparison": "For each pair (a,b), D_total=H_a-H_b and D_partition=H_a,partition-H_b,partition; L2 across signed 40,80 Hz and relative ||D_partition||/max(||D_total||,1e-12); no assume ratios sum 1 due cancellation",
+      "store_each_frozen_full_spectrum": true,
+      "store_signed_three_components": true,
+      "store_every_segment_and_full_record_pressure_rms": true,
+      "store_each_grid_40_80_complex_phase_and_absolute_contribution": true,
+      "nonmonotonic_or_cancellation_not_excluded": true,
+      "original_acceptance": {
+        "complex_rms_relative_max": 0.2,
+        "magnitude_max_relative": 0.25,
+        "phase_max_deg": 15
+      },
+      "diagnostic_cannot_replace_original_full_window_gate": true
+    },
+    "resource_limits": {
+      "max_cases": 5,
+      "max_samples_per_case": 2000,
+      "max_original_full_trace_bytes": 100000000,
+      "allowed_segment_count": 3,
+      "max_original_grid_cells": 1700000
+    },
+    "authority": {
+      "original_point_q0_state": "SELF_CONVERGENCE_FAILED",
+      "physical_validation": "NOT_VALIDATED",
+      "product": "NO_GO",
+      "issue_open": true,
+      "pr_draft": true
+    }
+  },
+  "original_native_high_ppw_external_sha256": "9a0c7c4cf6080fdd75ce42a4e4a4a08256973b1d8c73724974073782dd9aeb34",
+  "all_five_original_point_point_waves_unchanged": true,
+  "levels": [
+    {
+      "ppw": 28,
+      "original_8node_comms_sha256": "4404a9818a8f0c673c97e8ede8665367100aecb3d2f2f8481bc532bc45fd6b6c",
+      "original_8node_native_output_sha256": "6e8a94d695fe77e992d8bd66bbb9b63ed9eaf27abd86f5be94f7554d2ba97d6b",
+      "original_solver_voxel_sha256": "9d8b598fc1e2077840ba5a51e8f2db72c30ad4b6991ae88d3174bac72acf9fc8",
+      "full_original_control_signed_complex": [
+        [
+          101.0987693066617,
+          42.7956809667478
+        ],
+        [
+          150.77953891006572,
+          -21.729992606786517
+        ]
+      ],
+      "time_components": {
+        "full_original_40_80_complex": [
+          [
+            101.09876930666171,
+            42.7956809667478
+          ],
+          [
+            150.77953891006572,
+            -21.729992606786517
+          ]
+        ],
+        "signed_partitions_40_80_complex": [
+          [
+            [
+              60.91200130068959,
+              0.420480511102574
+            ],
+            [
+              182.56079562778956,
+              -98.47957988437324
+            ]
+          ],
+          [
+            [
+              -143.96312409196537,
+              28.569650812784868
+            ],
+            [
+              -358.75534342783374,
+              -96.61272487492333
+            ]
+          ],
+          [
+            [
+              184.14989209793742,
+              13.805549642860026
+            ],
+            [
+              326.9740867101102,
+              173.3623121525097
+            ]
+          ]
+        ],
+        "segments": [
+          {
+            "start_s": 0,
+            "end_s": 0.05,
+            "sample_count": 243,
+            "pressure_rms_pa": 46.525094714060565,
+            "pressure_max_absolute_pa": 153.86022220351254
+          },
+          {
+            "start_s": 0.05,
+            "end_s": 0.15,
+            "sample_count": 486,
+            "pressure_rms_pa": 51.00196096788439,
+            "pressure_max_absolute_pa": 171.83149488751295
+          },
+          {
+            "start_s": 0.15,
+            "end_s": 0.25,
+            "sample_count": 485,
+            "pressure_rms_pa": 43.829732942247176,
+            "pressure_max_absolute_pa": 120.58264523137319
+          }
+        ],
+        "full_pressure_rms_pa": 47.35059997451727,
+        "full_pressure_last_sample_pa": 71.05522493567466,
+        "record_samples": 1214,
+        "native_dt_s": 0.00020599032818587005,
+        "exact_complex_partition_conservation": true
+      },
+      "source_temporal_unit_q0_and_original_native_points_unchanged": true
+    },
+    {
+      "ppw": 32,
+      "original_8node_comms_sha256": "716199c1cb8f9d982cdafe7deaccdf630073a2b0d8cdec17fcaf3dff52f4b60b",
+      "original_8node_native_output_sha256": "773601d4be74cef568739d8957082c9561912ccfd4fa860c415585409a1d84b7",
+      "original_solver_voxel_sha256": "8f3ebd62703c40793d68fdf703e098bbecc568cc9beb227cfa126b8042954e3b",
+      "full_original_control_signed_complex": [
+        [
+          16.56628166594011,
+          -21.00233450877161
+        ],
+        [
+          -21.520688403756687,
+          -230.6577420888628
+        ]
+      ],
+      "time_components": {
+        "full_original_40_80_complex": [
+          [
+            16.56628166594011,
+            -21.00233450877161
+          ],
+          [
+            -21.520688403756687,
+            -230.6577420888628
+          ]
+        ],
+        "signed_partitions_40_80_complex": [
+          [
+            [
+              13.237786694652717,
+              -10.057283304240732
+            ],
+            [
+              101.74163021998748,
+              -136.92819468944396
+            ]
+          ],
+          [
+            [
+              -7.935079987225478,
+              46.29918293247954
+            ],
+            [
+              -154.07105122610602,
+              128.01999353929867
+            ]
+          ],
+          [
+            [
+              11.263574958512805,
+              -57.24423413701026
+            ],
+            [
+              30.808732602362014,
+              -221.74954093871744
+            ]
+          ]
+        ],
+        "segments": [
+          {
+            "start_s": 0,
+            "end_s": 0.05,
+            "sample_count": 278,
+            "pressure_rms_pa": 54.62567167918212,
+            "pressure_max_absolute_pa": 322.5780592959287
+          },
+          {
+            "start_s": 0.05,
+            "end_s": 0.15,
+            "sample_count": 555,
+            "pressure_rms_pa": 46.807727222652915,
+            "pressure_max_absolute_pa": 158.10718836983654
+          },
+          {
+            "start_s": 0.15,
+            "end_s": 0.25,
+            "sample_count": 555,
+            "pressure_rms_pa": 42.949993368460476,
+            "pressure_max_absolute_pa": 138.97545271187525
+          }
+        ],
+        "full_pressure_rms_pa": 47.0248586233797,
+        "full_pressure_last_sample_pa": -34.060651286710595,
+        "record_samples": 1388,
+        "native_dt_s": 0.0001802415371626363,
+        "exact_complex_partition_conservation": true
+      },
+      "source_temporal_unit_q0_and_original_native_points_unchanged": true
+    },
+    {
+      "ppw": 36,
+      "original_8node_comms_sha256": "3cd05bcee5f8fed08da3dc94ff2ac90b92969b293daf2db77b4bac8d0c51a2f9",
+      "original_8node_native_output_sha256": "8fad2511eee77d463b43a1aa5d6f7ae13047ed8bf5d27e0cb0b76ffb7b3bd486",
+      "original_solver_voxel_sha256": "433c1d334419006b1185a4ef275545d329244d0808b2a3c12a3200e7af4e3d50",
+      "full_original_control_signed_complex": [
+        [
+          57.86557590696418,
+          12.212530552108216
+        ],
+        [
+          119.43681400077243,
+          -167.8458584505424
+        ]
+      ],
+      "time_components": {
+        "full_original_40_80_complex": [
+          [
+            57.86557590696418,
+            12.212530552108216
+          ],
+          [
+            119.43681400077243,
+            -167.8458584505424
+          ]
+        ],
+        "signed_partitions_40_80_complex": [
+          [
+            [
+              56.629926516885035,
+              -7.065949735824231
+            ],
+            [
+              161.68977072162545,
+              -125.15158782782542
+            ]
+          ],
+          [
+            [
+              -94.86408360963563,
+              34.63441385794427
+            ],
+            [
+              -296.9010544170895,
+              40.00924194397622
+            ]
+          ],
+          [
+            [
+              96.0997329997149,
+              -15.355933570011844
+            ],
+            [
+              254.64809769623668,
+              -82.70351256669309
+            ]
+          ]
+        ],
+        "segments": [
+          {
+            "start_s": 0,
+            "end_s": 0.05,
+            "sample_count": 313,
+            "pressure_rms_pa": 32.90391256612738,
+            "pressure_max_absolute_pa": 118.84111866679048
+          },
+          {
+            "start_s": 0.05,
+            "end_s": 0.15,
+            "sample_count": 624,
+            "pressure_rms_pa": 31.301928200306392,
+            "pressure_max_absolute_pa": 96.62017172047639
+          },
+          {
+            "start_s": 0.15,
+            "end_s": 0.25,
+            "sample_count": 624,
+            "pressure_rms_pa": 29.42805354047421,
+            "pressure_max_absolute_pa": 89.5253197183972
+          }
+        ],
+        "full_pressure_rms_pa": 30.902164718343265,
+        "full_pressure_last_sample_pa": 37.848988301474456,
+        "record_samples": 1561,
+        "native_dt_s": 0.00016021469970012116,
+        "exact_complex_partition_conservation": true
+      },
+      "source_temporal_unit_q0_and_original_native_points_unchanged": true
+    },
+    {
+      "ppw": 40,
+      "original_8node_comms_sha256": "64a4f45cf19b92bb7a8a1ffd24af05e10877c99000e29bf985637b18e287763a",
+      "original_8node_native_output_sha256": "79763a63cedf667e98cbcf5867b848675d634a861e63fc3e1cf94ed9982596fa",
+      "original_solver_voxel_sha256": "c7c1894826c4774393987855e533081f615b22d510ec6042aacda12acbe0daaf",
+      "full_original_control_signed_complex": [
+        [
+          23.081760574920366,
+          18.909536564347828
+        ],
+        [
+          109.07263342140902,
+          -119.86161783862582
+        ]
+      ],
+      "time_components": {
+        "full_original_40_80_complex": [
+          [
+            23.081760574920366,
+            18.909536564347828
+          ],
+          [
+            109.07263342140902,
+            -119.8616178386258
+          ]
+        ],
+        "signed_partitions_40_80_complex": [
+          [
+            [
+              31.556226603353473,
+              0.17650312203049046
+            ],
+            [
+              144.48475054122218,
+              -102.16211179924625
+            ]
+          ],
+          [
+            [
+              31.65760118508927,
+              19.935060210621398
+            ],
+            [
+              -178.34840278085008,
+              -52.42851715850121
+            ]
+          ],
+          [
+            [
+              -40.13206721352229,
+              -1.2020267683041521
+            ],
+            [
+              142.93628566103666,
+              34.72901111912153
+            ]
+          ]
+        ],
+        "segments": [
+          {
+            "start_s": 0,
+            "end_s": 0.05,
+            "sample_count": 347,
+            "pressure_rms_pa": 51.151219805512866,
+            "pressure_max_absolute_pa": 265.137672692204
+          },
+          {
+            "start_s": 0.05,
+            "end_s": 0.15,
+            "sample_count": 694,
+            "pressure_rms_pa": 47.91198155892774,
+            "pressure_max_absolute_pa": 159.70422494965825
+          },
+          {
+            "start_s": 0.15,
+            "end_s": 0.25,
+            "sample_count": 693,
+            "pressure_rms_pa": 52.35535215644251,
+            "pressure_max_absolute_pa": 153.77882384151502
+          }
+        ],
+        "full_pressure_rms_pa": 50.37686630420068,
+        "full_pressure_last_sample_pa": -52.17073343758778,
+        "record_samples": 1734,
+        "native_dt_s": 0.00014419322973010905,
+        "exact_complex_partition_conservation": true
+      },
+      "source_temporal_unit_q0_and_original_native_points_unchanged": true
+    },
+    {
+      "ppw": 44,
+      "original_8node_comms_sha256": "41c537b663ef11aa7404a248862f89398dec80fd3b6c794f4ecce4a0a8577ee4",
+      "original_8node_native_output_sha256": "a5603179fa00ef7a82e5e5e486d864b1b2f08e3f432692d80631fcf406c0ce89",
+      "original_solver_voxel_sha256": "4a7cb6c30c013adc31d5b1910d50cef003cacbdd37a271ac3efa7a39956e505b",
+      "full_original_control_signed_complex": [
+        [
+          -64.44884936510273,
+          -11.312555997628882
+        ],
+        [
+          -83.61305811577175,
+          -224.3177326070579
+        ]
+      ],
+      "time_components": {
+        "full_original_40_80_complex": [
+          [
+            -64.44884936510273,
+            -11.312555997628884
+          ],
+          [
+            -83.61305811577175,
+            -224.3177326070579
+          ]
+        ],
+        "signed_partitions_40_80_complex": [
+          [
+            [
+              53.88694488669047,
+              -8.493197886730073
+            ],
+            [
+              145.81415365820519,
+              -133.8508391573136
+            ]
+          ],
+          [
+            [
+              -11.755387581825502,
+              51.18470014987926
+            ],
+            [
+              -169.10336051594885,
+              131.3191126918223
+            ]
+          ],
+          [
+            [
+              -106.58040666996739,
+              -54.00405826077811
+            ],
+            [
+              -60.323851258028256,
+              -221.7860061415665
+            ]
+          ]
+        ],
+        "segments": [
+          {
+            "start_s": 0,
+            "end_s": 0.05,
+            "sample_count": 382,
+            "pressure_rms_pa": 63.889502910165156,
+            "pressure_max_absolute_pa": 333.7286817265555
+          },
+          {
+            "start_s": 0.05,
+            "end_s": 0.15,
+            "sample_count": 763,
+            "pressure_rms_pa": 54.44092722944593,
+            "pressure_max_absolute_pa": 224.67050316401455
+          },
+          {
+            "start_s": 0.15,
+            "end_s": 0.25,
+            "sample_count": 763,
+            "pressure_rms_pa": 54.779382261485004,
+            "pressure_max_absolute_pa": 227.03473171131344
+          }
+        ],
+        "full_pressure_rms_pa": 56.590125868915116,
+        "full_pressure_last_sample_pa": -29.78782986663343,
+        "record_samples": 1908,
+        "native_dt_s": 0.00013108475430009911,
+        "exact_complex_partition_conservation": true
+      },
+      "source_temporal_unit_q0_and_original_native_points_unchanged": true
+    }
+  ],
+  "adjacent_native_8node_original_signed_difference_contributions": [
+    {
+      "coarse_ppw": 28,
+      "fine_ppw": 32,
+      "full_signed_delta_40_80": [
+        [
+          84.5324876407216,
+          63.79801547551941
+        ],
+        [
+          172.3002273138224,
+          208.92774948207628
+        ]
+      ],
+      "full_delta_norm": 290.7818788738106,
+      "segments": [
+        {
+          "segment_s": [
+            0,
+            0.05
+          ],
+          "complex_delta_40_80": [
+            [
+              47.67421460603687,
+              10.477763815343305
+            ],
+            [
+              80.81916540780207,
+              38.44861480507072
+            ]
+          ],
+          "absolute_two_bin_delta_norm": 101.94433652986787,
+          "relative_to_full_delta_norm": 0.3505869654763054
+        },
+        {
+          "segment_s": [
+            0.05,
+            0.15
+          ],
+          "complex_delta_40_80": [
+            [
+              -136.02804410473988,
+              -17.72953211969467
+            ],
+            [
+              -204.68429220172771,
+              -224.63271841422198
+            ]
+          ],
+          "absolute_two_bin_delta_norm": 333.4268776634987,
+          "relative_to_full_delta_norm": 1.1466563148805933
+        },
+        {
+          "segment_s": [
+            0.15,
+            0.25
+          ],
+          "complex_delta_40_80": [
+            [
+              172.88631713942462,
+              71.04978377987028
+            ],
+            [
+              296.1653541077482,
+              395.11185309122715
+            ]
+          ],
+          "absolute_two_bin_delta_norm": 527.9820488010472,
+          "relative_to_full_delta_norm": 1.815732296819546
+        }
+      ],
+      "partitions_can_cancel_complexly": true,
+      "original_8node_full_record_only_is_qualification_gate": true
+    },
+    {
+      "coarse_ppw": 32,
+      "fine_ppw": 36,
+      "full_signed_delta_40_80": [
+        [
+          -41.29929424102407,
+          -33.21486506087983
+        ],
+        [
+          -140.95750240452912,
+          -62.81188363832038
+        ]
+      ],
+      "full_delta_norm": 163.16620108385155,
+      "segments": [
+        {
+          "segment_s": [
+            0,
+            0.05
+          ],
+          "complex_delta_40_80": [
+            [
+              -43.392139822232316,
+              -2.9913335684165014
+            ],
+            [
+              -59.948140501637965,
+              -11.776606861618532
+            ]
+          ],
+          "absolute_two_bin_delta_norm": 74.99529247657443,
+          "relative_to_full_delta_norm": 0.45962516733495656
+        },
+        {
+          "segment_s": [
+            0.05,
+            0.15
+          ],
+          "complex_delta_40_80": [
+            [
+              86.92900362241015,
+              11.664769074535272
+            ],
+            [
+              142.83000319098346,
+              88.01075159532245
+            ]
+          ],
+          "absolute_two_bin_delta_norm": 189.31196664832663,
+          "relative_to_full_delta_norm": 1.1602400827548758
+        },
+        {
+          "segment_s": [
+            0.15,
+            0.25
+          ],
+          "complex_delta_40_80": [
+            [
+              -84.8361580412021,
+              -41.88830056699842
+            ],
+            [
+              -223.83936509387468,
+              -139.04602837202435
+            ]
+          ],
+          "absolute_two_bin_delta_norm": 279.9815401187116,
+          "relative_to_full_delta_norm": 1.7159285333537204
+        }
+      ],
+      "partitions_can_cancel_complexly": true,
+      "original_8node_full_record_only_is_qualification_gate": true
+    },
+    {
+      "coarse_ppw": 36,
+      "fine_ppw": 40,
+      "full_signed_delta_40_80": [
+        [
+          34.783815332043815,
+          -6.697006012239612
+        ],
+        [
+          10.364180579363406,
+          -47.984240611916604
+        ]
+      ],
+      "full_delta_norm": 60.536495478063976,
+      "segments": [
+        {
+          "segment_s": [
+            0,
+            0.05
+          ],
+          "complex_delta_40_80": [
+            [
+              25.073699913531563,
+              -7.242452857854721
+            ],
+            [
+              17.205020180403267,
+              -22.989476028579176
+            ]
+          ],
+          "absolute_two_bin_delta_norm": 38.802993160692914,
+          "relative_to_full_delta_norm": 0.6409851256545497
+        },
+        {
+          "segment_s": [
+            0.05,
+            0.15
+          ],
+          "complex_delta_40_80": [
+            [
+              -126.5216847947249,
+              14.69935364732287
+            ],
+            [
+              -118.5526516362394,
+              92.43775910247743
+            ]
+          ],
+          "absolute_two_bin_delta_norm": 197.03623585223093,
+          "relative_to_full_delta_norm": 3.25483386998557
+        },
+        {
+          "segment_s": [
+            0.15,
+            0.25
+          ],
+          "complex_delta_40_80": [
+            [
+              136.2318002132372,
+              -14.153906801707691
+            ],
+            [
+              111.71181203520001,
+              -117.43252368581463
+            ]
+          ],
+          "absolute_two_bin_delta_norm": 212.20123240570038,
+          "relative_to_full_delta_norm": 3.5053438546437445
+        }
+      ],
+      "partitions_can_cancel_complexly": true,
+      "original_8node_full_record_only_is_qualification_gate": true
+    },
+    {
+      "coarse_ppw": 40,
+      "fine_ppw": 44,
+      "full_signed_delta_40_80": [
+        [
+          87.5306099400231,
+          30.222092561976712
+        ],
+        [
+          192.6856915371808,
+          104.4561147684321
+        ]
+      ],
+      "full_delta_norm": 237.9366264175707,
+      "segments": [
+        {
+          "segment_s": [
+            0,
+            0.05
+          ],
+          "complex_delta_40_80": [
+            [
+              -22.330718283337,
+              8.669701008760564
+            ],
+            [
+              -1.329403116983002,
+              31.688727358067354
+            ]
+          ],
+          "absolute_two_bin_delta_norm": 39.74628849153636,
+          "relative_to_full_delta_norm": 0.1670456923339872
+        },
+        {
+          "segment_s": [
+            0.05,
+            0.15
+          ],
+          "complex_delta_40_80": [
+            [
+              43.41298876691477,
+              -31.249639939257865
+            ],
+            [
+              -9.24504226490123,
+              -183.7476298503235
+            ]
+          ],
+          "absolute_two_bin_delta_norm": 191.5982512240152,
+          "relative_to_full_delta_norm": 0.8052490871572112
+        },
+        {
+          "segment_s": [
+            0.15,
+            0.25
+          ],
+          "complex_delta_40_80": [
+            [
+              66.4483394564451,
+              52.80203149247396
+            ],
+            [
+              203.2601369190649,
+              256.515017260688
+            ]
+          ],
+          "absolute_two_bin_delta_norm": 338.1095587037717,
+          "relative_to_full_delta_norm": 1.4210067772853134
+        }
+      ],
+      "partitions_can_cancel_complexly": true,
+      "original_8node_full_record_only_is_qualification_gate": true
+    }
+  ],
+  "canonical_original_full_window_point_q0": "SELF_CONVERGENCE_FAILED",
+  "modified_source_receiver_waveform_or_boundary": false,
+  "diagnostic_partition_is_not_new_qualification": true,
+  "physical_validation": "NOT_VALIDATED",
+  "production_ready": false
+}
