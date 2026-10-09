@@ -1,0 +1,109 @@
+name: R130D independent FV versus pinned MFEM Neumann modal spectrum
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/r130d-sloped-neumann-modal-spectrum.yml'
+      - 'scripts/run_r130d_sloped_neumann_modal_spectrum.py'
+      - 'backend/tests/test_r130d_sloped_neumann_modal_spectrum.py'
+      - 'benchmarks/acoustics/r130d_sloped_neumann_modal_spectrum_*'
+      - 'benchmarks/acoustics/r130d_mfem_independent_sparse_systems/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: r130d-independent-neumann-modes-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  original-sloped-rigid-modes:
+    runs-on: windows-2022
+    timeout-minutes: 12
+    steps:
+      - name: Checkout preregistered independent acoustic modes
+        uses: actions/checkout@v4
+      - name: Pinned Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install sparse generalized eigenproblem runtime
+        shell: pwsh
+        env:
+          PYTHONUTF8: '1'
+        run: |
+          python -m pip install --disable-pip-version-check numpy==1.26.4 scipy==1.14.1 pydantic==2.11.9 pytest==8.4.2
+          if ($LASTEXITCODE -ne 0) { throw 'pinned eigen-solver runtime dependency failure' }
+          New-Item -ItemType Directory -Force scratch/tests | Out-Null
+          Copy-Item backend/tests/test_r130d_sloped_neumann_modal_spectrum.py scratch/tests/
+          $env:PYTHONPATH = Join-Path $pwd 'backend/src'
+          python -m pytest -q scratch/tests/test_r130d_sloped_neumann_modal_spectrum.py --tb=short
+          if ($LASTEXITCODE -ne 0) { throw 'true modal archived evidence contract violated' }
+      - name: Actually re-eigen-solve six independent Neumann 3D spaces at pinned FV and MFEM grids
+        shell: pwsh
+        env:
+          PYTHONUTF8: '1'
+          PYTHONIOENCODING: utf-8
+        run: |
+          $env:PYTHONPATH = Join-Path $pwd 'backend/src'
+          python scripts/run_r130d_sloped_neumann_modal_spectrum.py `
+            --plan benchmarks/acoustics/r130d_sloped_neumann_modal_spectrum_plan_2026-10-09.json `
+            --systems benchmarks/acoustics/r130d_mfem_independent_sparse_systems `
+            --out scratch/ci_modal_spectrum.json
+          if ($LASTEXITCODE -ne 0) { throw 'real independent generalized eigensystem solve failed' }
+      - name: Require frozen low modes, true residuals and original impulse NO_GO
+        shell: pwsh
+        env:
+          PYTHONUTF8: '1'
+        run: |
+          @'
+          import json
+          import numpy as np
+          def rd(p):
+              return json.load(open(p,encoding='utf-8'))
+          x=rd('scratch/ci_modal_spectrum.json')
+          y=rd('benchmarks/acoustics/r130d_sloped_neumann_modal_spectrum_evidence_2026-10-09.json')
+          assert x['preregistered_plan']==y['preregistered_plan']
+          assert x['original_R130D_impulse']=='SELF_CONVERGENCE_FAILED'
+          assert x['production_ready'] is False
+          assert x['physical_validation']=='NOT_VALIDATED'
+          assert x['not_fullband_impulse_time_transfer'] is True
+          assert len(x['cases'])==len(y['cases'])==6
+          for a,b in zip(x['cases'],y['cases']):
+              assert a['method']==b['method']
+              assert a.get('n',a.get('r'))==b.get('n',b.get('r'))
+              assert a['degrees_of_freedom']==b['degrees_of_freedom']
+              if a['method']=='independent_pinned_MFEM_P2':
+                  assert a['original_pinned_system_sha256']==b['original_pinned_system_sha256']
+              assert len(a['modes'])==len(b['modes'])==12
+              assert a['modes'][0]['natural_frequency_hz']<0.001
+              vals=np.array([v['natural_frequency_hz'] for v in a['modes'][1:]])
+              old=np.array([v['natural_frequency_hz'] for v in b['modes'][1:]])
+              assert vals.shape==(11,) and np.all(np.isfinite(vals))
+              np.testing.assert_allclose(vals,old,rtol=2e-6,atol=3e-5)
+              assert all(v['generalized_eigen_relative_residual']<=1e-7 for v in a['modes'])
+              assert all(abs(v['mass_normalization']-1)<1e-6 for v in a['modes'])
+              assert a['closest_mode_to_40hz']==1
+              assert a['closest_mode_to_80hz']==7
+          assert len(x['adjacent_modal_frequency_drift'])==4
+          for a,b in zip(x['adjacent_modal_frequency_drift'],
+                         y['adjacent_modal_frequency_drift']):
+              assert a['method']==b['method']
+              assert a['coarse_grid']==b['coarse_grid']
+              assert a['fine_grid']==b['fine_grid']
+              assert abs(a['largest_relative_ordered_mode_frequency_difference']-
+                         b['largest_relative_ordered_mode_frequency_difference'])<1e-6
+          assert x['adjacent_modal_frequency_drift'][3]['largest_relative_ordered_mode_frequency_difference']<.0005
+          print('PASS: 72 true 3D modal eigenpairs independently replayed, known unsmoothed impulse NO_GO preserved')
+          '@ | python -
+          if ($LASTEXITCODE -ne 0) { throw 'pinned Neumann eigenfrequency provenance/physics not reproducible' }
+      - name: Keep full true 72-eigenpair replay
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: r130d-sloped-room-72-neumann-eigenpairs
+          path: |
+            scratch/ci_modal_spectrum.json
+            scratch/ci_modal_spectrum_partial.json
+          if-no-files-found: warn
+          retention-days: 30
