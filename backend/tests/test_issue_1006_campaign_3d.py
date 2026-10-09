@@ -599,6 +599,34 @@ def test_measurement_button_deep_links_with_selected_cell(tmp_path: Path) -> Non
     assert links[1].entity_id == design.design_id  # noqa: F821
 
 
+def test_unmounted_room_registration_declares_focusable_campaign() -> None:
+    """First-click deep link must resolve focusable BEFORE the room mounts.
+
+    Regression: on a fresh session the router's capabilities came from the
+    registration (empty) not the mount, so the first 「3Dで測定位置を確認」
+    click degraded to request_entity and the overlay never armed.
+    """
+    from htdt.navigation_target import NavigationTargetKind
+    from htdt.workflow_navigation import WorkspaceId
+    from htdt.workflow_shell import build_canonical_workspace_registrations
+
+    factories = {workspace_id: (lambda *a, **k: None) for workspace_id in WorkspaceId}
+    registrations = build_canonical_workspace_registrations(
+        factories,
+        focus_kinds={
+            WorkspaceId.ROOM: frozenset({
+                NavigationTargetKind.SCENE_ENTITY,
+                NavigationTargetKind.SCENE_REVISION,
+                NavigationTargetKind.INSTALLED_EQUIPMENT_INSTANCE,
+                NavigationTargetKind.MEASUREMENT_CAMPAIGN,
+            }),
+        },
+    )
+    room = next(r for r in registrations if r.workspace_id == WorkspaceId.ROOM)
+    assert NavigationTargetKind.MEASUREMENT_CAMPAIGN in room.focus_kinds
+    assert NavigationTargetKind.SCENE_ENTITY in room.focus_kinds
+
+
 def test_measurement_button_narrow_and_dpi200(tmp_path: Path) -> None:
     """The campaign page button stays reachable at 260px and 200% text."""
     from PySide6.QtWidgets import QApplication

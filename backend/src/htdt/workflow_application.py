@@ -825,7 +825,19 @@ class WorkflowApplicationComposition:
                 WorkspaceId.OPTIMIZATION: self._make_optimization,
                 WorkspaceId.PRESENTATION: self._make_presentation,
                 WorkspaceId.VIDEO: self._make_video,
-            }
+            },
+            # Unmounted destinations resolve capabilities from the
+            # registration — declare room's focus kinds so a deep link
+            # (e.g. the campaign 3D view) is focusable on the FIRST click,
+            # not only after the mount exists (#1006 first-click fix).
+            focus_kinds={
+                WorkspaceId.ROOM: frozenset({
+                    NavigationTargetKind.SCENE_ENTITY,
+                    NavigationTargetKind.SCENE_REVISION,
+                    NavigationTargetKind.INSTALLED_EQUIPMENT_INSTANCE,
+                    NavigationTargetKind.MEASUREMENT_CAMPAIGN,
+                }),
+            },
         ) + self._application_registrations()
         self.shell = WorkflowShellWindow(registrations)
         self.registry.set_deep_link_handler(self.shell.handle_deep_link)

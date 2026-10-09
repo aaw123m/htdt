@@ -158,6 +158,8 @@ class WorkspaceRegistration:
 
 def build_canonical_workspace_registrations(
     factories: Mapping[WorkspaceId, WorkspaceFactory],
+    *,
+    focus_kinds: Mapping[WorkspaceId, Iterable[NavigationTargetKind]] | None = None,
 ) -> tuple[WorkspaceRegistration, ...]:
     missing = tuple(workspace_id for workspace_id in WorkspaceId if workspace_id not in factories)
     if missing:
@@ -170,6 +172,9 @@ def build_canonical_workspace_registrations(
             contexts=CANONICAL_WORKSPACE_CONTEXTS[workspace_id],
             hint=CANONICAL_WORKSPACE_HINTS[workspace_id],
             factory=factories[workspace_id],
+            focus_kinds=frozenset(
+                (focus_kinds or {}).get(workspace_id, ())
+            ),
         )
         for workspace_id in WorkspaceId
     )
