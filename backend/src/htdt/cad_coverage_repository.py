@@ -20,6 +20,7 @@ from .cad_schema import (
     require_native_tables,
     connect_sqlite,
 )
+from .cad_seat_priority import CadSeatPriorityProfileRepository
 from .cad_system_variant_repository import CadSystemVariantRepository
 
 
@@ -54,6 +55,12 @@ class CadCoverageRepository:
         self.variant_repository = variant_repository
         self.equipment_repository = equipment_repository
         self.directivity_repository = directivity_repository
+        # seat_priority evaluations replay through the bound profile — the
+        # repository resolves it from the same native database rather than
+        # trusting a caller-supplied object.
+        self.seat_priority_repository = CadSeatPriorityProfileRepository(
+            scene_repository
+        )
         self.path = Path(scene_repository.path)
         for label, repository_path in (
             ('SystemVariant', variant_repository.path),
@@ -113,6 +120,20 @@ class CadCoverageRepository:
             raise ValueError(
                 'coverage scenario source-angle/dataset coordinate authority mismatch'
             )
+        population = scenario.receiver_population
+        if population.population_weighting == 'seat_priority':
+            profile = self.seat_priority_repository.get(
+                population.priority_profile_id
+            )
+            if (
+                profile is None
+                or profile.profile_sha256
+                != population.priority_profile_sha256
+            ):
+                raise ValueError(
+                    'coverage scenario references an unpersisted '
+                    'SeatPriorityProfile'
+                )
 
     def save_scenario(
         self,
@@ -280,12 +301,30 @@ class CadCoverageRepository:
             raise ValueError(
                 'coverage evaluator authority version is not pinned'
             )
+        # seat_priority scenarios bind an exact SeatPriorityProfile — the
+        # replay must resolve the same persisted profile or it can never
+        # reproduce the recorded evaluation.
+        population = scenario.receiver_population
+        priority_profile = None
+        if population.population_weighting == 'seat_priority':
+            priority_profile = self.seat_priority_repository.get(
+                population.priority_profile_id
+            )
+            if (
+                priority_profile is None
+                or priority_profile.profile_sha256
+                != population.priority_profile_sha256
+            ):
+                raise ValueError(
+                    'coverage seat priority profile authority missing'
+                )
         regenerated = evaluator(
             revision=revision,
             variant=variant,
             equipment_definition=definition,
             directivity_dataset=dataset,
             scenario=scenario,
+            priority_profile=priority_profile,
         )
         if regenerated != evaluation:
             raise ValueError(
