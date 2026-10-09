@@ -1,0 +1,2837 @@
+{
+  "schema_version": "htdt.r130d.original-q0-hybrid-modal-endpoint-evidence-1",
+  "preregistered_plan": {
+    "schema_version": "htdt.r130d.original-q0-hybrid-modal-endpoint-attribution-plan-1",
+    "date_jst": "2026-10-10",
+    "issue": 938,
+    "pr": 1055,
+    "hypothesis": "Observed 40Hz PPW32-to36 variation could arise from retained high eigenmodes and/or full 250ms finite-record endpoint coherent cancellation rather than the local first roof Neumann flux. Report favorable/unfavorable contributions symmetrically without changing original gate.",
+    "preregistration": "Commit and push this fixed diagnostic plan before any new eigenspectrum decomposition numeric execution.",
+    "original": {
+      "upstream_PFFDTD_sha": "aa319f6c86517cb95aabfae8656277da62c3ead5",
+      "ppw": [
+        28,
+        32,
+        36,
+        40,
+        44
+      ],
+      "original_source_xyz_m": [
+        1.5,
+        2,
+        2
+      ],
+      "original_receiver_xyz_m": [
+        2.5,
+        2,
+        2
+      ],
+      "source_receiver": "exact original SHA-pinned vox_out.h5/comms_out.h5 native 8x8 indices and weights",
+      "q0": "exact original 8 sample native impulse in_sigs[:,0]; all later samples 0",
+      "native_dt_h_Nt_unchanged": true,
+      "record_length_s": 0.25,
+      "c_m_s": 343.2,
+      "rho_kg_m3": 1.2,
+      "signed_bins_hz": [
+        40,
+        80
+      ],
+      "all_four_pairs_and_strict_monotonicity": true,
+      "three_gates": {
+        "complex_rms_relative": 0.2,
+        "magnitude_max_relative": 0.25,
+        "phase_max_deg": 15
+      },
+      "native_evidence": "benchmarks/acoustics/r130d_original_point_quadratic_pffdtd_evidence_2026-10-09.json",
+      "hybrid_plan": "benchmarks/acoustics/r130d_original_q0_cartesian_flux_true_cut_roof_hybrid_plan_2026-10-10.json",
+      "hybrid_evidence": "benchmarks/acoustics/r130d_original_q0_cartesian_flux_true_roof_hybrid_evidence_2026-10-10.json"
+    },
+    "method": {
+      "fixed_operator": "same symmetric conservative Cartesian full wet 5point + physical roof cut-Q1 flux, full consistent mass, x P1 tensor operators, no changes",
+      "frequency_bands_hz": [
+        [
+          0,
+          100
+        ],
+        [
+          100,
+          200
+        ],
+        [
+          200,
+          400
+        ],
+        [
+          400,
+          800
+        ],
+        [
+          800,
+          1600
+        ],
+        [
+          1600,
+          3200
+        ],
+        [
+          3200,
+          null
+        ]
+      ],
+      "band_membership": "sqrt(lambda)/(2*pi) physical semidiscrete eigenfrequency, disjoint half-open bands with last upper infinite; no excluded modes",
+      "endpoint_parts": [
+        "first_forward_derivative_sample_n0",
+        "interior_centered_derivative_samples_n1_to_N_minus_2",
+        "last_backward_derivative_sample_nN_minus_1"
+      ],
+      "endpoint_formula": "exact algebraic original finite 250ms signed P_T/Q_T Newmark modal sum; do not modify samples, gate, or input waveform",
+      "nyquist_partition": "delta_t*sqrt(lambda)>pi diagnostic only; both sides retained and summed",
+      "all_mode_frozen_signed_reference": "previously committed unchanged full hybrid 40/80Hz signed values; require relative agreement 2e-8",
+      "all_modal_band_partition_tolerance_relative": 2e-08,
+      "all_endpoint_partition_tolerance_relative": 2e-08,
+      "all_nyquist_partition_tolerance_relative": 2e-08,
+      "independent_direct_small_mode_fourier_verification": true,
+      "pair_signed_difference_projection": "Re(conj(full coarse-fine difference)*one band coarse-fine difference)/abs(full coarse-fine difference)^2; signed and can exceed 1 or negative; all partition fractions must sum to 1",
+      "endpoint_contribution_semantics": "algebraic decomposition of original pressure Fourier ratio; not physical single-boundary causal attribution",
+      "report_all_bands_all_grids_both_signed_bins_all_endpoint_components": true,
+      "no_high_mode_cut_no_source_smoothing_no_extra_window_no_amplitude_phase_fitting": true,
+      "recompute_and_compare_frozen_all_four_three_gates": true
+    },
+    "caps": {
+      "max_active_yz_nodes": 3300,
+      "max_modes": 180000,
+      "max_ppw_cases": 5,
+      "new_native_PFFDTD_runs": 0,
+      "new_GitHub_Actions_runs": 0,
+      "retain_scratch": true
+    },
+    "authority": {
+      "original_PFFDTD": "SELF_CONVERGENCE_FAILED",
+      "independent_physics": "NOT_VALIDATED",
+      "product": "NO_GO",
+      "PR_draft": true,
+      "issue_open": true
+    }
+  },
+  "preregistered_plan_sha256_lf": "8a8ef0afe96034fd390714c94ab364fc15da8cbb95799b33630d479f9dfb8a6a",
+  "preregistered_remote_plan_commit": "ff0f3b96ffa27aa3dc0fc072450f93f7a8fcb4ac",
+  "new_native_PFFDTD_runs": 0,
+  "new_GitHub_Actions_runs": 0,
+  "original_PFFDTD": "SELF_CONVERGENCE_FAILED",
+  "independent_physics": "NOT_VALIDATED",
+  "product": "NO_GO",
+  "all_five_original_q0_modal_endpoint_cases": [
+    {
+      "ppw": 28,
+      "native_comms_sha": "4404a9818a8f0c673c97e8ede8665367100aecb3d2f2f8481bc532bc45fd6b6c",
+      "native_room_sha": "9d8b598fc1e2077840ba5a51e8f2db72c30ad4b6991ae88d3174bac72acf9fc8",
+      "original_native_Nt": 1214,
+      "original_native_Ts_s": 0.00020599032818587005,
+      "original_native_source_strength": 2.7140664335664337,
+      "physical_room_volume_m3": 56.0,
+      "all_original_Q1_positive_supported_yz_modes": 1081,
+      "all_original_3D_modes": 37835,
+      "frozen_full_signed_40_80": [
+        [
+          -16.7703340997474,
+          3.7155944483987895
+        ],
+        [
+          -3.6135441871988405,
+          -212.08213498698535
+        ]
+      ],
+      "recomputed_unmodified_full_signed_40_80": [
+        [
+          -16.77033409974721,
+          3.7155944483988153
+        ],
+        [
+          -3.6135441871983716,
+          -212.08213498698538
+        ]
+      ],
+      "relative_to_previously_pushed_full_hybrid": 2.3877565827229106e-15,
+      "endpoint_signed_40_80": {
+        "first_forward_derivative_sample_n0": [
+          [
+            0.015205754098019497,
+            0.0
+          ],
+          [
+            0.015205754098019497,
+            0.0
+          ]
+        ],
+        "interior_centered_derivative_samples_n1_to_N_minus_2": [
+          [
+            20.568134398979396,
+            2.459645996642034
+          ],
+          [
+            33.661622619569954,
+            -214.59261322257913
+          ]
+        ],
+        "last_backward_derivative_sample_nN_minus_1": [
+          [
+            -37.35367425282456,
+            1.2559484517567885
+          ],
+          [
+            -37.29037256086626,
+            2.5104782355937623
+          ]
+        ]
+      },
+      "frequency_bands_signed_all_modes": [
+        {
+          "frequency_hz": "0-100",
+          "frequency_low_hz": 0.0,
+          "frequency_high_hz": 100.0,
+          "mode_count": 15,
+          "signed_40_80": [
+            [
+              32.50310845533027,
+              0.4111511350307607
+            ],
+            [
+              37.26141011612443,
+              -213.60373173415263
+            ]
+          ],
+          "endpoint_signed_40_80": {
+            "first_forward_derivative_sample_n0": [
+              [
+                2.073359313129992,
+                0.0
+              ],
+              [
+                2.073359313129992,
+                0.0
+              ]
+            ],
+            "interior_centered_derivative_samples_n1_to_N_minus_2": [
+              [
+                31.851803633693432,
+                0.3633371736834492
+              ],
+              [
+                36.60769539888378,
+                -213.69930564815527
+              ]
+            ],
+            "last_backward_derivative_sample_nN_minus_1": [
+              [
+                -1.4220544914931563,
+                0.047813961347311466
+              ],
+              [
+                -1.4196445958893371,
+                0.0955739140026359
+              ]
+            ]
+          },
+          "absolute_modal_contribution_sum_40_80": [
+            58.453371000421775,
+            240.30538252180736
+          ]
+        },
+        {
+          "frequency_hz": "100-200",
+          "frequency_low_hz": 100.0,
+          "frequency_high_hz": 200.0,
+          "mode_count": 59,
+          "signed_40_80": [
+            [
+              13.604803494347262,
+              -2.246824616800618
+            ],
+            [
+              19.491810373394124,
+              -10.376311891845136
+            ]
+          ],
+          "endpoint_signed_40_80": {
+            "first_forward_derivative_sample_n0": [
+              [
+                2.5973488159914075,
+                0.0
+              ],
+              [
+                2.5973488159914075,
+                0.0
+              ]
+            ],
+            "interior_centered_derivative_samples_n1_to_N_minus_2": [
+              [
+                6.75128520913363,
+                -2.1037187627659253
+              ],
+              [
+                12.645504838573917,
+                -10.090261830285982
+              ]
+            ],
+            "last_backward_derivative_sample_nN_minus_1": [
+              [
+                4.256169469222225,
+                -0.14310585403469264
+              ],
+              [
+                4.248956718828798,
+                -0.2860500615591545
+              ]
+            ]
+          },
+          "absolute_modal_contribution_sum_40_80": [
+            93.36546983784015,
+            148.53667513951171
+          ]
+        },
+        {
+          "frequency_hz": "200-400",
+          "frequency_low_hz": 200.0,
+          "frequency_high_hz": 400.0,
+          "mode_count": 361,
+          "signed_40_80": [
+            [
+              4.243873171360286,
+              5.255225196355052
+            ],
+            [
+              5.845959422827306,
+              11.52994420589627
+            ]
+          ],
+          "endpoint_signed_40_80": {
+            "first_forward_derivative_sample_n0": [
+              [
+                -8.436502512760288,
+                0.0
+              ],
+              [
+                -8.436502512760288,
+                0.0
+              ]
+            ],
+            "interior_centered_derivative_samples_n1_to_N_minus_2": [
+              [
+                13.49847825250841,
+                5.227718005303632
+              ],
+              [
+                15.099178100152773,
+                11.474960894789579
+              ]
+            ],
+            "last_backward_derivative_sample_nN_minus_1": [
+              [
+                -0.8181025683878355,
+                0.027507191051419987
+              ],
+              [
+                -0.8167161645651787,
+                0.05498331110668996
+              ]
+            ]
+          },
+          "absolute_modal_contribution_sum_40_80": [
+            249.16074157695823,
+            291.53221728698765
+          ]
+        },
+        {
+          "frequency_hz": "400-800",
+          "frequency_low_hz": 400.0,
+          "frequency_high_hz": 800.0,
+          "mode_count": 2157,
+          "signed_40_80": [
+            [
+              42.06618772257865,
+              -4.6793025966601505
+            ],
+            [
+              43.151650306955474,
+              -9.619518590571046
+            ]
+          ],
+          "endpoint_signed_40_80": {
+            "first_forward_derivative_sample_n0": [
+              [
+                0.7804995225816651,
+                0.0
+              ],
+              [
+                0.7804995225816651,
+                0.0
+              ]
+            ],
+            "interior_centered_derivative_samples_n1_to_N_minus_2": [
+              [
+                62.86983297926449,
+                -5.405029684028687
+              ],
+              [
+                63.918717826341535,
+                -11.070153013720425
+              ]
+            ],
+            "last_backward_derivative_sample_nN_minus_1": [
+              [
+                -21.5841447792675,
+                0.7257270873685362
+              ],
+              [
+                -21.547567041967724,
+                1.4506344231493793
+              ]
+            ]
+          },
+          "absolute_modal_contribution_sum_40_80": [
+            1055.7103787145534,
+            1091.0577363729103
+          ]
+        },
+        {
+          "frequency_hz": "800-1600",
+          "frequency_low_hz": 800.0,
+          "frequency_high_hz": 1600.0,
+          "mode_count": 11288,
+          "signed_40_80": [
+            [
+              -84.37902185525573,
+              3.9207825681946047
+            ],
+            [
+              -84.6031376650964,
+              7.878326277812921
+            ]
+          ],
+          "endpoint_signed_40_80": {
+            "first_forward_derivative_sample_n0": [
+              [
+                0.5747134145994017,
+                0.0
+              ],
+              [
+                0.5747134145994017,
+                0.0
+              ]
+            ],
+            "interior_centered_derivative_samples_n1_to_N_minus_2": [
+              [
+                -85.34899011685043,
+                3.934072283947156
+              ],
+              [
+                -85.57243610501851,
+                7.904890697799532
+              ]
+            ],
+            "last_backward_derivative_sample_nN_minus_1": [
+              [
+                0.3952548469953028,
+                -0.013289715752551359
+              ],
+              [
+                0.3945850253227058,
+                -0.026564419986611486
+              ]
+            ]
+          },
+          "absolute_modal_contribution_sum_40_80": [
+            5311.396528018532,
+            5327.185513327507
+          ]
+        },
+        {
+          "frequency_hz": "1600-3200",
+          "frequency_low_hz": 1600.0,
+          "frequency_high_hz": 3200.0,
+          "mode_count": 18816,
+          "signed_40_80": [
+            [
+              -16.795922062506012,
+              0.6174280487497937
+            ],
+            [
+              -16.771109996948688,
+              1.2354686604630254
+            ]
+          ],
+          "endpoint_signed_40_80": {
+            "first_forward_derivative_sample_n0": [
+              [
+                -5.496406310111608,
+                0.0
+              ],
+              [
+                -5.496406310111608,
+                0.0
+              ]
+            ],
+            "interior_centered_derivative_samples_n1_to_N_minus_2": [
+              [
+                -6.932950491238924,
+                0.4706103396772151
+              ],
+              [
+                -6.91553825915489,
+                0.9419990815875147
+              ]
+            ],
+            "last_backward_derivative_sample_nN_minus_1": [
+              [
+                -4.366565261155479,
+                0.14681770907257866
+              ],
+              [
+                -4.359165427682188,
+                0.2934695788755108
+              ]
+            ]
+          },
+          "absolute_modal_contribution_sum_40_80": [
+            7710.023041582958,
+            7719.118232329102
+          ]
+        },
+        {
+          "frequency_hz": "3200-infinity",
+          "frequency_low_hz": 3200.0,
+          "frequency_high_hz": null,
+          "mode_count": 5139,
+          "signed_40_80": [
+            [
+              -8.013363025606042,
+              0.43713471352935773
+            ],
+            [
+              -7.990126744458087,
+              0.8736880854112113
+            ]
+          ],
+          "endpoint_signed_40_80": {
+            "first_forward_derivative_sample_n0": [
+              [
+                7.9221935106638615,
+                0.0
+              ],
+              [
+                7.9221935106638615,
+                0.0
+              ]
+            ],
+            "interior_centered_derivative_samples_n1_to_N_minus_2": [
+              [
+                -2.1213250675317195,
+                -0.027343359174825166
+              ],
+              [
+                -2.121499180208736,
+                -0.05474340459407206
+              ]
+            ],
+            "last_backward_derivative_sample_nN_minus_1": [
+              [
+                -13.814231468738184,
+                0.4644780727041829
+              ],
+              [
+                -13.790821074913213,
+                0.9284314900052834
+              ]
+            ]
+          },
+          "absolute_modal_contribution_sum_40_80": [
+            789.9620938520256,
+            790.7186412472358
+          ]
+        }
+      ],
+      "native_at_or_below_nyquist_mode_count": 26979,
+      "native_above_nyquist_mode_count": 10856,
+      "native_at_or_below_nyquist_signed_40_80": [
+        [
+          74.06895081160354,
+          0.9121904010778072
+        ],
+        [
+          87.10900868941407,
+          -217.68680851658905
+        ]
+      ],
+      "native_above_nyquist_signed_40_80": [
+        [
+          -90.83928491135082,
+          2.8034040473211514
+        ],
+        [
+          -90.7225528766146,
+          5.60467352960371
+        ]
+      ],
+      "sum_abs_modal_signed_40_80": [
+        15268.071624583374,
+        15608.454398225123
+      ],
+      "reconstruction_relative": {
+        "bands": 2.5254785792934065e-14,
+        "pressure_record_endpoints": 5.019470864515164e-16,
+        "nyquist_diagnostic": 1.017793257068168e-14
+      },
+      "all_high_modes_retained_not_accepted_without_canonical_gates": true
+    },
+    {
+      "ppw": 32,
+      "native_comms_sha": "716199c1cb8f9d982cdafe7deaccdf630073a2b0d8cdec17fcaf3dff52f4b60b",
+      "native_room_sha": "8f3ebd62703c40793d68fdf703e098bbecc568cc9beb227cfa126b8042954e3b",
+      "original_native_Nt": 1388,
+      "original_native_Ts_s": 0.0001802415371626363,
+      "original_native_source_strength": 3.10179020979021,
+      "physical_room_volume_m3": 56.0,
+      "all_original_Q1_positive_supported_yz_modes": 1359,
+      "all_original_3D_modes": 53001,
+      "frozen_full_signed_40_80": [
+        [
+          -167.4238354195578,
+          -2.152293697094708
+        ],
+        [
+          -154.3022847729208,
+          -224.12883005391913
+        ]
+      ],
+      "recomputed_unmodified_full_signed_40_80": [
+        [
+          -167.42383541955817,
+          -2.152293697094724
+        ],
+        [
+          -154.3022847729209,
+          -224.1288300539192
+        ]
+      ],
+      "relative_to_previously_pushed_full_hybrid": 1.2011475376273354e-15,
+      "endpoint_signed_40_80": {
+        "first_forward_derivative_sample_n0": [
+          [
+            0.000960080359195814,
+            0.0
+          ],
+          [
+            0.000960080359195814,
+            0.0
+          ]
+        ],
+        "interior_centered_derivative_samples_n1_to_N_minus_2": [
+          [
+            12.639927081694713,
+            -2.378024739466696
+          ],
+          [
+            25.761053260484506,
+            -224.58029178391837
+          ]
+        ],
+        "last_backward_derivative_sample_nN_minus_1": [
+          [
+            -180.06472258161207,
+            0.22573104237197714
+          ],
+          [
+            -180.06429811376478,
+            0.45146172999912254
+          ]
+        ]
+      },
+      "frequency_bands_signed_all_modes": [
+        {
+          "frequency_hz": "0-100",
+          "frequency_low_hz": 0.0,
+          "frequency_high_hz": 100.0,
+          "mode_count": 15,
+          "signed_40_80": [
+            [
+              31.901592493998752,
+              0.5099075101818146
+            ],
+            [
+              38.15579889795748,
+              -213.34494258788914
+            ]
+          ],
+          "endpoint_signed_40_80": {
+            "first_forward_derivative_sample_n0": [
+              [
+                1.8125730454156188,
+                0.0
+              ],
+              [
+                1.8125730454156188,
+                0.0
+              ]
+            ],
+            "interior_centered_derivative_samples_n1_to_N_minus_2": [
+              [
+                31.37940847449888,
+                0.5082898648390223
+              ],
+              [
+                37.633611836614406,
+                -213.34817787603254
+              ]
+            ],
+            "last_backward_derivative_sample_nN_minus_1": [
+              [
+                -1.2903890259157462,
+                0.001617645342792241
+              ],
+              [
+                -1.290385984072546,
+                0.0032352881433939233
+              ]
+            ]
+          },
+          "absolute_modal_contribution_sum_40_80": [
+            58.2823667350362,
+            240.35007315249234
+          ]
+        },
+        {
+          "frequency_hz": "100-200",
+          "frequency_low_hz": 100.0,
+          "frequency_high_hz": 200.0,
+          "mode_count": 59,
+          "signed_40_80": [
+            [
+              12.70271520906862,
+              -2.4600551775904367
+            ],
+            [
+              18.174200693724018,
+              -11.037674831569506
+            ]
+          ],
+          "endpoint_signed_40_80": {
+            "first_forward_derivative_sample_n0": [
+              [
+                2.2911490808666857,
+                0.0
+              ],
+              [
+                2.2911490808666857,
+                0.0
+              ]
+            ],
+            "interior_centered_derivative_samples_n1_to_N_minus_2": [
+              [
+                6.9090874174294274,
+                -2.4556644332017905
+              ],
+              [
+                12.380581158502725,
+                -11.028893349692433
+              ]
+            ],
+            "last_backward_derivative_sample_nN_minus_1": [
+              [
+                3.502478710772506,
+                -0.004390744388646138
+              ],
+              [
+                3.502470454354609,
+                -0.008781481877072162
+              ]
+            ]
+          },
+          "absolute_modal_contribution_sum_40_80": [
+            91.91660903086492,
+            146.79185273105557
+          ]
+        },
+        {
+          "frequency_hz": "200-400",
+          "frequency_low_hz": 200.0,
+          "frequency_high_hz": 400.0,
+          "mode_count": 371,
+          "signed_40_80": [
+            [
+              18.968402856251572,
+              1.9451411424513712
+            ],
+            [
+              21.385923081184394,
+              4.616401708823508
+            ]
+          ],
+          "endpoint_signed_40_80": {
+            "first_forward_derivative_sample_n0": [
+              [
+                -1.3382433425131852,
+                0.0
+              ],
+              [
+                -1.3382433425131852,
+                0.0
+              ]
+            ],
+            "interior_centered_derivative_samples_n1_to_N_minus_2": [
+              [
+                26.790096183229025,
+                1.937013420917819
+              ],
+              [
+                29.207601124679226,
+                4.600146278529424
+              ]
+            ],
+            "last_backward_derivative_sample_nN_minus_1": [
+              [
+                -6.48344998446427,
+                0.008127721533552346
+              ],
+              [
+                -6.483434700981649,
+                0.016255430294084293
+              ]
+            ]
+          },
+          "absolute_modal_contribution_sum_40_80": [
+            262.01683822384626,
+            306.26870576316077
+          ]
+        },
+        {
+          "frequency_hz": "400-800",
+          "frequency_low_hz": 400.0,
+          "frequency_high_hz": 800.0,
+          "mode_count": 2287,
+          "signed_40_80": [
+            [
+              -55.21361375392868,
+              1.1430547155881108
+            ],
+            [
+              -56.16179036171598,
+              2.2581675191401773
+            ]
+          ],
+          "endpoint_signed_40_80": {
+            "first_forward_derivative_sample_n0": [
+              [
+                -16.06030633273631,
+                0.0
+              ],
+              [
+                -16.06030633273631,
+                0.0
+              ]
+            ],
+            "interior_centered_derivative_samples_n1_to_N_minus_2": [
+              [
+                -55.50786064130003,
+                1.1635569566321866
+              ],
+              [
+                -56.455998696382984,
+                2.2991719690082855
+              ]
+            ],
+            "last_backward_derivative_sample_nN_minus_1": [
+              [
+                16.354553220107647,
+                -0.0205022410440759
+              ],
+              [
+                16.354514667403315,
+                -0.04100444986810822
+              ]
+            ]
+          },
+          "absolute_modal_contribution_sum_40_80": [
+            985.8853557441481,
+            1032.391972295853
+          ]
+        },
+        {
+          "frequency_hz": "800-1600",
+          "frequency_low_hz": 800.0,
+          "frequency_high_hz": 1600.0,
+          "mode_count": 11624,
+          "signed_40_80": [
+            [
+              -75.40353132168977,
+              -2.343796429695533
+            ],
+            [
+              -75.41355525326085,
+              -4.72263092662399
+            ]
+          ],
+          "endpoint_signed_40_80": {
+            "first_forward_derivative_sample_n0": [
+              [
+                -22.088060223239008,
+                0.0
+              ],
+              [
+                -22.088060223239008,
+                0.0
+              ]
+            ],
+            "interior_centered_derivative_samples_n1_to_N_minus_2": [
+              [
+                21.192742907301547,
+                -2.437200715508207
+              ],
+              [
+                21.18254333698884,
+                -4.909439351460985
+              ]
+            ],
+            "last_backward_derivative_sample_nN_minus_1": [
+              [
+                -74.50821400575231,
+                0.09340428581267406
+              ],
+              [
+                -74.50803836701068,
+                0.18680842483699509
+              ]
+            ]
+          },
+          "absolute_modal_contribution_sum_40_80": [
+            4418.34896273249,
+            4453.045651224793
+          ]
+        },
+        {
+          "frequency_hz": "1600-3200",
+          "frequency_low_hz": 1600.0,
+          "frequency_high_hz": 3200.0,
+          "mode_count": 31225,
+          "signed_40_80": [
+            [
+              -69.52459602987929,
+              -0.7996413828980348
+            ],
+            [
+              -69.58719859697823,
+              -1.6040248668793664
+            ]
+          ],
+          "endpoint_signed_40_80": {
+            "first_forward_derivative_sample_n0": [
+              [
+                38.7173394352746,
+                0.0
+              ],
+              [
+                38.7173394352746,
+                0.0
+              ]
+            ],
+            "interior_centered_derivative_samples_n1_to_N_minus_2": [
+              [
+                -25.889578578561274,
+                -0.902879169263292
+              ],
+              [
+                -25.952375275455797,
+                -1.8105002773678127
+              ]
+            ],
+            "last_backward_derivative_sample_nN_minus_1": [
+              [
+                -82.35235688659262,
+                0.10323778636525724
+              ],
+              [
+                -82.35216275679703,
+                0.2064754104884462
+              ]
+            ]
+          },
+          "absolute_modal_contribution_sum_40_80": [
+            9391.814023390509,
+            9403.224536470565
+          ]
+        },
+        {
+          "frequency_hz": "3200-infinity",
+          "frequency_low_hz": 3200.0,
+          "frequency_high_hz": null,
+          "mode_count": 7420,
+          "signed_40_80": [
+            [
+              -30.854804873381752,
+              -0.1469040751320167
+            ],
+            [
+              -30.85566323383288,
+              -0.29412606892081633
+            ]
+          ],
+          "endpoint_signed_40_80": {
+            "first_forward_derivative_sample_n0": [
+              [
+                -3.333491582711402,
+                0.0
+              ],
+              [
+                -3.333491582711402,
+                0.0
+              ]
+            ],
+            "interior_centered_derivative_samples_n1_to_N_minus_2": [
+              [
+                7.766031319097251,
+                -0.19114066388244105
+              ],
+              [
+                7.765089775538446,
+                -0.38259917690220036
+              ]
+            ],
+            "last_backward_derivative_sample_nN_minus_1": [
+              [
+                -35.2873446097676,
+                0.04423658875042436
+              ],
+              [
+                -35.287261426659924,
+                0.08847310798138404
+              ]
+            ]
+          },
+          "absolute_modal_contribution_sum_40_80": [
+            1815.9865083221166,
+            1816.4234013793005
+          ]
+        }
+      ],
+      "native_at_or_below_nyquist_mode_count": 40476,
+      "native_above_nyquist_mode_count": 12525,
+      "native_at_or_below_nyquist_signed_40_80": [
+        [
+          -157.25308352610776,
+          -1.9691361466457193
+        ],
+        [
+          -144.13266356324968,
+          -223.76214642697792
+        ]
+      ],
+      "native_above_nyquist_signed_40_80": [
+        [
+          -10.170751893447342,
+          -0.18315755044898357
+        ],
+        [
+          -10.169621209674826,
+          -0.36668362693938966
+        ]
+      ],
+      "sum_abs_modal_signed_40_80": [
+        17024.25066417897,
+        17398.496193017225
+      ],
+      "reconstruction_relative": {
+        "bands": 8.198116139788562e-15,
+        "pressure_record_endpoints": 5.628649989146909e-16,
+        "nyquist_diagnostic": 1.5950373477538066e-14
+      },
+      "all_high_modes_retained_not_accepted_without_canonical_gates": true
+    },
+    {
+      "ppw": 36,
+      "native_comms_sha": "3cd05bcee5f8fed08da3dc94ff2ac90b92969b293daf2db77b4bac8d0c51a2f9",
+      "native_room_sha": "433c1d334419006b1185a4ef275545d329244d0808b2a3c12a3200e7af4e3d50",
+      "original_native_Nt": 1561,
+      "original_native_Ts_s": 0.00016021469970012116,
+      "original_native_source_strength": 3.4895139860139857,
+      "physical_room_volume_m3": 56.0,
+      "all_original_Q1_positive_supported_yz_modes": 1716,
+      "all_original_3D_modes": 75504,
+      "frozen_full_signed_40_80": [
+        [
+          65.8496021413976,
+          -5.332891800531828
+        ],
+        [
+          81.0659255933739,
+          -230.46887561329274
+        ]
+      ],
+      "recomputed_unmodified_full_signed_40_80": [
+        [
+          65.84960214139805,
+          -5.332891800531815
+        ],
+        [
+          81.06592559337415,
+          -230.46887561329265
+        ]
+      ],
+      "relative_to_previously_pushed_full_hybrid": 2.0630064718583826e-15,
+      "endpoint_signed_40_80": {
+        "first_forward_derivative_sample_n0": [
+          [
+            -4.405113928122648e-05,
+            0.0
+          ],
+          [
+            -4.405113928122648e-05,
+            0.0
+          ]
+        ],
+        "interior_centered_derivative_samples_n1_to_N_minus_2": [
+          [
+            115.83529227919962,
+            -6.150404424685037
+          ],
+          [
+            131.03156329560233,
+            -232.10368223365597
+          ]
+        ],
+        "last_backward_derivative_sample_nN_minus_1": [
+          [
+            -49.98564608666234,
+            0.8175126241532055
+          ],
+          [
+            -49.965593651088824,
+            1.6348066203632032
+          ]
+        ]
+      },
+      "frequency_bands_signed_all_modes": [
+        {
+          "frequency_hz": "0-100",
+          "frequency_low_hz": 0.0,
+          "frequency_high_hz": 100.0,
+          "mode_count": 15,
+          "signed_40_80": [
+            [
+              32.52243509168011,
+              0.6333872141255686
+            ],
+            [
+              39.63207918674618,
+              -212.78645847840926
+            ]
+          ],
+          "endpoint_signed_40_80": {
+            "first_forward_derivative_sample_n0": [
+              [
+                1.6077279025244962,
+                0.0
+              ],
+              [
+                1.6077279025244962,
+                0.0
+              ]
+            ],
+            "interior_centered_derivative_samples_n1_to_N_minus_2": [
+              [
+                32.02454507744367,
+                0.6152358735814055
+              ],
+              [
+                39.13374394563974,
+                -212.82275630527255
+              ]
+            ],
+            "last_backward_derivative_sample_nN_minus_1": [
+              [
+                -1.1098378882880542,
+                0.018151340544163067
+              ],
+              [
+                -1.1093926614180576,
+                0.03629782686328742
+              ]
+            ]
+          },
+          "absolute_modal_contribution_sum_40_80": [
+            58.42718286051174,
+            240.03191593445754
+          ]
+        },
+        {
+          "frequency_hz": "100-200",
+          "frequency_low_hz": 100.0,
+          "frequency_high_hz": 200.0,
+          "mode_count": 59,
+          "signed_40_80": [
+            [
+              9.058107649124878,
+              -2.695210251299113
+            ],
+            [
+              14.205816758346845,
+              -11.645742973835084
+            ]
+          ],
+          "endpoint_signed_40_80": {
+            "first_forward_derivative_sample_n0": [
+              [
+                1.9856527095101417,
+                0.0
+              ],
+              [
+                1.9856527095101417,
+                0.0
+              ]
+            ],
+            "interior_centered_derivative_samples_n1_to_N_minus_2": [
+              [
+                4.082723941703614,
+                -2.64631335739127
+              ],
+              [
+                9.231632423003596,
+                -11.547962262548163
+              ]
+            ],
+            "last_backward_derivative_sample_nN_minus_1": [
+              [
+                2.9897309979111215,
+                -0.04889689390784277
+              ],
+              [
+                2.9885316258331076,
+                -0.09778071128692194
+              ]
+            ]
+          },
+          "absolute_modal_contribution_sum_40_80": [
+            89.49926311072046,
+            143.8915513214432
+          ]
+        },
+        {
+          "frequency_hz": "200-400",
+          "frequency_low_hz": 200.0,
+          "frequency_high_hz": 400.0,
+          "mode_count": 378,
+          "signed_40_80": [
+            [
+              43.36471260332312,
+              1.4464368714149496
+            ],
+            [
+              46.83971230107273,
+              3.5655334594118635
+            ]
+          ],
+          "endpoint_signed_40_80": {
+            "first_forward_derivative_sample_n0": [
+              [
+                -2.8587086554458585,
+                0.0
+              ],
+              [
+                -2.8587086554458585,
+                0.0
+              ]
+            ],
+            "interior_centered_derivative_samples_n1_to_N_minus_2": [
+              [
+                53.54393476979612,
+                1.3267102562948208
+              ],
+              [
+                57.01599774196473,
+                3.326112247739684
+              ]
+            ],
+            "last_backward_derivative_sample_nN_minus_1": [
+              [
+                -7.320513511027136,
+                0.11972661512012879
+              ],
+              [
+                -7.317576785446145,
+                0.23942121167217928
+              ]
+            ]
+          },
+          "absolute_modal_contribution_sum_40_80": [
+            256.11113715528586,
+            301.5860676832012
+          ]
+        },
+        {
+          "frequency_hz": "400-800",
+          "frequency_low_hz": 400.0,
+          "frequency_high_hz": 800.0,
+          "mode_count": 2387,
+          "signed_40_80": [
+            [
+              -47.21712411008684,
+              -3.1764140731659007
+            ],
+            [
+              -47.844056872965254,
+              -6.496794112970811
+            ]
+          ],
+          "endpoint_signed_40_80": {
+            "first_forward_derivative_sample_n0": [
+              [
+                -11.656356352766599,
+                0.0
+              ],
+              [
+                -11.656356352766599,
+                0.0
+              ]
+            ],
+            "interior_centered_derivative_samples_n1_to_N_minus_2": [
+              [
+                5.755169960140516,
+                -3.852134070946707
+              ],
+              [
+                5.111662735509629,
+                -7.848053400285323
+              ]
+            ],
+            "last_backward_derivative_sample_nN_minus_1": [
+              [
+                -41.31593771746076,
+                0.6757199977808063
+              ],
+              [
+                -41.299363255708286,
+                1.3512592873145128
+              ]
+            ]
+          },
+          "absolute_modal_contribution_sum_40_80": [
+            872.170341796622,
+            912.877100981087
+          ]
+        },
+        {
+          "frequency_hz": "800-1600",
+          "frequency_low_hz": 800.0,
+          "frequency_high_hz": 1600.0,
+          "mode_count": 12539,
+          "signed_40_80": [
+            [
+              -15.070583142015138,
+              -0.8817258055701359
+            ],
+            [
+              -14.965786373013422,
+              -1.7845517160366728
+            ]
+          ],
+          "endpoint_signed_40_80": {
+            "first_forward_derivative_sample_n0": [
+              [
+                -22.04167126104694,
+                0.0
+              ],
+              [
+                -22.04167126104694,
+                0.0
+              ]
+            ],
+            "interior_centered_derivative_samples_n1_to_N_minus_2": [
+              [
+                30.57473371991139,
+                -1.2677621933223866
+              ],
+              [
+                30.670061558935096,
+                -2.5565212535739903
+              ]
+            ],
+            "last_backward_derivative_sample_nN_minus_1": [
+              [
+                -23.603645600879588,
+                0.3860363877522507
+              ],
+              [
+                -23.59417667090158,
+                0.7719695375373175
+              ]
+            ]
+          },
+          "absolute_modal_contribution_sum_40_80": [
+            3083.602350683703,
+            3105.893364436945
+          ]
+        },
+        {
+          "frequency_hz": "1600-3200",
+          "frequency_low_hz": 1600.0,
+          "frequency_high_hz": 3200.0,
+          "mode_count": 42029,
+          "signed_40_80": [
+            [
+              47.9559627396541,
+              -0.7139488817653569
+            ],
+            [
+              47.96156386907661,
+              -1.4300189199913198
+            ]
+          ],
+          "endpoint_signed_40_80": {
+            "first_forward_derivative_sample_n0": [
+              [
+                34.066841334549075,
+                0.0
+              ],
+              [
+                34.066841334549075,
+                0.0
+              ]
+            ],
+            "interior_centered_derivative_samples_n1_to_N_minus_2": [
+              [
+                -10.7479220422281,
+                -0.3110113263502185
+              ],
+              [
+                -10.732437420941546,
+                -0.6242515670186691
+              ]
+            ],
+            "last_backward_derivative_sample_nN_minus_1": [
+              [
+                24.63704344733312,
+                -0.40293755541513837
+              ],
+              [
+                24.62715995546908,
+                -0.8057673529726507
+              ]
+            ]
+          },
+          "absolute_modal_contribution_sum_40_80": [
+            4111.91338560582,
+            4114.69956508819
+          ]
+        },
+        {
+          "frequency_hz": "3200-infinity",
+          "frequency_low_hz": 3200.0,
+          "frequency_high_hz": null,
+          "mode_count": 18097,
+          "signed_40_80": [
+            [
+              -4.763908690283361,
+              0.05458312572812345
+            ],
+            [
+              -4.7634032758906235,
+              0.10915712853840057
+            ]
+          ],
+          "endpoint_signed_40_80": {
+            "first_forward_derivative_sample_n0": [
+              [
+                -1.103529728464158,
+                0.0
+              ],
+              [
+                -1.103529728464158,
+                0.0
+              ]
+            ],
+            "interior_centered_derivative_samples_n1_to_N_minus_2": [
+              [
+                0.6021068524321963,
+                -0.015129606550719297
+              ],
+              [
+                0.600902311490458,
+                -0.030249692697062177
+              ]
+            ],
+            "last_backward_derivative_sample_nN_minus_1": [
+              [
+                -4.2624858142513995,
+                0.06971273227884274
+              ],
+              [
+                -4.260775858916923,
+                0.13940682123546275
+              ]
+            ]
+          },
+          "absolute_modal_contribution_sum_40_80": [
+            133.30461722664137,
+            133.34250425821082
+          ]
+        }
+      ],
+      "native_at_or_below_nyquist_mode_count": 55862,
+      "native_above_nyquist_mode_count": 19642,
+      "native_at_or_below_nyquist_signed_40_80": [
+        [
+          65.98010837880038,
+          -5.336428366167374
+        ],
+        [
+          81.19631189918607,
+          -230.47593634222284
+        ]
+      ],
+      "native_above_nyquist_signed_40_80": [
+        [
+          -0.13050623740158024,
+          0.003536565635790252
+        ],
+        [
+          -0.13038630581150623,
+          0.007060728927004794
+        ]
+      ],
+      "sum_abs_modal_signed_40_80": [
+        8605.028278439266,
+        8952.322069703552
+      ],
+      "reconstruction_relative": {
+        "bands": 6.412147351330936e-15,
+        "pressure_record_endpoints": 6.084235530482456e-16,
+        "nyquist_diagnostic": 1.3059060279983595e-14
+      },
+      "all_high_modes_retained_not_accepted_without_canonical_gates": true
+    },
+    {
+      "ppw": 40,
+      "native_comms_sha": "64a4f45cf19b92bb7a8a1ffd24af05e10877c99000e29bf985637b18e287763a",
+      "native_room_sha": "c7c1894826c4774393987855e533081f615b22d510ec6042aacda12acbe0daaf",
+      "original_native_Nt": 1734,
+      "original_native_Ts_s": 0.00014419322973010905,
+      "original_native_source_strength": 3.877237762237762,
+      "physical_room_volume_m3": 56.0,
+      "all_original_Q1_positive_supported_yz_modes": 2101,
+      "all_original_3D_modes": 102949,
+      "frozen_full_signed_40_80": [
+        [
+          174.02204678950682,
+          -5.050774635912619
+        ],
+        [
+          190.25933498509247,
+          -230.28488939766143
+        ]
+      ],
+      "recomputed_unmodified_full_signed_40_80": [
+        [
+          174.02204678950585,
+          -5.050774635912607
+        ],
+        [
+          190.2593349850913,
+          -230.2848893976615
+        ]
+      ],
+      "relative_to_previously_pushed_full_hybrid": 4.381731513203974e-15,
+      "endpoint_signed_40_80": {
+        "first_forward_derivative_sample_n0": [
+          [
+            -0.00021977642443005152,
+            0.0
+          ],
+          [
+            -0.00021977642443005152,
+            0.0
+          ]
+        ],
+        "interior_centered_derivative_samples_n1_to_N_minus_2": [
+          [
+            75.16156782909911,
+            -2.2390717414320864
+          ],
+          [
+            91.5187511696893,
+            -224.66375659886558
+          ]
+        ],
+        "last_backward_derivative_sample_nN_minus_1": [
+          [
+            98.86069873683125,
+            -2.8117028944805202
+          ],
+          [
+            98.7408035918264,
+            -5.621132798795903
+          ]
+        ]
+      },
+      "frequency_bands_signed_all_modes": [
+        {
+          "frequency_hz": "0-100",
+          "frequency_low_hz": 0.0,
+          "frequency_high_hz": 100.0,
+          "mode_count": 15,
+          "signed_40_80": [
+            [
+              33.01103446324072,
+              0.6453793039119498
+            ],
+            [
+              40.74117906297561,
+              -213.10235870091316
+            ]
+          ],
+          "endpoint_signed_40_80": {
+            "first_forward_derivative_sample_n0": [
+              [
+                1.4485461028093707,
+                0.0
+              ],
+              [
+                1.4485461028093707,
+                0.0
+              ]
+            ],
+            "interior_centered_derivative_samples_n1_to_N_minus_2": [
+              [
+                32.53899113697136,
+                0.6176065315327584
+              ],
+              [
+                40.26795146486227,
+                -213.15788179406806
+              ]
+            ],
+            "last_backward_derivative_sample_nN_minus_1": [
+              [
+                -0.976502776540019,
+                0.027772772379191454
+              ],
+              [
+                -0.9753185046960322,
+                0.05552309315490788
+              ]
+            ]
+          },
+          "absolute_modal_contribution_sum_40_80": [
+            58.63315428812871,
+            240.57018463242957
+          ]
+        },
+        {
+          "frequency_hz": "100-200",
+          "frequency_low_hz": 100.0,
+          "frequency_high_hz": 200.0,
+          "mode_count": 59,
+          "signed_40_80": [
+            [
+              6.408990653696996,
+              -2.943321361696709
+            ],
+            [
+              11.346963186873378,
+              -12.314092720942357
+            ]
+          ],
+          "endpoint_signed_40_80": {
+            "first_forward_derivative_sample_n0": [
+              [
+                1.8030256039584656,
+                0.0
+              ],
+              [
+                1.8030256039584656,
+                0.0
+              ]
+            ],
+            "interior_centered_derivative_samples_n1_to_N_minus_2": [
+              [
+                2.0373071854967133,
+                -2.870266013675705
+              ],
+              [
+                6.978394906113967,
+                -12.1680410830917
+              ]
+            ],
+            "last_backward_derivative_sample_nN_minus_1": [
+              [
+                2.568657864241818,
+                -0.0730553480210043
+              ],
+              [
+                2.5655426768009453,
+                -0.14605163785065833
+              ]
+            ]
+          },
+          "absolute_modal_contribution_sum_40_80": [
+            88.11669122726903,
+            142.56332592054315
+          ]
+        },
+        {
+          "frequency_hz": "200-400",
+          "frequency_low_hz": 200.0,
+          "frequency_high_hz": 400.0,
+          "mode_count": 380,
+          "signed_40_80": [
+            [
+              66.38283091625,
+              1.1554637114296673
+            ],
+            [
+              70.71715925004051,
+              2.9687222270290974
+            ]
+          ],
+          "endpoint_signed_40_80": {
+            "first_forward_derivative_sample_n0": [
+              [
+                -1.4335664853607308,
+                0.0
+              ],
+              [
+                -1.4335664853607308,
+                0.0
+              ]
+            ],
+            "interior_centered_derivative_samples_n1_to_N_minus_2": [
+              [
+                71.82756435276696,
+                1.0413818783967719
+              ],
+              [
+                76.15702806948119,
+                2.740650785104418
+              ]
+            ],
+            "last_backward_derivative_sample_nN_minus_1": [
+              [
+                -4.011166951156225,
+                0.11408183303289544
+              ],
+              [
+                -4.006302334079954,
+                0.22807144192467949
+              ]
+            ]
+          },
+          "absolute_modal_contribution_sum_40_80": [
+            277.53725029498054,
+            323.9759116945501
+          ]
+        },
+        {
+          "frequency_hz": "400-800",
+          "frequency_low_hz": 400.0,
+          "frequency_high_hz": 800.0,
+          "mode_count": 2462,
+          "signed_40_80": [
+            [
+              -37.09454898627725,
+              -0.12302905223219018
+            ],
+            [
+              -37.56650366505391,
+              -0.25349884221860064
+            ]
+          ],
+          "endpoint_signed_40_80": {
+            "first_forward_derivative_sample_n0": [
+              [
+                -11.477158904581811,
+                0.0
+              ],
+              [
+                -11.477158904581811,
+                0.0
+              ]
+            ],
+            "interior_centered_derivative_samples_n1_to_N_minus_2": [
+              [
+                -2.3494031247325764,
+                -0.7847952253581113
+              ],
+              [
+                -2.849576486017268,
+                -1.5764962144495065
+              ]
+            ],
+            "last_backward_derivative_sample_nN_minus_1": [
+              [
+                -23.267986956962865,
+                0.6617661731259211
+              ],
+              [
+                -23.23976827445483,
+                1.3229973722309059
+              ]
+            ]
+          },
+          "absolute_modal_contribution_sum_40_80": [
+            965.2624574220258,
+            1006.9201102113929
+          ]
+        },
+        {
+          "frequency_hz": "800-1600",
+          "frequency_low_hz": 800.0,
+          "frequency_high_hz": 1600.0,
+          "mode_count": 13407,
+          "signed_40_80": [
+            [
+              -79.66225830662663,
+              0.43717286131957284
+            ],
+            [
+              -79.88258774421833,
+              0.8640031823628249
+            ]
+          ],
+          "endpoint_signed_40_80": {
+            "first_forward_derivative_sample_n0": [
+              [
+                -45.09661992119303,
+                0.0
+              ],
+              [
+                -45.09661992119303,
+                0.0
+              ]
+            ],
+            "interior_centered_derivative_samples_n1_to_N_minus_2": [
+              [
+                -5.286261358173383,
+                -0.395563607145857
+              ],
+              [
+                -5.542099903016211,
+                -0.8007965675799367
+              ]
+            ],
+            "last_backward_derivative_sample_nN_minus_1": [
+              [
+                -29.27937702726021,
+                0.8327364684654298
+              ],
+              [
+                -29.24386792000909,
+                1.6647997499427616
+              ]
+            ]
+          },
+          "absolute_modal_contribution_sum_40_80": [
+            4203.615616268897,
+            4230.412339903506
+          ]
+        },
+        {
+          "frequency_hz": "1600-3200",
+          "frequency_low_hz": 1600.0,
+          "frequency_high_hz": 3200.0,
+          "mode_count": 53942,
+          "signed_40_80": [
+            [
+              151.69163585868407,
+              -3.631858750002895
+            ],
+            [
+              151.63167856635002,
+              -7.266549327345822
+            ]
+          ],
+          "endpoint_signed_40_80": {
+            "first_forward_derivative_sample_n0": [
+              [
+                40.64585715781356,
+                0.0
+              ],
+              [
+                40.64585715781356,
+                0.0
+              ]
+            ],
+            "interior_centered_derivative_samples_n1_to_N_minus_2": [
+              [
+                -18.08541875532472,
+                0.04076916275175308
+              ],
+              [
+                -17.988769794198618,
+                0.07573753329093667
+              ]
+            ],
+            "last_backward_derivative_sample_nN_minus_1": [
+              [
+                129.13119745619522,
+                -3.672627912754648
+              ],
+              [
+                128.97459120273507,
+                -7.342286860636759
+              ]
+            ]
+          },
+          "absolute_modal_contribution_sum_40_80": [
+            17088.358277028165,
+            17104.29563351346
+          ]
+        },
+        {
+          "frequency_hz": "3200-infinity",
+          "frequency_low_hz": 3200.0,
+          "frequency_high_hz": null,
+          "mode_count": 32684,
+          "signed_40_80": [
+            [
+              33.284362190541586,
+              -0.5905813486418976
+            ],
+            [
+              33.271446328127084,
+              -1.181115215633588
+            ]
+          ],
+          "endpoint_signed_40_80": {
+            "first_forward_derivative_sample_n0": [
+              [
+                14.109696670132672,
+                0.0
+              ],
+              [
+                14.109696670132672,
+                0.0
+              ]
+            ],
+            "interior_centered_derivative_samples_n1_to_N_minus_2": [
+              [
+                -5.521211607904713,
+                0.11179553206633422
+              ],
+              [
+                -5.504177087536486,
+                0.22307074192816684
+              ]
+            ],
+            "last_backward_derivative_sample_nN_minus_1": [
+              [
+                24.695877128313626,
+                -0.7023768807082318
+              ],
+              [
+                24.6659267455309,
+                -1.4041859575617548
+              ]
+            ]
+          },
+          "absolute_modal_contribution_sum_40_80": [
+            5936.473815949415,
+            5942.425233774341
+          ]
+        }
+      ],
+      "native_at_or_below_nyquist_mode_count": 76611,
+      "native_above_nyquist_mode_count": 26338,
+      "native_at_or_below_nyquist_signed_40_80": [
+        [
+          189.21198833568468,
+          -5.658786783299844
+        ],
+        [
+          205.42283637173907,
+          -231.50044100102514
+        ]
+      ],
+      "native_above_nyquist_signed_40_80": [
+        [
+          -15.189941546169566,
+          0.6080121473869744
+        ],
+        [
+          -15.163501386643539,
+          1.2155516033593299
+        ]
+      ],
+      "sum_abs_modal_signed_40_80": [
+        28617.99726247873,
+        28991.162739650154
+      ],
+      "reconstruction_relative": {
+        "bands": 1.3772771633870704e-14,
+        "pressure_record_endpoints": 2.599534088385375e-16,
+        "nyquist_diagnostic": 3.201403671384027e-14
+      },
+      "all_high_modes_retained_not_accepted_without_canonical_gates": true
+    },
+    {
+      "ppw": 44,
+      "native_comms_sha": "41c537b663ef11aa7404a248862f89398dec80fd3b6c794f4ecce4a0a8577ee4",
+      "native_room_sha": "4a7cb6c30c013adc31d5b1910d50cef003cacbdd37a271ac3efa7a39956e505b",
+      "original_native_Nt": 1908,
+      "original_native_Ts_s": 0.00013108475430009911,
+      "original_native_source_strength": 4.264961538461538,
+      "physical_room_volume_m3": 56.0,
+      "all_original_Q1_positive_supported_yz_modes": 2497,
+      "all_original_3D_modes": 132341,
+      "frozen_full_signed_40_80": [
+        [
+          212.91127852195456,
+          3.032634100755525
+        ],
+        [
+          230.05361475775155,
+          -214.02337109249308
+        ]
+      ],
+      "recomputed_unmodified_full_signed_40_80": [
+        [
+          212.9112785219552,
+          3.0326341007555073
+        ],
+        [
+          230.05361475775265,
+          -214.02337109249308
+        ]
+      ],
+      "relative_to_previously_pushed_full_hybrid": 3.3906276190063418e-15,
+      "endpoint_signed_40_80": {
+        "first_forward_derivative_sample_n0": [
+          [
+            8.247197450829387e-05,
+            0.0
+          ],
+          [
+            8.247197450829387e-05,
+            0.0
+          ]
+        ],
+        "interior_centered_derivative_samples_n1_to_N_minus_2": [
+          [
+            -4.070225217695336,
+            4.1982172016156305
+          ],
+          [
+            13.081502797514123,
+            -211.6922385245179
+          ]
+        ],
+        "last_backward_derivative_sample_nN_minus_1": [
+          [
+            216.98142126767587,
+            -1.1655831008601174
+          ],
+          [
+            216.97202948826424,
+            -2.3311325679751325
+          ]
+        ]
+      },
+      "frequency_bands_signed_all_modes": [
+        {
+          "frequency_hz": "0-100",
+          "frequency_low_hz": 0.0,
+          "frequency_high_hz": 100.0,
+          "mode_count": 15,
+          "signed_40_80": [
+            [
+              32.476826715800456,
+              0.6823058784633791
+            ],
+            [
+              40.78302415463056,
+              -212.95737416560647
+            ]
+          ],
+          "endpoint_signed_40_80": {
+            "first_forward_derivative_sample_n0": [
+              [
+                1.3164002580736218,
+                0.0
+              ],
+              [
+                1.3164002580736218,
+                0.0
+              ]
+            ],
+            "interior_centered_derivative_samples_n1_to_N_minus_2": [
+              [
+                32.07705430193452,
+                0.6773819272847743
+              ],
+              [
+                40.38321206563269,
+                -212.9672219258795
+              ]
+            ],
+            "last_backward_derivative_sample_nN_minus_1": [
+              [
+                -0.9166278442076795,
+                0.004923951178604771
+              ],
+              [
+                -0.9165881690757481,
+                0.00984776027302978
+              ]
+            ]
+          },
+          "absolute_modal_contribution_sum_40_80": [
+            58.454552031658224,
+            240.51298816796913
+          ]
+        },
+        {
+          "frequency_hz": "100-200",
+          "frequency_low_hz": 100.0,
+          "frequency_high_hz": 200.0,
+          "mode_count": 59,
+          "signed_40_80": [
+            [
+              6.488802644613495,
+              -3.1908072643905534
+            ],
+            [
+              11.241705574050151,
+              -12.947367710328724
+            ]
+          ],
+          "endpoint_signed_40_80": {
+            "first_forward_derivative_sample_n0": [
+              [
+                1.6550984700305837,
+                0.0
+              ],
+              [
+                1.6550984700305837,
+                0.0
+              ]
+            ],
+            "interior_centered_derivative_samples_n1_to_N_minus_2": [
+              [
+                2.6111277122947545,
+                -3.1788680045697015
+              ],
+              [
+                7.3641268432759395,
+                -12.923489535203014
+              ]
+            ],
+            "last_backward_derivative_sample_nN_minus_1": [
+              [
+                2.222576462288156,
+                -0.011939259820852057
+              ],
+              [
+                2.2224802607436294,
+                -0.02387817512570933
+              ]
+            ]
+          },
+          "absolute_modal_contribution_sum_40_80": [
+            87.46173307184216,
+            141.75539254402594
+          ]
+        },
+        {
+          "frequency_hz": "200-400",
+          "frequency_low_hz": 200.0,
+          "frequency_high_hz": 400.0,
+          "mode_count": 383,
+          "signed_40_80": [
+            [
+              74.27538543972734,
+              2.2490881023953078
+            ],
+            [
+              79.09788182465371,
+              5.235976419476362
+            ]
+          ],
+          "endpoint_signed_40_80": {
+            "first_forward_derivative_sample_n0": [
+              [
+                -1.4106380223223052,
+                0.0
+              ],
+              [
+                -1.4106380223223052,
+                0.0
+              ]
+            ],
+            "interior_centered_derivative_samples_n1_to_N_minus_2": [
+              [
+                79.3079595970111,
+                2.229631747438089
+              ],
+              [
+                84.13029921079539,
+                5.197064270989148
+              ]
+            ],
+            "last_backward_derivative_sample_nN_minus_1": [
+              [
+                -3.621936134961454,
+                0.019456354957218595
+              ],
+              [
+                -3.6217793638193685,
+                0.038912148487214394
+              ]
+            ]
+          },
+          "absolute_modal_contribution_sum_40_80": [
+            281.9573306313147,
+            327.7365481413505
+          ]
+        },
+        {
+          "frequency_hz": "400-800",
+          "frequency_low_hz": 400.0,
+          "frequency_high_hz": 800.0,
+          "mode_count": 2528,
+          "signed_40_80": [
+            [
+              -31.19037662055148,
+              1.5453227660935276
+            ],
+            [
+              -31.746069179322507,
+              3.147729800407129
+            ]
+          ],
+          "endpoint_signed_40_80": {
+            "first_forward_derivative_sample_n0": [
+              [
+                -7.558607665253403,
+                0.0
+              ],
+              [
+                -7.558607665253403,
+                0.0
+              ]
+            ],
+            "interior_centered_derivative_samples_n1_to_N_minus_2": [
+              [
+                -22.298025940560553,
+                1.5381581512164295
+              ],
+              [
+                -22.85377622879117,
+                3.1334007773930876
+              ]
+            ],
+            "last_backward_derivative_sample_nN_minus_1": [
+              [
+                -1.3337430147375235,
+                0.007164614877098132
+              ],
+              [
+                -1.3336852852779342,
+                0.014329023014041388
+              ]
+            ]
+          },
+          "absolute_modal_contribution_sum_40_80": [
+            1017.0587661913034,
+            1062.574048990236
+          ]
+        },
+        {
+          "frequency_hz": "800-1600",
+          "frequency_low_hz": 800.0,
+          "frequency_high_hz": 1600.0,
+          "mode_count": 14244,
+          "signed_40_80": [
+            [
+              -13.700068287896812,
+              2.2430192666299327
+            ],
+            [
+              -13.914722642759415,
+              4.491179077503007
+            ]
+          ],
+          "endpoint_signed_40_80": {
+            "first_forward_derivative_sample_n0": [
+              [
+                -33.59360539126785,
+                0.0
+              ],
+              [
+                -33.59360539126785,
+                0.0
+              ]
+            ],
+            "interior_centered_derivative_samples_n1_to_N_minus_2": [
+              [
+                -76.42452121079829,
+                2.760421634181754
+              ],
+              [
+                -76.63500655454527,
+                5.525968882586355
+              ]
+            ],
+            "last_backward_derivative_sample_nN_minus_1": [
+              [
+                96.31805831416932,
+                -0.5174023675518212
+              ],
+              [
+                96.31388930305371,
+                -1.034789805083347
+              ]
+            ]
+          },
+          "absolute_modal_contribution_sum_40_80": [
+            4064.736901151821,
+            4106.2084682767645
+          ]
+        },
+        {
+          "frequency_hz": "1600-3200",
+          "frequency_low_hz": 1600.0,
+          "frequency_high_hz": 3200.0,
+          "mode_count": 65938,
+          "signed_40_80": [
+            [
+              134.11695870182083,
+              -0.5530366435670131
+            ],
+            [
+              134.14524216403305,
+              -1.10732022620429
+            ]
+          ],
+          "endpoint_signed_40_80": {
+            "first_forward_derivative_sample_n0": [
+              [
+                57.025697366734114,
+                0.0
+              ],
+              [
+                57.025697366734114,
+                0.0
+              ]
+            ],
+            "interior_centered_derivative_samples_n1_to_N_minus_2": [
+              [
+                -23.599487989282125,
+                -0.012145008053927937
+              ],
+              [
+                -23.5668462492932,
+                -0.025552562998265176
+              ]
+            ],
+            "last_backward_derivative_sample_nN_minus_1": [
+              [
+                100.69074932436884,
+                -0.5408916355130852
+              ],
+              [
+                100.68639104659215,
+                -1.081767663206025
+              ]
+            ]
+          },
+          "absolute_modal_contribution_sum_40_80": [
+            16614.906312404833,
+            16632.905767504428
+          ]
+        },
+        {
+          "frequency_hz": "3200-infinity",
+          "frequency_low_hz": 3200.0,
+          "frequency_high_hz": null,
+          "mode_count": 49174,
+          "signed_40_80": [
+            [
+              10.443749928442026,
+              0.0567419951308282
+            ],
+            [
+              10.44655286246948,
+              0.11380571225993791
+            ]
+          ],
+          "endpoint_signed_40_80": {
+            "first_forward_derivative_sample_n0": [
+              [
+                -17.434262544019155,
+                0.0
+              ],
+              [
+                -17.434262544019155,
+                0.0
+              ]
+            ],
+            "interior_centered_derivative_samples_n1_to_N_minus_2": [
+              [
+                4.255668311704303,
+                0.18363675411810956
+              ],
+              [
+                4.259493710439971,
+                0.3675915685942695
+              ]
+            ],
+            "last_backward_derivative_sample_nN_minus_1": [
+              [
+                23.622344160756878,
+                -0.12689475898728136
+              ],
+              [
+                23.621321696048664,
+                -0.2537858563343316
+              ]
+            ]
+          },
+          "absolute_modal_contribution_sum_40_80": [
+            9194.264590170467,
+            9195.569746709167
+          ]
+        }
+      ],
+      "native_at_or_below_nyquist_mode_count": 102451,
+      "native_above_nyquist_mode_count": 29890,
+      "native_at_or_below_nyquist_signed_40_80": [
+        [
+          243.37648255376814,
+          3.038740175514588
+        ],
+        [
+          260.51945639843905,
+          -214.01101100618035
+        ]
+      ],
+      "native_above_nyquist_signed_40_80": [
+        [
+          -30.46520403179801,
+          -0.0061060747587990925
+        ],
+        [
+          -30.46584164069208,
+          -0.01236008631718448
+        ]
+      ],
+      "sum_abs_modal_signed_40_80": [
+        31318.840185653215,
+        31707.26296033406
+      ],
+      "reconstruction_relative": {
+        "bands": 6.475233856373959e-15,
+        "pressure_record_endpoints": 7.526813717668995e-16,
+        "nyquist_diagnostic": 4.3685648817664674e-14
+      },
+      "all_high_modes_retained_not_accepted_without_canonical_gates": true
+    }
+  ],
+  "all_four_original_full_250ms_signed_three_gates_and_diagnostic_deltas": [
+    {
+      "coarse_ppw": 28,
+      "fine_ppw": 32,
+      "unchanged_full_complex_magnitude_phase": {
+        "complex_rms_relative": 0.6682444354248523,
+        "magnitude_max_relative": 0.8974124981179066,
+        "magnitude_max_db": 19.778110912020665,
+        "phase_max_deg": 33.569469986006396,
+        "mask_floor": 0.860482001830847,
+        "compared_frequency_count": 2,
+        "frequency_metrics": [
+          {
+            "frequency_hz": 40.0,
+            "masked_in": true,
+            "magnitude_absolute": 150.26065690905244,
+            "magnitude_relative": 0.8974124981179066,
+            "magnitude_db": 19.778110912020665,
+            "phase_deg": 13.229030155623008,
+            "complex_relative": 0.9004409501191002
+          },
+          {
+            "frequency_hz": 80.0,
+            "masked_in": true,
+            "magnitude_absolute": 59.995383844411066,
+            "magnitude_relative": 0.22048347512293867,
+            "magnitude_db": 2.163493476421258,
+            "phase_deg": 33.569469986006396,
+            "complex_relative": 0.5555490402011092
+          }
+        ]
+      },
+      "canonical_all_three_gates_pass": false,
+      "signed_full_delta_40_80": [
+        [
+          150.65350131981097,
+          5.86788814549354
+        ],
+        [
+          150.68874058572254,
+          12.046695066933808
+        ]
+      ],
+      "by_unfiltered_disjoint_modal_bands": {
+        "0-100": [
+          0.003961169878805078,
+          -0.006034069192069912
+        ],
+        "100-200": [
+          0.006033809220307802,
+          0.009037029500263957
+        ],
+        "200-400": [
+          -0.0967351852968189,
+          -0.09882682178336238
+        ],
+        "400-800": [
+          0.6432376897579921,
+          0.6486166693314231
+        ],
+        "800-1600": [
+          -0.05786962558562034,
+          -0.05395391535065526
+        ],
+        "1600-3200": [
+          0.3498352995133952,
+          0.34976893255277086
+        ],
+        "3200-infinity": [
+          0.1515368425119276,
+          0.1513921749416143
+        ]
+      },
+      "by_native_pressure_derivative_endpoint_parts": {
+        "first_forward_derivative_sample_n0": [
+          9.44159590574437e-05,
+          9.393672434161568e-05
+        ],
+        "interior_centered_derivative_samples_n1_to_N_minus_2": [
+          0.05379455223610761,
+          0.05736184051377007
+        ],
+        "last_backward_derivative_sample_nN_minus_1": [
+          0.9461110318048354,
+          0.94254422276189
+        ]
+      },
+      "by_native_nyquist_diagnostic": {
+        "at_or_below": [
+          1.5338753426504481,
+          1.528022442488335
+        ],
+        "above": [
+          -0.533875342650469,
+          -0.5280224424883264
+        ]
+      },
+      "signed_projection_sums_to_one_for_each_bin": true,
+      "no_frequency_band_or_endpoint_removed_from_original_transfer": true
+    },
+    {
+      "coarse_ppw": 32,
+      "fine_ppw": 36,
+      "unchanged_full_complex_magnitude_phase": {
+        "complex_rms_relative": 1.3096723913373853,
+        "magnitude_max_relative": 1.534430906362762,
+        "magnitude_max_db": 8.077609119754925,
+        "phase_max_deg": 174.63343499596255,
+        "mask_floor": 0.7725774195429597,
+        "compared_frequency_count": 2,
+        "frequency_metrics": [
+          {
+            "frequency_hz": 40.0,
+            "masked_in": true,
+            "magnitude_absolute": 101.37247526317292,
+            "magnitude_relative": 1.534430906362762,
+            "magnitude_db": 8.077609119754925,
+            "phase_deg": 174.63343499596255,
+            "complex_relative": 3.531286387570407
+          },
+          {
+            "frequency_hz": 80.0,
+            "masked_in": true,
+            "magnitude_absolute": 27.79786967954189,
+            "magnitude_relative": 0.1137809364657457,
+            "magnitude_db": 0.93599560419412,
+            "phase_deg": 53.92459554832392,
+            "complex_relative": 0.9637475709365351
+          }
+        ]
+      },
+      "canonical_all_three_gates_pass": false,
+      "signed_full_delta_40_80": [
+        [
+          -233.2734375609562,
+          3.180598103437091
+        ],
+        [
+          -235.36821036629505,
+          6.340045559373465
+        ]
+      ],
+      "by_unfiltered_disjoint_modal_bands": {
+        "0-100": [
+          0.0026537265503333396,
+          0.0062037990456152575
+        ],
+        "100-200": [
+          -0.015607111216449622,
+          -0.01677855786652125
+        ],
+        "200-400": [
+          0.10459216393550204,
+          0.10818631818644937
+        ],
+        "400-800": [
+          0.034525520192942694,
+          0.036314851104750065
+        ],
+        "800-1600": [
+          0.2585026555503526,
+          0.2562999297920501
+        ],
+        "1600-3200": [
+          0.5035187712283508,
+          0.49904296161946926
+        ],
+        "3200-infinity": [
+          0.1118142737589734,
+          0.11073069811818777
+        ]
+      },
+      "by_native_pressure_derivative_endpoint_parts": {
+        "first_forward_derivative_sample_n0": [
+          -4.303725586368787e-06,
+          -4.263122199050609e-06
+        ],
+        "interior_centered_derivative_samples_n1_to_N_minus_2": [
+          0.44251763486757417,
+          0.4477949288928506
+        ],
+        "last_backward_derivative_sample_nN_minus_1": [
+          0.557486668858012,
+          0.5522093342293498
+        ]
+      },
+      "by_native_nyquist_diagnostic": {
+        "at_or_below": [
+          0.9569782373829783,
+          0.957420351316959
+        ],
+        "above": [
+          0.0430217626170119,
+          0.04257964868305896
+        ]
+      },
+      "signed_projection_sums_to_one_for_each_bin": true,
+      "no_frequency_band_or_endpoint_removed_from_original_transfer": true
+    },
+    {
+      "coarse_ppw": 36,
+      "fine_ppw": 40,
+      "unchanged_full_complex_magnitude_phase": {
+        "complex_rms_relative": 0.4445570266053228,
+        "magnitude_max_relative": 0.6205228781856608,
+        "magnitude_max_db": 8.41628804065554,
+        "phase_max_deg": 20.184225229217418,
+        "mask_floor": 0.9446149735943338,
+        "compared_frequency_count": 2,
+        "frequency_metrics": [
+          {
+            "frequency_hz": 40.0,
+            "masked_in": true,
+            "magnitude_absolute": 108.03013376295296,
+            "magnitude_relative": 0.6205228781856608,
+            "magnitude_db": 8.41628804065554,
+            "phase_deg": 2.967575278048031,
+            "complex_relative": 0.621342422120284
+          },
+          {
+            "frequency_hz": 80.0,
+            "masked_in": true,
+            "magnitude_absolute": 54.40305138866702,
+            "magnitude_relative": 0.18212452571734886,
+            "magnitude_db": 1.7462562969581883,
+            "phase_deg": 20.184225229217418,
+            "complex_relative": 0.3655461526402622
+          }
+        ]
+      },
+      "canonical_all_three_gates_pass": false,
+      "signed_full_delta_40_80": [
+        [
+          -108.1724446481078,
+          -0.28211716461920844
+        ],
+        [
+          -109.19340939171715,
+          -0.18398621563116535
+        ]
+      ],
+      "by_unfiltered_disjoint_modal_bands": {
+        "0-100": [
+          0.0045171145511297365,
+          0.010152301835460885
+        ],
+        "100-200": [
+          -0.02449557336499191,
+          -0.02619179681630213
+        ],
+        "200-400": [
+          0.21278249707208263,
+          0.218661306517263
+        ],
+        "400-800": [
+          0.09365111028010924,
+          0.09421854067593549
+        ],
+        "800-1600": [
+          -0.5970817829810702,
+          -0.5944695265077443
+        ],
+        "1600-3200": [
+          0.9589073993774083,
+          0.9493245670416324
+        ],
+        "3200-infinity": [
+          0.3517192350653766,
+          0.3483046072537924
+        ]
+      },
+      "by_native_pressure_derivative_endpoint_parts": {
+        "first_forward_derivative_sample_n0": [
+          -1.6244810818059637e-06,
+          -1.609298466188609e-06
+        ],
+        "interior_centered_derivative_samples_n1_to_N_minus_2": [
+          -0.37591132490617424,
+          -0.3617449463839526
+        ],
+        "last_backward_derivative_sample_nN_minus_1": [
+          1.3759129493872573,
+          1.3617465556824175
+        ]
+      },
+      "by_native_nyquist_diagnostic": {
+        "at_or_below": [
+          1.1392014061066336,
+          1.1376551591795636
+        ],
+        "above": [
+          -0.1392014061065549,
+          -0.13765515917952903
+        ]
+      },
+      "signed_projection_sums_to_one_for_each_bin": true,
+      "no_frequency_band_or_endpoint_removed_from_original_transfer": true
+    },
+    {
+      "coarse_ppw": 40,
+      "fine_ppw": 44,
+      "unchanged_full_complex_magnitude_phase": {
+        "complex_rms_relative": 0.15420146932100187,
+        "magnitude_max_relative": 0.1823933840999387,
+        "magnitude_max_db": 1.7491120595183514,
+        "phase_max_deg": 7.504143515542978,
+        "mask_floor": 0.9936330763259821,
+        "compared_frequency_count": 2,
+        "frequency_metrics": [
+          {
+            "frequency_hz": 40.0,
+            "masked_in": true,
+            "magnitude_absolute": 38.83754771548814,
+            "magnitude_relative": 0.1823933840999387,
+            "magnitude_db": 1.7491120595183514,
+            "phase_deg": 2.4785183626112257,
+            "complex_relative": 0.18653975380909593
+          },
+          {
+            "frequency_hz": 80.0,
+            "masked_in": true,
+            "magnitude_absolute": 15.500885121213003,
+            "magnitude_relative": 0.04933219706503298,
+            "magnitude_db": 0.4394242891397917,
+            "phase_deg": 7.504143515542978,
+            "complex_relative": 0.13681303933210398
+          }
+        ]
+      },
+      "canonical_all_three_gates_pass": true,
+      "signed_full_delta_40_80": [
+        [
+          -38.88923173244936,
+          -8.083408736668114
+        ],
+        [
+          -39.794279772661355,
+          -16.26151830516841
+        ]
+      ],
+      "by_unfiltered_disjoint_modal_bands": {
+        "0-100": [
+          -0.012978548928802316,
+          0.0021768488986663595
+        ],
+        "100-200": [
+          0.0006993012754850301,
+          -0.007839011782222594
+        ],
+        "200-400": [
+          0.20014757205400524,
+          0.2004163794989916
+        ],
+        "400-800": [
+          0.15408034751422,
+          0.15526286473138678
+        ],
+        "800-1600": [
+          1.6351610918891424,
+          1.4524326720866485
+        ],
+        "1600-3200": [
+          -0.41742570656402667,
+          -0.32234563697200513
+        ],
+        "3200-infinity": [
+          -0.5596840572400981,
+          -0.4801041164614788
+        ]
+      },
+      "by_native_pressure_derivative_endpoint_parts": {
+        "first_forward_derivative_sample_n0": [
+          7.450152060256172e-06,
+          6.508450348265152e-06
+        ],
+        "interior_centered_derivative_samples_n1_to_N_minus_2": [
+          -1.9200112485079748,
+          -1.5748826211665128
+        ],
+        "last_backward_derivative_sample_nN_minus_1": [
+          2.9200037983559084,
+          2.57487611271617
+        ]
+      },
+      "by_native_nyquist_diagnostic": {
+        "at_or_below": [
+          1.3796679571460062,
+          1.3403170668385165
+        ],
+        "above": [
+          -0.3796679571458639,
+          -0.3403170668387311
+        ]
+      },
+      "signed_projection_sums_to_one_for_each_bin": true,
+      "no_frequency_band_or_endpoint_removed_from_original_transfer": true
+    }
+  ],
+  "canonical_full_original_250ms_signed_five_grid_verdict": {
+    "all_four_three_gate_pass": false,
+    "no_original_solver_requalification": true
+  }
+}

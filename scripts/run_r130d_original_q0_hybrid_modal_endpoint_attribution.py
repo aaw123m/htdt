@@ -197,7 +197,7 @@ def one_pair(coarse, fine, prior_pair):
     c=unpairs(coarse["recomputed_unmodified_full_signed_40_80"])
     f=unpairs(fine["recomputed_unmodified_full_signed_40_80"])
     now=compare_complex_transfer(
-        reference=f,candidate=c,frequency_hz=[40,80],
+        reference=pairs(f),candidate=pairs(c),frequency_hz=[40,80],
         magnitude_mask_relative_db=-50).model_dump(mode="json")
     old=prior_pair["arms"][ARM]["original_frozen_complex_magnitude_phase_and_frequency_bins"]
     for key in ("complex_rms_relative","magnitude_max_relative","phase_max_deg"):
