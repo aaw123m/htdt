@@ -1385,7 +1385,7 @@ class RoomTreatmentPanel(QWidget):
             return
         instance_id, _version = item.data(0, _PLACEMENT_ROLE)
         repository = self.controller.treatment_repository
-        previous = repository.latest_placement(revision.document_id, instance_id)
+        previous = repository.latest_placement(instance_id)
         if previous is None:
             return
         try:
