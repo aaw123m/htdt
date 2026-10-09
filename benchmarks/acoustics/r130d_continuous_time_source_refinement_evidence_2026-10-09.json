@@ -1,0 +1,314 @@
+{
+  "schema_version": "htdt.r130d.fixed-spatial-pure-time-refinement-evidence-1",
+  "plan_sha256": "30e7a3196afbe671595a635bf7f3effda2ec159bf1580e5a997f6909ef90ed82",
+  "plan": {
+    "schema_version": "htdt.r130d.continuous-time-source-integrator-only-plan-1",
+    "issue": 938,
+    "date": "2026-10-09",
+    "purpose": "Isolate implicit-midpoint time discretization at fixed spatial operators and identical continuous-time input; source model DIFFERENT from original q0 sampled impulse and diagnostic only",
+    "room": "sloped 56 m3 Neumann, sound speed 343.2m/s, density 1.2kg/m3",
+    "source_xyz_m": [
+      1.5,
+      2,
+      2
+    ],
+    "receiver_xyz_m": [
+      2.5,
+      2,
+      2
+    ],
+    "source": {
+      "function": "q(t)=exp(-0.5*((t-0.040)/0.004)^2) m3/s, continuous in seconds",
+      "center_s": 0.04,
+      "sigma_s": 0.004,
+      "amplitude_m3_s": 1,
+      "temporal_samples": "sample q(t) exactly at implicit-midpoint times (n+0.5)*dt without fitting, interpolation or readjustment",
+      "not_original_discrete_impulse": true,
+      "observations_hz": [
+        40,
+        80
+      ],
+      "T_s": 0.25,
+      "signed_fourier": "P_T/Q_T exp(+i2pi f t_mid), no taper or frequency mask"
+    },
+    "dt_levels_s": [
+      0.00025,
+      0.000125,
+      6.25e-05
+    ],
+    "spatial_fixed": {
+      "fv_n": 20,
+      "mfem_P2_r": 2,
+      "pinned_mfem_raw_sha256": "e61410d4a69000c39975762b9986008974353953f7d8d9f100f9953a33c5ecb4",
+      "mfem_git_pin": "d964264cdb9a13e94a201b6c236c7721e0c8765f",
+      "boundary": "natural rigid Neumann",
+      "point_source_receiver": "existing grid-interpolated delta linear forms are held fixed within each method at all three dt; not a Gaussian spatial source"
+    },
+    "numerics": {
+      "solver": "implicit midpoint 2nd-order wave integrator",
+      "FV": "sparse direct factorization",
+      "MFEM": "Jacobi PCG",
+      "rtol": 1e-11,
+      "atol": 0,
+      "maxiter": 350,
+      "true_linear_relative_residual_limit": 1e-08
+    },
+    "metrics": {
+      "record_both_complex_bins_magnitude_phase_all_levels": true,
+      "compare_adjacent_complex_l2": true,
+      "compute_last_first_error_ratio": true,
+      "reference_order_2_ratio_target": 0.25,
+      "diagnostic_order_ratio_upper_bound": 0.4,
+      "diagnostic_finest_complex_l2_bound": 0.01,
+      "failing_threshold_does_not_redefine_input": true
+    },
+    "limits": {
+      "max_wave_steps": 4000,
+      "max_total_steps_per_method": 7000,
+      "max_mfem_dofs": 729
+    },
+    "authority": {
+      "original_fullband_impulse": "SELF_CONVERGENCE_FAILED",
+      "original_discrete_impulse_candidate": "NOT_QUALIFIED",
+      "product_ready": false,
+      "physical_validation": "NOT_VALIDATED",
+      "issue938": "OPEN"
+    }
+  },
+  "fv": [
+    {
+      "dt_s": 0.00025,
+      "samples": 1000,
+      "source_sha256": "afc288688443d8c622b278b474b062679cabf3aaebbbb83b4e3dcda2f2c113aa",
+      "sampled_original_q0_impulse": false,
+      "complex_40_80_hz": [
+        [
+          20.50972432511854,
+          45.577332684980604
+        ],
+        [
+          1.2107986640177744,
+          -69.44921686836811
+        ]
+      ],
+      "magnitude_40_80_hz": [
+        49.979416228781226,
+        69.4597707816144
+      ],
+      "phase_deg_40_80_hz": [
+        65.77233348872637,
+        -89.00118923039034
+      ],
+      "true_relative_linear_residual_max": 1.2714516950275796e-15,
+      "max_cg_iterations": 0
+    },
+    {
+      "dt_s": 0.000125,
+      "samples": 2000,
+      "source_sha256": "28a16449435f2ee5b842c10df1cbc37736087c72730de7a8d6ea6bafb5cca235",
+      "sampled_original_q0_impulse": false,
+      "complex_40_80_hz": [
+        [
+          20.5607325335625,
+          45.301249387790946
+        ],
+        [
+          6.599006215083419,
+          -73.83972736310697
+        ]
+      ],
+      "magnitude_40_80_hz": [
+        49.748838362433396,
+        74.13401527021641
+      ],
+      "phase_deg_40_80_hz": [
+        65.58827986150112,
+        -84.89308242029243
+      ],
+      "true_relative_linear_residual_max": 1.2386657707834251e-15,
+      "max_cg_iterations": 0
+    },
+    {
+      "dt_s": 6.25e-05,
+      "samples": 4000,
+      "source_sha256": "5e2afbf45bbf836c630190ae384a2561d6b48a08120d7d691d01d831e80db4ed",
+      "sampled_original_q0_impulse": false,
+      "complex_40_80_hz": [
+        [
+          20.571505000315423,
+          45.233371184591626
+        ],
+        [
+          7.830949598575388,
+          -75.02376407332007
+        ]
+      ],
+      "magnitude_40_80_hz": [
+        49.691495114365864,
+        75.43135254882162
+      ],
+      "phase_deg_40_80_hz": [
+        65.54462288288656,
+        -84.04106865841445
+      ],
+      "true_relative_linear_residual_max": 9.418825930561538e-16,
+      "max_cg_iterations": 0
+    }
+  ],
+  "mfem": [
+    {
+      "dt_s": 0.00025,
+      "samples": 1000,
+      "source_sha256": "afc288688443d8c622b278b474b062679cabf3aaebbbb83b4e3dcda2f2c113aa",
+      "sampled_original_q0_impulse": false,
+      "complex_40_80_hz": [
+        [
+          20.036622075964825,
+          43.64677068960866
+        ],
+        [
+          23.920354230607803,
+          -110.63284790242172
+        ]
+      ],
+      "magnitude_40_80_hz": [
+        48.026105566101464,
+        113.18926796087221
+      ],
+      "phase_deg_40_80_hz": [
+        65.34189068650655,
+        -77.79966066865595
+      ],
+      "true_relative_linear_residual_max": 9.996938786311991e-12,
+      "max_cg_iterations": 43
+    },
+    {
+      "dt_s": 0.000125,
+      "samples": 2000,
+      "source_sha256": "28a16449435f2ee5b842c10df1cbc37736087c72730de7a8d6ea6bafb5cca235",
+      "sampled_original_q0_impulse": false,
+      "complex_40_80_hz": [
+        [
+          19.865566289320714,
+          43.58385449103985
+        ],
+        [
+          23.89090273119363,
+          -118.26997258578038
+        ]
+      ],
+      "magnitude_40_80_hz": [
+        47.89773581591859,
+        120.65886477483781
+      ],
+      "phase_deg_40_80_hz": [
+        65.49645203818996,
+        -78.57975441945514
+      ],
+      "true_relative_linear_residual_max": 9.997441572793053e-12,
+      "max_cg_iterations": 48
+    },
+    {
+      "dt_s": 6.25e-05,
+      "samples": 4000,
+      "source_sha256": "5e2afbf45bbf836c630190ae384a2561d6b48a08120d7d691d01d831e80db4ed",
+      "sampled_original_q0_impulse": false,
+      "complex_40_80_hz": [
+        [
+          19.820106413801078,
+          43.575945412883094
+        ],
+        [
+          23.71005528020805,
+          -120.20584941402792
+        ]
+      ],
+      "magnitude_40_80_hz": [
+        47.87169974923562,
+        122.52188765579184
+      ],
+      "phase_deg_40_80_hz": [
+        65.54203482662027,
+        -78.84190225754713
+      ],
+      "true_relative_linear_residual_max": 9.998514111932012e-12,
+      "max_cg_iterations": 49
+    }
+  ],
+  "mfem_original_system_sha256": "e61410d4a69000c39975762b9986008974353953f7d8d9f100f9953a33c5ecb4",
+  "comparisons": {
+    "fv_dt_adjacent": [
+      {
+        "normalized_complex_l2": 0.0779145814228268,
+        "complex_relative_by_hz": [
+          0.005643464617312885,
+          0.09375579751635574
+        ],
+        "magnitude_relative_by_hz": [
+          0.004634839203038446,
+          0.06305127911343428
+        ],
+        "phase_difference_deg_by_hz": [
+          0.18405362722525767,
+          4.1081068100978975
+        ]
+      },
+      {
+        "normalized_complex_l2": 0.018931835433140514,
+        "complex_relative_by_hz": [
+          0.0013830877519776714,
+          0.02265227485876932
+        ],
+        "magnitude_relative_by_hz": [
+          0.001153985162562642,
+          0.017198913114616812
+        ],
+        "phase_difference_deg_by_hz": [
+          0.043656978614562504,
+          0.8520137618779835
+        ]
+      }
+    ],
+    "fv_order_reduction_ratio": 0.2429819308198711,
+    "fv_diagnostic_order_pass": false,
+    "mfem_dt_adjacent": [
+      {
+        "normalized_complex_l2": 0.05884658920834993,
+        "complex_relative_by_hz": [
+          0.003805180144551341,
+          0.06329565163062159
+        ],
+        "magnitude_relative_by_hz": [
+          0.0026800797155888483,
+          0.06190673870423571
+        ],
+        "phase_difference_deg_by_hz": [
+          0.15456135168340257,
+          0.7800937507991913
+        ]
+      },
+      {
+        "normalized_complex_l2": 0.01478502977752052,
+        "complex_relative_by_hz": [
+          0.0009638837729669914,
+          0.015869048370227106
+        ],
+        "magnitude_relative_by_hz": [
+          0.000543871782689009,
+          0.015205633186030704
+        ],
+        "phase_difference_deg_by_hz": [
+          0.045582788430319925,
+          0.2621478380919804
+        ]
+      }
+    ],
+    "mfem_order_reduction_ratio": 0.25124701323254645,
+    "mfem_diagnostic_order_pass": false
+  },
+  "original_impulse": "SELF_CONVERGENCE_FAILED",
+  "original_discrete_q0_candidate": "NOT_QUALIFIED",
+  "changed_to_continuous_source": true,
+  "physical_validation": "NOT_VALIDATED",
+  "production_ready": false
+}
