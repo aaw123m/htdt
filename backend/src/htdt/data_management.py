@@ -31,6 +31,7 @@ from .data_relocation import (
 )
 
 from PySide6.QtCore import QObject, QThread, Signal, Slot
+from shiboken6 import isValid
 
 from .automatic_backup import (
     AutomaticBackupScheduler,
@@ -52,6 +53,10 @@ from .native_backup import (
     validate_backup as native_validate_backup,
 )
 from .native_upgrade import UpgradeEvent, execute_native_upgrade
+from .restore_drill import (
+    RestoreDrillResult,
+    run_restore_drill as native_run_restore_drill,
+)
 from .persisted_data import backup_excluded_names
 from .storage_maintenance import (
     StorageGcResult,
@@ -81,6 +86,7 @@ class DataOperationKind(str, Enum):
     CREATE_BACKUP = 'create_backup'
     VALIDATE_RESTORE = 'validate_restore'
     RESTORE = 'restore'
+    RESTORE_DRILL = 'restore_drill'
     RELOCATE = 'relocate'
     SCAN_STORAGE = 'scan_storage'
     GC_STORAGE = 'gc_storage'
@@ -101,6 +107,7 @@ _OPERATION_TITLES: dict[DataOperationKind, str] = {
     DataOperationKind.CREATE_BACKUP: 'バックアップの作成',
     DataOperationKind.VALIDATE_RESTORE: 'バックアップの検証',
     DataOperationKind.RESTORE: 'バックアップからの復元',
+    DataOperationKind.RESTORE_DRILL: 'バックアップの復元テスト',
     DataOperationKind.RELOCATE: 'データフォルダーの移動',
     DataOperationKind.SCAN_STORAGE: 'ストレージのスキャン',
     DataOperationKind.GC_STORAGE: '未参照アセットの削除',
@@ -186,6 +193,35 @@ class RestoreResult:
     upgrade_event_id: str | None
 
 
+#: User-facing labels for the restore-drill verdict vocabulary (#992).
+_DRILL_VERDICT_LABELS: dict[str, str] = {
+    'restorable': '復元可能',
+    'restorable_with_conditions': '条件付きで復元可能',
+    'failed': '復元できません',
+    'not_verifiable': '検証できませんでした',
+}
+
+#: Drill-internal phase names -> operation phases and JA progress text.
+_DRILL_PHASE_MAP: dict[str, tuple[DataOperationPhase, str]] = {
+    'archive': (
+        DataOperationPhase.VALIDATING,
+        'バックアップの整合性と復元条件を確認しています',
+    ),
+    'restore': (
+        DataOperationPhase.RESTORING,
+        '隔離ディレクトリへ復元しています（本番データは変更されません）',
+    ),
+    'verify': (
+        DataOperationPhase.SCANNING,
+        '復元結果を独立に検証しています',
+    ),
+    'migrate': (
+        DataOperationPhase.VALIDATING,
+        '隔離環境でスキーマ移行を検証しています',
+    ),
+}
+
+
 @dataclass(frozen=True)
 class RelocationResult:
     """Outcome of a managed data relocation (#621)."""
@@ -218,6 +254,12 @@ def _result_summary(kind: DataOperationKind, result: object) -> str:
         return (
             f'バックアップを検証しました · {result.metadata.backup_path}'
             f'（{result.metadata.file_count} ファイル）'
+        )
+    if isinstance(result, RestoreDrillResult):
+        verdict = _DRILL_VERDICT_LABELS.get(result.verdict, result.verdict)
+        return (
+            f'バックアップの復元テスト: {verdict} · '
+            f'{result.backup_name}'
         )
     if isinstance(result, RelocationResult):
         return (
@@ -296,6 +338,9 @@ _OPERATION_CANCELLABILITY: dict[DataOperationKind, Cancellability] = {
     DataOperationKind.CREATE_BACKUP: Cancellability.CANCELLABLE,
     DataOperationKind.VALIDATE_RESTORE: Cancellability.CANCELLABLE,
     DataOperationKind.RESTORE: Cancellability.CANCEL_UNTIL_COMMIT,
+    # The drill writes only inside its own sandbox; cancelling anywhere
+    # just abandons the rehearsal — live data is never mid-swap.
+    DataOperationKind.RESTORE_DRILL: Cancellability.CANCELLABLE,
     DataOperationKind.RELOCATE: Cancellability.CANCEL_UNTIL_COMMIT,
     DataOperationKind.SCAN_STORAGE: Cancellability.CANCELLABLE,
     DataOperationKind.GC_STORAGE: Cancellability.CANCELLABLE,
@@ -496,6 +541,34 @@ class DataManagementBackend:
             upgrade_event_id=(
                 upgrade_event.upgrade_id if upgrade_event is not None else None
             ),
+        )
+
+    def run_restore_drill(
+        self,
+        backup_path: Path,
+        sandbox_root: Path,
+        *,
+        on_phase: Callable[[DataOperationPhase, str], None] | None = None,
+        is_cancelled: Callable[[], bool] | None = None,
+    ) -> RestoreDrillResult:
+        """#992: isolated restore rehearsal — real restore machinery into a
+        user-chosen sandbox, independent re-verification of the landed
+        bytes, live fingerprint before/after. Never touches live data."""
+
+        def drill_phase(name: str) -> None:
+            if on_phase is None:
+                return
+            phase, message = _DRILL_PHASE_MAP.get(
+                name, (DataOperationPhase.VALIDATING, name)
+            )
+            on_phase(phase, message)
+
+        return native_run_restore_drill(
+            Path(backup_path),
+            Path(sandbox_root),
+            self.data_dir,
+            is_cancelled=is_cancelled,
+            on_phase=drill_phase,
         )
 
     def plan_relocation(
@@ -764,6 +837,10 @@ def drain_operation_threads(
             thread.requestInterruption()
             thread.quit()
         except RuntimeError:
+            # C++ object already gone: no signal can ever fire to release
+            # the key, so a dead entry is dropped rather than left to
+            # inflate every later count and iteration.
+            _LINGERING_OP_THREADS.pop(thread, None)
             continue
     still_running = 0
     for thread, _worker in threads:
@@ -772,6 +849,7 @@ def drain_operation_threads(
             if not thread.isFinished() and not thread.wait(remaining_ms):
                 still_running += 1
         except RuntimeError:
+            _LINGERING_OP_THREADS.pop(thread, None)
             continue
     return still_running
 
@@ -790,6 +868,7 @@ def cancel_detached_op_threads() -> None:
             thread.requestInterruption()
             thread.quit()
         except RuntimeError:
+            _LINGERING_OP_THREADS.pop(thread, None)
             continue
 
 
@@ -823,6 +902,7 @@ class DataManagementController(QObject):
     backup_created = Signal(object)
     restore_preview_ready = Signal(object)
     restore_completed = Signal(object)
+    restore_drill_completed = Signal(object)
     relocation_completed = Signal(object)
     storage_scan_completed = Signal(object)
     storage_gc_completed = Signal(object)
@@ -971,6 +1051,40 @@ class DataManagementController(QObject):
             kind=DataOperationKind.RESTORE,
             job=job,
             lifecycle_mode='restore',
+        )
+
+    def restore_drill(self, backup_path: Path, sandbox_root: Path) -> str:
+        """#992: rehearse a restore into an isolated sandbox.
+
+        Unlike ``restore`` this needs no lifecycle quiesce — the drill only
+        fingerprints the live root and works inside its own sandbox tree.
+        """
+
+        self._assert_owner_thread()
+        self._assert_idle()
+        operation_id = uuid4().hex
+
+        def job(
+            emit: Callable[[DataOperationPhase, str], None],
+            cancel_event: Event,
+            on_commit_point: Callable[[], None],
+        ) -> RestoreDrillResult:
+            emit(
+                DataOperationPhase.VALIDATING,
+                'バックアップと復元条件を確認しています',
+            )
+            return self.backend.run_restore_drill(
+                backup_path,
+                sandbox_root,
+                on_phase=emit,
+                is_cancelled=cancel_event.is_set,
+            )
+
+        return self._start(
+            operation_id=operation_id,
+            kind=DataOperationKind.RESTORE_DRILL,
+            job=job,
+            lifecycle_mode='none',
         )
 
     def relocate(self, destination_dir: Path) -> str:
@@ -1362,6 +1476,8 @@ class DataManagementController(QObject):
             self.storage_scan_completed.emit(result)
         elif active.kind is DataOperationKind.GC_STORAGE:
             self.storage_gc_completed.emit(result)
+        elif active.kind is DataOperationKind.RESTORE_DRILL:
+            self.restore_drill_completed.emit(result)
         else:
             self.restore_completed.emit(result)
 
@@ -1460,14 +1576,39 @@ class DataManagementController(QObject):
         # flag unset, churning to natural completion through process
         # teardown — the xdist worker-crash class. Event.set is thread-safe.
         active.worker.request_cancel()
+        if not isValid(thread):
+            # The record outlived the thread's C++ object: nothing can
+            # still be running and no finished/destroyed signal will ever
+            # fire to release a pin — and every call on the dead wrapper
+            # raises RuntimeError — so releasing ``_active`` (done above)
+            # is the entire job. The vanished operation must not be
+            # re-reported as running: it is simply gone.
+            return
         # Pin the worker first: the record must never hold the last Python
         # reference while the thread may still be running.
-        _LINGERING_OP_THREADS[thread] = active.worker
-        thread.setParent(None)
-        thread.finished.connect(
-            lambda: _LINGERING_OP_THREADS.pop(thread, None)
-        )
-        if not thread.isRunning():
+        try:
+            _LINGERING_OP_THREADS[thread] = active.worker
+            thread.setParent(None)
+            thread.finished.connect(
+                lambda: _LINGERING_OP_THREADS.pop(thread, None)
+            )
+            # ``destroyed`` covers the window where ``finished`` was
+            # already emitted before this connect: the earlier
+            # finished -> deleteLater wiring still destroys the C++
+            # object, so released-on-destroyed is the guaranteed drop
+            # path for that race.
+            thread.destroyed.connect(
+                lambda *_args: _LINGERING_OP_THREADS.pop(thread, None)
+            )
+            finished = thread.isFinished()
+        except RuntimeError:
+            # The C++ object died mid-detach — it cannot still be running
+            # (a running thread destroyed under itself aborts the process,
+            # which is what this path exists to prevent), so the pin is
+            # pointless: drop it instead of leaking a dead key.
+            _LINGERING_OP_THREADS.pop(thread, None)
+            return
+        if finished:
             # Finished between the last state check and the reparent.
             _LINGERING_OP_THREADS.pop(thread, None)
 
@@ -1521,4 +1662,6 @@ class DataManagementController(QObject):
             return 'ストレージを確認できませんでした'
         if kind is DataOperationKind.GC_STORAGE:
             return 'ストレージを整理できませんでした'
+        if kind is DataOperationKind.RESTORE_DRILL:
+            return '復元テストを実行できませんでした'
         return 'バックアップから復元できませんでした'

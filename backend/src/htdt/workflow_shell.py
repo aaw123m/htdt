@@ -5,7 +5,7 @@ from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field, replace
 from typing import TypeAlias
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QCloseEvent, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QButtonGroup,
@@ -22,8 +22,15 @@ from PySide6.QtWidgets import (
 )
 
 from .accessible_labels import (
+    announce_status,
     wire_label_buddies,
     wire_status_announcements,
+)
+from .activity_center import (
+    ActivityCenter,
+    ApplicationOperation,
+    OperationState,
+    operation_state_label,
 )
 from .ui_theme import (
     ControlSize,
@@ -59,6 +66,7 @@ from .workflow_navigation import (
     normalize_workspace_id,
     workspace_context_label,
 )
+from .window_state import WorkspaceViewState, view_state_key
 from .workspace_dirty_state import (
     DeactivationContext,
     DirtyResolutionAction,
@@ -98,6 +106,13 @@ class WorkspaceMount:
     on_context_changed: Callable[[str], None] | None = None
     on_entity_requested: Callable[[str], None] | None = None
     on_close: Callable[[], None] | None = None
+    #: #973: UX-convenience view-state ports. ``capture_view_state``
+    #: snapshots the workspace's current context view (scroll, selection,
+    #: filters, expanded panels, splitter) for the shell's per-project
+    #: map; ``restore_view_state`` re-applies a snapshot after activate/
+    #: context-select has run, and must degrade silently on stale data.
+    capture_view_state: Callable[[], WorkspaceViewState | None] | None = None
+    restore_view_state: Callable[[WorkspaceViewState], None] | None = None
     focus_kinds: frozenset[NavigationTargetKind] = field(
         default_factory=frozenset
     )
@@ -115,6 +130,8 @@ class WorkspaceMount:
         resolve_dirty_state: DirtyStateResolver | None = None,
         on_context_changed: Callable[[str], None] | None = None,
         on_entity_requested: Callable[[str], None] | None = None,
+        capture_view_state: Callable[[], WorkspaceViewState | None] | None = None,
+        restore_view_state: Callable[[WorkspaceViewState], None] | None = None,
         focus_kinds: Iterable[NavigationTargetKind] = (),
         focus_target: Callable[[NavigationTarget], TargetFocusResult] | None = None,
     ) -> "WorkspaceMount":
@@ -128,6 +145,8 @@ class WorkspaceMount:
             on_context_changed=on_context_changed,
             on_entity_requested=on_entity_requested,
             on_close=widget.close,
+            capture_view_state=capture_view_state,
+            restore_view_state=restore_view_state,
             focus_kinds=frozenset(focus_kinds),
             focus_target=focus_target,
         )
@@ -158,6 +177,8 @@ class WorkspaceRegistration:
 
 def build_canonical_workspace_registrations(
     factories: Mapping[WorkspaceId, WorkspaceFactory],
+    *,
+    focus_kinds: Mapping[WorkspaceId, Iterable[NavigationTargetKind]] | None = None,
 ) -> tuple[WorkspaceRegistration, ...]:
     missing = tuple(workspace_id for workspace_id in WorkspaceId if workspace_id not in factories)
     if missing:
@@ -170,6 +191,9 @@ def build_canonical_workspace_registrations(
             contexts=CANONICAL_WORKSPACE_CONTEXTS[workspace_id],
             hint=CANONICAL_WORKSPACE_HINTS[workspace_id],
             factory=factories[workspace_id],
+            focus_kinds=frozenset(
+                (focus_kinds or {}).get(workspace_id, ())
+            ),
         )
         for workspace_id in WorkspaceId
     )
@@ -790,6 +814,163 @@ class TopContextBar(QFrame):
         )
 
 
+class ActivityStatusStrip(QFrame):
+    """Shell-level ActivityCenter summary (#974).
+
+    Sits under the context bar so in-flight work stays visible from every
+    workspace: running/queued counts, the latest failure, and — for
+    exclusive operations — *why* navigation is blocked and what is still
+    possible. Per-operation cancel/retry/deep-links live on the Activity
+    destination behind the open button; the strip only reports real state
+    and announces state transitions politely to screen readers.
+    """
+
+    openRequested = Signal()
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setObjectName("activityStatusStrip")
+        set_surface_role(self, SurfaceRole.RAISED)
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(8, 2, 8, 2)
+        layout.setSpacing(8)
+
+        self._title = QLabel("アクティビティ")
+        set_typography_role(self._title, TypographyRole.SECTION_TITLE)
+        layout.addWidget(self._title)
+
+        self._status_label = QLabel()
+        self._status_label.setObjectName("activityStatusText")
+        self._status_label.setAccessibleName("処理の状態")
+        layout.addWidget(self._status_label, 1)
+
+        self._block_label = QLabel()
+        self._block_label.setObjectName("activityBlockText")
+        self._block_label.setAccessibleName("画面移動の制限")
+        layout.addWidget(self._block_label)
+
+        self._open_button = QPushButton("状況を開く")
+        self._open_button.setObjectName("activityOpenButton")
+        self._open_button.setAccessibleName("アクティビティの状況画面を開く")
+        self._open_button.clicked.connect(self.openRequested.emit)
+        layout.addWidget(self._open_button)
+
+        self._center: "ActivityCenter | None" = None
+        self._listener: "Callable[[ApplicationOperation], None] | None" = None
+        self._refresh_queued = False
+        # op_id -> last announced JA state label; only *changes* are
+        # announced so a refresh storm never reads the same state twice.
+        self._announced: dict[str, str] = {}
+        self._update_display((), (), ())
+
+    def bind(self, center: "ActivityCenter | None") -> None:
+        """Attach/detach the registry; rebinds safely across project switches."""
+
+        if self._center is center:
+            return
+        if self._center is not None and self._listener is not None:
+            self._center.unsubscribe(self._listener)
+        self._center = center
+        self._listener = None
+        self._announced.clear()
+        if center is not None:
+            def listener(_operation) -> None:
+                self._queue_refresh()
+
+            self._listener = listener
+            center.subscribe(listener)
+        self._queue_refresh()
+
+    def _queue_refresh(self) -> None:
+        # Registry listeners fire on the mutating thread (often a worker);
+        # singleShot with a receiver posts the refresh to this widget's
+        # thread — the same pattern the Activity page uses.
+        if self._refresh_queued:
+            return
+        self._refresh_queued = True
+        QTimer.singleShot(0, self, self._refresh)
+
+    def _refresh(self) -> None:
+        self._refresh_queued = False
+        center = self._center
+        if center is None:
+            self._update_display((), (), ())
+            return
+        self._update_display(
+            center.active(),
+            center.recent(1),
+            center.navigation_blockers(),
+        )
+
+    def _update_display(
+        self,
+        active: "tuple[ApplicationOperation, ...]",
+        recent: "tuple[ApplicationOperation, ...]",
+        blockers: "tuple[ApplicationOperation, ...]",
+    ) -> None:
+        counts = {
+            OperationState.RUNNING: 0,
+            OperationState.QUEUED: 0,
+            OperationState.PREFLIGHTING: 0,
+            OperationState.CANCELLATION_REQUESTED: 0,
+        }
+        for operation in active:
+            if operation.state in counts:
+                counts[operation.state] += 1
+        parts = []
+        if counts[OperationState.RUNNING]:
+            parts.append(f"実行中 {counts[OperationState.RUNNING]}件")
+        if counts[OperationState.CANCELLATION_REQUESTED]:
+            parts.append(
+                f"中止要求中 {counts[OperationState.CANCELLATION_REQUESTED]}件"
+            )
+        waiting = counts[OperationState.QUEUED] + counts[OperationState.PREFLIGHTING]
+        if waiting:
+            parts.append(f"待機 {waiting}件")
+        text = " · ".join(parts) if parts else "実行中の処理はありません"
+        if recent:
+            latest = recent[-1]
+            detail = latest.error_summary or latest.result_summary
+            latest_text = (
+                f"直近: {latest.title} — {operation_state_label(latest.state)}"
+            )
+            if latest.state == OperationState.FAILED and detail:
+                latest_text += f"（{detail}）"
+            text = f"{text}　{latest_text}"
+        self._status_label.setText(text)
+
+        if blockers:
+            first = blockers[0]
+            reason = first.navigation_block_reason or "排他的な処理を実行中です"
+            overflow = (
+                f"（ほか {len(blockers) - 1} 件）" if len(blockers) > 1 else ""
+            )
+            self._block_label.setText(
+                f"画面を移動できません: {first.title} — {reason}{overflow}"
+            )
+        else:
+            self._block_label.setText("")
+        self._announce_changes(active, recent)
+
+    def _announce_changes(
+        self,
+        active: "tuple[ApplicationOperation, ...]",
+        recent: "tuple[ApplicationOperation, ...]",
+    ) -> None:
+        visible = {op.operation_id: op for op in (*active, *recent)}
+        announced: dict[str, str] = {}
+        for operation_id, operation in visible.items():
+            label = operation_state_label(operation.state)
+            previous = self._announced.get(operation_id)
+            if previous is not None and previous != label:
+                announce_status(
+                    self._status_label,
+                    f"{operation.title}: {previous} → {label}",
+                )
+            announced[operation_id] = label
+        self._announced = announced
+
+
 class WorkflowShellWindow(QMainWindow):
     """Workflow-first shell; domain and SceneRevision authority stay in workspaces."""
 
@@ -821,6 +1002,9 @@ class WorkflowShellWindow(QMainWindow):
         self._navigation_history = NavigationHistory()
         self._navigation_resolver = NavigationResolver()
         self._selected_context: dict[DestinationId, str] = {}
+        # #973: in-memory view-state map keyed "workspace[:context]";
+        # saved into the per-project window-state record on close/switch.
+        self._view_states: dict[str, WorkspaceViewState] = {}
         self._close_guards: list[CloseGuard] = []
         # Hooks fire once a close has passed every guard and the exit-time
         # dirty-state resolution — the point where the close is committed.
@@ -860,6 +1044,11 @@ class WorkflowShellWindow(QMainWindow):
             on_palette=self.paletteRequested.emit,
         )
         content_layout.addWidget(self.context_bar)
+
+        # #974: ActivityCenter summary strip — bound by the composition
+        # once the registry exists; idle text until then.
+        self.activity_strip = ActivityStatusStrip()
+        content_layout.addWidget(self.activity_strip)
 
         self.router = WorkspaceRouter(registration_tuple)
         content_layout.addWidget(self.router, 1)
@@ -935,6 +1124,11 @@ class WorkflowShellWindow(QMainWindow):
             return False
         previous = self.router.current_workspace_id
         registration = self._registrations[destination]
+        switched = previous != destination
+        if switched and previous is not None:
+            # #973: snapshot the outgoing workspace before the swap so its
+            # context view state survives the round-trip.
+            self.capture_view_state(previous)
         mount = self.router.navigate(destination)
         if mount is None:
             if previous is not None:
@@ -947,6 +1141,10 @@ class WorkflowShellWindow(QMainWindow):
         self.context_bar.set_workspace(registration, selected_context)
         if selected_context is not None:
             self.router.select_context(destination, selected_context)
+        if switched:
+            # Restore only on a real switch — re-clicking the current
+            # workspace must not snap the live UI back to a snapshot.
+            self._restore_view_state(destination)
         self.statusBar().clearMessage()
         return True
 
@@ -1096,8 +1294,13 @@ class WorkflowShellWindow(QMainWindow):
         if self._data_mutations_frozen:
             return
         workspace_id = self.current_workspace_id
+        previous_context = self._selected_context.get(workspace_id)
+        # #973: capture under the OLD context key before the page swaps.
+        self.capture_view_state(workspace_id)
         normalized_context = self.router.select_context(workspace_id, context_id)
         self._selected_context[workspace_id] = normalized_context
+        if normalized_context != previous_context:
+            self._restore_view_state(workspace_id)
         self.context_bar.set_active_context(normalized_context)
 
     def register_close_guard(self, guard: CloseGuard) -> None:
@@ -1132,6 +1335,76 @@ class WorkflowShellWindow(QMainWindow):
             for registration in self._registrations.values()
             if registration.contexts
         }
+
+    # -- #973: per-(workspace, context) view-state persistence ----------
+
+    def _view_state_key(self, workspace_id: DestinationId) -> str:
+        context = self._selected_context.get(workspace_id)
+        return view_state_key(str(workspace_id), context)
+
+    def capture_view_state(self, workspace_id: DestinationId | str) -> None:
+        """Snapshot a mounted workspace's view state under its current
+        context key. Capture failures are logged, never raised — a UX
+        convenience snapshot must not break navigation."""
+        destination = normalize_destination_id(workspace_id)
+        mount = self.router.mount(destination)
+        if mount is None or mount.capture_view_state is None:
+            return
+        try:
+            state = mount.capture_view_state()
+        except Exception:  # error-boundary: non-authoritative UX snapshot
+            _LOGGER.exception('view-state capture failed for %s', destination)
+            return
+        key = self._view_state_key(destination)
+        if state is None:
+            self._view_states.pop(key, None)
+        else:
+            self._view_states[key] = state
+
+    def _restore_view_state(self, workspace_id: DestinationId | str) -> None:
+        destination = normalize_destination_id(workspace_id)
+        mount = self.router.mount(destination)
+        if mount is None or mount.restore_view_state is None:
+            return
+        state = self._view_states.get(self._view_state_key(destination))
+        if state is None:
+            return
+        try:
+            mount.restore_view_state(state)
+        except Exception:  # error-boundary: broken restore → default view
+            _LOGGER.exception('view-state restore failed for %s', destination)
+
+    def collect_view_states(self) -> None:
+        """Snapshot every mounted workspace — the save path, which must
+        cover the still-active mount too (deactivate never fires for it)."""
+        for workspace_id, _mount in self.router.mounts():
+            self.capture_view_state(workspace_id)
+
+    def view_states(self) -> dict[str, WorkspaceViewState]:
+        """The in-memory map, for the persistence writer."""
+        return dict(self._view_states)
+
+    def seed_view_states(
+        self, view_states: Mapping[str, WorkspaceViewState]
+    ) -> None:
+        """Pre-seed the map from a persisted (project-scoped) record.
+
+        Keys for workspaces this build does not register are dropped.
+        """
+        for key, state in view_states.items():
+            workspace = key.split(':', 1)[0]
+            try:
+                destination = normalize_destination_id(workspace)
+            except ValueError:
+                continue
+            if destination not in self._registrations:
+                continue
+            self._view_states[key] = state
+
+    def reset_view_states(self) -> None:
+        """Drop all in-memory view states — a project switch must never
+        replay the outgoing project's snapshots into the target's mounts."""
+        self._view_states = {}
 
     def seed_selected_contexts(self, contexts: Mapping[str, str]) -> None:
         """Pre-seed context selections for persistence restore.

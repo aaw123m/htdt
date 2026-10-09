@@ -230,7 +230,9 @@ def test_preferences_widget_fails_closed_on_newer_schema_file(
     assert "上書きできません" in widget.status.text()
 
     # The sanctioned recovery preserves the file and re-enables writes
-    # (pending keys stay disabled — see PENDING_PREFERENCE_KEYS).
+    # (pending keys stay disabled — see PENDING_PREFERENCE_KEYS). #987 gates
+    # it behind an explicit warning — accept it here.
+    widget._confirm_sanctioned_reset = lambda: True
     widget.reset_button.click()
     assert store.write_allowed
     assert path.with_name(path.name + ".recovery").is_file()

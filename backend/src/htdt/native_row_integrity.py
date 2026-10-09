@@ -2634,6 +2634,20 @@ _ROW_BINDINGS: dict[str, tuple[str, tuple[RowBinding, ...], tuple[ExtraCheck, ..
         ),
         (),
     ),
+    'cad_ifc_diff_applies': (
+        'payload_json',
+        (
+            _b('apply_id', 'apply_id'),
+            _b('apply_sha256', 'apply_sha256'),
+            _b('document_id', 'document_id'),
+            _b('delta_id', 'delta_ref', 'ref_id'),
+            _b('prior_artifact_id', 'prior_artifact_ref', 'ref_id'),
+            _b('new_artifact_id', 'new_artifact_ref', 'ref_id'),
+            _b('merged_subject_id', 'merged_subject_id'),
+            _b('applied_at_utc', 'applied_at_utc'),
+        ),
+        (),
+    ),
     'cad_ifc_intake_profiles': (
         'payload_json',
         (
@@ -6247,6 +6261,18 @@ _ROW_BINDINGS: dict[str, tuple[str, tuple[RowBinding, ...], tuple[ExtraCheck, ..
             _b('envelope_id', 'envelope_id'),
             _b('envelope_sha256', 'envelope_sha256'),
             _b('document_id', 'document_id'),
+        ),
+        (),
+    ),
+    'cad_prerun_estimates': (
+        'payload_json',
+        (
+            _b('estimate_id', 'estimate_id'),
+            _b('estimate_sha256', 'estimate_sha256'),
+            _b('document_id', 'document_id'),
+            _b('job_kind', 'plan', 'job_kind'),
+            _b('solver_id', 'plan', 'solver_id'),
+            _b('confidence', 'confidence'),
         ),
         (),
     ),
@@ -10359,6 +10385,47 @@ _ROW_BINDINGS: dict[str, tuple[str, tuple[RowBinding, ...], tuple[ExtraCheck, ..
             _b('verdict', 'verdict'),
             _b('started_at_utc', 'started_at_utc'),
             _b('finished_at_utc', 'finished_at_utc'),
+        ),
+        (),
+    ),
+    'cad_cable_run_geometries': (
+        'payload_json',
+        (
+            _b('geometry_id', 'geometry_id'),
+            _b('version', 'version'),
+            _b('document_id', 'document_id'),
+            _b('run_id', 'run_id'),
+            _b('run_version', 'run_version'),
+            _b('run_semantic_sha256', 'run_semantic_sha256'),
+            _b('geometric_length_m', 'geometric_length_m'),
+            _b('semantic_sha256', 'semantic_sha256'),
+            _b('recorded_at_utc', 'created_at_utc'),
+        ),
+        (),
+    ),
+    # REV73: #968 re-measurement queue authority.
+    'cad_remeasure_queues': (
+        'payload_json',
+        (
+            _b('queue_id', 'queue_id'),
+            _b('queue_sha256', 'queue_sha256'),
+            _b('document_id', 'document_id'),
+            _b('scene_revision_id', 'scene_revision_id'),
+            _b('evaluation_set_sha256', 'evaluation_set_sha256'),
+        ),
+        (
+            _list_count('cad_remeasure_queues', 'item_count', 'items'),
+        ),
+    ),
+    'cad_remeasure_queue_events': (
+        'payload_json',
+        (
+            _b('event_id', 'event_id'),
+            _b('event_sha256', 'event_sha256'),
+            _b('queue_id', 'queue_id'),
+            _b('measurement_id', 'measurement_id'),
+            _b('kind', 'kind'),
+            _b('created_at_utc', 'created_at_utc'),
         ),
         (),
     ),

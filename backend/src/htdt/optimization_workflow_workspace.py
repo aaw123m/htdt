@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import TYPE_CHECKING, TypeVar
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
     QComboBox,
     QFormLayout,
@@ -79,12 +79,15 @@ from .ui_theme import (
     set_surface_role,
     set_typography_role,
 )
+from .tree_item_role import ROLE
+from .window_state import WorkspaceViewState
 from .workflow_navigation import WorkspaceDeepLink, WorkspaceId
 from .workflow_shell import WorkspaceMount
 from .workspace_dirty_state import DirtyResolutionAction, WorkspaceDirtyState
 from .system_expansion_workflow import SystemExpansionWorkflowService
 
 if TYPE_CHECKING:
+    from .activity_center import ActivityCenter
     from .measurement_workflow import RewReadSource
 from .multi_sub_optimization_panel import MultiSubBaselinePanel
 from .standards_workspace import StandardsVariantComparisonPanel
@@ -214,6 +217,9 @@ def _advanced_block(
     content.setVisible(expanded)
     toggle.toggled.connect(content.setVisible)
     layout.addWidget(content)
+    # #973: the owning workspace registers the frame for expanded-panel
+    # view-state capture through this handle.
+    frame._advanced_toggle = toggle
     return frame
 
 
@@ -247,12 +253,16 @@ class OptimizationWorkflowWorkspace(QWidget):
         viewport_factory: Callable[[QWidget | None], QWidget] | None = None,
         on_navigate: Callable[[WorkspaceDeepLink], bool] | None = None,
         rew_client: RewReadSource | None = None,
+        activity_center: ActivityCenter | None = None,
     ) -> None:
         super().__init__()
         self.setObjectName("optimizationWorkflowWorkspace")
         set_surface_role(self, SurfaceRole.BASE)
         self.controller = OptimizationWorkflowController(
-            repository, document_id, rew_client=rew_client
+            repository,
+            document_id,
+            rew_client=rew_client,
+            activity_center=activity_center,
         )
         self.controller.statusChanged.connect(self._set_status)
         # Every persisted mutation path (spec save/re-author, candidate apply,
@@ -277,6 +287,9 @@ class OptimizationWorkflowWorkspace(QWidget):
 
         self._optimization_stack = QStackedWidget()
         self._optimization_pages: dict[str, QWidget] = {}
+        # #973: collapsible _advanced_block frames keyed for
+        # expanded-panel view-state capture, filled by _collapsible().
+        self._advanced_panels: dict[str, tuple[QWidget, QPushButton]] = {}
         viewport_widget = (
             RoomViewport3D(self)
             if viewport_factory is None
@@ -540,6 +553,229 @@ class OptimizationWorkflowWorkspace(QWidget):
         # The page switch lands the user on a new page — re-evaluate so the
         # strip's progress and next-step hint always match what they see.
         self._refresh_journey()
+
+    # ------------------------------------------------------------------
+    # #973: per-page view-state capture/restore — UX convenience only.
+    # Snapshots re-show where the user was; they never promote stale
+    # results to current/accepted and never guess a vanished selection's
+    # nearest row (deselect + parent focus instead).
+
+    def _collapsible(self, key: str, frame: QWidget) -> QWidget:
+        """Register an _advanced_block frame for expanded-panel capture."""
+        toggle = getattr(frame, "_advanced_toggle", None)
+        if toggle is not None:
+            self._advanced_panels[key] = (frame, toggle)
+        return frame
+
+    def capture_view_state(self) -> WorkspaceViewState | None:
+        """Mount port: snapshot the current page's view state."""
+        page_id = self.current_page_id
+        scroll = self._page_scroll_offset(page_id)
+        if page_id == "candidates":
+            return WorkspaceViewState(
+                scroll_offset=scroll,
+                selected_entity=self.search_selected_candidate_id,
+                filters={
+                    "candidate_filter": self.search_candidate_filter_field.text(),
+                    "extended_filter": self.extended_candidate_filter_field.text(),
+                    "extended_candidate": self.extended_selected_candidate_id or "",
+                },
+                expanded_panels=self._expanded_panel_keys(),
+                splitter_ratio=self._splitter_ratio(self._candidates_splitter),
+            )
+        if page_id == "comparison":
+            return WorkspaceViewState(
+                scroll_offset=scroll,
+                selected_entity=self._tree_selected_id(self.pareto_tree),
+                filters={
+                    "objectives": ";".join(self._selected_objective_ids()),
+                },
+                expanded_panels=self._expanded_panel_keys(),
+            )
+        if page_id == "validation":
+            return WorkspaceViewState(
+                scroll_offset=scroll,
+                selected_entity=self._tree_selected_id(self.validation_tree),
+                expanded_panels=self._expanded_panel_keys(),
+            )
+        return WorkspaceViewState(
+            scroll_offset=scroll,
+            expanded_panels=self._expanded_panel_keys(),
+        )
+
+    def restore_view_state(self, state: WorkspaceViewState) -> None:
+        """Mount port: re-apply a captured view state for the current
+        page. Runs after activate/select_section refresh, so trees and
+        lists resolve against the store's own current rows."""
+        page_id = self.current_page_id
+        self._restore_expanded_panels(state.expanded_panels)
+        if page_id == "candidates":
+            self._restore_candidates_view_state(state)
+        elif page_id == "comparison":
+            self._restore_comparison_view_state(state)
+        elif page_id == "validation":
+            self._restore_validation_view_state(state)
+        self._restore_page_scroll(page_id, state.scroll_offset)
+
+    def _page_scroll_area(self, page_id: str) -> QScrollArea | None:
+        page = self._optimization_pages.get(page_id)
+        if page is None:
+            return None
+        if isinstance(page, QScrollArea):
+            return page
+        if page_id == "candidates":
+            return self._candidates_side_scroll
+        return page.findChild(QScrollArea)
+
+    def _page_scroll_offset(self, page_id: str) -> int | None:
+        area = self._page_scroll_area(page_id)
+        if area is None:
+            return None
+        return area.verticalScrollBar().value()
+
+    def _restore_page_scroll(
+        self, page_id: str, offset: int | None
+    ) -> None:
+        if offset is None:
+            return
+        area = self._page_scroll_area(page_id)
+        if area is None:
+            return
+        bar = area.verticalScrollBar()
+        bar.setValue(min(offset, bar.maximum()))
+        # Layout can still be settling right after mount/refresh —
+        # re-apply once idle; the bar as receiver drops the call when dead.
+        QTimer.singleShot(
+            0, bar,
+            lambda: bar.setValue(min(offset, bar.maximum())),
+        )
+
+    def _expanded_panel_keys(self) -> tuple[str, ...]:
+        page = self._optimization_stack.currentWidget()
+        if page is None:
+            return ()
+        return tuple(
+            key
+            for key, (frame, toggle) in self._advanced_panels.items()
+            if page.isAncestorOf(frame) and toggle.isChecked()
+        )
+
+    def _restore_expanded_panels(self, keys: tuple[str, ...]) -> None:
+        page = self._optimization_stack.currentWidget()
+        if page is None:
+            return
+        wanted = set(keys or ())
+        for key, (frame, toggle) in self._advanced_panels.items():
+            if page.isAncestorOf(frame):
+                toggle.setChecked(key in wanted)
+
+    @staticmethod
+    def _splitter_ratio(splitter: QSplitter) -> float | None:
+        sizes = splitter.sizes()
+        total = sum(sizes)
+        if total <= 0 or not sizes:
+            return None
+        return sizes[0] / total
+
+    @staticmethod
+    def _apply_splitter_ratio(splitter: QSplitter, ratio: float) -> None:
+        sizes = splitter.sizes()
+        total = sum(sizes)
+        if total <= 0 or len(sizes) != 2:
+            return
+        first = int(round(total * max(0.0, min(1.0, ratio))))
+        splitter.setSizes([first, total - first])
+
+    @staticmethod
+    def _tree_selected_id(tree: QTreeWidget) -> str | None:
+        item = tree.currentItem()
+        if item is None:
+            return None
+        data = item.data(0, ROLE)
+        return data if isinstance(data, str) else None
+
+    @staticmethod
+    def _select_tree_id(tree: QTreeWidget, item_id: str) -> bool:
+        for index in range(tree.topLevelItemCount()):
+            item = tree.topLevelItem(index)
+            if (
+                item is not None
+                and not item.isHidden()
+                and item.data(0, ROLE) == item_id
+            ):
+                tree.setCurrentItem(item)
+                return True
+        return False
+
+    def _restore_candidates_view_state(
+        self, state: WorkspaceViewState
+    ) -> None:
+        filters = state.filters
+        text = filters.get("candidate_filter", "")
+        if text and text != self.search_candidate_filter_field.text():
+            # setText re-fires the existing hide-rows filter.
+            self.search_candidate_filter_field.setText(text)
+        extended_text = filters.get("extended_filter", "")
+        if (
+            extended_text
+            and extended_text != self.extended_candidate_filter_field.text()
+        ):
+            self.extended_candidate_filter_field.setText(extended_text)
+        if state.splitter_ratio is not None:
+            self._apply_splitter_ratio(
+                self._candidates_splitter, state.splitter_ratio
+            )
+        selected_id = state.selected_entity
+        if selected_id:
+            # A candidate id only exists for the session that generated
+            # the page — a stale id resolves to deselect + parent focus.
+            if not self._select_tree_id(self.search_candidate_tree, selected_id):
+                self.search_candidate_tree.clearSelection()
+                self.search_candidate_tree.setFocus(
+                    Qt.FocusReason.OtherFocusReason
+                )
+        extended_id = filters.get("extended_candidate", "")
+        if extended_id and not self._select_tree_id(
+            self.extended_candidate_tree, extended_id
+        ):
+            self.extended_candidate_tree.clearSelection()
+
+    def _restore_comparison_view_state(
+        self, state: WorkspaceViewState
+    ) -> None:
+        objectives = state.filters.get("objectives", "")
+        if objectives:
+            wanted = set(objectives.split(";"))
+            for index in range(self.objective_list.count()):
+                item = self.objective_list.item(index)
+                if item is not None:
+                    item.setSelected(
+                        item.data(Qt.ItemDataRole.UserRole) in wanted
+                    )
+        selected_id = state.selected_entity
+        if not selected_id:
+            return
+        if not self._select_tree_id(self.pareto_tree, selected_id):
+            self.pareto_tree.clearSelection()
+            self.pareto_tree.setFocus(Qt.FocusReason.OtherFocusReason)
+
+    def _restore_validation_view_state(
+        self, state: WorkspaceViewState
+    ) -> None:
+        selected_id = state.selected_entity
+        if not selected_id:
+            return
+        if not self._select_tree_id(self.validation_tree, selected_id):
+            self.validation_tree.clearSelection()
+            self.validation_tree.setFocus(Qt.FocusReason.OtherFocusReason)
+
+    def _selected_objective_ids(self) -> tuple[str, ...]:
+        ids = []
+        for item in self.objective_list.selectedItems():
+            data = item.data(Qt.ItemDataRole.UserRole)
+            if isinstance(data, str):
+                ids.append(data)
+        return tuple(ids)
 
     def _open_variant_measurements(self) -> None:
         if self._on_navigate is None or not self._on_navigate(
@@ -1184,10 +1420,13 @@ class OptimizationWorkflowWorkspace(QWidget):
         axis_detail_form.addRow("最大", _required(self.search_max_field, "search_max_field"))
         axis_detail_form.addRow("刻み", _required(self.search_step_field, "search_step_field"))
         search.addWidget(
-            _advanced_block(
-                "詳細: 軸を数値で指定",
-                "プリセットや3Dプレビューのハンドル操作の結果を微調整します。",
-                axis_detail,
+            self._collapsible(
+                "axis_numeric",
+                _advanced_block(
+                    "詳細: 軸を数値で指定",
+                    "プリセットや3Dプレビューのハンドル操作の結果を微調整します。",
+                    axis_detail,
+                ),
             )
         )
 
@@ -1226,10 +1465,13 @@ class OptimizationWorkflowWorkspace(QWidget):
         linked_layout.addLayout(linked_actions)
         linked_layout.addWidget(_required(self.search_linked_tree, "search_linked_tree"))
         search.addWidget(
-            _advanced_block(
-                "詳細: 連動探索変数",
-                "従属物体を可動軸から派生する連動ルールを定義します。",
-                linked_content,
+            self._collapsible(
+                "linked_variables",
+                _advanced_block(
+                    "詳細: 連動探索変数",
+                    "従属物体を可動軸から派生する連動ルールを定義します。",
+                    linked_content,
+                ),
             )
         )
 
@@ -1313,11 +1555,14 @@ class OptimizationWorkflowWorkspace(QWidget):
         extended_layout.addWidget(_required(self.extended_spec_tree, "extended_spec_tree"))
 
         layout.addWidget(
-            _advanced_block(
-                "詳細: 向き・トーインを探索",
-                "向き探索が利用可能な場合だけ、音響照準や筐体ヨーを追加探索します。"
-                " 合成データと実室データの区分は既存の検証ルールを維持します。",
-                extended_content,
+            self._collapsible(
+                "orientation_search",
+                _advanced_block(
+                    "詳細: 向き・トーインを探索",
+                    "向き探索が利用可能な場合だけ、音響照準や筐体ヨーを追加探索します。"
+                    " 合成データと実室データの区分は既存の検証ルールを維持します。",
+                    extended_content,
+                ),
             )
         )
 
@@ -1326,11 +1571,14 @@ class OptimizationWorkflowWorkspace(QWidget):
             on_status=self._set_status,
         )
         layout.addWidget(
-            _advanced_block(
-                "詳細: 配置 + DSP のジョイント探索",
-                "配置・DSPを別々に、あるいは同時に探索する正準のジョイント仕様を作成します。"
-                " ディレイ/極性/PEQなどは測定能力とデバイス制約が許す場合だけ有効です。",
-                self.joint_optimization_panel,
+            self._collapsible(
+                "joint_search",
+                _advanced_block(
+                    "詳細: 配置 + DSP のジョイント探索",
+                    "配置・DSPを別々に、あるいは同時に探索する正準のジョイント仕様を作成します。"
+                    " ディレイ/極性/PEQなどは測定能力とデバイス制約が許す場合だけ有効です。",
+                    self.joint_optimization_panel,
+                ),
             )
         )
         layout.addStretch(1)
@@ -1483,10 +1731,13 @@ class OptimizationWorkflowWorkspace(QWidget):
         extended.addLayout(extended_actions)
 
         side.addWidget(
-            _advanced_block(
-                "詳細: 拡張候補",
-                "拡張探索設定がある場合に、位置と向きの候補を同じルールで確認します。",
-                extended_content,
+            self._collapsible(
+                "extended_candidates",
+                _advanced_block(
+                    "詳細: 拡張候補",
+                    "拡張探索設定がある場合に、位置と向きの候補を同じルールで確認します。",
+                    extended_content,
+                ),
             )
         )
         side.addStretch(1)
@@ -1500,6 +1751,11 @@ class OptimizationWorkflowWorkspace(QWidget):
         splitter.setStretchFactor(1, 2)
         splitter.setSizes([760, 340])
         layout.addWidget(splitter, 1)
+        # #973: view-state capture keys the page scroll + splitter on
+        # these handles — the candidates page is the one pane that is
+        # not itself a QScrollArea.
+        self._candidates_splitter = splitter
+        self._candidates_side_scroll = side_scroll
         return page
 
     def _build_comparison_page(self) -> QWidget:
@@ -1570,6 +1826,7 @@ class OptimizationWorkflowWorkspace(QWidget):
             self.system_expansion.scene_repository,
             self.system_expansion.document_id,
             on_status=self._set_status,
+            on_navigate=self._on_navigate,
         )
         layout.addWidget(self.decision_brief_panel)
 
@@ -1713,10 +1970,13 @@ class OptimizationWorkflowWorkspace(QWidget):
         advanced.setWordWrap(True)
         advanced_layout.addWidget(advanced)
         layout.addWidget(
-            _advanced_block(
-                "詳細: 権威 / モデル / 忠実度",
-                "UUID・SHA・ソルバー/プロバイダー等の内部情報は通常表示から分離します。",
-                advanced_content,
+            self._collapsible(
+                "authority_fidelity",
+                _advanced_block(
+                    "詳細: 権威 / モデル / 忠実度",
+                    "UUID・SHA・ソルバー/プロバイダー等の内部情報は通常表示から分離します。",
+                    advanced_content,
+                ),
             )
         )
         return _scroll_page(body)
@@ -1962,11 +2222,14 @@ class OptimizationWorkflowWorkspace(QWidget):
         adaptive.addWidget(adaptive_extended_detail)
 
         layout.addWidget(
-            _advanced_block(
-                "詳細: 次の測定候補",
-                "既存の次候補探索ロジックを使います。合成データでの開発検証は本番推奨を解放せず、"
-                " 本番利用には現在の検証条件に基づく適格な実室データが必要です。",
-                adaptive_content,
+            self._collapsible(
+                "next_measurements",
+                _advanced_block(
+                    "詳細: 次の測定候補",
+                    "既存の次候補探索ロジックを使います。合成データでの開発検証は本番推奨を解放せず、"
+                    " 本番利用には現在の検証条件に基づく適格な実室データが必要です。",
+                    adaptive_content,
+                ),
             )
         )
         layout.addStretch(1)
@@ -1979,6 +2242,7 @@ def build_optimization_workspace_mount(
     *,
     on_navigate: Callable[[WorkspaceDeepLink], bool] | None = None,
     rew_client: RewReadSource | None = None,
+    activity_center: ActivityCenter | None = None,
 ) -> WorkspaceMount:
     """Build the UX140 workspace through the shell's existing mount contract."""
 
@@ -1987,6 +2251,7 @@ def build_optimization_workspace_mount(
         document_id,
         on_navigate=on_navigate,
         rew_client=rew_client,
+        activity_center=activity_center,
     )
 
     return WorkspaceMount.from_widget(
@@ -1996,6 +2261,8 @@ def build_optimization_workspace_mount(
         dirty_state=getattr(workspace, "dirty_state", None),
         resolve_dirty_state=getattr(workspace, "resolve_dirty_state", None),
         on_context_changed=workspace.select_section,
+        capture_view_state=getattr(workspace, "capture_view_state", None),
+        restore_view_state=getattr(workspace, "restore_view_state", None),
     )
 
 

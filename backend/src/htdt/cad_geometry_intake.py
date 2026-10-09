@@ -128,7 +128,9 @@ IntakePartKind = Literal['room_boundary', 'entity_body']
 IntakePartRole = Literal['room_boundary', 'object_surface']
 IntakeMaterialState = Literal['assigned', 'unassigned', 'unknown']
 IntakeOpeningResolution = Literal['unresolved', 'resolved_open', 'resolved_closed']
-GeometrySourceKind = Literal['scene_document', 'ifc_import', 'external_reference']
+GeometrySourceKind = Literal[
+    'scene_document', 'ifc_import', 'external_reference', 'ifc_diff_merge'
+]
 
 GeometryDefectKind = Literal[
     'open_boundary_edges',
@@ -3229,10 +3231,36 @@ def build_ifc_intake_subject(
     parts themselves (they are boundary gaps, not surfaces), while their
     filling elements (doors/windows) surface as ordinary object parts.
     """
-    coordinate = artifact.coordinate
-    authority = _ifc_import_authority(
-        coordinate, artifact.importer_version
+    return _build_ifc_subject(
+        document_id,
+        coordinate=artifact.coordinate,
+        importer_version=artifact.importer_version,
+        source_name=artifact.file_name,
+        mappings=mappings,
+        source_kind='ifc_import',
+        source_refs=(
+            AuthorityRef(
+                kind='ifc_import_artifact',
+                ref_id=artifact.artifact_id,
+                ref_sha256=artifact.artifact_sha256,
+            ),
+        ),
+        unit_details_suffix='',
     )
+
+
+def _build_ifc_subject(
+    document_id: str,
+    *,
+    coordinate: Any,
+    importer_version: str,
+    source_name: str,
+    mappings: Sequence[Any],
+    source_kind: GeometrySourceKind,
+    source_refs: Sequence[AuthorityRef],
+    unit_details_suffix: str,
+) -> GeometryIntakeSubject:
+    authority = _ifc_import_authority(coordinate, importer_version)
     declared = _ifc_unit_declared(coordinate)
     if declared:
         unit_state: IntakeUnitState = 'declared'
@@ -3246,6 +3274,8 @@ def build_ifc_intake_subject(
             f'ifc length_unit_state={coordinate.length_unit_state}: '
             'transforms withheld; geometries resolved as stubs'
         )
+    if unit_details_suffix:
+        unit_details = f'{unit_details} {unit_details_suffix}'
 
     by_global_id = {
         mapping.ifc_global_id: mapping
@@ -3389,7 +3419,7 @@ def build_ifc_intake_subject(
         mesh = _mesh_via_meshbin(
             world_vertices,
             triangles,
-            source_name=f'{artifact.file_name}#{mapping.step_entity_id}',
+            source_name=f'{source_name}#{mapping.step_entity_id}',
         )
         parts.append(
             IntakeMeshPart(
@@ -3434,19 +3464,63 @@ def build_ifc_intake_subject(
 
     return GeometryIntakeSubject.create(
         document_id=document_id,
-        source_kind='ifc_import',
-        source_refs=(
-            AuthorityRef(
-                kind='ifc_import_artifact',
-                ref_id=artifact.artifact_id,
-                ref_sha256=artifact.artifact_sha256,
-            ),
-        ),
+        source_kind=source_kind,
+        source_refs=tuple(source_refs),
         parts=parts,
         unresolved_parts=stubs,
         openings=openings,
         unit_state=unit_state,
         unit_details=unit_details,
+    )
+
+
+def build_ifc_diff_subject(
+    document_id: str,
+    *,
+    prior_artifact: Any,
+    new_artifact: Any,
+    delta: Any,
+    merged_mappings: Sequence[Any],
+) -> GeometryIntakeSubject:
+    """Merged intake subject produced by an IFC diff-review apply (#981).
+
+    ``merged_mappings`` is the operator-approved mapping set spanning both
+    import revisions (prior mappings kept for skipped/removed rows, new
+    mappings for accepted rows). The subject carries ``ifc_diff_merge`` as
+    its source kind and pins BOTH import artifacts plus the sealed
+    revision delta in ``source_refs`` — the merged result is fully
+    traceable to the two revisions it reconciles. The revised file's
+    coordinate authority drives unit handling (a coordinate change is
+    itself a review row, never silently adopted).
+    """
+    return _build_ifc_subject(
+        document_id,
+        coordinate=new_artifact.coordinate,
+        importer_version=new_artifact.importer_version,
+        source_name=new_artifact.file_name,
+        mappings=merged_mappings,
+        source_kind='ifc_diff_merge',
+        source_refs=(
+            AuthorityRef(
+                kind='ifc_import_artifact',
+                ref_id=prior_artifact.artifact_id,
+                ref_sha256=prior_artifact.artifact_sha256,
+            ),
+            AuthorityRef(
+                kind='ifc_import_artifact',
+                ref_id=new_artifact.artifact_id,
+                ref_sha256=new_artifact.artifact_sha256,
+            ),
+            AuthorityRef(
+                kind='ifc_revision_delta',
+                ref_id=delta.delta_id,
+                ref_sha256=delta.delta_sha256,
+            ),
+        ),
+        unit_details_suffix=(
+            f'merged via diff apply of {prior_artifact.file_name} + '
+            f'{new_artifact.file_name}'
+        ),
     )
 
 

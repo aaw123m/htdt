@@ -30,6 +30,14 @@ from PySide6.QtWidgets import (
 )
 
 from .analysis_markers import render_analysis_marker_cloud
+from .activity_center import (
+    ApplicationOperation,
+    Cancellability,
+    NavigationPolicy,
+    OperationRetryRequest,
+    RetryPolicy,
+)
+from .workflow_navigation import WorkspaceDeepLink, WorkspaceId
 from .cad_adaptive_repository import CadAdaptivePlanRepository
 from .cad_adaptive_service import CadAdaptivePlannerService
 from .cad_extended_search import (
@@ -808,12 +816,25 @@ class SearchControllerMixin:
             )
 
     def generate_search_candidates_async(self, *, offset: int | None = None) -> None:
+        page_offset = 0 if offset is None else max(0, int(offset))
+        self._dispatch_search(page_offset)
+
+    def _dispatch_search(
+        self,
+        page_offset: int,
+        *,
+        operation_id: str | None = None,
+        retry_of: str | None = None,
+        attempt: int = 1,
+    ) -> str | None:
+        """Validate, register (#974) and start one candidate-generation task."""
+
         if self._current_search_task_id is not None or self._current_extended_task_id is not None:
-            return
+            return None
         spec = self._selected_search_spec()
         if spec is None or self.working is None:
             self.statusBar().showMessage('生成する探索設定を選択してください')
-            return
+            return None
         if not search_spec_current_working(
             spec,
             self.working,
@@ -822,12 +843,36 @@ class SearchControllerMixin:
         ):
             self.statusBar().showMessage('部屋または制約が変更された探索設定からは候補を生成できません')
             self._refresh_search_binding_state()
-            return
+            return None
 
-        page_offset = 0 if offset is None else max(0, int(offset))
         key = str(uuid4())
         self._current_search_task_id = key
         self._search_task_spec_ids[key] = spec.search_spec_id
+        refs = [f'search-spec:{spec.search_spec_id}']
+        if self.working.source_revision_id:
+            refs.append(f'scene-revision:{self.working.source_revision_id}')
+        self._submit_operation(
+            task_key=key,
+            operation_kind='optimization.candidate_search',
+            title='探索候補の生成',
+            input_authority_refs=tuple(refs),
+            revision_ref=self.working.source_revision_id,
+            cancellability=Cancellability.CANCELLABLE,
+            cancel_callback=lambda: self._search_pool.cancel(key),
+            retry_policy=RetryPolicy.SAFE_NEW_ATTEMPT,
+            navigation_policy=NavigationPolicy.BACKGROUNDABLE,
+            deep_link=WorkspaceDeepLink(
+                WorkspaceId.OPTIMIZATION, 'candidates'
+            ),
+            domain_payload={
+                'retry': lambda op, new_id: self._retry_search(
+                    page_offset, op, new_id
+                )
+            },
+            operation_id=operation_id,
+            retry_of=retry_of,
+            attempt=attempt,
+        )
         self._refresh_search_binding_state()
         self.statusBar().showMessage(
             f'候補を生成しています… · {page_offset + 1}件目から'
@@ -841,6 +886,36 @@ class SearchControllerMixin:
                 limit=self.search_page_limit,
                 cancelled=cancel_event.is_set,
             ),
+        )
+        return key
+
+    def _retry_search(
+        self,
+        page_offset: int,
+        operation: ApplicationOperation,
+        new_operation_id: str,
+    ) -> OperationRetryRequest | None:
+        """SAFE_NEW_ATTEMPT adapter: re-dispatch the same page under the
+        pre-bound attempt id (#974). Spec currency is re-validated, so a
+        retry whose inputs went stale is refused honestly."""
+
+        if self._disposed:
+            return None
+        key = self._dispatch_search(
+            page_offset,
+            operation_id=new_operation_id,
+            retry_of=operation.operation_id,
+            attempt=operation.attempt + 1,
+        )
+        if key is None:
+            return None
+        return OperationRetryRequest(
+            cancel_callback=lambda: self._search_pool.cancel(key),
+            domain_payload={
+                'retry': lambda op, new_id: self._retry_search(
+                    page_offset, op, new_id
+                )
+            },
         )
 
     def _start_search_task(self, key: str, operation: Callable[[Event], object]) -> None:
@@ -872,14 +947,19 @@ class SearchControllerMixin:
 
         if error == WORKER_CANCELLED:
             self.statusBar().showMessage('候補生成をキャンセルしました')
+            self._finish_operation(task_id, cancelled=True)
             self._refresh_search_binding_state()
             return
         if error is not None:
             self.statusBar().showMessage(f'候補生成に失敗しました · {operation_error_message(error)}')
+            self._finish_operation(task_id, error=error)
             self._refresh_search_binding_state()
             return
         if not isinstance(result, CadCandidateSetPage):
             self.statusBar().showMessage('候補生成結果を利用できません · 結果形式が一致しません')
+            self._finish_operation(
+                task_id, error=TypeError('候補生成結果の形式が一致しません')
+            )
             self._refresh_search_binding_state()
             return
         spec = None if spec_id is None else self.search_repository.get(spec_id)
@@ -894,10 +974,18 @@ class SearchControllerMixin:
                     )
         ):
             self.statusBar().showMessage('古い候補生成結果を破棄しました · 部屋または制約が変更されています')
+            self._finish_operation(
+                task_id,
+                result_summary='部屋または制約が変更されたため古い結果を破棄しました',
+            )
             self._refresh_search_binding_state()
             return
         if spec.search_spec_id != self.search_selected_spec_id:
             self.statusBar().showMessage('候補生成は完了しました · 別の探索設定が選択されています')
+            self._finish_operation(
+                task_id,
+                result_summary='別の探索設定が選択されたため結果を破棄しました',
+            )
             self._refresh_search_binding_state()
             return
 
@@ -930,6 +1018,13 @@ class SearchControllerMixin:
             )
         self.statusBar().showMessage(
             f'候補を生成しました · 有効 {result.feasible_candidate_count}件'
+        )
+        self._finish_operation(
+            task_id,
+            result_summary=(
+                f'有効 {result.feasible_candidate_count}件'
+                f'（総 {result.raw_candidate_count}）'
+            ),
         )
 
     def _refresh_search_candidate_tree(self) -> None:

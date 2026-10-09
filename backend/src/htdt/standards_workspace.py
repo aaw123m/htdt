@@ -35,6 +35,13 @@ from .cad_standards_profiles import builtin_standards_profiles
 from .cad_standards_repository import CadStandardsRepository
 from .cad_system_variant import materialize_system_variant
 from .cad_system_variant_repository import CadSystemVariantRepository
+from .dynamic_a11y import (
+    DynamicAnnouncer,
+    capture_focus,
+    disabled_hint,
+    reason_label,
+    restore_focus,
+)
 from .ui_theme import (
     ControlSize,
     SemanticState,
@@ -354,6 +361,7 @@ class StandardsCriterionPanel(QFrame):
         self.model = StandardsWorkspaceModel(scene_repository, document_id)
         self._evaluation: StandardsEvaluation | None = None
         self._selected_constraints: set[str] = set()
+        self._announcer = DynamicAnnouncer(self)
         set_surface_role(self, SurfaceRole.RAISED)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(12, 12, 12, 12)
@@ -401,12 +409,18 @@ class StandardsCriterionPanel(QFrame):
         layout.addWidget(self.profile_meta)
 
         self.evaluate_button = QPushButton("この基準で評価")
+        self.evaluate_button.setObjectName('standards-evaluate')
         self.evaluate_button.setToolTip(
             "選択した対象をこの基準で評価し、各項目の適合状態を更新します。"
         )
         set_control_size(self.evaluate_button, ControlSize.STANDARD)
         self.evaluate_button.clicked.connect(self.evaluate_selected)
         layout.addWidget(self.evaluate_button)
+        # #975: a disabled evaluate button leaves the Tab order — the
+        # reason + resolution path live in this focusable label.
+        self.evaluate_hint = reason_label('', self)
+        self.evaluate_hint.setVisible(False)
+        layout.addWidget(self.evaluate_hint)
 
         self.editor_button = QPushButton("プロファイルを編集 / 複製…")
         set_control_size(self.editor_button, ControlSize.COMPACT)
@@ -555,11 +569,45 @@ class StandardsCriterionPanel(QFrame):
         self.refresh()
         self.evaluationChanged.emit(self._evaluation)
 
+    def _sync_evaluate_enabled(self) -> None:
+        """#975: gate 'この基準で評価' honestly — disabled with the
+        reason AND the resolution path shown on this screen; never
+        enabled just so the surface looks complete."""
+        reason = None
+        if self.selected_profile() is None:
+            reason = disabled_hint(
+                'standards.evaluate',
+                '評価を実行できません: 利用できる基準プロファイルがありません',
+                '「プロファイルを編集 / 複製…」からプロファイルを'
+                '作成してください',
+            )
+        elif self.target_combo.count() == 0:
+            reason = disabled_hint(
+                'standards.evaluate',
+                '評価を実行できません: 評価対象がまだ登録されていません',
+                '部屋または候補が登録されると評価できます',
+            )
+        self.evaluate_button.setEnabled(reason is None)
+        self.evaluate_hint.setText(reason or '')
+        self.evaluate_hint.setVisible(reason is not None)
+        if reason is not None:
+            self.evaluate_button.setToolTip(reason)
+        else:
+            self.evaluate_button.setToolTip(
+                "選択した対象をこの基準で評価し、各項目の適合状態を更新します。"
+            )
+
     def refresh(self, *_args) -> None:
         profile = self.selected_profile()
+        self._sync_evaluate_enabled()
         if profile is None:
             self.tree.clear()
             self.profile_meta.setText("利用できる基準プロファイルがありません")
+            self._evaluation = None
+            self._refresh_gate()
+            self._announcer.announce_state(
+                'evaluation', None, 'operation_completed', ''
+            )
             return
         domains = sorted(
             {domain for item in profile.criteria for domain in item.applicable_domains}
@@ -574,6 +622,25 @@ class StandardsCriterionPanel(QFrame):
         )
         self._render_results(profile)
         self._refresh_gate()
+        # #975: a new/updated evaluation is announced once per
+        # evaluation_id — re-render of unchanged state stays silent.
+        evaluation = self._evaluation
+        if evaluation is None:
+            self._announcer.announce_state(
+                'evaluation', None, 'operation_completed', ''
+            )
+        else:
+            counts = {'PASS': 0, 'FAIL': 0, 'UNKNOWN': 0}
+            for item in evaluation.results:
+                counts[item.status] = counts.get(item.status, 0) + 1
+            self._announcer.announce_state(
+                'evaluation',
+                evaluation.evaluation_id,
+                'operation_completed',
+                '基準評価を更新しました — '
+                f"適合 {counts['PASS']} / 不適合 {counts['FAIL']} / "
+                f"判定材料不足 {counts['UNKNOWN']} 件",
+            )
 
     def _render_results(self, profile: StandardsProfile) -> None:
         results = (
@@ -581,6 +648,11 @@ class StandardsCriterionPanel(QFrame):
             if self._evaluation is None
             else {item.criterion_id: item for item in self._evaluation.results}
         )
+        # #975: the tree is rebuilt from scratch — capture the
+        # criterion_id under the keyboard anchor first, then re-point
+        # it at the rebuilt item (or keep focus on the tree when the
+        # criterion vanished).
+        token = capture_focus(self)
         self.tree.blockSignals(True)
         self.tree.clear()
         for criterion in profile.criteria:
@@ -611,6 +683,7 @@ class StandardsCriterionPanel(QFrame):
                 item.setData(1, Qt.ItemDataRole.UserRole, result.status)
             self.tree.addTopLevelItem(item)
         self.tree.blockSignals(False)
+        restore_focus(self, token, fallback=self.evaluate_button)
 
     def _constraint_changed(self, item: QTreeWidgetItem, column: int) -> None:
         if column != 0:
@@ -628,23 +701,43 @@ class StandardsCriterionPanel(QFrame):
         if self._evaluation is None:
             self.gate_label.setText("配置制約: 評価後に判定します")
             set_semantic_state(self.gate_label, None)
+            self._announcer.announce_state(
+                'gate', None, 'operation_completed', ''
+            )
             return
         gate = self.model.hard_constraint_gate(
             self._evaluation,
             self.selected_criterion_ids,
         )
+        # #975: block/unblock transitions are announced once per state —
+        # the resolution path is in the same label for keyboard users.
         if gate.allowed:
             self.gate_label.setText(
                 "配置制約: 許可 · 未選択の不適合は証拠表示のみです"
             )
             set_semantic_state(self.gate_label, SemanticState.SUCCESS)
+            self._announcer.announce_state(
+                'gate',
+                'allowed',
+                'operation_unblocked',
+                '配置制約のブロックは解除されています',
+            )
         else:
+            blocked_ids = ', '.join(gate.blocking_criterion_ids)
             self.gate_label.setText(
                 "配置制約: ブロック · "
-                + ", ".join(gate.blocking_criterion_ids)
-                + " · 判定材料不足も選択時は安全側にブロックします"
+                + blocked_ids
+                + " · 判定材料不足も選択時は安全側にブロックします。"
+                + "解消: 該当項目のチェックを外すか、対象を修正して"
+                + "再評価してください"
             )
             set_semantic_state(self.gate_label, SemanticState.WARNING)
+            self._announcer.announce_state(
+                'gate',
+                f'blocked:{blocked_ids}',
+                'operation_blocked',
+                f'配置制約でブロックされています: {blocked_ids}',
+            )
 
     def advanced_text(self) -> str:
         profile = self.selected_profile()

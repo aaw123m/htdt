@@ -48,6 +48,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from .capture_watch_guard import STAGE_PERMANENT_REASONS
 from .clock import utc_now_iso as _utc_now
 from .native_diagnostics import diagnostics_dir
 
@@ -78,6 +79,81 @@ class WatchFailureClass(StrEnum):
     RETRYABLE = 'retryable'
     UNSUPPORTED = 'unsupported'
     USER_ACTION_REQUIRED = 'user_action_required'
+
+
+#: Localized operator-facing detail for each scan-time skip reason
+#: (#1019). The reason vocabulary lives in ``capture_watch_guard``;
+#: this map is deliberately keyed by string so the queue surface never
+#: hard-fails on a reason it has not seen — unknown kinds fall back to
+#: a generic honest line.
+_SKIP_DETAILS: dict[str, str] = {
+    'link_external': (
+        '監視フォルダーの外を指すリンクのためスキップされました — '
+        '実体のファイルをフォルダー内に直接置いてください'
+    ),
+    'link_internal': (
+        'リンク経由の取り込みは行いません — '
+        '実体のファイルをフォルダー内に直接置いてください'
+    ),
+    'reparse_point': (
+        'ジャンクション/リパースポイント経由の取り込みは行いません — '
+        '実体のファイルを直接置いてください'
+    ),
+    'not_regular': (
+        'フォルダー/特殊ファイルは取り込めません — '
+        '実体の .htdtcapture ファイルを置いてください'
+    ),
+    'broken_link': (
+        '壊れたリンクのためスキップされました — '
+        'リンク先を確認してください'
+    ),
+    'unreadable': (
+        'ファイル情報を読み取れないためスキップされました — '
+        'アクセス権を確認してください'
+    ),
+    'descriptor_external': (
+        '記述子が監視フォルダーの外のバンドルを参照しています — '
+        'バンドルごとフォルダー内に置いてください'
+    ),
+    'bundle_member_blocked': (
+        'バンドル内にリンク/特殊ファイルが含まれているため '
+        '取り込めません'
+    ),
+    'oversized': 'ファイルが取り込み上限を超えています',
+}
+
+
+def describe_watch_skip(reason: str) -> str:
+    """Localized operator-facing detail for one skip/stage reason."""
+
+    return _SKIP_DETAILS.get(reason, f'取り込めません（{reason}）')
+
+
+def classify_stage_failure(
+    reason: str,
+) -> tuple[str, WatchFailureClass, str]:
+    """Map one staging refusal onto the failure-queue vocabulary.
+
+    Permanent conditions (link/reparse/descriptor escapes, oversize,
+    blocked bundle members) classify ``unsupported`` — retry cannot
+    heal them and the retry gate refuses them up front, so the operator
+    gets an honest "fix the drop" instruction. Everything else is
+    ``retryable``: a mid-write file settles, a lock lifts, a share
+    returns.
+    """
+
+    if reason in STAGE_PERMANENT_REASONS:
+        return (
+            reason,
+            WatchFailureClass.UNSUPPORTED,
+            describe_watch_skip(reason),
+        )
+    detail = {
+        'changed': 'ルーティング中にファイルが変化しました — 書き込み完了を待って再試行されます',
+        'vanished': 'ファイルが見つかりません（削除または移動されました）',
+        'unreadable': 'ファイルを読み取れません — アクセス権を確認してください',
+    }.get(reason, '取り込みの準備中にエラーが発生しました')
+    return (reason, WatchFailureClass.RETRYABLE, detail)
 
 
 class WatchRetryVerdict(StrEnum):
@@ -113,6 +189,25 @@ class CaptureWatchFailure(BaseModel):
     # ([diag: XXXX]); stable per path so every record of the same drop
     # carries one id.
     diagnostic_id: str = Field(min_length=1)
+
+
+@dataclass(frozen=True, slots=True)
+class WatchSkippedEntry:
+    """Runner -> app record for one entry the scan refused (#1019).
+
+    ``error_kind`` is the skip vocabulary (``link_external``,
+    ``reparse_point``, …), ``detail`` its localized line, and
+    ``mtime_ns``/``size`` the dirent's own lstat signature — a link
+    carries its *link* fingerprint, never its target's. ``watch_root``
+    is the configured (spelled) watch path for queue identity.
+    """
+
+    path: str
+    error_kind: str
+    detail: str
+    mtime_ns: int | None
+    size: int | None
+    watch_root: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -499,7 +594,10 @@ __all__ = [
     'WatchFailureClass',
     'WatchRetryVerdict',
     'WatchRouteExhaustion',
+    'WatchSkippedEntry',
     'classify_route_failure',
+    'classify_stage_failure',
+    'describe_watch_skip',
     'verify_watch_retry',
     'write_watch_failure_diagnostic',
 ]

@@ -33,6 +33,7 @@ from PySide6.QtWidgets import (
 )
 
 from . import file_dialog_memory
+from .activity_center import ActivityCenter
 from .cad_design_comparison import DesignComparisonSet
 from .cad_design_comparison_repository import CadDesignComparisonRepository
 from .cad_design_decision import (
@@ -54,21 +55,24 @@ from .cad_presentation_session import (
     build_sync_binding,
     build_viewpoint,
 )
-from .cad_proposal_package import (
-    build_proposal_package,
-    verify_proposal_package,
-)
 from .cad_repository import SceneRepository
 from .cad_review_note import ReviewNoteRepository, add_review_note
-from .cad_review_package import (
-    OffscreenSceneRenderer,
-    build_review_package,
-    derived_yaw_steps,
-    verify_review_package,
+from .cad_review_package import derived_yaw_steps
+from .cad_scene_history import ENTITY_FIELD_LABELS
+from .design_ab_overlay import (
+    AB_OVERLAY_CATEGORY_VOCAB,
+    DesignAbOverlayPreview,
+    build_ab_overlay_preview,
 )
 from .cad_system_variant_repository import CadSystemVariantRepository
 from .clock import utc_now_iso as _utc_now
 from .output_target import OutputTargetError, validate_output_target
+from .package_progress import PackageBuildProgress
+from .presentation_export_runner import (
+    PresentationExportRunner,
+    PresentationExportJob,
+    _bytes_label,
+)
 from .room_viewport import RoomOverlayState, RoomViewport3D
 from .user_facing_error import warn_user
 
@@ -87,6 +91,7 @@ class PresentationWorkspace(QWidget):
         document_id: str,
         *,
         navigate=None,
+        activity_center: ActivityCenter | None = None,
     ) -> None:
         super().__init__()
         self.repository = repository
@@ -99,9 +104,10 @@ class PresentationWorkspace(QWidget):
         self.note_repository = ReviewNoteRepository(repository.path)
 
         self._session: PresentationSession | None = None
-        # The document the pinned session resolves to — replay applies
-        # per-viewpoint hidden/section/focus state against this, not the
-        # live head.
+        # #1007: last loaded A/B pair + preview for the overlay view —
+        # pinned scene revisions, never the live head.
+        self._ab_preview: DesignAbOverlayPreview | None = None
+        self._ab_diff_only: bool = False
         self._session_document = None
         self._pending_viewpoints: list[PresentationViewpoint] = []
         self._step_index = 0
@@ -109,6 +115,28 @@ class PresentationWorkspace(QWidget):
         # 「出力先を開く」 will ever open (a verified build, never a
         # merely-validated one).
         self._last_output_dir: str | None = None
+
+        # #985: review/proposal package builds run on a bounded worker
+        # lane (never the Qt event loop), registered in the shared
+        # ActivityCenter with measured progress + cooperative cancel.
+        self._export_runner = PresentationExportRunner(
+            scene_repository=repository,
+            presentation_repository=self.presentation_repository,
+            comparison_repository=self.comparison_repository,
+            decision_repository=self.decision_repository,
+            activity_center=activity_center,
+            parent=self,
+        )
+        self._export_runner.export_started.connect(self._export_job_started)
+        self._export_runner.export_progress.connect(self._export_job_progress)
+        self._export_runner.export_completed.connect(
+            self._export_job_completed
+        )
+        self._export_runner.export_failed.connect(self._export_job_failed)
+        self._export_runner.export_cancelled.connect(
+            self._export_job_cancelled
+        )
+        self._export_runner.export_finished.connect(self._export_job_finished)
 
         self.pages: dict[str, QWidget] = {}
         self.stack = QStackedWidget(self)
@@ -479,6 +507,22 @@ class PresentationWorkspace(QWidget):
         self.lockstep_check = QCheckBox('カメラ同期')
         self.lockstep_check.setChecked(True)
         controls.addWidget(self.lockstep_check)
+        controls.addWidget(QLabel('表示:'))
+        # #1007: 横並び / 単一画面重畳 / 差分のみ の切替 — the same pinned
+        # pair drives all three; 重畳/差分のみ draw the color-coded
+        # authority-driven diff ghosts.
+        self.view_mode_combo = QComboBox()
+        self.view_mode_combo.setAccessibleName('比較表示モード')
+        for _label, _mode in (
+            ('横並び', 'side'),
+            ('重畳（単一画面）', 'overlay'),
+            ('差分のみ', 'diff_only'),
+        ):
+            self.view_mode_combo.addItem(_label, _mode)
+        self.view_mode_combo.currentIndexChanged.connect(
+            self._on_compare_view_mode
+        )
+        controls.addWidget(self.view_mode_combo)
         compare_button = QPushButton('読み込み')
         compare_button.setAccessibleName('比較を読み込み')
         compare_button.clicked.connect(self._load_comparison)
@@ -507,7 +551,44 @@ class PresentationWorkspace(QWidget):
         self.right_viewport = self._viewport()
         right_layout.addWidget(self.right_viewport)
         splitter.addWidget(right_host)
-        layout.addWidget(splitter, 1)
+
+        self.compare_stack = QStackedWidget()
+        self.compare_stack.addWidget(splitter)
+        # 重畳/差分のみ page: one read-only viewport drawing the diff
+        # actors, plus the 差分理由カード column.
+        overlay_page = QWidget()
+        overlay_layout = QHBoxLayout(overlay_page)
+        overlay_layout.setContentsMargins(0, 0, 0, 0)
+        overlay_splitter = QSplitter(Qt.Horizontal)
+        overlay_canvas = QWidget()
+        overlay_canvas_layout = QVBoxLayout(overlay_canvas)
+        overlay_canvas_layout.setContentsMargins(0, 0, 0, 0)
+        self.overlay_label = QLabel('')
+        overlay_canvas_layout.addWidget(self.overlay_label)
+        self.overlay_viewport = self._viewport()
+        overlay_canvas_layout.addWidget(self.overlay_viewport)
+        overlay_splitter.addWidget(overlay_canvas)
+        card_host = QWidget()
+        card_layout = QVBoxLayout(card_host)
+        card_layout.setContentsMargins(8, 0, 0, 0)
+        card_layout.setSpacing(4)
+        card_heading = QLabel('差分理由カード')
+        card_heading.setAccessibleName('差分理由カード見出し')
+        card_layout.addWidget(card_heading)
+        self.diff_summary_label = QLabel('')
+        self.diff_summary_label.setWordWrap(True)
+        self.diff_summary_label.setAccessibleName('比較サマリ')
+        card_layout.addWidget(self.diff_summary_label)
+        self.diff_card = QListWidget()
+        self.diff_card.setAccessibleName('差分理由カード')
+        self.diff_card.itemClicked.connect(self._on_diff_card_row)
+        card_layout.addWidget(self.diff_card, 1)
+        overlay_splitter.addWidget(card_host)
+        overlay_splitter.setStretchFactor(0, 1)
+        overlay_splitter.setStretchFactor(1, 0)
+        overlay_layout.addWidget(overlay_splitter)
+        self.compare_stack.addWidget(overlay_page)
+        layout.addWidget(self.compare_stack, 1)
         self.pages['compare'] = page
         self.stack.addWidget(page)
 
@@ -556,25 +637,91 @@ class PresentationWorkspace(QWidget):
             combo.blockSignals(False)
         if comparison_set is not None and len(comparison_set.alternatives) > 1:
             self.right_combo.setCurrentIndex(1)
+        # Set/alternative pin changed (or project switched): drop any loaded
+        # overlay so stale ghosts never linger next to a new selection.
+        self._ab_preview = None
+        if getattr(self, 'overlay_viewport', None) is not None:
+            self.overlay_viewport.clear_design_ab_overlay()
+        if getattr(self, 'diff_card', None) is not None:
+            self.diff_card.clear()
+            self.diff_summary_label.setText('')
+            self.overlay_label.setText('')
 
     def _load_comparison(self) -> None:
+        pair = self._selected_alternative_pair(show_dialogs=True)
+        if pair is None:
+            return
+        comparison_set, left_alt, right_alt = pair
+        self._dispatch_comparison_load(comparison_set, left_alt, right_alt)
+
+    def _selected_alternative_pair(
+        self, *, show_dialogs: bool
+    ) -> tuple[DesignComparisonSet, object, object] | None:
         comparison_set = self._current_set()
         if comparison_set is None:
-            QMessageBox.warning(
-                self, 'A/B比較', '比較セットを選択してください'
-            )
-            return
+            if show_dialogs:
+                QMessageBox.warning(
+                    self, 'A/B比較', '比較セットを選択してください'
+                )
+            return None
         left_pin = self.left_combo.currentData()
         right_pin = self.right_combo.currentData()
         if left_pin is None or right_pin is None:
-            return
+            return None
         if left_pin[2] == right_pin[2]:
-            QMessageBox.warning(
-                self, 'A/B比較', '左右に異なる案を選んでください'
-            )
-            return
+            if show_dialogs:
+                QMessageBox.warning(
+                    self, 'A/B比較', '左右に異なる案を選んでください'
+                )
+            return None
         left_alt = comparison_set.alternative(left_pin[2])
         right_alt = comparison_set.alternative(right_pin[2])
+        if left_alt is None or right_alt is None:
+            return None
+        return comparison_set, left_alt, right_alt
+
+    def _dispatch_comparison_load(
+        self, comparison_set, left_alt, right_alt
+    ) -> None:
+        mode = self.view_mode_combo.currentData()
+        if mode == 'side':
+            self.compare_stack.setCurrentIndex(0)
+            self._load_side_comparison(comparison_set, left_alt, right_alt)
+            # Side-by-side is the active view — the overlay layer holds
+            # nothing visible; drop its actors so no stale diff lingers.
+            self.overlay_viewport.clear_design_ab_overlay()
+            self.diff_card.clear()
+            self.diff_summary_label.setText('')
+            self._ab_preview = None
+            return
+        self.compare_stack.setCurrentIndex(1)
+        self._load_overlay_comparison(
+            comparison_set, left_alt, right_alt, diff_only=(mode == 'diff_only')
+        )
+
+    def _on_compare_view_mode(self, *_args) -> None:
+        # Fires once during page construction (first addItem) before the
+        # compare stack exists — no-op then.
+        if getattr(self, 'compare_stack', None) is None:
+            return
+        mode = self.view_mode_combo.currentData()
+        self.compare_stack.setCurrentIndex(0 if mode == 'side' else 1)
+        # A mode switch re-dispatches the loaded pair silently — the pins
+        # are re-verified on every load, so a stale pin degrades to the
+        # honest '比較不可' state rather than painting guessed ghosts.
+        pair = self._selected_alternative_pair(show_dialogs=False)
+        if pair is not None:
+            comparison_set, left_alt, right_alt = pair
+            self._dispatch_comparison_load(comparison_set, left_alt, right_alt)
+        elif mode != 'side':
+            self.overlay_viewport.clear_design_ab_overlay()
+            self.diff_card.clear()
+            self.diff_summary_label.setText('')
+            self._ab_preview = None
+
+    def _load_side_comparison(
+        self, comparison_set, left_alt, right_alt
+    ) -> None:
         try:
             left_doc = self.presentation_repository.alternative_document(
                 left_alt
@@ -597,6 +744,99 @@ class PresentationWorkspace(QWidget):
             self.right_viewport.apply_camera_state(state)
         else:
             self.right_viewport.fit_scene()
+
+    def _load_overlay_comparison(
+        self, comparison_set, left_alt, right_alt, *, diff_only: bool
+    ) -> None:
+        """Single-view A/B overlay — authority-driven diff ghosts (#1007).
+
+        Resolution re-runs ``alternative_document`` so stale pins or hash
+        drift degrade to the preview's 'impossible' state instead of an
+        invented overlay.
+        """
+        head = None
+        try:
+            head = self.repository.current_head(comparison_set.document_id)
+        except Exception:
+            head = None
+        preview = build_ab_overlay_preview(
+            comparison_set,
+            left_alt,
+            right_alt,
+            resolve_document=self.presentation_repository.alternative_document,
+            evidence_resolver=self.comparison_repository.ref_resolver,
+            head_revision_id=(
+                head.revision_id if head is not None else None
+            ),
+        )
+        self._ab_preview = preview
+        self._ab_diff_only = diff_only
+        self.overlay_viewport.render_design_ab_overlay(
+            preview, show_context=not diff_only
+        )
+        self.overlay_label.setText(
+            f'案A「{left_alt.label}」 / 案B「{right_alt.label}」'
+            ' — 差分ゴースト（読み取り専用）'
+        )
+        self._fill_diff_card(preview)
+        self.overlay_viewport.fit_scene()
+
+    def _fill_diff_card(self, preview: DesignAbOverlayPreview) -> None:
+        self.diff_card.clear()
+        self.diff_summary_label.setText(preview.summary)
+
+        def _row(text: str, entity_id: str | None = None) -> None:
+            item = QListWidgetItem(text)
+            if entity_id is not None:
+                item.setData(Qt.ItemDataRole.UserRole, entity_id)
+            self.diff_card.addItem(item)
+
+        if preview.state == 'impossible':
+            _row('比較不可')
+            for reason in preview.impossible_reasons:
+                _row(f'・{reason}')
+            _row(preview.disclaimer)
+        else:
+            if preview.staleness_note:
+                _row(preview.staleness_note)
+            for line in preview.context_changed:
+                _row(line)
+            if not preview.items and not preview.context_changed:
+                _row('変更なし（同一内容）')
+            for item in preview.items:
+                label, _color = AB_OVERLAY_CATEGORY_VOCAB[item.category]
+                fields = '、'.join(
+                    ENTITY_FIELD_LABELS.get(field, field)
+                    for field in item.changed_fields
+                )
+                text = f'{item.name}（{item.kind}）— {label}'
+                if fields:
+                    text += f': {fields}'
+                text += f' / 理由: {item.reason}'
+                _row(text, entity_id=item.entity_id)
+            if preview.evidence_rows:
+                _row('— 証跡の利用可否 —')
+                for row in preview.evidence_rows:
+                    _row(
+                        f'{row.alternative_label} · '
+                        f'{row.kind}:{row.ref_id} — {row.state_label}'
+                        f'（{row.reason}）'
+                    )
+            _row(preview.disclaimer)
+
+    def _on_diff_card_row(self, item) -> None:
+        """Diff-row → overlay deep link: re-render with the row's entity
+        highlighted. The row names a pinned entity id only — no selection
+        or edit is implied."""
+        preview = self._ab_preview
+        if preview is None or preview.state != 'ready':
+            return
+        entity_id = item.data(Qt.ItemDataRole.UserRole)
+        self.overlay_viewport.render_design_ab_overlay(
+            preview,
+            show_context=not getattr(self, '_ab_diff_only', False),
+            highlight_entity_id=entity_id,
+        )
 
     def _save_binding(self) -> None:
         comparison_set = self._current_set()
@@ -919,15 +1159,45 @@ class PresentationWorkspace(QWidget):
         self.yaw_check.setAccessibleName('ヨーステップレンダリング有効化')
         layout.addRow(self.yaw_check)
 
-        review_button = QPushButton('レビューパッケージを生成')
-        review_button.setAccessibleName('オフラインレビューパッケージを生成')
-        review_button.clicked.connect(self._build_review)
-        layout.addRow(review_button)
+        self.export_review_button = QPushButton(
+            'レビューパッケージを生成'
+        )
+        self.export_review_button.setAccessibleName(
+            'オフラインレビューパッケージを生成'
+        )
+        self.export_review_button.setToolTip(
+            'バックグラウンドで生成します — 実行中も画面は操作できます'
+        )
+        self.export_review_button.setWhatsThis(
+            'バックグラウンドで生成します — 実行中も画面は操作できます'
+        )
+        self.export_review_button.clicked.connect(self._build_review)
+        layout.addRow(self.export_review_button)
 
-        proposal_button = QPushButton('提案パッケージを生成')
-        proposal_button.setAccessibleName('提案書パッケージを生成')
-        proposal_button.clicked.connect(self._build_proposal)
-        layout.addRow(proposal_button)
+        self.export_proposal_button = QPushButton('提案パッケージを生成')
+        self.export_proposal_button.setAccessibleName(
+            '提案書パッケージを生成'
+        )
+        self.export_proposal_button.setToolTip(
+            'バックグラウンドで生成します — 実行中も画面は操作できます'
+        )
+        self.export_proposal_button.setWhatsThis(
+            'バックグラウンドで生成します — 実行中も画面は操作できます'
+        )
+        self.export_proposal_button.clicked.connect(self._build_proposal)
+        layout.addRow(self.export_proposal_button)
+
+        self.export_cancel_button = QPushButton('出力を中止')
+        self.export_cancel_button.setAccessibleName('パッケージ出力を中止')
+        self.export_cancel_button.setToolTip(
+            '実行中の出力ジョブを次の安全な区切りで中止します'
+        )
+        self.export_cancel_button.setWhatsThis(
+            '実行中の出力ジョブを次の安全な区切りで中止します'
+        )
+        self.export_cancel_button.setVisible(False)
+        self.export_cancel_button.clicked.connect(self._cancel_export)
+        layout.addRow(self.export_cancel_button)
 
         self.export_status = QLabel('')
         self.export_status.setWordWrap(True)
@@ -991,96 +1261,255 @@ class PresentationWorkspace(QWidget):
             )
 
     def _build_review(self) -> None:
-        session = self._export_session()
-        if session is None:
-            QMessageBox.warning(
-                self, '出力', 'セッションを選択してください'
-            )
-            return
-        package_dir = self._validated_export_dir(
-            f'review-{session.session_id[:8]}'
-        )
-        if package_dir is None:
-            return
-        # Yaw intent is an explicit export-time override — never a
-        # rebuilt session object, whose hash would name a session that
-        # was never persisted.
-        if not self.yaw_check.isChecked():
-            yaw_steps: tuple[int, ...] | None = ()
-        elif session.render.yaw_step_deg is not None:
-            yaw_steps = None  # derive from the session's declared step
-        else:
-            yaw_steps = derived_yaw_steps(30)
-        settings = session.render
-        try:
-            renderer = OffscreenSceneRenderer(
-                settings.image_width_px, settings.image_height_px
-            )
-            result = build_review_package(
-                session,
-                package_dir,
-                self.repository,
-                presentation_repository=self.presentation_repository,
-                renderer=renderer,
-                yaw_steps_deg=yaw_steps,
-            )
-            # Success is only honest once the written entries re-hash
-            # clean — verify before declaring it.
-            verify_review_package(result.output_dir)
-        except Exception as exc:
-            self._last_output_dir = None
-            self.open_output_button.setVisible(False)
-            warn_user(self, 'レビューパッケージを生成できませんでした', exc)
-            return
-        self._last_output_dir = result.output_dir
-        self.open_output_button.setVisible(True)
-        caps = '; '.join(
-            f'{row.capability}={row.state}'
-            for row in result.manifest.capability_rows
-        )
-        self.export_status.setText(
-            f'生成完了: {result.output_dir}\n'
-            f'エントリ {len(result.manifest.entries)} 件\n'
-            f'マニフェスト SHA-256: {result.manifest.manifest_sha256}\n'
-            f'能力宣言: {caps}\n'
-            + ('\n'.join(result.warnings) if result.warnings else '')
-        )
+        self._start_export('review')
 
     def _build_proposal(self) -> None:
+        self._start_export('proposal')
+
+    def _cancel_export(self) -> None:
+        self._export_runner.request_cancel()
+        self.export_cancel_button.setEnabled(False)
+
+    def _start_export(self, kind: str) -> None:
+        """Pin the job on the UI thread, then hand it to the worker.
+
+        Everything the build needs — the sealed session, its source
+        revision, the render intent, the validated output folder and the
+        expected work items — is resolved *here* (#985): after
+        ``runner.start`` the combo can point at another session without
+        re-attributing the running job's result.
+        """
+        if self._export_runner.busy:
+            # Double-click / parallel presses never start a second job.
+            return
         session = self._export_session()
         if session is None:
             QMessageBox.warning(
                 self, '出力', 'セッションを選択してください'
             )
             return
+        # #989: sensitive-data preflight. Sealed packages cannot drop
+        # members, so external scope blocks when any category is
+        # ineligible — the gate is whole-or-nothing by design.
+        if not self._export_preflight(kind, session):
+            return
         package_dir = self._validated_export_dir(
-            f'proposal-{session.session_id[:8]}'
+            f'{kind}-{session.session_id[:8]}'
         )
         if package_dir is None:
             return
-        try:
-            result = build_proposal_package(
-                session,
-                package_dir,
-                self.repository,
-                presentation_repository=self.presentation_repository,
-                comparison_repository=self.comparison_repository,
-                decision_repository=self.decision_repository,
+        expected_frames = 0
+        expected_sheets = 0
+        if kind == 'review':
+            # Yaw intent is an explicit export-time override — never a
+            # rebuilt session object, whose hash would name a session
+            # that was never persisted.
+            if not self.yaw_check.isChecked():
+                yaw_steps: tuple[int, ...] | None = ()
+            elif session.render.yaw_step_deg is not None:
+                yaw_steps = None  # derive from the session's step
+            else:
+                yaw_steps = derived_yaw_steps(30)
+            effective_steps = (
+                yaw_steps
+                if yaw_steps is not None
+                else derived_yaw_steps(session.render.yaw_step_deg)
             )
-            verify_proposal_package(result.output_dir)
-        except Exception as exc:
-            self._last_output_dir = None
-            self.open_output_button.setVisible(False)
-            warn_user(self, '提案書パッケージを生成できませんでした', exc)
-            return
-        self._last_output_dir = result.output_dir
-        self.open_output_button.setVisible(True)
-        self.export_status.setText(
-            f'生成完了: {result.output_dir}\n'
-            f'エントリ {len(result.manifest.entries)} 件\n'
-            f'マニフェスト SHA-256: {result.manifest.manifest_sha256}\n'
-            + ('\n'.join(result.warnings) if result.warnings else '')
+            expected_frames = len(session.ordered_viewpoints()) * (
+                1 + len(effective_steps)
+            )
+            expected_sheets = 3
+        else:
+            yaw_steps = None
+            expected_sheets = 4
+        job = PresentationExportJob(
+            kind=kind,
+            session=session,
+            package_dir=package_dir,
+            output_root=package_dir.parent,
+            yaw_steps_deg=yaw_steps,
+            include_drawings=True,
+            expected_frames=expected_frames,
+            expected_sheets=expected_sheets,
         )
+        self._export_runner.start(job)
+
+    def _export_preflight(self, kind: str, session) -> bool:
+        """#989 review gate for sealed review/proposal packages."""
+        from .cad_code_policy_repository import CadCodePolicyRepository
+        from .export_preflight import (
+            PreflightPlan,
+            analyze_member_categories,
+            build_manifest,
+            ensure_export_policy,
+            evaluate_elements,
+            record_confirmations,
+            stored_classification_map,
+        )
+        from .export_preflight_dialog import ExportPreflightDialog
+
+        code_repository = CadCodePolicyRepository(self.repository)
+        categories = (
+            {'rendered_frames': 'レンダリング画像（撮影済み視点）',
+             'drawing_sheets': '図面シート',
+             'spec_manifest': '仕様・マニフェスト（セッション固有情報）'}
+            if kind == 'review'
+            else {'rendered_frames': 'レンダリング画像（撮影済み視点）',
+                  'drawing_sheets': '図面シート',
+                  'spec_manifest': '仕様・マニフェスト（セッション固有情報）'}
+        )
+        head = self.repository.current_head(self.document_id)
+        plan = PreflightPlan(
+            export_kind=f'presentation_{kind}',
+            document_id=self.document_id,
+            source_revision_id=session.scene_revision_id,
+            source_sha256=(None if head is None else head.content_hash),
+            elements=analyze_member_categories(
+                categories,
+                stored_classification_map(
+                    code_repository, self.document_id
+                ),
+            ),
+            member_exclusion_supported=False,
+        )
+        dialog = ExportPreflightDialog(
+            plan,
+            title='プレゼン出力',
+            default_scope='external_review',
+            parent=self,
+        )
+        if dialog.exec() != ExportPreflightDialog.DialogCode.Accepted:
+            return False
+        scope = dialog.scope()
+        self._export_preflight_scope = scope
+        record_confirmations(code_repository, plan)
+        plan.policy = ensure_export_policy(
+            code_repository, self.document_id
+        )
+        if scope == 'external_review':
+            if plan.excluded():
+                QMessageBox.warning(
+                    self,
+                    '出力できません',
+                    '外部送付の条件を満たさない要素があるため、'
+                    'パッケージ全体の出力を停止しました。',
+                )
+                return False
+            try:
+                build_manifest(
+                    code_repository,
+                    plan,
+                    bundle_kind='client_package',
+                    policy=plan.policy,
+                )
+            except ValueError as exc:
+                QMessageBox.warning(self, '出力できません', str(exc))
+                return False
+            blockers = evaluate_elements(plan)
+            if blockers:
+                QMessageBox.warning(
+                    self,
+                    '出力できません',
+                    '外部送付の条件を満たさない項目があります:\n'
+                    + '\n'.join(blockers),
+                )
+                return False
+        self._export_preflight_plan = plan
+        return True
+
+    def _export_job_started(self, job: PresentationExportJob) -> None:
+        self.export_review_button.setEnabled(False)
+        self.export_proposal_button.setEnabled(False)
+        self.export_cancel_button.setVisible(True)
+        self.export_cancel_button.setEnabled(True)
+        self.open_output_button.setVisible(False)
+        expected = ''
+        if job.expected_frames:
+            expected += f'・フレーム {job.expected_frames} 件'
+        if job.expected_sheets:
+            expected += f'・図面 {job.expected_sheets} 枚'
+        self.export_status.setText(
+            '実行中 — セッション'
+            f'「{job.session.label}」'
+            f'（リビジョン {job.session.scene_revision_id[:8]}）を\n'
+            f'{job.package_dir} へ出力しています{expected}'
+        )
+
+    def _export_job_progress(self, progress: PackageBuildProgress) -> None:
+        line = (
+            f'{progress.stage_label}'
+            f'（{progress.stage_index}/{progress.stage_count}）'
+        )
+        if progress.done_units is not None and progress.total_units:
+            line += (
+                f' — {progress.done_units}/{progress.total_units}'
+                f' {progress.unit_label}'
+            )
+        if progress.bytes_written:
+            line += f'、{_bytes_label(progress.bytes_written)} 書込み'
+        self.export_status.setText(f'実行中: {line}')
+
+    def _export_job_completed(self, built) -> None:
+        result = built.result
+        job = built.job
+        # The published name is the pinned package_dir — the result's
+        # own output_dir is the staging path, which no longer exists
+        # after the atomic rename.
+        self._last_output_dir = job.package_dir
+        self.open_output_button.setVisible(True)
+        try:
+            stale = self.presentation_repository.session_stale(job.session)
+        except Exception:
+            stale = False
+        lines = [
+            f'生成完了: {job.package_dir}',
+            f'エントリ {len(result.manifest.entries)} 件',
+            f'マニフェスト SHA-256: {result.manifest.manifest_sha256}',
+        ]
+        capability_rows = getattr(result.manifest, 'capability_rows', None)
+        if capability_rows:
+            caps = '; '.join(
+                f'{row.capability}={row.state}'
+                for row in capability_rows
+            )
+            lines.append(f'能力宣言: {caps}')
+        if stale:
+            # #985: the pinned input is no longer the head — present the
+            # package as a historical result, never a fresh one.
+            lines.append(
+                '注意: ピン留めされたリビジョンは最新ではありません'
+                '（旧リビジョンの結果として保持）'
+            )
+        if result.warnings:
+            lines.extend(result.warnings)
+        self.export_status.setText('\n'.join(lines))
+
+    def _export_job_failed(self, payload) -> None:
+        _job, error_text, diagnostic_id = payload
+        # Non-blocking notification: the ActivityCenter row carries the
+        # FAILED state + diagnostic id; the status line mirrors it. No
+        # partial output folder exists at this point (#985).
+        self.export_status.setText(
+            f'生成できませんでした: {error_text} '
+            f'[diag: {diagnostic_id}]'
+        )
+
+    def _export_job_cancelled(self) -> None:
+        self.export_status.setText(
+            '出力を中止しました — 部分出力は残っていません'
+        )
+
+    def _export_job_finished(self) -> None:
+        self.export_review_button.setEnabled(True)
+        self.export_proposal_button.setEnabled(True)
+        self.export_cancel_button.setVisible(False)
+
+    def closeEvent(self, event) -> None:
+        # An in-flight export must be cancelled and the worker lane
+        # drained before the mount is disposed (project switch / close);
+        # the runner's bounded shutdown also removes any staged output.
+        self._export_runner.shutdown()
+        super().closeEvent(event)
 
     def showEvent(self, event) -> None:
         super().showEvent(event)

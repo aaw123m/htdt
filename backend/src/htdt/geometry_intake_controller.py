@@ -35,6 +35,7 @@ from .cad_geometry_intake import (
     RepairDecisionValue,
     SolverGeometryContext,
     build_geometry_intake_subject,
+    build_ifc_diff_subject,
     build_ifc_intake_subject,
     derive_geometry_revision,
     derive_solver_geometry_context,
@@ -45,9 +46,28 @@ from .cad_geometry_intake import (
     record_geometry_repair_acceptance,
 )
 from .cad_geometry_intake_repository import CadGeometryIntakeRepository
-from .cad_ifc_interop import IfcImportArtifact, build_ifc_import
+from .cad_ifc_diff import (
+    IfcDiffApply,
+    IfcDiffDecision,
+    IfcDiffRow,
+    IfcDiffRowDecision,
+    build_ifc_diff_apply,
+    compute_ifc_diff_rows,
+    latest_entity_mappings,
+    merge_ifc_diff_mappings,
+    reconciliation_marks,
+)
+from .cad_ifc_interop import (
+    IfcEntityMapping,
+    IfcImportArtifact,
+    IfcRevisionDelta,
+    build_ifc_import,
+    compute_ifc_revision_delta,
+    mark_mapping_reconciliation,
+)
 from .cad_ifc_repository import CadIfcInteropRepository
 from .cad_repository import SceneRepository
+from .cad_schema import connect_sqlite
 from .cad_solver_capability_manifest import SolverCapabilityManifest
 
 
@@ -84,6 +104,18 @@ class GeometryIntakeController:
         self.solver_descriptor: AcousticSolverAdapterDescriptor | None = None
         self.solver_manifest: SolverCapabilityManifest | None = None
         self.pending_decisions: dict[str, RepairActionDecision] = {}
+        # IFC diff-review state (#981). ``diff_base_*`` is the mapping set
+        # the current subject was built from — after a plain import it is
+        # that import's own set; after a diff apply it is the merged set
+        # so the next revision diffs against what the subject actually is.
+        self.diff_base_artifact: IfcImportArtifact | None = None
+        self.diff_base_mappings: tuple[IfcEntityMapping, ...] | None = None
+        self.diff_new_artifact: IfcImportArtifact | None = None
+        self.diff_new_mappings: tuple[IfcEntityMapping, ...] | None = None
+        self.diff_delta: IfcRevisionDelta | None = None
+        self.diff_rows: tuple[IfcDiffRow, ...] = ()
+        self.diff_decisions: dict[str, IfcDiffRowDecision] = {}
+        self.diff_apply: IfcDiffApply | None = None
 
     # --- solver selection ------------------------------------------------
 
@@ -146,6 +178,8 @@ class GeometryIntakeController:
             self.document_id, artifact, mappings
         )
         self._reset_chain(artifact=artifact, subject=subject)
+        self.diff_base_artifact = artifact
+        self.diff_base_mappings = tuple(mappings)
         return artifact, subject
 
     def adopt_current_subject(
@@ -185,6 +219,428 @@ class GeometryIntakeController:
         # evaluation marks it stale against the new geometry instead of
         # silently dropping a bound result.
         self.pending_decisions.clear()
+        self.diff_base_artifact = None
+        self.diff_base_mappings = None
+        self.diff_new_artifact = None
+        self.diff_new_mappings = None
+        self.diff_delta = None
+        self.diff_rows = ()
+        self.diff_decisions = {}
+        self.diff_apply = None
+
+    # --- IFC diff review (#981) ------------------------------------------
+
+    def import_revised_ifc_source(
+        self,
+        source: bytes | str,
+        *,
+        file_name: str,
+    ) -> tuple[IfcImportArtifact, IfcRevisionDelta, tuple[IfcDiffRow, ...]]:
+        """Re-import a revised IFC and diff it against the bound base.
+
+        The prior side is the mapping set the current subject was built
+        from (``source_refs``-pinned import for a fresh subject, the
+        merged set after an apply) — never "the newest artifact on disk",
+        so a stale file re-uploaded later diffs against what the operator
+        actually sees. Both artifacts + mappings are persisted, the sealed
+        delta is stored, and the operator-facing rows are computed; no
+        scene state changes until ``apply_ifc_diff`` commits.
+        """
+        prior_artifact = self.diff_base_artifact
+        prior_mappings = self.diff_base_mappings
+        if prior_artifact is None or prior_mappings is None:
+            artifacts = self.ifc_repository.list_import_artifacts(
+                self.document_id
+            )
+            if not artifacts:
+                raise GeometryIntakeError(
+                    'no bound IFC revision — import a base IFC first'
+                )
+            prior_artifact = artifacts[-1]
+            # Reconciliation marks append re-sealed rows — reduce to the
+            # latest record per entity before diffing (#981).
+            prior_mappings = latest_entity_mappings(
+                self.ifc_repository.list_entity_mappings(
+                    self.document_id,
+                    import_artifact_id=prior_artifact.artifact_id,
+                )
+            )
+            self.diff_base_artifact = prior_artifact
+            self.diff_base_mappings = tuple(prior_mappings)
+        artifact, mappings = build_ifc_import(
+            document_id=self.document_id,
+            file_name=file_name,
+            source=source,
+            imported_at_utc=self._now(),
+        )
+        self.ifc_repository.save_import_artifact(artifact)
+        self.ifc_repository.save_entity_mappings(mappings)
+        delta = compute_ifc_revision_delta(
+            document_id=self.document_id,
+            prior_artifact=prior_artifact,
+            prior_mappings=prior_mappings,
+            new_artifact=artifact,
+            new_mappings=mappings,
+            evaluated_at_utc=self._now(),
+        )
+        self.ifc_repository.save_revision_delta(delta)
+        rows = compute_ifc_diff_rows(
+            prior_artifact=prior_artifact,
+            prior_mappings=prior_mappings,
+            new_artifact=artifact,
+            new_mappings=mappings,
+        )
+        self.diff_new_artifact = artifact
+        self.diff_new_mappings = tuple(mappings)
+        self.diff_delta = delta
+        self.diff_rows = rows
+        # A delta may have been applied in an earlier session — restore
+        # the recorded decisions so skipped rows re-open flagged.
+        latest = self.ifc_repository.latest_diff_apply(
+            self.document_id, delta.delta_id
+        )
+        self.diff_apply = latest
+        self.diff_decisions = (
+            {d.row_key: d for d in latest.decisions}
+            if latest is not None
+            else {}
+        )
+        return artifact, delta, rows
+
+    def undecided_diff_row_keys(self) -> tuple[str, ...]:
+        """Decision-required rows with no recorded call yet."""
+        return tuple(
+            row.row_key
+            for row in self.diff_rows
+            if row.decision_required
+            and row.row_key not in self.diff_decisions
+        )
+
+    def submit_diff_decision(
+        self, row_key: str, decision: IfcDiffDecision
+    ) -> None:
+        """Record the operator's accept/skip call on one diff row."""
+        if self.diff_delta is None:
+            raise GeometryIntakeError('no IFC diff staged')
+        row = next(
+            (r for r in self.diff_rows if r.row_key == row_key), None
+        )
+        if row is None:
+            raise GeometryIntakeError(
+                f'diff decision targets a row outside the diff: {row_key}'
+            )
+        if not row.decision_required:
+            raise GeometryIntakeError(
+                f'diff row {row_key} requires no decision'
+            )
+        if decision not in ('accepted', 'skipped'):
+            raise GeometryIntakeError(
+                f'unsupported diff decision: {decision}'
+            )
+        self.diff_decisions[row_key] = IfcDiffRowDecision(
+            row_key=row_key,
+            decision=decision,
+            decided_by=self.operator_id,
+            decided_at_utc=self._now(),
+        )
+
+    def set_all_diff_decisions(self, decision: IfcDiffDecision) -> None:
+        """Bulk accept/skip across every decision-required row."""
+        if self.diff_delta is None:
+            raise GeometryIntakeError('no IFC diff staged')
+        if decision not in ('accepted', 'skipped'):
+            raise GeometryIntakeError(
+                f'unsupported diff decision: {decision}'
+            )
+        now = self._now()
+        for row in self.diff_rows:
+            if row.decision_required:
+                self.diff_decisions[row.row_key] = IfcDiffRowDecision(
+                    row_key=row.row_key,
+                    decision=decision,
+                    decided_by=self.operator_id,
+                    decided_at_utc=now,
+                )
+
+    def apply_ifc_diff(
+        self,
+    ) -> tuple[
+        IfcDiffApply, GeometryIntakeReport, GeometryRepairProposal
+    ]:
+        """Commit the reviewed diff: merged subject + sealed apply record.
+
+        All-or-nothing (the #996 bulk pattern): reconciliation marks on
+        accepted rows, the sealed ``IfcDiffApply`` summary, and the merged
+        subject's health-check records commit inside ONE ``BEGIN
+        IMMEDIATE`` transaction — a failure anywhere leaves the store
+        untouched and the prior subject remains the visible state.
+        Undecided rows are recorded as ``pending`` and keep the prior
+        side, never silently committed.
+        """
+        if self.diff_delta is None or not self.diff_rows:
+            raise GeometryIntakeError(
+                'no IFC diff staged — import a revised IFC first'
+            )
+        # Both sides resolve from the delta's pinned artifacts — NOT from
+        # diff_base_*, which after an apply holds the merged set (the NEXT
+        # revision's base). A re-apply (operator clicked 適用 again, or
+        # changed decisions after reload) must still see the delta's true
+        # prior/new sides.
+        delta = self.diff_delta
+        prior_artifact = self.ifc_repository.get_import_artifact(
+            delta.prior_artifact_id
+        )
+        new_artifact = self.ifc_repository.get_import_artifact(
+            delta.new_artifact_id
+        )
+        if prior_artifact is None or new_artifact is None:
+            raise GeometryIntakeError('diff artifacts unavailable')
+        prior_mappings = latest_entity_mappings(
+            self.ifc_repository.list_entity_mappings(
+                self.document_id,
+                import_artifact_id=prior_artifact.artifact_id,
+            )
+        )
+        new_mappings = latest_entity_mappings(
+            self.ifc_repository.list_entity_mappings(
+                self.document_id,
+                import_artifact_id=new_artifact.artifact_id,
+            )
+        )
+        decisions = {
+            k: d.decision for k, d in self.diff_decisions.items()
+        }
+        prior_by_id = {m.mapping_id: m for m in prior_mappings}
+        new_by_id = {m.mapping_id: m for m in new_mappings}
+        # Re-seal accepted mappings with their reconciliation state BEFORE
+        # the merged subject pins them — parts reference the marked rows.
+        # A mapping already carrying the target state (re-apply after a
+        # reload) is left as-is — re-sealing would only append a duplicate.
+        replaced: dict[str, IfcEntityMapping] = {}
+        for mapping_id, state in reconciliation_marks(
+            rows=self.diff_rows,
+            decisions=decisions,
+            prior_mappings=prior_mappings,
+            new_mappings=new_mappings,
+        ):
+            source = new_by_id.get(mapping_id) or prior_by_id.get(
+                mapping_id
+            )
+            if source is None:
+                raise GeometryIntakeError(
+                    f'reconciliation mark targets unknown {mapping_id}'
+                )
+            if source.reconciliation_state == state:
+                continue
+            replaced[mapping_id] = mark_mapping_reconciliation(
+                source, state
+            )
+        merged = tuple(
+            replaced.get(m.mapping_id, m)
+            for m in merge_ifc_diff_mappings(
+                rows=self.diff_rows,
+                decisions=decisions,
+                prior_mappings=prior_mappings,
+                new_mappings=new_mappings,
+            )
+        )
+        merged_subject = build_ifc_diff_subject(
+            self.document_id,
+            prior_artifact=prior_artifact,
+            new_artifact=new_artifact,
+            delta=delta,
+            merged_mappings=merged,
+        )
+        # Fail-closed validation of the merged subject — the same
+        # #866 health-check chain every subject goes through.
+        report = diagnose_geometry_intake(
+            merged_subject,
+            evaluated_at_utc=self._now(),
+            solver_context=self._solver_context(),
+        )
+        proposal = propose_geometry_repairs(
+            report,
+            merged_subject,
+            proposed_by=self.operator_id,
+            proposed_at_utc=self._now(),
+            proposal_reason='ifc diff apply',
+        )
+        apply_record = build_ifc_diff_apply(
+            document_id=self.document_id,
+            delta=delta,
+            prior_artifact=prior_artifact,
+            new_artifact=new_artifact,
+            prior_subject_sha256=(
+                self.subject.subject_sha256
+                if self.subject is not None
+                else None
+            ),
+            merged_subject=merged_subject,
+            decisions=tuple(self.diff_decisions.values()),
+            rows=self.diff_rows,
+            applied_by=self.operator_id,
+            applied_at_utc=self._now(),
+        )
+        connection = connect_sqlite(self.ifc_repository.path)
+        try:
+            connection.execute('BEGIN IMMEDIATE')
+            for marked in replaced.values():
+                self.ifc_repository._save_entity_mapping_in_connection(
+                    connection, marked
+                )
+            self.ifc_repository._save_diff_apply_in_connection(
+                connection, apply_record
+            )
+            self.intake_repository.intake_reports.save_in_connection(
+                connection, report
+            )
+            self.intake_repository.repair_proposals.save_in_connection(
+                connection, proposal
+            )
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
+        self.subject = merged_subject
+        self.artifact = None
+        self.report = report
+        self.proposal = proposal
+        self.acceptance = None
+        self.revision = None
+        self.pending_decisions.clear()
+        self.diff_base_artifact = new_artifact
+        self.diff_base_mappings = merged
+        self.diff_new_artifact = new_artifact
+        self.diff_new_mappings = tuple(new_mappings)
+        self.diff_apply = apply_record
+        return apply_record, report, proposal
+
+    def resume_diff_state(self) -> None:
+        """Rebuild persisted diff-review state for re-open (#981).
+
+        Recomputes the latest delta's rows from the stored artifacts —
+        deterministic, so row keys match the recorded decisions — then
+        restores the newest apply's accept/skip map. When an apply
+        exists, the merged subject is rebuilt so ``self.subject``
+        reflects the applied revision, and skipped rows stay visibly
+        flagged.
+        """
+        deltas = self.ifc_repository.list_revision_deltas(
+            self.document_id
+        )
+        if not deltas:
+            return
+        delta = deltas[-1]
+        prior = self.ifc_repository.get_import_artifact(
+            delta.prior_artifact_id
+        )
+        new = self.ifc_repository.get_import_artifact(
+            delta.new_artifact_id
+        )
+        if prior is None or new is None:
+            return
+        prior_mappings = latest_entity_mappings(
+            self.ifc_repository.list_entity_mappings(
+                self.document_id,
+                import_artifact_id=prior.artifact_id,
+            )
+        )
+        new_mappings = latest_entity_mappings(
+            self.ifc_repository.list_entity_mappings(
+                self.document_id,
+                import_artifact_id=new.artifact_id,
+            )
+        )
+        self.diff_delta = delta
+        self.diff_rows = compute_ifc_diff_rows(
+            prior_artifact=prior,
+            prior_mappings=prior_mappings,
+            new_artifact=new,
+            new_mappings=new_mappings,
+        )
+        self.diff_new_artifact = new
+        self.diff_new_mappings = tuple(new_mappings)
+        applies = self.ifc_repository.list_diff_applies(self.document_id)
+        latest_for_delta = next(
+            (
+                a
+                for a in reversed(applies)
+                if a.delta_ref.ref_id == delta.delta_id
+            ),
+            None,
+        )
+        if latest_for_delta is not None:
+            self.diff_apply = latest_for_delta
+            self.diff_decisions = {
+                d.row_key: d for d in latest_for_delta.decisions
+            }
+        else:
+            self.diff_apply = None
+            self.diff_decisions = {}
+        # The live base is the merged set of the newest apply overall —
+        # the subject the operator sees; before any apply it is the
+        # delta's own prior side.
+        last_apply = applies[-1] if applies else None
+        if last_apply is None:
+            self.diff_base_artifact = prior
+            self.diff_base_mappings = tuple(prior_mappings)
+            return
+        base_delta = self.ifc_repository.get_revision_delta(
+            last_apply.delta_ref.ref_id
+        )
+        if base_delta is None:
+            self.diff_base_artifact = prior
+            self.diff_base_mappings = tuple(prior_mappings)
+            return
+        base_prior = self.ifc_repository.get_import_artifact(
+            base_delta.prior_artifact_id
+        )
+        base_new = self.ifc_repository.get_import_artifact(
+            base_delta.new_artifact_id
+        )
+        if base_prior is None or base_new is None:
+            self.diff_base_artifact = prior
+            self.diff_base_mappings = tuple(prior_mappings)
+            return
+        base_prior_mappings = latest_entity_mappings(
+            self.ifc_repository.list_entity_mappings(
+                self.document_id,
+                import_artifact_id=base_prior.artifact_id,
+            )
+        )
+        base_new_mappings = latest_entity_mappings(
+            self.ifc_repository.list_entity_mappings(
+                self.document_id,
+                import_artifact_id=base_new.artifact_id,
+            )
+        )
+        base_rows = compute_ifc_diff_rows(
+            prior_artifact=base_prior,
+            prior_mappings=base_prior_mappings,
+            new_artifact=base_new,
+            new_mappings=base_new_mappings,
+        )
+        base_decisions = {
+            d.row_key: d.decision for d in last_apply.decisions
+        }
+        merged = merge_ifc_diff_mappings(
+            rows=base_rows,
+            decisions=base_decisions,
+            prior_mappings=base_prior_mappings,
+            new_mappings=base_new_mappings,
+        )
+        self.subject = build_ifc_diff_subject(
+            self.document_id,
+            prior_artifact=base_prior,
+            new_artifact=base_new,
+            delta=base_delta,
+            merged_mappings=merged,
+        )
+        self.artifact = None
+        self.diff_base_artifact = base_new
+        self.diff_base_mappings = merged
 
     # --- health check ----------------------------------------------------
 

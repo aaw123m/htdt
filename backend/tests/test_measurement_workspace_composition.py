@@ -71,7 +71,7 @@ def test_calibration_context_selects_the_onboarding_page(
     _, workspace = _workspace(tmp_path)
     try:
         workspace.set_context("calibration")
-        assert workspace.pages.currentIndex() == 5
+        assert workspace.pages.currentIndex() == 7
     finally:
         workspace.close()
         workspace.deleteLater()
@@ -103,10 +103,19 @@ def test_quality_page_uses_split_layout(tmp_path: Path) -> None:
         workspace.set_context("quality")
         splitters = workspace.findChildren(QSplitter)
         assert splitters, "quality page must place table and detail side by side"
-        split = splitters[0]
-        children = {split.widget(i) for i in range(split.count())}
-        assert workspace.quality_table.parentWidget() in children
-        assert workspace.quality_detail.parentWidget() in children
+        # #1002 added another splitter (the correspondence compare pane) —
+        # locate the split that actually hosts the quality table+detail.
+        for split in splitters:
+            children = {split.widget(i) for i in range(split.count())}
+            if (
+                workspace.quality_table.parentWidget() in children
+                and workspace.quality_detail.parentWidget() in children
+            ):
+                break
+        else:
+            raise AssertionError(
+                "no splitter hosts both quality table and detail"
+            )
     finally:
         workspace.close()
         workspace.deleteLater()

@@ -4,7 +4,7 @@ from math import hypot
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
-from PySide6.QtCore import QSignalBlocker
+from PySide6.QtCore import QEvent, QObject, QSignalBlocker, Qt
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QPushButton,
+    QScrollArea,
     QVBoxLayout,
     QWidget,
 )
@@ -43,13 +44,20 @@ from .cad_walls import (
     add_constraint_binding,
     add_opening,
     delete_constraint_binding,
-    delete_opening,
     update_constraint_binding,
-    update_opening,
-    update_wall_thickness,
     wall_length,
 )
 from .length_spinbox import MetricSpinBox
+from .room_geometry_preview import (
+    GeometryChangePreview,
+    preview_opening_delete,
+    preview_opening_update,
+    preview_vertex_delete,
+    preview_wall_delete,
+    preview_wall_merge,
+    preview_wall_thickness,
+)
+from .room_workspace import InspectorSection
 from .ui_theme import (
     SemanticState,
     SurfaceRole,
@@ -90,6 +98,11 @@ class RoomGeometryPanel(QFrame):
         self.geometry = geometry
         self.controller = geometry.workspace.controller
         self._length_policy = display_length_policy('m')
+        self._pending_preview: GeometryChangePreview | None = None
+        self._last_target_key: str | None = None
+        # Issue #982/#936: lightweight interaction log for the
+        # 「壁選択→開口編集→Undo」 operation-count / error-rate measurement.
+        self.operation_events: list[tuple[str, str]] = []
         self.setObjectName("roomGeometryPanel")
         self.setMinimumWidth(248)
         self.setMaximumWidth(560)
@@ -114,7 +127,10 @@ class RoomGeometryPanel(QFrame):
             "編集モードに入り、3D上で頂点・辺・壁を選んで調整できるようにします"
         )
         self.finish_button = QPushButton("編集終了")
-        self.finish_button.setToolTip("形状編集モードを終了します")
+        self.finish_button.setToolTip(
+            "形状編集モードを終了します · ここまでの変更は残ります"
+            "（直前の変更を戻すには「元に戻す」）"
+        )
         self.edit_button.clicked.connect(self.geometry.start_edit)
         self.finish_button.clicked.connect(self.geometry.cancel)
         mode_row.addWidget(self.edit_button)
@@ -129,12 +145,63 @@ class RoomGeometryPanel(QFrame):
         height_label = room_form.labelForField(self.height)
         if height_label is not None:
             height_label.setToolTip(self.height.toolTip())
+        self.height_caption = self._caption_row(room_form)
         root.addLayout(room_form)
 
         self.selection_title = QLabel("選択: なし")
         set_typography_role(self.selection_title, TypographyRole.BODY)
         root.addWidget(self.selection_title)
 
+        self.selection_context = QLabel()
+        self.selection_context.setWordWrap(True)
+        set_typography_role(self.selection_context, TypographyRole.SECONDARY)
+        root.addWidget(self.selection_context)
+
+        # Issue #982: armed pre-apply preview block. Shown only while a
+        # dangerous edit is armed; 適用/取り消し here are preview actions,
+        # visually distinct from 「編集終了」 (mode exit, keeps changes) and
+        # from Undo (history roll-back).
+        self.preview_host = QFrame()
+        self.preview_host.setObjectName("geometryChangePreview")
+        set_surface_role(self.preview_host, SurfaceRole.OVERLAY)
+        preview_layout = QVBoxLayout(self.preview_host)
+        preview_layout.setContentsMargins(8, 8, 8, 8)
+        preview_layout.setSpacing(6)
+        self.preview_title = QLabel()
+        self.preview_title.setWordWrap(True)
+        set_typography_role(self.preview_title, TypographyRole.BODY)
+        preview_layout.addWidget(self.preview_title)
+        self.preview_lines = QLabel()
+        self.preview_lines.setWordWrap(True)
+        set_typography_role(self.preview_lines, TypographyRole.SECONDARY)
+        preview_layout.addWidget(self.preview_lines)
+        preview_actions = QHBoxLayout()
+        self.preview_apply_button = QPushButton("この内容で適用")
+        self.preview_apply_button.setToolTip(
+            "プレビューの内容を確定し、1回の「元に戻す」で取り消せる形で反映します"
+        )
+        self.preview_cancel_button = QPushButton("変更を取り消す")
+        self.preview_cancel_button.setToolTip(
+            "プレビューを破棄します · 部屋は変更されません（編集モードは続きます）"
+        )
+        self.preview_apply_button.clicked.connect(self._apply_pending_preview)
+        self.preview_cancel_button.clicked.connect(self._cancel_pending_preview_clicked)
+        preview_actions.addWidget(self.preview_apply_button)
+        preview_actions.addWidget(self.preview_cancel_button)
+        preview_layout.addLayout(preview_actions)
+        self.preview_host.setVisible(False)
+        root.addWidget(self.preview_host)
+
+        # Esc while a preview is armed discards the preview (not edit mode).
+        # The shortcut stays disabled while nothing is armed so the
+        # workspace-level Esc (edit-mode cancel) never goes ambiguous.
+        # Esc inside the panel subtree claims the key (ShortcutOverride) so
+        # the window-scope room.edit.cancel shortcut never goes ambiguous
+        # with an armed preview — accept() keeps Qt from matching ANY
+        # shortcut, then the plain KeyPress drops the preview (#982).
+        self.installEventFilter(self)
+
+        self.vertex_section = InspectorSection("頂点", self, collapsible=True, expanded=False)
         self.vertex_host = QWidget()
         vertex_layout = QFormLayout(self.vertex_host)
         vertex_layout.setContentsMargins(0, 0, 0, 0)
@@ -157,8 +224,11 @@ class RoomGeometryPanel(QFrame):
         )
         self.delete_vertex_button.clicked.connect(self._delete_vertex)
         vertex_layout.addRow("", self.delete_vertex_button)
-        root.addWidget(self.vertex_host)
+        self.vertex_caption = self._caption_row(vertex_layout)
+        self.vertex_section.body_layout.addWidget(self.vertex_host)
+        root.addWidget(self.vertex_section)
 
+        self.edge_section = InspectorSection("辺", self, collapsible=True, expanded=False)
         self.edge_host = QWidget()
         edge_layout = QFormLayout(self.edge_host)
         edge_layout.setContentsMargins(0, 0, 0, 0)
@@ -199,19 +269,20 @@ class RoomGeometryPanel(QFrame):
         offset_actions = QHBoxLayout()
         offset_actions.addWidget(self.insert_at_offset_button)
         edge_layout.addRow("", offset_actions)
-        root.addWidget(self.edge_host)
+        self.edge_length_caption = self._caption_row(edge_layout)
+        self.split_offset_caption = self._caption_row(edge_layout)
+        self.edge_section.body_layout.addWidget(self.edge_host)
+        root.addWidget(self.edge_section)
 
-        wall_label = QLabel("壁")
-        set_typography_role(wall_label, TypographyRole.SECTION_TITLE)
-        wall_label.setToolTip("部屋の外周を構成する壁 · 「形状編集」モードで辺/壁を選ぶと編集できます")
-        root.addWidget(wall_label)
+        self.wall_section = InspectorSection("壁", self, collapsible=True, expanded=False)
+        self.wall_section.setToolTip("部屋の外周を構成する壁 · 「形状編集」モードで辺/壁を選ぶと編集できます")
 
         self.wall_hint = QLabel(
             "「形状編集」モードで3D上の辺・壁を選ぶと、ここに厚さ・結合/削除・クリアランス参照の設定が表示されます"
         )
         self.wall_hint.setWordWrap(True)
         set_typography_role(self.wall_hint, TypographyRole.SECONDARY)
-        root.addWidget(self.wall_hint)
+        self.wall_section.body_layout.addWidget(self.wall_hint)
 
         self.wall_host = QWidget()
         wall_form = QFormLayout(self.wall_host)
@@ -227,6 +298,7 @@ class RoomGeometryPanel(QFrame):
         wall_form.addRow("壁", self.wall_id)
         wall_form.addRow("長さ", self.wall_length)
         wall_form.addRow("厚さ", self.wall_thickness)
+        self.wall_thickness_caption = self._caption_row(wall_form)
         thickness_label = wall_form.labelForField(self.wall_thickness)
         if thickness_label is not None:
             thickness_label.setToolTip(wall_thickness_hint)
@@ -283,6 +355,7 @@ class RoomGeometryPanel(QFrame):
         clearance_label = wall_form.labelForField(self.wall_clearance_count)
         if clearance_label is not None:
             clearance_label.setToolTip(clearance_hint)
+        self.clearance_caption = self._caption_row(wall_form)
         for field, hint in (
             (self.binding_selector, self.binding_selector.toolTip()),
             (self.clearance_value, self.clearance_value.toolTip()),
@@ -290,19 +363,18 @@ class RoomGeometryPanel(QFrame):
             label = wall_form.labelForField(field)
             if label is not None:
                 label.setToolTip(hint)
-        root.addWidget(self.wall_host)
+        self.wall_section.body_layout.addWidget(self.wall_host)
+        root.addWidget(self.wall_section)
 
-        opening_label = QLabel("開口")
-        set_typography_role(opening_label, TypographyRole.SECTION_TITLE)
-        opening_label.setToolTip("壁の開いた部分（ドア・窓・通路）")
-        root.addWidget(opening_label)
+        self.opening_section = InspectorSection("開口", self, collapsible=True, expanded=False)
+        self.opening_section.setToolTip("壁の開いた部分（ドア・窓・通路）")
 
         self.opening_hint = QLabel(
             "壁を選択すると開口の追加・編集ができます"
         )
         self.opening_hint.setWordWrap(True)
         set_typography_role(self.opening_hint, TypographyRole.SECONDARY)
-        root.addWidget(self.opening_hint)
+        self.opening_section.body_layout.addWidget(self.opening_hint)
 
         self.opening_host = QWidget()
         opening_form = QFormLayout(self.opening_host)
@@ -346,9 +418,13 @@ class RoomGeometryPanel(QFrame):
         opening_form.addRow("開口", self.opening_selector)
         opening_form.addRow("種類", self.opening_kind)
         opening_form.addRow("開始位置", self.opening_offset)
+        self.opening_offset_caption = self._caption_row(opening_form)
         opening_form.addRow("幅", self.opening_width)
+        self.opening_width_caption = self._caption_row(opening_form)
         opening_form.addRow("床から", self.opening_sill)
+        self.opening_sill_caption = self._caption_row(opening_form)
         opening_form.addRow("高さ", self.opening_height)
+        self.opening_height_caption = self._caption_row(opening_form)
         opening_form.addRow("", self.opening_open)
         for field, hint in (
             (self.opening_selector, opening_hints["開口"]),
@@ -378,7 +454,8 @@ class RoomGeometryPanel(QFrame):
         opening_actions.addWidget(self.apply_opening_button)
         opening_actions.addWidget(self.delete_opening_button)
         opening_form.addRow("", opening_actions)
-        root.addWidget(self.opening_host)
+        self.opening_section.body_layout.addWidget(self.opening_host)
+        root.addWidget(self.opening_section)
 
         # Issue #976: 「高度な形状」 — progressive disclosure for semantic
         # primitives that the flat RoomPrism cannot express. All edits route
@@ -474,6 +551,15 @@ class RoomGeometryPanel(QFrame):
         geometry.selectionChanged.connect(self.refresh)
         self.refresh()
 
+    def _caption_row(self, form: QFormLayout) -> QLabel:
+        """Unit / range / dependency note directly under a field (#982)."""
+
+        caption = QLabel()
+        caption.setWordWrap(True)
+        set_typography_role(caption, TypographyRole.SECONDARY)
+        form.addRow("", caption)
+        return caption
+
     def set_length_policy(self, policy: LengthDisplayPolicy) -> None:
         """Apply the #496 display-unit policy to every length field/label.
 
@@ -525,6 +611,156 @@ class RoomGeometryPanel(QFrame):
             f'{si_to_display(high_m, policy.unit):.{policy.decimals}f} {suffix}'
         )
 
+    # ---- Issue #982: armed pre-apply previews ----
+
+    def _editable_state(self) -> bool:
+        return (
+            self.geometry.room is not None
+            and self.controller.recovery_candidate is None
+            and not self.controller.working.has_preview
+        )
+
+    def _arm_preview(self, preview: GeometryChangePreview | None) -> None:
+        if preview is None:
+            return
+        if not self._editable_state():
+            self.notice.setText("現在の状態では編集できません")
+            set_semantic_state(self.notice, SemanticState.ERROR)
+            return
+        self._pending_preview = preview
+        self.operation_events.append(("preview_armed", preview.kind))
+        self.preview_title.setText(f"変更プレビュー — {preview.title}")
+        body_lines = list(preview.lines)
+        for blocker in preview.blockers:
+            body_lines.append(f"実行できない理由: {blocker}")
+        self.preview_lines.setText("\n".join(body_lines))
+        self.preview_apply_button.setEnabled(preview.feasible)
+        self.preview_apply_button.setToolTip(
+            "プレビューの内容を確定し、1回の「元に戻す」で取り消せる形で反映します"
+            if preview.feasible
+            else "この変更はブロックされています（上記の影響を先に解消してください）"
+        )
+        self.preview_host.setVisible(True)
+        self.preview_apply_button.setFocus() if preview.feasible else self.preview_cancel_button.setFocus()
+        self._scroll_to(self.preview_host)
+        self.refresh()
+
+    def _scroll_to(self, widget: QWidget) -> None:
+        parent = self.parentWidget()
+        while parent is not None and not isinstance(parent, QScrollArea):
+            parent = parent.parentWidget()
+        if isinstance(parent, QScrollArea):
+            parent.ensureWidgetVisible(widget)
+
+    def cancel_pending_preview(self) -> bool:
+        """Discard an armed preview; returns True when one was armed.
+
+        Called by the workspace Esc chain before edit-mode cancel so the
+        semantics stay layered: Esc first drops the pending change, then
+        exits edit mode — never silently both.
+        """
+
+        if self._pending_preview is None:
+            return False
+        self._pending_preview = None
+        self.operation_events.append(("preview_cancelled", ""))
+        self.preview_host.setVisible(False)
+        self.notice.setText("変更を取り消しました（部屋は変わりません）")
+        set_semantic_state(self.notice, None)
+        self.refresh()
+        return True
+
+    def _cancel_pending_preview_clicked(self) -> None:
+        self.cancel_pending_preview()
+
+    def eventFilter(self, watched: QObject, event: QEvent) -> bool:  # noqa: N802 — Qt API name
+        """Esc claims while a preview is armed (#982).
+
+        ``ShortcutOverride`` propagates from the focus widget up through
+        ancestors, so installing the filter on the panel catches Esc for
+        every control inside it. Accepting the override stops Qt from
+        matching the window-scope ``room.edit.cancel`` shortcut (which
+        would otherwise go ambiguous with a panel-scope one); the
+        following plain KeyPress then drops the preview only.
+        """
+
+        if (
+            self._pending_preview is not None
+            and event.type() in (QEvent.Type.ShortcutOverride, QEvent.Type.KeyPress)
+            and event.key() == Qt.Key.Key_Escape
+            and event.modifiers() == Qt.KeyboardModifier.NoModifier
+        ):
+            if event.type() == QEvent.Type.KeyPress:
+                self.cancel_pending_preview()
+            event.accept()
+            return True
+        # Unarmed: an Esc the focus widget ignored (e.g. a numeric field
+        # claims Escape's ShortcutOverride but ignores the press, which
+        # would otherwise strand the window-scope room.edit.cancel
+        # shortcut) bubbles up here — forward it to the workspace chain so
+        # Esc inside the panel exits edit mode exactly like Esc on canvas.
+        if (
+            event.type() == QEvent.Type.KeyPress
+            and event.key() == Qt.Key.Key_Escape
+            and event.modifiers() == Qt.KeyboardModifier.NoModifier
+        ):
+            if self.geometry.workspace.cancel_active_operation():
+                event.accept()
+                return True
+        return super().eventFilter(watched, event)
+
+    def _apply_pending_preview(self) -> None:
+        preview = self._pending_preview
+        if preview is None:
+            return
+        if not preview.feasible or preview.room is None:
+            self.notice.setText("この変更は適用できません")
+            set_semantic_state(self.notice, SemanticState.ERROR)
+            return
+        # Stale-revision rejection: the committed document must still be the
+        # one the preview was computed against (revision id + content hash).
+        if preview.is_stale(
+            self.controller.committed_document,
+            self.controller.working.source_revision_id,
+        ):
+            self._pending_preview = None
+            self.preview_host.setVisible(False)
+            self.operation_events.append(("preview_stale_rejected", preview.kind))
+            self.notice.setText(
+                "プレビュー後に部屋が変更されました。変更は適用されませんでした"
+            )
+            set_semantic_state(self.notice, SemanticState.ERROR)
+            self.geometry.workspace.mark_pending_editor_rejected()
+            self.refresh()
+            return
+
+        def operation() -> bool:
+            return self.geometry.apply_geometry_candidate(
+                preview.room,
+                None if preview.room_only else preview.topology,
+                message=f"{preview.title} を適用しました",
+            )
+
+        self._pending_preview = None
+        self.preview_host.setVisible(False)
+        self._run(operation, f"{preview.title} を適用しました")
+        if preview.clear_selection:
+            self.geometry.clear_selection()
+            return
+        if preview.select_vertex_id is not None:
+            try:
+                self.geometry.select_vertex(preview.select_vertex_id)
+            except KeyError:
+                pass
+        elif preview.select_edge_index is not None:
+            self.geometry.select_edge(preview.select_edge_index)
+        if preview.select_opening_id is not None:
+            try:
+                self.geometry.select_opening(preview.select_opening_id)
+            except KeyError:
+                pass
+        self.operation_events.append(("preview_applied", preview.kind))
+
     @staticmethod
     def _metric_field(
         minimum_m: float,
@@ -534,17 +770,45 @@ class RoomGeometryPanel(QFrame):
 
     def refresh(self) -> None:
         room = self.geometry.room
-        editable = (
-            room is not None
-            and self.controller.recovery_candidate is None
-            and not self.controller.working.has_preview
-        )
+        editable = self._editable_state()
+        armed = self._pending_preview is not None
+
+        # Drop an armed preview whose committed document has moved — the
+        # displayed impact would describe a state that no longer exists.
+        if armed and self._pending_preview.is_stale(
+            self.controller.committed_document,
+            self.controller.working.source_revision_id,
+        ):
+            self._pending_preview = None
+            self.preview_host.setVisible(False)
+            self.operation_events.append(("preview_stale_dropped", ""))
+            self.notice.setText(
+                "プレビューの基準となる部屋が変更されました。プレビューを破棄しました"
+            )
+            set_semantic_state(self.notice, SemanticState.ERROR)
+            armed = False
+
+        # Leaving edit mode with a pending change discards it — the preview
+        # is never committed implicitly (「編集終了」 keeps only committed
+        # changes; an armed preview is not one).
+        if armed and self.geometry.mode != "edit":
+            self._pending_preview = None
+            self.preview_host.setVisible(False)
+            self.operation_events.append(("preview_cancelled", "mode_exit"))
+            armed = False
+
+        can_commit = editable and not armed
         self.edit_button.setEnabled(editable and self.geometry.mode == "idle")
         self.finish_button.setEnabled(self.geometry.mode != "idle")
-        self.height.setEnabled(editable)
+        self.height.setEnabled(can_commit)
+        self.height_caption.setText(
+            f"有効範囲 {self._format_range_m(0.1, 20.0)} · すべての壁に共通です"
+        )
 
         if room is None:
             self.summary.setText("部屋がありません。まず「部屋を描く」で形状を作成してください。")
+            self.selection_context.setText("")
+            self._set_target_key("none")
             self.vertex_host.hide()
             self.edge_host.hide()
             self.wall_host.hide()
@@ -579,28 +843,82 @@ class RoomGeometryPanel(QFrame):
 
         vertex = self.geometry.selected_vertex
         edge_index = self.geometry.selected_edge_index
+        topology = self.geometry.topology
+        wall = self.geometry.selected_wall
+        opening_id = self.geometry.selected_opening_id
+        selected_opening = next(
+            (
+                item
+                for item in (topology.openings if topology is not None else ())
+                if item.opening_id == opening_id
+            ),
+            None,
+        )
         self.vertex_host.setVisible(vertex is not None)
         self.edge_host.setVisible(edge_index is not None)
 
+        # #982: one target at the top — vertex / edge / wall / opening /
+        # authoring — with ID, dimensions and dependencies as context.
         if vertex is not None:
+            target_key = "vertex"
             self.selection_title.setText("選択: 頂点")
+            self.selection_context.setText(
+                f"頂点 {vertex.vertex_id} · 座標 "
+                f"({self._format_m(vertex.x_m)}, {self._format_m(vertex.y_m)})"
+                + self._edit_state_suffix(editable)
+            )
             with QSignalBlocker(self.vertex_x), QSignalBlocker(self.vertex_y):
                 self.vertex_x.set_value_m(vertex.x_m)
                 self.vertex_y.set_value_m(vertex.y_m)
-            self.vertex_x.setEnabled(editable)
-            self.vertex_y.setEnabled(editable)
-            self.delete_vertex_button.setEnabled(editable)
+            self.vertex_x.setEnabled(can_commit)
+            self.vertex_y.setEnabled(can_commit)
+            self.delete_vertex_button.setEnabled(can_commit)
+            self.vertex_caption.setText(
+                f"範囲 {self._format_range_m(-1000.0, 1000.0)} · "
+                "部屋座標（+X=右、+Y=奥）"
+            )
         elif edge_index is not None:
             vertices = tuple(room_vertices(room))
             start = vertices[edge_index % len(vertices)]
             end = vertices[(edge_index + 1) % len(vertices)]
-            self.selection_title.setText("選択: 辺 / 壁")
-            with QSignalBlocker(self.edge_length):
-                self.edge_length.set_value_m(
-                    hypot(end.x_m - start.x_m, end.y_m - start.y_m)
-                )
-            self.edge_length.setEnabled(editable)
             edge_length_value = hypot(end.x_m - start.x_m, end.y_m - start.y_m)
+            if wall is not None and selected_opening is not None:
+                target_key = "opening"
+                self.selection_title.setText("選択: 開口")
+                wall_index = topology.walls.index(wall)
+                deps = self._dependency_text(topology, wall.wall_id)
+                self.selection_context.setText(
+                    f"開口 {selected_opening.opening_id}"
+                    f"（{self._kind_label(selected_opening.kind)}）· "
+                    f"壁 {wall_index + 1}（{wall.wall_id}）上 · " + deps
+                    + self._edit_state_suffix(editable)
+                )
+            elif wall is not None:
+                target_key = "wall"
+                self.selection_title.setText("選択: 壁")
+                wall_index = topology.walls.index(wall)
+                deps = self._dependency_text(topology, wall.wall_id)
+                self.selection_context.setText(
+                    f"壁 {wall_index + 1}（{wall.wall_id}）· "
+                    f"長さ {self._format_m(wall_length(room, wall))} · " + deps
+                    + self._edit_state_suffix(editable)
+                )
+            else:
+                target_key = "edge"
+                self.selection_title.setText("選択: 辺")
+                self.selection_context.setText(
+                    f"辺 {edge_index % len(vertices) + 1} · "
+                    f"長さ {self._format_m(edge_length_value)}"
+                    + (" · 壁トポロジなし" if topology is None else "")
+                    + self._edit_state_suffix(editable)
+                )
+            with QSignalBlocker(self.edge_length):
+                self.edge_length.set_value_m(edge_length_value)
+            self.edge_length.setEnabled(can_commit)
+            self.edge_length_caption.setText(
+                f"有効範囲 {self._format_range_m(0.001, 1000.0)} · "
+                "変更すると終点側の頂点が移動します"
+            )
             with QSignalBlocker(self.split_offset):
                 self.split_offset.set_maximum_m(
                     max(edge_length_value - 0.001, 0.001)
@@ -611,48 +929,78 @@ class RoomGeometryPanel(QFrame):
                         max(edge_length_value - 0.001, 0.001),
                     )
                 )
-            self.split_offset.setEnabled(editable)
-            self.insert_midpoint_button.setEnabled(editable)
-            self.insert_at_offset_button.setEnabled(editable)
+            self.split_offset.setEnabled(can_commit)
+            self.split_offset_caption.setText(
+                f"有効範囲 {self._format_range_m(0.0, max(edge_length_value - 0.001, 0.001))}"
+                " · この辺の始点からの距離"
+            )
+            self.insert_midpoint_button.setEnabled(can_commit)
+            self.insert_at_offset_button.setEnabled(can_commit)
         elif self.geometry.selected_authoring is not None:
             kind, primitive_id = self.geometry.selected_authoring
+            target_key = "authoring"
             self.selection_title.setText(
                 f"選択: {AUTHORING_KIND_LABELS.get(kind, kind)}「{primitive_id}」"
+            )
+            self.selection_context.setText(
+                f"種類 {AUTHORING_KIND_LABELS.get(kind, kind)} · "
+                f"ID {primitive_id}" + self._edit_state_suffix(editable)
             )
             self.vertex_host.hide()
             self.edge_host.hide()
         else:
+            target_key = "none"
             self.selection_title.setText("選択: なし")
+            self.selection_context.setText(
+                "3Dで頂点・壁・開口を選ぶと、対応する編集フォームが開きます"
+            )
             self.vertex_host.hide()
             self.edge_host.hide()
+        self._set_target_key(target_key)
 
-        topology = self.geometry.topology
         self.ensure_walls_button.setVisible(topology is None)
-        wall = self.geometry.selected_wall
-        wall_ready = editable and wall is not None and topology is not None
+        self.ensure_walls_button.setEnabled(can_commit)
+        wall_ready = can_commit and wall is not None and topology is not None
         self.wall_host.setVisible(wall is not None)
         self.opening_host.setVisible(wall is not None)
         self.wall_hint.setVisible(wall is None)
         self.opening_hint.setVisible(wall is None)
 
         if wall is None or topology is None:
+            self.clearance_caption.setText("")
+            for caption in (
+                self.opening_offset_caption,
+                self.opening_width_caption,
+                self.opening_sill_caption,
+                self.opening_height_caption,
+            ):
+                caption.setText("")
             return
 
         wall_index = topology.walls.index(wall)
         self.wall_id.setText(f"壁 {wall_index + 1}")
+        self.wall_id.setToolTip(f"選択中の壁のID: {wall.wall_id}")
         self.wall_length.setText(self._format_m(wall_length(room, wall)))
         with QSignalBlocker(self.wall_thickness):
             self.wall_thickness.set_value_m(wall.thickness_m)
         self.wall_thickness.setEnabled(wall_ready)
+        self.wall_thickness_caption.setText(
+            f"範囲 {self._format_range_m(0.001, 5.0)} · "
+            "結合/削除は隣接壁と同一の厚さが前提です · 変更はプレビュー確認後に適用"
+        )
         is_last_wall = wall_index == len(topology.walls) - 1
         self.merge_wall_button.setText(
             "先頭の壁と結合" if is_last_wall else "次の壁と結合"
         )
         self.merge_wall_button.setToolTip(
             self._merge_wall_tooltips[1 if is_last_wall else 0]
+            + " · 実行前に影響プレビューを表示します"
         )
         self.merge_wall_button.setEnabled(wall_ready)
         self.delete_wall_button.setEnabled(wall_ready)
+        self.delete_wall_button.setToolTip(
+            "選択中の壁を削除します · 実行前に影響プレビューを表示します"
+        )
 
         bindings = tuple(
             item
@@ -698,8 +1046,11 @@ class RoomGeometryPanel(QFrame):
                     f"{self._kind_label(item.kind)} · {self._format_m(item.offset_m)}",
                     item.opening_id,
                 )
-            if previous is not None:
-                index = self.opening_selector.findData(previous)
+            # #982: a 3D-picked opening (selected_opening_id) wins over the
+            # previous row so inspector and 3D show the same target.
+            desired = self.geometry.selected_opening_id or previous
+            if desired is not None:
+                index = self.opening_selector.findData(desired)
                 if index >= 0:
                     self.opening_selector.setCurrentIndex(index)
         self.add_opening_button.setEnabled(wall_ready)
@@ -726,7 +1077,8 @@ class RoomGeometryPanel(QFrame):
 
     def _opening_selected(self) -> None:
         opening = self._selected_opening()
-        enabled = opening is not None
+        can_commit = self._editable_state() and self._pending_preview is None
+        enabled = opening is not None and can_commit
         self.opening_kind.setEnabled(self.add_opening_button.isEnabled())
         for field in (
             self.opening_offset,
@@ -738,8 +1090,41 @@ class RoomGeometryPanel(QFrame):
             field.setEnabled(enabled)
         self.apply_opening_button.setEnabled(enabled)
         self.delete_opening_button.setEnabled(enabled)
-        if opening is None:
+        # #982: inspector→3D shared selection — highlight the same opening.
+        opening_id = opening.opening_id if opening is not None else None
+        if opening_id != self.geometry.selected_opening_id:
+            try:
+                self.geometry.select_opening(opening_id)
+            except KeyError:
+                pass
+        room = self.geometry.room
+        topology = self.geometry.topology
+        wall = self.geometry.selected_wall
+        if opening is None or room is None or topology is None or wall is None:
+            self.opening_offset_caption.setText("")
+            self.opening_width_caption.setText("")
+            self.opening_sill_caption.setText("")
+            self.opening_height_caption.setText("")
             return
+        # #982: dependent bounds sit with the fields — the user sees the
+        # valid span before ever starting a commit.
+        length = wall_length(room, wall)
+        self.opening_offset_caption.setText(
+            f"有効: 0–{self._format_m(max(length - self.opening_width.value_m(), 0.0))}"
+            f"（壁長 {self._format_m(length)} − 幅）"
+        )
+        self.opening_width_caption.setText(
+            f"有効: ≤ {self._format_m(max(length - self.opening_offset.value_m(), 0.0))}"
+            "（壁長 − 開始位置）"
+        )
+        self.opening_sill_caption.setText(
+            f"有効: 0–{self._format_m(max(room.height_m - self.opening_height.value_m(), 0.0))}"
+            f"（天井 {self._format_m(room.height_m)} − 高さ）"
+        )
+        self.opening_height_caption.setText(
+            f"有効: ≤ {self._format_m(max(room.height_m - self.opening_sill.value_m(), 0.0))}"
+            "（天井 − 床から）"
+        )
         blockers = [
             QSignalBlocker(self.opening_kind),
             QSignalBlocker(self.opening_offset),
@@ -772,6 +1157,7 @@ class RoomGeometryPanel(QFrame):
         if changed:
             self.notice.setText(success)
             set_semantic_state(self.notice, SemanticState.SUCCESS)
+            self.operation_events.append(("commit", success))
         else:
             self.notice.setText("変更はありません")
             set_semantic_state(self.notice, None)
@@ -838,16 +1224,60 @@ class RoomGeometryPanel(QFrame):
         )
 
     def _delete_vertex(self) -> None:
-        self._run(self.geometry.delete_selected_vertex, "頂点を削除しました")
+        room = self.geometry.room
+        vertex = self.geometry.selected_vertex
+        if room is None or vertex is None:
+            return
+        self._arm_preview(
+            preview_vertex_delete(
+                room,
+                self.geometry.topology,
+                vertex.vertex_id,
+                document=self.controller.committed_document,
+                source_revision_id=self.controller.working.source_revision_id,
+                authoring=self.geometry.authoring,
+                fmt=self._format_m,
+            )
+        )
 
     def _ensure_topology(self) -> None:
         self._run(self.geometry.ensure_wall_topology, "壁編集を有効にしました")
 
     def _merge_wall(self) -> None:
-        self._run(self.geometry.merge_selected_wall_with_next, "壁を結合しました")
+        room = self.geometry.room
+        topology = self.geometry.topology
+        wall = self.geometry.selected_wall
+        if room is None or topology is None or wall is None:
+            return
+        self._arm_preview(
+            preview_wall_merge(
+                room,
+                topology,
+                wall.wall_id,
+                document=self.controller.committed_document,
+                source_revision_id=self.controller.working.source_revision_id,
+                authoring=self.geometry.authoring,
+                fmt=self._format_m,
+            )
+        )
 
     def _delete_wall(self) -> None:
-        self._run(self.geometry.delete_selected_wall, "壁を削除しました")
+        room = self.geometry.room
+        topology = self.geometry.topology
+        wall = self.geometry.selected_wall
+        if room is None or topology is None or wall is None:
+            return
+        self._arm_preview(
+            preview_wall_delete(
+                room,
+                topology,
+                wall.wall_id,
+                document=self.controller.committed_document,
+                source_revision_id=self.controller.working.source_revision_id,
+                authoring=self.geometry.authoring,
+                fmt=self._format_m,
+            )
+        )
 
     def _selected_binding(self) -> WallConstraintBinding | None:
         topology = self.geometry.topology
@@ -865,7 +1295,11 @@ class RoomGeometryPanel(QFrame):
 
     def _binding_selected(self) -> None:
         binding = self._selected_binding()
-        enabled = binding is not None
+        enabled = (
+            binding is not None
+            and self._editable_state()
+            and self._pending_preview is None
+        )
         self.apply_clearance_button.setEnabled(enabled)
         self.delete_clearance_button.setEnabled(enabled)
         if binding is None:
@@ -931,17 +1365,18 @@ class RoomGeometryPanel(QFrame):
         if not _spin_value_changed(self.wall_thickness, wall.thickness_m):
             self.refresh()
             return
-
-        def operation() -> bool:
-            changed = update_wall_thickness(
+        self._arm_preview(
+            preview_wall_thickness(
                 room,
                 topology,
                 wall.wall_id,
-                thickness_m=self.wall_thickness.value_m(),
+                self.wall_thickness.value_m(),
+                document=self.controller.committed_document,
+                source_revision_id=self.controller.working.source_revision_id,
+                authoring=self.geometry.authoring,
+                fmt=self._format_m,
             )
-            return self.controller.replace_room_topology(room, changed)
-
-        self._run(operation, "壁厚を更新しました")
+        )
 
     def _add_opening(self) -> None:
         room = self.geometry.room
@@ -989,6 +1424,23 @@ class RoomGeometryPanel(QFrame):
         current = self._selected_opening()
         if room is None or topology is None or wall is None or current is None:
             return
+        # #982: reject the commit before it starts when the entered values
+        # cannot fit the wall / room — the captions show the same bounds.
+        length = wall_length(room, wall)
+        if self.opening_offset.value_m() + self.opening_width.value_m() > length + 1e-9:
+            self.operation_events.append(("commit_rejected", "opening_span"))
+            self.notice.setText(
+                f"開始位置＋幅が壁長を超えています（壁長 {self._format_m(length)}）"
+            )
+            set_semantic_state(self.notice, SemanticState.ERROR)
+            return
+        if self.opening_sill.value_m() + self.opening_height.value_m() > room.height_m + 1e-9:
+            self.operation_events.append(("commit_rejected", "opening_height"))
+            self.notice.setText(
+                f"床から＋高さが天井高を超えています（天井 {self._format_m(room.height_m)}）"
+            )
+            set_semantic_state(self.notice, SemanticState.ERROR)
+            return
         replacement = WallOpening(
             opening_id=current.opening_id,
             wall_id=wall.wall_id,
@@ -999,12 +1451,17 @@ class RoomGeometryPanel(QFrame):
             kind=str(self.opening_kind.currentData() or current.kind),
             is_open=self.opening_open.isChecked(),
         )
-
-        def operation() -> bool:
-            candidate = update_opening(room, topology, replacement)
-            return self.controller.replace_room_topology(room, candidate)
-
-        self._run(operation, "開口を更新しました")
+        self._arm_preview(
+            preview_opening_update(
+                room,
+                topology,
+                replacement,
+                document=self.controller.committed_document,
+                source_revision_id=self.controller.working.source_revision_id,
+                authoring=self.geometry.authoring,
+                fmt=self._format_m,
+            )
+        )
 
     def _delete_opening(self) -> None:
         room = self.geometry.room
@@ -1012,12 +1469,77 @@ class RoomGeometryPanel(QFrame):
         current = self._selected_opening()
         if room is None or topology is None or current is None:
             return
+        self._arm_preview(
+            preview_opening_delete(
+                room,
+                topology,
+                current.opening_id,
+                document=self.controller.committed_document,
+                source_revision_id=self.controller.working.source_revision_id,
+                authoring=self.geometry.authoring,
+                fmt=self._format_m,
+            )
+        )
 
-        def operation() -> bool:
-            candidate = delete_opening(room, topology, current.opening_id)
-            return self.controller.replace_room_topology(room, candidate)
+    # ---- Issue #982: target-keyed sections, context and focus ----
 
-        self._run(operation, "開口を削除しました")
+    def _edit_state_suffix(self, editable: bool) -> str:
+        if editable:
+            return " · 編集可"
+        if self.controller.recovery_candidate is not None:
+            return " · 編集不可（復旧データを処理してください）"
+        if self.controller.working.has_preview:
+            return " · 編集不可（確定待ちのプレビューがあります）"
+        return ""
+
+    def _dependency_text(self, topology, wall_id: str) -> str:
+        openings = sum(
+            1 for item in topology.openings if item.wall_id == wall_id
+        )
+        bindings = sum(
+            1
+            for item in topology.constraint_bindings
+            if wall_id in item.wall_ids
+        )
+        return f"開口 {openings} 件 · クリアランス {bindings} 件"
+
+    def _set_target_key(self, target_key: str) -> None:
+        """Expand the target's section, collapse the rest, focus its field."""
+
+        if target_key == self._last_target_key:
+            return
+        self._last_target_key = target_key
+        expanded = {
+            "vertex": (True, False, False, False),
+            "edge": (False, True, False, False),
+            # A selected wall IS the boundary edge — keep the edge form open
+            # alongside the wall form; the opening form waits for an opening.
+            "wall": (False, True, True, False),
+            "opening": (False, True, True, True),
+            "authoring": (False, False, False, False),
+            "none": (False, False, False, False),
+        }.get(target_key, (False, False, False, False))
+        for section, flag in zip(
+            (
+                self.vertex_section,
+                self.edge_section,
+                self.wall_section,
+                self.opening_section,
+            ),
+            expanded,
+        ):
+            section.header.setChecked(flag)
+        # #982: 3D pick → inspector focus — scroll to and focus the field
+        # that edits the picked target.
+        focus_widget = {
+            "vertex": self.vertex_x,
+            "edge": self.edge_length,
+            "wall": self.wall_thickness,
+            "opening": self.opening_selector,
+        }.get(target_key)
+        if focus_widget is not None:
+            self._scroll_to(focus_widget)
+            focus_widget.setFocus(Qt.FocusReason.OtherFocusReason)
 
     # ---- Issue #976: 高度な形状 (semantic authoring primitives) ----
 
@@ -1381,7 +1903,7 @@ class RoomGeometryPanel(QFrame):
                 ),
                 None,
             )
-        enabled = item is not None
+        enabled = item is not None and self._pending_preview is None
         self.apply_authoring_button.setEnabled(enabled)
         self.delete_authoring_button.setEnabled(enabled)
         room = self.geometry.room

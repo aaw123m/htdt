@@ -25,6 +25,7 @@ from __future__ import annotations
 import html
 import json
 from pathlib import Path, PurePosixPath
+from threading import Event
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -43,6 +44,11 @@ from .cad_repository import SceneRepository
 from .cad_scene import SceneDocument, scene_content_hash
 from .canonical_json import canonical_json as _canonical, canonical_sha256 as _hash
 from .clock import utc_now_iso as _utc_now
+from .package_progress import (
+    ExportCancelledError,
+    PackageBuildProgress,
+    ProgressCallback,
+)
 from .report import build_installation_output
 
 
@@ -653,6 +659,8 @@ def build_review_package(
     generated_at_utc: str | None = None,
     include_drawings: bool = True,
     yaw_steps_deg: tuple[int, ...] | None = None,
+    progress: ProgressCallback | None = None,
+    cancel_event: Event | None = None,
 ) -> ReviewPackageResult:
     """Build the offline review package into ``output_dir``.
 
@@ -666,6 +674,14 @@ def build_review_package(
     renders pinned frames only), while an explicit tuple — including
     ``()`` — always wins, so callers can enable yaw on sessions that did
     not declare it or suppress yaw on sessions that did.
+
+    ``progress`` receives measured ``PackageBuildProgress`` observations
+    (stage index, frames/sheets processed, bytes written — never
+    estimates) and ``cancel_event`` is a cooperative-cancel flag polled
+    between work items; ``ExportCancelledError`` propagates on cancel.
+    Both are used by the off-UI-thread export runner (#985) and are
+    no-ops for synchronous callers. Stage indices run 1..6; stage 6
+    (verify/publish) is reported by the caller.
     """
 
     output_dir = Path(output_dir)
@@ -675,6 +691,37 @@ def build_review_package(
         or CadPresentationRepository(scene_repository)
     )
     document = presentation_repository.session_document(session)
+
+    stage_count = 6
+    bytes_written = 0
+
+    def _emit(
+        stage_index: int,
+        stage_label: str,
+        *,
+        done: int | None = None,
+        total: int | None = None,
+        unit: str | None = None,
+    ) -> None:
+        if progress is not None:
+            progress(
+                PackageBuildProgress(
+                    stage_label=stage_label,
+                    stage_index=stage_index,
+                    stage_count=stage_count,
+                    done_units=done,
+                    total_units=total,
+                    unit_label=unit,
+                    bytes_written=bytes_written,
+                )
+            )
+
+    def _check_cancel(stage_label: str) -> None:
+        if cancel_event is not None and cancel_event.is_set():
+            raise ExportCancelledError(stage_label)
+
+    _emit(1, '権威の解決')
+    _check_cancel('権威の解決')
 
     entries: list[ReviewPackageEntry] = []
     capability_rows: list[ReviewPackageCapability] = []
@@ -722,10 +769,25 @@ def build_review_package(
 
     # -- Renders ---------------------------------------------------------
     render_index = 0
+    frames_processed = 0
+    frames_expected = (
+        len(session.ordered_viewpoints()) * (1 + len(yaw_steps))
+        if render_ok
+        else 0
+    )
+    _check_cancel('フレーム描画')
+    _emit(
+        2,
+        'フレーム描画',
+        done=frames_processed,
+        total=frames_expected,
+        unit='フレーム',
+    )
     if render_ok:
         for viewpoint in session.ordered_viewpoints():
             render_index += 1
             for yaw in (0, *yaw_steps):
+                _check_cancel('フレーム描画')
                 try:
                     png = renderer.render_frame(
                         document, viewpoint, yaw_deg=yaw
@@ -734,12 +796,29 @@ def build_review_package(
                     warnings.append(
                         f'viewpoint {viewpoint.name} yaw {yaw}: {exc}'
                     )
+                    frames_processed += 1
+                    _emit(
+                        2,
+                        'フレーム描画',
+                        done=frames_processed,
+                        total=frames_expected,
+                        unit='フレーム',
+                    )
                     continue
                 relative = (
                     f'renders/{render_index:02d}-'
                     f'{_slug(viewpoint.name)}-yaw{yaw:+d}.png'
                 )
                 rel, sha, size = _write_file(output_dir, relative, png)
+                bytes_written += size
+                frames_processed += 1
+                _emit(
+                    2,
+                    'フレーム描画',
+                    done=frames_processed,
+                    total=frames_expected,
+                    unit='フレーム',
+                )
                 frames.append(((viewpoint.viewpoint_id, yaw), str(rel)))
                 entries.append(
                     ReviewPackageEntry(
@@ -776,6 +855,16 @@ def build_review_package(
     )
 
     # -- Drawing sheets --------------------------------------------------
+    _check_cancel('図面生成')
+    sheets_done = 0
+    sheets_total = 3 if include_drawings else 0
+    _emit(
+        3,
+        '図面生成',
+        done=sheets_done,
+        total=sheets_total,
+        unit='シート',
+    )
     if include_drawings:
         try:
             revision = scene_repository.get(session.scene_revision_id)
@@ -803,11 +892,21 @@ def build_review_package(
                 generated_at_utc=generated,
             )
             for sheet in drawing_set.sheets:
+                _check_cancel('図面生成')
                 # sheet_id embeds a '<spec>:<kind>' colon — not a valid
                 # package-relative path, so the file name is slugged.
                 relative = f'drawings/{_slug(sheet.sheet_id)}.svg'
                 content = sheet.to_svg().encode('utf-8')
                 rel, sha, size = _write_file(output_dir, relative, content)
+                bytes_written += size
+                sheets_done += 1
+                _emit(
+                    3,
+                    '図面生成',
+                    done=sheets_done,
+                    total=sheets_total,
+                    unit='シート',
+                )
                 entries.append(
                     ReviewPackageEntry(
                         path=str(rel),
@@ -842,8 +941,11 @@ def build_review_package(
         )
 
     # -- Semantic snapshot -------------------------------------------------
+    _check_cancel('セマンティック/ビューア')
+    _emit(4, 'セマンティック/ビューア')
     semantic = _canonical(session.semantic_payload()).encode('utf-8')
     rel, sha, size = _write_file(output_dir, 'semantic.json', semantic)
+    bytes_written += size
     entries.append(
         ReviewPackageEntry(
             path=str(rel), sha256=sha, byte_length=size, kind='semantic'
@@ -862,6 +964,7 @@ def build_review_package(
     rel, sha, size = _write_file(
         output_dir, 'viewer.html', viewer.encode('utf-8')
     )
+    bytes_written += size
     entries.append(
         ReviewPackageEntry(
             path=str(rel), sha256=sha, byte_length=size, kind='viewer'
@@ -909,6 +1012,8 @@ def build_review_package(
     )
 
     # -- Manifest -----------------------------------------------------------
+    _check_cancel('マニフェスト')
+    _emit(5, 'マニフェスト')
     manifest_fields: dict[str, Any] = {
         'package_id': f'{REVIEW_PACKAGE_SCHEMA}:{session.session_id}',
         'generated_at_utc': generated,
@@ -940,6 +1045,7 @@ def build_review_package(
 
     manifest_bytes = manifest.model_dump_json(indent=2).encode('utf-8')
     rel, sha, size = _write_file(output_dir, 'manifest.json', manifest_bytes)
+    bytes_written += size
     entries.append(
         ReviewPackageEntry(
             path=str(rel), sha256=sha, byte_length=size, kind='manifest'

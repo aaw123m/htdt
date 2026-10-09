@@ -116,21 +116,23 @@ def _install_gated_scan(
     }
     real_scan = watch_module.scan_capture_watch_dir
 
-    def gated_scan(directory, seen, pending):
+    def gated_scan(directory, seen, pending, skipped_out=None):
         calls['n'] += 1
         if calls['n'] == 1:
             state['seen'] = seen
             state['pending'] = pending
             state['started'].set()
             state['release'].wait(timeout=30)
-            result = real_scan(directory, seen, pending)
+            result = real_scan(
+                directory, seen, pending, skipped_out=skipped_out
+            )
             # The stale job's writes must stay job-local: poison its own
             # dict AFTER the real scan (which evicts unknown keys), so
             # any leak into the runner's epoch is detectable.
             seen[_POISON] = (0, 0)
             state['done'].set()
             return result
-        return real_scan(directory, seen, pending)
+        return real_scan(directory, seen, pending, skipped_out=skipped_out)
 
     monkeypatch.setattr(
         watch_module, 'scan_capture_watch_dir', gated_scan
@@ -305,7 +307,8 @@ def test_watch_root_change_with_abandoned_job_keeps_epochs_unmixed(
     runner.scan_completed.connect(batches.append)
     runner.start()
     assert _pump(app, lambda: bool(runner._seen))
-    assert runner._watched_root == watch_a
+    # The watch identity is the canonical root (#1019).
+    assert runner._watched_root == watch_a.resolve()
 
     calls = {'n': 0}
     gated = _install_gated_scan(monkeypatch, calls)
@@ -317,12 +320,13 @@ def test_watch_root_change_with_abandoned_job_keeps_epochs_unmixed(
     assert _pump(app, lambda: gated['started'].is_set())
     prefs.watch_dir = str(watch_b)
     _force_stall(runner)
-    assert _pump(app, lambda: runner._watched_root == watch_b)
+    assert _pump(app, lambda: runner._watched_root == watch_b.resolve())
     # B's epoch publishes only B markers; let a couple of scans commit.
     assert _pump(
         app,
         lambda: any(
-            key.startswith('\x00scanned:') and str(watch_b) in key
+            key.startswith('\x00scanned:')
+            and str(watch_b.resolve()) in key
             for key in runner._seen
         ),
     )
@@ -368,7 +372,7 @@ def test_disabled_reenabled_watch_rebaselines_after_abandoned_job(
     assert _pump(app, lambda: runner._watched_root is None)
     prefs.watch_dir = str(watch)
     preexisting = _write_bundle_zip(watch, 'preexisting')
-    assert _pump(app, lambda: runner._watched_root == watch)
+    assert _pump(app, lambda: runner._watched_root == watch.resolve())
     gated['release'].set()
     assert _pump(app, lambda: gated['done'].is_set())
     runner.shutdown()

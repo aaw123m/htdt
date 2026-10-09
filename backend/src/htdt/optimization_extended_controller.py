@@ -29,6 +29,14 @@ from PySide6.QtWidgets import (
 )
 
 from .analysis_markers import render_analysis_marker_cloud
+from .activity_center import (
+    ApplicationOperation,
+    Cancellability,
+    NavigationPolicy,
+    OperationRetryRequest,
+    RetryPolicy,
+)
+from .workflow_navigation import WorkspaceDeepLink, WorkspaceId
 from .cad_adaptive_repository import CadAdaptivePlanRepository
 from .cad_adaptive_service import CadAdaptivePlannerService
 from .developer_mode import developer_mode_enabled
@@ -693,11 +701,61 @@ class ExtendedSearchControllerMixin:
             return
 
         page_offset = 0 if offset is None else max(0, int(offset))
+        self._dispatch_extended(base, spec, page_offset)
+
+    def _dispatch_extended(
+        self,
+        base,
+        spec,
+        page_offset: int,
+        *,
+        operation_id: str | None = None,
+        retry_of: str | None = None,
+        attempt: int = 1,
+    ) -> str | None:
+        """Register (#974) and start one extended-generation task."""
+
         key = str(uuid4())
         self._current_extended_task_id = key
         self._extended_task_spec_ids[key] = (
             base.search_spec_id,
             spec.extended_search_id,
+        )
+        refs = [
+            f'extended-search:{spec.extended_search_id}',
+            f'search-spec:{base.search_spec_id}',
+        ]
+        if self.working is not None and self.working.source_revision_id:
+            refs.append(f'scene-revision:{self.working.source_revision_id}')
+        self._submit_operation(
+            task_key=key,
+            operation_kind='optimization.extended_search',
+            title='拡張候補の生成',
+            input_authority_refs=tuple(refs),
+            revision_ref=(
+                self.working.source_revision_id
+                if self.working is not None
+                else None
+            ),
+            cancellability=Cancellability.CANCELLABLE,
+            cancel_callback=lambda: self._extended_pool.cancel(key),
+            retry_policy=RetryPolicy.SAFE_NEW_ATTEMPT,
+            navigation_policy=NavigationPolicy.BACKGROUNDABLE,
+            deep_link=WorkspaceDeepLink(
+                WorkspaceId.OPTIMIZATION, 'candidates'
+            ),
+            domain_payload={
+                'retry': lambda op, new_id: self._retry_extended(
+                    base.search_spec_id,
+                    spec.extended_search_id,
+                    page_offset,
+                    op,
+                    new_id,
+                )
+            },
+            operation_id=operation_id,
+            retry_of=retry_of,
+            attempt=attempt,
         )
         self._refresh_search_binding_state()
         self._refresh_extended_binding_state()
@@ -715,6 +773,59 @@ class ExtendedSearchControllerMixin:
                 limit=self.search_page_limit,
                 cancelled=cancel_event.is_set,
             ),
+        )
+        return key
+
+    def _retry_extended(
+        self,
+        base_id: str,
+        extended_id: str,
+        page_offset: int,
+        operation: ApplicationOperation,
+        new_operation_id: str,
+    ) -> OperationRetryRequest | None:
+        """SAFE_NEW_ATTEMPT adapter: re-dispatch the same extended page
+        under the pre-bound attempt id (#974). Both authorities are
+        re-fetched and re-validated, so a stale retry is refused honestly."""
+
+        if self._disposed or self.working is None:
+            return None
+        if (
+            self._current_search_task_id is not None
+            or self._current_extended_task_id is not None
+        ):
+            return None
+        base = self.search_repository.get(base_id)
+        spec = self.extended_repository.get_spec(extended_id)
+        if (
+            base is None
+            or spec is None
+            or spec.base_search_spec_id != base.search_spec_id
+            or not search_spec_current_working(
+                base,
+                self.working,
+                self.constraint_set,
+                current_document_id=self.document_id,
+            )
+        ):
+            return None
+        key = self._dispatch_extended(
+            base,
+            spec,
+            page_offset,
+            operation_id=new_operation_id,
+            retry_of=operation.operation_id,
+            attempt=operation.attempt + 1,
+        )
+        if key is None:
+            return None
+        return OperationRetryRequest(
+            cancel_callback=lambda: self._extended_pool.cancel(key),
+            domain_payload={
+                'retry': lambda op, new_id: self._retry_extended(
+                    base_id, extended_id, page_offset, op, new_id
+                )
+            },
         )
 
     def _start_extended_task(
@@ -760,23 +871,31 @@ class ExtendedSearchControllerMixin:
             self.statusBar().showMessage(
                 '拡張候補生成をキャンセルしました'
             )
+            self._finish_operation(task_id, cancelled=True)
             self._refresh_extended_binding_state()
             return
         if error is not None:
             self.statusBar().showMessage(
                 f'拡張候補生成に失敗しました · {operation_error_message(error)}'
             )
+            self._finish_operation(task_id, error=error)
             self._refresh_extended_binding_state()
             return
         if not isinstance(result, CadExtendedCandidateSetPage):
             self.statusBar().showMessage(
                 '拡張候補生成結果を拒否しました · 契約不一致'
             )
+            self._finish_operation(
+                task_id, error=TypeError('拡張候補生成結果の契約不一致')
+            )
             self._refresh_extended_binding_state()
             return
         if authority is None:
             self.statusBar().showMessage(
                 '拡張候補生成結果を破棄しました · 権威欠落'
+            )
+            self._finish_operation(
+                task_id, result_summary='権威欠落のため結果を破棄しました'
             )
             return
         base_id, extended_id = authority
@@ -797,6 +916,10 @@ class ExtendedSearchControllerMixin:
         ):
             self.statusBar().showMessage(
                 '古い拡張候補生成結果を破棄しました · 権威が変更されています'
+            )
+            self._finish_operation(
+                task_id,
+                result_summary='権威が変更されたため古い結果を破棄しました',
             )
             self._refresh_extended_binding_state()
             return
@@ -833,6 +956,13 @@ class ExtendedSearchControllerMixin:
         self.statusBar().showMessage(
             f'拡張候補を生成しました · '
             f'{result.feasible_candidate_count}件'
+        )
+        self._finish_operation(
+            task_id,
+            result_summary=(
+                f'有効 {result.feasible_candidate_count}件'
+                f'（総 {result.raw_candidate_count}）'
+            ),
         )
 
     def _refresh_extended_candidate_tree(self) -> None:

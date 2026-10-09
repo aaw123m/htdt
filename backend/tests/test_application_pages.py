@@ -227,12 +227,30 @@ def test_capture_inbox_detail_preserves_item_and_project_context(
         )
         page.defer_button.click()
         assert inbox.get(digest).disposition == "deferred"
+        # #988: the deferred row leaves the default 要レビュー queue —
+        # it is still reachable under the 延期 filter, never confused
+        # with an actionable row.
+        deferred_index = page.inbox_state_combo.findData("deferred")
+        assert deferred_index >= 0
+        page.inbox_state_combo.setCurrentIndex(deferred_index)
+        app.processEvents()
+        assert page.table.rowCount() == 1
+        page.table.selectRow(0)
+        app.processEvents()
         assert "延期" in page.detail.text()
 
         page.resume_button.click()
         assert inbox.get(digest).disposition == "pending"
-        # Selection survives refresh: the exact item stays in context.
-        assert "capture-inbox-item" not in page.detail.text() or "項目:" in page.detail.text()
+        # Back under 要レビュー, the exact item is actionable again and
+        # selection keeps its identity-pinned context.
+        review_index = page.inbox_state_combo.findData("review")
+        assert review_index >= 0
+        page.inbox_state_combo.setCurrentIndex(review_index)
+        app.processEvents()
+        assert page.table.rowCount() == 1
+        page.table.selectRow(0)
+        app.processEvents()
+        assert "項目:" in page.detail.text()
     finally:
         page.close()
         page.deleteLater()

@@ -111,6 +111,47 @@ class _SealedStore:
                 values,
             )
 
+    def save_in_connection(self, connection: sqlite3.Connection,
+                           record: Any) -> None:
+        """Append-only insert on an open connection (#981).
+
+        Used by the IFC diff apply so the merged chain records commit or
+        roll back together with the IFC-side marks and apply record —
+        never a half-saved apply.
+        """
+        _assert_sealed(record, self.sha_field, self.id_field)
+        rid = getattr(record, self.id_field)
+        existing_row = connection.execute(
+            f'SELECT {self.sha_field} FROM {self.table} '
+            f'WHERE {self.id_field}=?',
+            (rid,),
+        ).fetchone()
+        if existing_row is not None:
+            if existing_row[0] == getattr(record, self.sha_field):
+                return
+            raise GeometryIntakeConflictError(
+                f'{self.table} records are append-only')
+        cols = ', '.join(
+            [self.id_field, self.sha_field]
+            + [c[0] for c in self.columns]
+            + ['payload_json']
+        )
+        placeholders = ', '.join(['?'] * (2 + len(self.columns) + 1))
+        values = (
+            rid,
+            getattr(record, self.sha_field),
+            *(
+                self._column_value(record, path)
+                for _, path in self.columns
+            ),
+            record.model_dump_json(),
+        )
+        connection.execute(
+            f'INSERT INTO {self.table} ({cols}) '
+            f'VALUES ({placeholders})',
+            values,
+        )
+
     def get(self, rid: str) -> Any | None:
         with closing(self._connect()) as connection:
             row = connection.execute(

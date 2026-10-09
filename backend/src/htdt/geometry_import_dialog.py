@@ -42,6 +42,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QRadioButton,
     QScrollArea,
+    QSplitter,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -51,6 +52,11 @@ from PySide6.QtCore import Qt
 
 from .accessible_labels import wire_label_buddies
 from .field_tooltips import apply_field_tooltip
+from .geometry_import_preview import (
+    ImportPreviewScene,
+    PreviewDeclaration,
+    build_import_preview_scene,
+)
 from .ingress import read_file_bounded
 from .limits import MAX_ATTACHMENT_BYTES
 from .mesh_import_authority import format_declared_source_unit
@@ -265,6 +271,43 @@ _REPAIR_RISK_LABELS = {
     'unsupported': '対象外',
 }
 
+_PREVIEW_VIEW_ITEMS: tuple[tuple[str, str], ...] = (
+    ('元のメッシュ', 'original'),
+    ('修復済みメッシュ', 'repaired'),
+    ('修復差分', 'diff'),
+)
+
+_PREVIEW_NOTICE_TEXTS = {
+    'unit_undeclared': '単位未宣言 — ソース座標をそのまま表示（m換算なし）',
+    'axis_convention_unresolved': '軸・座標系の宣言が未解決 — 回転なしで表示',
+    'preview_decimated': '表示用に間引き済み（取込データは変更されません）',
+}
+
+#: Diff-view fate colors (render space). Neutral kept faces, then
+#: distinct hues for each lineage fate so removed/flipped/moved regions
+#: read at a glance; 'unknown' stays grey, never a guessed color.
+_FATE_COLORS = {
+    'kept': '#8FB8C9',
+    'flipped': '#E4C06B',
+    'moved': '#BD9CF4',
+    'removed': '#E0655A',
+    'unknown': '#6E7B87',
+}
+
+_FATE_LABELS = {
+    'kept': '保持',
+    'flipped': '巻き方向修正',
+    'moved': '頂点移動（連結修復）',
+    'removed': '削除',
+    'unknown': '判定不能',
+}
+
+_FOCUS_ALL = '全体'
+
+#: Above this drawn-face count edge display is skipped — the wireframe
+#: would dominate the render cost on software GL for no visual gain.
+_PREVIEW_EDGE_FACE_LIMIT = 20_000
+
 
 def _unresolved_finding_label(text: str) -> str:
     """Localize a repair-runner unresolved finding (``kind:detail``)."""
@@ -328,9 +371,11 @@ class GeometryImportDialog(QDialog):
         self._repaired_mesh: RepairedRawMesh | None = None
         self._repaired_diagnostic: RepairedRawMeshDiagnosticResult | None = None
         self._evaluated_geometry: SemanticAcousticGeometry | None = None
+        self._preview_plotter = None
+        self._preview_render_state: str | None = None
 
         self.setWindowTitle('ジオメトリをインポート')
-        self.resize(680, 720)
+        self.resize(1120, 720)
         layout = QVBoxLayout(self)
 
         source = QLabel(
@@ -356,7 +401,16 @@ class GeometryImportDialog(QDialog):
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QScrollArea.Shape.NoFrame)
         scroll.setWidget(content)
-        layout.addWidget(scroll, stretch=1)
+
+        # #980: read-only 3D preview beside the import controls — the
+        # declared unit/axis/anchor and repair lineage re-render it.
+        splitter = QSplitter(Qt.Orientation.Horizontal)
+        splitter.addWidget(scroll)
+        splitter.addWidget(self._build_preview_pane())
+        splitter.setStretchFactor(0, 3)
+        splitter.setStretchFactor(1, 2)
+        splitter.setSizes([640, 480])
+        layout.addWidget(splitter, stretch=1)
 
         self.buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok
@@ -367,6 +421,18 @@ class GeometryImportDialog(QDialog):
         self.buttons.rejected.connect(self.reject)
         layout.addWidget(self.buttons)
         wire_label_buddies(self)
+
+    def done(self, result: int) -> None:
+        # Release the VTK render window with the dialog — the preview
+        # plotter holds GL resources that outlive the widget otherwise.
+        plotter = getattr(self, '_preview_plotter', None)
+        if plotter is not None:
+            try:
+                plotter.close()
+            except Exception:
+                pass
+            self._preview_plotter = None
+        super().done(result)
 
     # --- declaration group ---------------------------------------------------
 
@@ -405,6 +471,7 @@ class GeometryImportDialog(QDialog):
             '1ソース単位あたりのメートル数 — 単位に「カスタム」を選んだとき有効',
             form,
         )
+        self.custom_scale.valueChanged.connect(lambda _v: self._refresh_preview())
         form.addRow('カスタム係数', self.custom_scale)
 
         self.up_axis = QComboBox()
@@ -419,6 +486,8 @@ class GeometryImportDialog(QDialog):
         apply_field_tooltip(self.up_axis, 'ソースモデルの上方向として宣言する軸', form)
         apply_field_tooltip(self.forward_axis, 'ソースモデルの前方向として宣言する軸', form)
         apply_field_tooltip(self.handedness, 'ソースの座標系の向き（右手系・左手系）', form)
+        for combo in (self.up_axis, self.forward_axis, self.handedness):
+            combo.activated.connect(lambda _i: self._refresh_preview())
         form.addRow('上方向軸', self.up_axis)
         form.addRow('前方向軸', self.forward_axis)
         form.addRow('座標系の向き', self.handedness)
@@ -429,12 +498,255 @@ class GeometryImportDialog(QDialog):
         apply_field_tooltip(
             self.anchor, 'インポート後のローカル原点の置き方', form
         )
+        self.anchor.activated.connect(lambda _i: self._refresh_preview())
         form.addRow('ローカル原点', self.anchor)
         return group
 
     def _sync_unit_state(self) -> None:
         is_custom = self.unit_combo.currentData() == 'custom'
         self.custom_scale.setEnabled(is_custom)
+        self._refresh_preview()
+
+    # --- read-only 3D preview pane (#980) -------------------------------------
+
+    def _build_preview_pane(self) -> QGroupBox:
+        group = QGroupBox('3Dプレビュー（読み取り専用）')
+        layout = QVBoxLayout(group)
+
+        controls = QHBoxLayout()
+        self.preview_view = QComboBox()
+        for label, mode in _PREVIEW_VIEW_ITEMS:
+            self.preview_view.addItem(label, mode)
+        # Repaired/diff views only exist after a repair preview ran; the
+        # items stay visible but disabled until then (never silently
+        # re-showing stale repair data).
+        self._set_repair_views_enabled(False)
+        self.preview_view.setToolTip(
+            '元のメッシュ・修復済みメッシュ・修復差分を切り替えます'
+        )
+        self.preview_view.activated.connect(lambda _i: self._refresh_preview())
+        controls.addWidget(self.preview_view)
+
+        self.preview_focus = QComboBox()
+        self.preview_focus.addItem(_FOCUS_ALL, None)
+        seen: set[str] = set()
+        for issue in self.health.issues:
+            if issue.code in seen:
+                continue
+            seen.add(issue.code)
+            self.preview_focus.addItem(
+                _ISSUE_CODE_LABELS.get(issue.code, issue.code), issue.code
+            )
+        self.preview_focus.setToolTip(
+            '欠陥カテゴリを選ぶと該当位置にフォーカスします'
+        )
+        self.preview_focus.activated.connect(lambda _i: self._refresh_preview())
+        controls.addWidget(self.preview_focus)
+        controls.addStretch(1)
+        layout.addLayout(controls)
+
+        self.preview_info = QLabel('')
+        self.preview_info.setWordWrap(True)
+        set_typography_role(self.preview_info, TypographyRole.SECONDARY)
+        layout.addWidget(self.preview_info)
+
+        self._preview_plotter = self._make_preview_plotter(group)
+        if self._preview_plotter is not None:
+            layout.addWidget(self._preview_plotter.interactor, stretch=1)
+        else:
+            fallback = QLabel('3Dプレビューを初期化できませんでした')
+            fallback.setWordWrap(True)
+            set_semantic_state(fallback, SemanticState.ERROR)
+            layout.addWidget(fallback, stretch=1)
+        self._refresh_preview()
+        return group
+
+    def _make_preview_plotter(self, parent: QWidget):
+        """Create the PyVista interactor, or ``None`` when VTK cannot start.
+
+        ``None`` is a render-layer failure (driver/GL), distinct from the
+        adapter's ``unsupported_geometry`` — the dialog still works.
+        """
+        try:
+            import pyvista as pv  # noqa: F401
+            from pyvistaqt import QtInteractor
+        except Exception:
+            return None
+        try:
+            plotter = QtInteractor(parent, auto_update=False)
+            plotter.set_background('#171F27')
+            plotter.enable_anti_aliasing('fxaa')
+            return plotter
+        except Exception:
+            return None
+
+    def _set_repair_views_enabled(self, enabled: bool) -> None:
+        model = self.preview_view.model()
+        for index, (_label, mode) in enumerate(_PREVIEW_VIEW_ITEMS):
+            if mode != 'original':
+                model.item(index).setEnabled(enabled)
+
+    def _preview_declaration(self) -> PreviewDeclaration:
+        unit = self.unit_combo.currentData()
+        return PreviewDeclaration(
+            source_unit=unit,
+            custom_scale_to_meters=(
+                float(self.custom_scale.value()) if unit == 'custom' else None
+            ),
+            up_axis=str(self.up_axis.currentData()),
+            forward_axis=str(self.forward_axis.currentData()),
+            handedness=str(self.handedness.currentData()),
+            local_anchor=str(self.anchor.currentData()),
+        )
+
+    @staticmethod
+    def _to_render(point: tuple[float, float, float]) -> tuple[float, float, float]:
+        """Entity-local → VTK render space, same map as the room viewport."""
+        return (point[0], -point[1], point[2])
+
+    def _refresh_preview(self) -> None:
+        if not hasattr(self, 'preview_info'):
+            return  # declaration signals can fire before the pane exists
+        view_mode = self.preview_view.currentData()
+        repaired = self._repaired_mesh
+        scene = build_import_preview_scene(
+            self.mesh,
+            self.diagnostics,
+            self._preview_declaration(),
+            view_mode=view_mode,
+            repaired=repaired if view_mode != 'original' else None,
+            focus_codes=tuple(
+                self.preview_focus.itemData(i)
+                for i in range(self.preview_focus.count())
+                if self.preview_focus.itemData(i) is not None
+            ),
+        )
+        self._render_preview_scene(scene)
+
+    def _preview_info_text(self, scene: ImportPreviewScene) -> str:
+        unit_label = 'm' if scene.coordinate_space == 'meters' else 'ソース単位'
+        dims = ' × '.join(f'{value:.3g}' for value in scene.dims)
+        parts = [
+            f'頂点 {scene.vertex_count_full} / 面 {scene.face_count_full}'
+            + (f'（表示 {len(scene.faces)} 面）' if scene.decimated else ''),
+            f'寸法 {dims} {unit_label}',
+        ]
+        if scene.view_mode == 'diff' and scene.source_fates:
+            counts: dict[str, int] = {}
+            for fate in scene.source_fates:
+                counts[fate] = counts.get(fate, 0) + 1
+            parts.append(
+                '差分: '
+                + ' · '.join(
+                    f'{_FATE_LABELS[fate]} {counts[fate]}'
+                    for fate in ('kept', 'flipped', 'moved', 'removed', 'unknown')
+                    if counts.get(fate)
+                )
+            )
+        parts.extend(
+            _PREVIEW_NOTICE_TEXTS[notice]
+            for notice in scene.notices
+            if notice in _PREVIEW_NOTICE_TEXTS
+        )
+        if self._preview_render_state == 'render_failure':
+            parts.append('3D描画に失敗しました（メッシュ自体は取込可能です）')
+        return '\n'.join(parts)
+
+    def _render_preview_scene(self, scene: ImportPreviewScene) -> None:
+        focus_code = self.preview_focus.currentData()
+        focus = next(
+            (item for item in scene.focuses if item.code == focus_code), None
+        )
+        if self._preview_plotter is None:
+            self.preview_info.setText(self._preview_info_text(scene))
+            return
+        self._preview_render_state = None
+        plotter = self._preview_plotter
+        try:
+            import numpy as np
+            import pyvista as pv
+
+            plotter.clear()
+            if not scene.supported:
+                self.preview_info.setText(
+                    ('このジオメトリは3D表示できません'
+                        if scene.unsupported_reason == 'unsupported_geometry'
+                        else '修復プレビューを先に実行してください')
+                    + '\n'
+                    + self._preview_info_text(scene)
+                )
+                return
+            points = np.asarray(
+                [self._to_render(p) for p in scene.vertices], dtype=float
+            )
+            faces_flat = np.hstack(
+                [[3, *face] for face in scene.faces]
+            ).astype(np.int64)
+            surface = pv.PolyData(points, faces_flat)
+            show_edges = len(scene.faces) <= _PREVIEW_EDGE_FACE_LIMIT
+            if scene.view_mode == 'diff' and scene.source_fates:
+                for fate in ('kept', 'flipped', 'moved', 'removed', 'unknown'):
+                    cells = [
+                        index
+                        for index, source_index in enumerate(scene.kept_face_indices)
+                        if scene.source_fates[source_index] == fate
+                    ]
+                    if not cells:
+                        continue
+                    plotter.add_mesh(
+                        surface.extract_cells(cells),
+                        color=_FATE_COLORS[fate],
+                        show_edges=show_edges,
+                        label=f'{_FATE_LABELS[fate]} {len(cells)}',
+                    )
+            else:
+                plotter.add_mesh(
+                    surface,
+                    color='#8FB8C9',
+                    show_edges=show_edges,
+                    label='インポートメッシュ',
+                )
+            # Origin marker + axes triad + coordinate grid + dimensioned bbox.
+            plotter.add_mesh(
+                pv.Sphere(radius=max(scene.dims) * 0.02 or 0.01),
+                color='#E9CE7A',
+            )
+            plotter.add_axes()
+            bounds_render = (
+                scene.bbox_min[0], scene.bbox_max[0],
+                -scene.bbox_max[1], -scene.bbox_min[1],
+                scene.bbox_min[2], scene.bbox_max[2],
+            )
+            bbox = pv.Box(bounds=bounds_render)
+            plotter.add_mesh(bbox, style='wireframe', color='#4CC5B1')
+            plotter.show_grid()
+            if focus is not None and focus.state == 'located' and focus.points:
+                markers = np.asarray(
+                    [self._to_render(p) for p in focus.points], dtype=float
+                )
+                radius = max(max(scene.dims) * 0.03, 1e-6)
+                for point in markers:
+                    plotter.add_mesh(
+                        pv.Sphere(radius=radius, center=point),
+                        color='#E0655A',
+                    )
+                centroid = markers.mean(axis=0)
+                distance = max(max(scene.dims) * 1.5, radius * 8.0)
+                plotter.camera.focal_point = tuple(centroid)
+                plotter.camera.position = (
+                    centroid[0] + distance,
+                    centroid[1] - distance,
+                    centroid[2] + distance * 0.6,
+                )
+            elif focus is not None and focus.state != 'located':
+                self._preview_render_state = 'focus_unknown'
+            plotter.reset_camera() if focus is None else plotter.render()
+        except Exception:
+            self._preview_render_state = 'render_failure'
+        info = self._preview_info_text(scene)
+        if self._preview_render_state == 'focus_unknown':
+            info += '\nこの欠陥の位置は判定不能です（メッシュ全体を表示）'
+        self.preview_info.setText(info)
 
     # --- diagnostics group ---------------------------------------------------
 
@@ -558,6 +870,7 @@ class GeometryImportDialog(QDialog):
             'プレビューした修復済みメッシュをインポートに使います'
         )
         self.use_repaired.setEnabled(False)
+        self.use_repaired.toggled.connect(lambda _on: self._refresh_preview())
         preview_row.addWidget(self.use_repaired)
         preview_row.addStretch(1)
         layout.addLayout(preview_row)
@@ -619,6 +932,8 @@ class GeometryImportDialog(QDialog):
             self._repaired_diagnostic = None
             self.use_repaired.setEnabled(False)
             self.use_repaired.setChecked(False)
+            self._set_repair_views_enabled(False)
+            self._refresh_preview()
             self.repair_result.setText(f'修復プレビューに失敗しました: {operation_error_message(exc)}')
             set_semantic_state(self.repair_result, SemanticState.ERROR)
             return
@@ -627,6 +942,8 @@ class GeometryImportDialog(QDialog):
         self._repaired_diagnostic = diagnostic
         self.use_repaired.setEnabled(True)
         self.use_repaired.setChecked(True)
+        self._set_repair_views_enabled(True)
+        self._refresh_preview()
 
         applied = [
             result.operation.kind

@@ -300,6 +300,30 @@ def test_repository_round_trip_and_replay_validation(tmp_path: Path) -> None:
         )
 
 
+def _drain_panel(panel, timeout: float = 30.0) -> None:
+    """Slice rasters + session builds run on a worker (#995) — pump the
+    event loop until the panel has fully settled."""
+
+    import time
+
+    from PySide6.QtWidgets import QApplication
+
+    app = QApplication.instance()
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        app.processEvents()
+        if (
+            not panel._slice_timer.isActive()
+            and panel._pending_slice is None
+            and len(panel._pool) == 0
+            and not panel._slice_busy
+            and not panel._build_busy
+        ):
+            return
+        time.sleep(0.005)
+    raise AssertionError('field explorer render did not settle in time')
+
+
 def test_field_explorer_panel_builds_slice_and_probe(tmp_path: Path) -> None:
     import os
 
@@ -323,13 +347,15 @@ def test_field_explorer_panel_builds_slice_and_probe(tmp_path: Path) -> None:
     assert panel.open_for_run(modes.run_id) is True
     panel.mode_combo.setCurrentIndex(0)
     panel._build_session()
+    _drain_panel(panel)  # build + save run on the worker pool (#995)
     assert panel._session is not None
     # The saved session is listed and reloadable.
     assert panel.session_combo.count() == 2
-    # Slice view renders a pixmap.
+    # Slice view renders a pixmap (worker-side raster, epoch-gated apply).
     panel.coordinate_combo.setCurrentIndex(0)
     panel._refresh_view()
-    assert panel.field_image_label.pixmap() is not None
+    _drain_panel(panel)
+    assert not panel.field_image_label.pixmap().isNull()
     # SPL stays gated off for the normalized analytical field.
     index = panel.quantity_combo.findText(
         'SPL dB — 非対応 (SPL requires an absolute pressure reference '

@@ -43,6 +43,7 @@ _KNOWN_PERSISTED_PATHS = {
     'automatic-backup-policy.json',
     'automatic-backup-state.json',
     'upgrade-events.jsonl',
+    'restore-drill-results.jsonl',
     '.native-upgrade-state.json',
     'upgrade-recovery',
     'htdt-legacy-migration.journal',

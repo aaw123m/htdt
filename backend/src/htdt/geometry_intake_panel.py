@@ -41,6 +41,14 @@ from .cad_geometry_intake import (
     defect_locate_targets,
     geometry_intake_label,
 )
+from .dynamic_a11y import (
+    STABLE_ID_ROLE,
+    DynamicAnnouncer,
+    capture_focus,
+    disabled_hint,
+    reason_label,
+    restore_focus,
+)
 
 
 def _severity_label(severity: str) -> str:
@@ -81,6 +89,7 @@ class GeometryIntakePanel(QWidget):
         self._action_rows: dict = {}
         self._decided_actions: set[str] = set()
         self._solver_payloads: list[object] = []
+        self._announcer = DynamicAnnouncer(self)
         self._build_ui()
 
     # -- layout ---------------------------------------------------------
@@ -104,17 +113,23 @@ class GeometryIntakePanel(QWidget):
         self.diagnose_button = QPushButton(
             geometry_intake_label('ui.diagnose')
         )
-        self.diagnose_button.clicked.connect(self.diagnoseRequested)
+        self.diagnose_button.clicked.connect(self._emit_diagnose)
         self.diagnose_button.setEnabled(False)
         action_row.addWidget(self.diagnose_button)
         self.derive_button = QPushButton(
             geometry_intake_label('ui.derive')
         )
-        self.derive_button.clicked.connect(self.deriveRequested)
+        self.derive_button.clicked.connect(self._emit_derive)
         self.derive_button.setEnabled(False)
         action_row.addWidget(self.derive_button)
         action_row.addStretch(1)
         layout.addLayout(action_row)
+        # #975: a disabled primary action must explain itself on screen —
+        # the button leaves the Tab order, so the reason + resolution
+        # live in this focusable label, updated by ``set_stage``.
+        self.stage_hint = reason_label('', self)
+        self.stage_hint.setVisible(False)
+        layout.addWidget(self.stage_hint)
 
         solver_row = QHBoxLayout()
         solver_row.addWidget(
@@ -210,6 +225,29 @@ class GeometryIntakePanel(QWidget):
         proposal_layout.addWidget(self.proposal_table)
         layout.addWidget(self.proposal_group)
 
+        # #975: stable objectNames anchor focus-retention tokens across
+        # rebuilds; tables name themselves for assistive technology.
+        self.import_ifc_button.setObjectName('intake-import-ifc')
+        self.adopt_scene_button.setObjectName('intake-adopt-scene')
+        self.diagnose_button.setObjectName('intake-diagnose')
+        self.derive_button.setObjectName('intake-derive')
+        self.locate_button.setObjectName('intake-locate')
+        self.source_table.setObjectName('intake-source-defects')
+        self.source_table.setAccessibleName('ソースモデルの欠陥一覧')
+        self.solver_table.setObjectName('intake-solver-limitations')
+        self.solver_table.setAccessibleName('ソルバー能力の制約一覧')
+        self.proposal_table.setObjectName('intake-proposal-actions')
+        self.proposal_table.setAccessibleName('修復提案の操作一覧')
+        self.import_ifc_button.setToolTip(
+            'IFCファイルを取り込んで診断対象にします。'
+        )
+        self.adopt_scene_button.setToolTip(
+            '現在のシーンを診断対象として採用します。'
+        )
+        self.locate_button.setToolTip(
+            '一覧で欠陥を選択すると、その位置を3Dビューで確認できます。'
+        )
+
         self._wire_selection()
 
     def _wire_selection(self) -> None:
@@ -248,6 +286,10 @@ class GeometryIntakePanel(QWidget):
     # -- content ---------------------------------------------------------
 
     def set_report(self, report: GeometryIntakeReport | None) -> None:
+        # #975: the tables rebuild from scratch on every sync — capture
+        # the keyboard anchor first, then re-point it at the same
+        # defect_id (or keep it on the view when the defect vanished).
+        token = capture_focus(self)
         self._report = report
         self._fill_defect_table(
             self.source_table,
@@ -260,6 +302,18 @@ class GeometryIntakePanel(QWidget):
              if d.origin == 'solver_limitation'],
         )
         self._sync_locate_enabled()
+        restore_focus(self, token, fallback=self.diagnose_button)
+        if report is None:
+            self._announcer.announce_state(
+                'report', None, 'operation_completed', ''
+            )
+        else:
+            self._announcer.announce_state(
+                'report',
+                report.report_id,
+                'operation_completed',
+                f'診断が完了しました — 欠陥 {len(report.defects)} 件',
+            )
 
     def set_solver_options(
         self,
@@ -298,14 +352,61 @@ class GeometryIntakePanel(QWidget):
         self.decision_progress.setText(text)
 
     def set_stage(
-        self, *, has_subject: bool, derive_enabled: bool = False
+        self,
+        *,
+        has_subject: bool,
+        derive_enabled: bool = False,
+        derive_blocked: str | None = None,
+        derive_resolution: str | None = None,
     ) -> None:
-        """Advance the workflow affordances to the chain's position."""
+        """Advance the workflow affordances to the chain's position.
+
+        #975: a disabled primary button is unreachable by keyboard, so
+        the 'why' and the 'how to clear it' are rendered on screen in
+        ``stage_hint`` (and mirrored into the button tooltip for pointer
+        users) — the control is never enabled just to look complete.
+        """
+
         self.diagnose_button.setEnabled(has_subject)
         self.derive_button.setEnabled(derive_enabled)
+        hints: list[str] = []
+        if has_subject:
+            self.diagnose_button.setToolTip(
+                '取り込んだモデルの欠陥を診断します。'
+            )
+        else:
+            hint = disabled_hint(
+                'geometry-intake.diagnose',
+                '診断を実行できません: 診断対象がまだありません',
+                '「IFCをインポート」または「シーンを対象に採用」で'
+                '対象を設定してください',
+            )
+            hints.append(hint)
+            self.diagnose_button.setToolTip(hint)
+        if derive_enabled:
+            self.derive_button.setToolTip(
+                '受理された修復を適用した派生リビジョンを生成します。'
+            )
+        else:
+            hint = disabled_hint(
+                'geometry-intake.derive',
+                '派生リビジョンを生成できません: '
+                + (
+                    derive_blocked
+                    or '修復提案への決定がまだ完了していません'
+                ),
+                derive_resolution
+                or '各修復提案の承認/却下をすべて記録してください',
+            )
+            hints.append(hint)
+            self.derive_button.setToolTip(hint)
+        self.stage_hint.setText('\n'.join(hints))
+        self.stage_hint.setVisible(bool(hints))
 
     def mark_decided(self, action_id: str) -> None:
         """Disable the accept/reject controls for a decided action."""
+        if action_id in self._decided_actions:
+            return
         self._decided_actions.add(action_id)
         if self._proposal is None:
             return
@@ -316,6 +417,11 @@ class GeometryIntakePanel(QWidget):
                 widget = self.proposal_table.cellWidget(row, column)
                 if widget is not None:
                     widget.setEnabled(False)
+        # #975: a persisted decision is a meaningful state change —
+        # announced once per action, not on every re-render.
+        self._announcer.announce(
+            'save_state', '修復提案への決定を記録しました'
+        )
 
     def set_proposal(
         self, proposal: GeometryRepairProposal | None
@@ -328,21 +434,26 @@ class GeometryIntakePanel(QWidget):
             or proposal.proposal_id != self._proposal.proposal_id
         ):
             self._decided_actions.clear()
+        token = capture_focus(self)
         self._proposal = proposal
         self.proposal_table.setRowCount(0)
         self._action_rows = {}
         if proposal is None:
+            restore_focus(self, token, fallback=self.derive_button)
+            self._announcer.announce_state(
+                'proposal', None, 'operation_completed', ''
+            )
             return
         for action in proposal.actions:
             row = self.proposal_table.rowCount()
             self.proposal_table.insertRow(row)
             self._action_rows[action.action_id] = row
-            self.proposal_table.setItem(
-                row, 0,
-                QTableWidgetItem(
-                    geometry_intake_label(f'repair.{action.kind}')
-                ),
+            repair_item = QTableWidgetItem(
+                geometry_intake_label(f'repair.{action.kind}')
             )
+            # #975: the row's stable identity for focus retention.
+            repair_item.setData(STABLE_ID_ROLE, action.action_id)
+            self.proposal_table.setItem(row, 0, repair_item)
             target = action.target_part_id or action.target_opening_id or '—'
             self.proposal_table.setItem(
                 row, 1, QTableWidgetItem(target)
@@ -354,14 +465,32 @@ class GeometryIntakePanel(QWidget):
                     else '自動'
                 ),
             )
-            self.proposal_table.setCellWidget(
-                row, 3, self._parameter_editor(action)
+            params_widget = self._parameter_editor(action)
+            params_widget.setObjectName(
+                f'intake-params:{action.action_id}'
             )
+            self.proposal_table.setCellWidget(row, 3, params_widget)
             accept = QPushButton(geometry_intake_label('ui.accept'))
             reject = QPushButton(geometry_intake_label('ui.reject'))
+            # #975: per-action objectNames let a focus token re-resolve
+            # to the rebuilt button for the same action id.
+            accept.setObjectName(f'intake-accept:{action.action_id}')
+            reject.setObjectName(f'intake-reject:{action.action_id}')
+            accept.setAccessibleName(
+                f'{geometry_intake_label(f"repair.{action.kind}")} を承認'
+            )
+            reject.setAccessibleName(
+                f'{geometry_intake_label(f"repair.{action.kind}")} を却下'
+            )
             if action.action_id in self._decided_actions:
                 accept.setEnabled(False)
                 reject.setEnabled(False)
+                decided_tip = (
+                    'この提案への決定は記録済みです — '
+                    'やり直す場合は受理レコードを見直してください'
+                )
+                accept.setToolTip(decided_tip)
+                reject.setToolTip(decided_tip)
             accept.clicked.connect(
                 lambda _=False, aid=action.action_id, r=row:
                 self._request_decision(aid, 'accepted', r)
@@ -372,6 +501,13 @@ class GeometryIntakePanel(QWidget):
             )
             self.proposal_table.setCellWidget(row, 4, accept)
             self.proposal_table.setCellWidget(row, 5, reject)
+        restore_focus(self, token, fallback=self.derive_button)
+        self._announcer.announce_state(
+            'proposal',
+            proposal.proposal_id,
+            'operation_completed',
+            f'修復提案を受け取りました — {len(proposal.actions)} 件の操作',
+        )
 
     def focus_proposal_actions(self, action_ids) -> None:
         """Select + scroll to the proposal rows for the given actions —
@@ -400,7 +536,31 @@ class GeometryIntakePanel(QWidget):
         if verdict is None:
             self.verdict_value.setText('—')
             self.readiness_reasons.setText('')
+            self._announcer.announce_state(
+                'verdict', None, 'operation_completed', ''
+            )
             return
+        # #975: a verdict (or its evidence going stale) is announced
+        # once per verdict/evidence-state pair — re-syncs of unchanged
+        # state stay silent.
+        stale = evidence_state is not None and evidence_state != 'current'
+        if stale:
+            self._announcer.announce_state(
+                'verdict',
+                f'{verdict.verdict_id}|{evidence_state}',
+                'result_stale',
+                'ソルバー適合性の証拠が最新ではありません — '
+                f'{_verdict_label(verdict.verdict)}。'
+                '再診断で確認してください',
+            )
+        else:
+            self._announcer.announce_state(
+                'verdict',
+                f'{verdict.verdict_id}|{evidence_state or "current"}',
+                'operation_completed',
+                'ソルバー適合性が判定されました: '
+                f'{_verdict_label(verdict.verdict)}',
+            )
         verdict_text = _verdict_label(verdict.verdict)
         if evidence_state is not None and evidence_state != 'current':
             verdict_text += (
@@ -429,6 +589,9 @@ class GeometryIntakePanel(QWidget):
                 _severity_label(defect.severity)
             )
             severity_item.setData(Qt.ItemDataRole.UserRole, defect)
+            # #975: UserRole carries the whole defect; the focus token
+            # reads the stable defect_id from STABLE_ID_ROLE.
+            severity_item.setData(STABLE_ID_ROLE, defect.defect_id)
             table.setItem(row, 0, severity_item)
             table.setItem(
                 row, 1, QTableWidgetItem(_defect_kind_label(defect.kind))
@@ -456,9 +619,15 @@ class GeometryIntakePanel(QWidget):
 
     def _sync_locate_enabled(self) -> None:
         defect = self._selected_defect()
-        self.locate_button.setEnabled(
-            defect is not None and bool(defect_locate_targets(defect))
+        enabled = defect is not None and bool(
+            defect_locate_targets(defect)
         )
+        self.locate_button.setEnabled(enabled)
+        if not enabled:
+            self.locate_button.setToolTip(
+                '一覧で位置情報を持つ欠陥を選択すると、'
+                'その位置を3Dビューで確認できます。'
+            )
 
     def _emit_locate(self) -> None:
         defect = self._selected_defect()
@@ -467,6 +636,20 @@ class GeometryIntakePanel(QWidget):
         targets = defect_locate_targets(defect)
         if targets:
             self.locateRequested.emit(targets)
+
+    def _emit_diagnose(self) -> None:
+        # #975: the busy leg of the lifecycle — the request queues to
+        # the controller; completion arrives via set_report.
+        self._announcer.announce(
+            'operation_queued', '診断を開始しました'
+        )
+        self.diagnoseRequested.emit()
+
+    def _emit_derive(self) -> None:
+        self._announcer.announce(
+            'operation_queued', '派生リビジョンの生成を開始しました'
+        )
+        self.deriveRequested.emit()
 
     # -- per-action operator parameters -----------------------------------
 
@@ -478,6 +661,9 @@ class GeometryIntakePanel(QWidget):
         if action.kind == 'assign_material':
             editor = QLineEdit()
             editor.setPlaceholderText('材質名')
+            editor.setAccessibleName(
+                f'{geometry_intake_label("repair.assign_material")} の材質名'
+            )
             form.addWidget(editor)
         elif action.kind == 'resolve_portal':
             editor = QComboBox()

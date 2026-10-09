@@ -347,6 +347,19 @@ def _derive_footprint(
     )
 
 
+def derive_treatment_footprint(
+    placement: AcousticTreatmentPlacement,
+    geometry: SemanticAcousticGeometry,
+) -> TreatmentFootprint | None:
+    """Public derivation entry for read-only consumers (#1009).
+
+    Read-only surfaces (the Room viewport coverage overlay) derive the same
+    clipped patch the solver binds — never a caller-drawn rectangle.
+    """
+
+    return _derive_footprint(placement, geometry)
+
+
 def _acoustic_model_ref(
     definition: AcousticTreatmentDefinition,
 ) -> ExactExternalAuthorityRef | None:

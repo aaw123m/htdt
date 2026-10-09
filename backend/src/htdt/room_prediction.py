@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from datetime import datetime, timezone
+import logging
 import sqlite3
 from threading import Event
+from time import perf_counter
 
 from PySide6.QtCore import QObject, QThread, Qt, Signal, Slot
 from PySide6.QtGui import QColor
@@ -42,7 +45,10 @@ from .cad_acoustic_environment import (
     AcousticEnvironmentProfile,
     CadAcousticEnvironmentRepository,
 )
+from .cad_authority_resolver import AuthorityRef
+from .cad_compute_budget import ComputeObservation
 from .cad_constraint_repository import CadConstraintRepository
+from .cad_field_metric_repository import CadFieldMetricRepository
 from .cad_prediction_jobs import PredictionJobApplyContext, PredictionJobGuard, PredictionJobToken
 from .cad_prediction_models import CadPredictionResult
 from .cad_hybrid_prediction_provider import (
@@ -72,7 +78,18 @@ from .cad_prediction_request import (
     rectangular_geometry_environment_profile_ref,
     rectangular_geometry_request_identity,
 )
-from .cad_predictions import analyze_native_rectangular_geometry
+from .cad_predictions import (
+    RECTANGULAR_GEOMETRY_MODEL_VERSION,
+    analyze_native_rectangular_geometry,
+    exact_rectangular_room_frame,
+)
+from .cad_prerun_estimate import (
+    PrerunEstimate,
+    estimate_prerun_cost,
+    plan_for_provider_prediction,
+    plan_for_rectangular_prediction,
+    record_prerun_observation,
+)
 from .cad_repository import SceneRepository, SceneRevision
 from .cad_room_operating_state import (
     RoomOperatingState,
@@ -99,6 +116,8 @@ from .native_worker import (
     NativeWorkerPool,
     WorkerShutdownReport,
 )
+from .perf_budget import _total_memory_bytes
+from .perf_harness import process_rss_bytes
 from .r120_geometry_compiler import ExactExternalAuthorityRef
 from .user_facing_error import operation_error_message
 from .room_prediction_options import (
@@ -120,7 +139,19 @@ from .prediction_interpretation import (
     interpret_prediction_results,
 )
 from .prediction_matrix_service import PredictionMatrixService
+from .prerun_cost_card import PrerunCostCard
 from .room_workspace import RoomWorkspaceController
+from .activity_center import (
+    ActivityCenter,
+    ApplicationOperation,
+    Cancellability,
+    NavigationPolicy,
+    OperationClass,
+    OperationRetryRequest,
+    OperationTransitionError,
+    RetryPolicy,
+)
+from .workflow_navigation import WorkspaceDeepLink, WorkspaceId
 from .ui_theme import (
     DARK_THEME,
     SemanticState,
@@ -130,6 +161,8 @@ from .ui_theme import (
     set_surface_role,
     set_typography_role,
 )
+
+_LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -188,6 +221,7 @@ class RoomPredictionController(QObject):
         operating_state_repository: CadRoomOperatingStateRepository | None = None,
         variant_repository: CadSystemVariantRepository | None = None,
         hybrid_provider_repository: CadHybridPredictionProviderRepository | None = None,
+        activity_center: ActivityCenter | None = None,
     ) -> None:
         super().__init__(parent)
         self.scene_repository = scene_repository
@@ -233,11 +267,24 @@ class RoomPredictionController(QObject):
         self._operation = operation or self._analyze
         self._tokens: dict[str, PredictionJobToken] = {}
         self._specs: dict[str, RoomPredictionRunSpec] = {}
+        # #991: per-job sealed estimate + wall-clock start so the accepted
+        # run can bind an honest measured observation to its estimate.
+        self._prerun_estimates: dict[str, PrerunEstimate | None] = {}
+        self._run_started: dict[str, float] = {}
+        self._field_metric_repository: CadFieldMetricRepository | None = (
+            None
+        )
         self._pool = NativeWorkerPool(self)
         self._completion_states: dict[str, RoomPredictionRunState] = {}
         self._current_job_id: str | None = None
         self._selected_run_id: str | None = None
         self._disposed = False
+        # #974: every pool job is canonically registered in the app
+        # ActivityCenter — job_id → operation_id for completion mapping,
+        # operation_id → spec for SAFE_NEW_ATTEMPT retries.
+        self._activity_center = activity_center
+        self._operation_ids: dict[str, str] = {}
+        self._retry_specs: dict[str, RoomPredictionRunSpec] = {}
 
     @property
     def _tasks(self) -> dict[str, tuple[QThread, NativeWorker]]:
@@ -255,6 +302,14 @@ class RoomPredictionController(QObject):
     @property
     def selected_run_id(self) -> str | None:
         return self._selected_run_id
+
+    @property
+    def field_metric_repository(self) -> CadFieldMetricRepository:
+        if self._field_metric_repository is None:
+            self._field_metric_repository = CadFieldMetricRepository(
+                self.scene_repository
+            )
+        return self._field_metric_repository
 
     def receiver_options(
         self,
@@ -603,6 +658,19 @@ class RoomPredictionController(QObject):
                 return provider
         return None
 
+    def _runnable_provider(
+        self,
+        option: RoomPredictionModelOption,
+    ) -> 'LowBandPredictionProvider | HybridPredictionProvider':
+        provider = (
+            None
+            if option.provider_id is None
+            else self._provider_by_id(option.provider_id)
+        )
+        if provider is None:
+            raise ValueError('プロバイダー権威が見つかりません')
+        return provider
+
     def _prepare_provider_run(
         self,
         receiver_entity_id: str,
@@ -643,13 +711,7 @@ class RoomPredictionController(QObject):
             raise ValueError(
                 '選択した予測レーンはこのシーンリビジョンでは実行できません'
             )
-        provider = (
-            None
-            if option.provider_id is None
-            else self._provider_by_id(option.provider_id)
-        )
-        if provider is None:
-            raise ValueError('プロバイダー権威が見つかりません')
+        provider = self._runnable_provider(option)
         identity = provider_response_request_identity(
             provider,
             revision,
@@ -771,6 +833,305 @@ class RoomPredictionController(QObject):
             system_variant=variant,
         )
 
+    # ------------------------------------------------------------------
+    # Pre-run compute estimate (#991): the same resolution paths as
+    # prepare_run/_prepare_provider_run, minus the job token — estimates
+    # are advisory until a run is committed; only a committed run's
+    # estimate is persisted.
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _provider_sample_count(
+        provider: 'LowBandPredictionProvider | HybridPredictionProvider',
+        receiver_entity_id: str,
+    ) -> int | None:
+        """Frequency-sample count driving provider replay cost.
+
+        Honest ``None`` when the provider's stored response cannot be
+        read cheaply — the estimate marks the axis missing instead of
+        fabricating a count.
+        """
+        # R170B hybrid providers store their exact output grid inline; the
+        # replay lane band-selects over absolute_pressure_samples.
+        samples = getattr(provider, 'absolute_pressure_samples', None)
+        if samples is not None:
+            try:
+                return int(len(samples))
+            except TypeError:
+                pass
+        try:
+            response = provider.frequency_response(receiver_entity_id)
+        except Exception:  # noqa: BLE001 - any read failure is 'missing'
+            return None
+        frequencies = getattr(response, 'frequency_hz', None)
+        if frequencies is None:
+            return None
+        try:
+            return int(len(frequencies))
+        except TypeError:
+            return None
+
+    def _device_budget(
+        self,
+    ) -> tuple[dict[str, float] | None, float | None]:
+        total = _total_memory_bytes()
+        if total is None:
+            return None, None
+        return {'peak_memory_bytes': float(total)}, float(total)
+
+    def _plan_for_spec(self, spec: RoomPredictionRunSpec):
+        """The sealed job plan for an exact prepared run spec."""
+        revision = spec.revision
+        if spec.provider is not None:
+            return plan_for_provider_prediction(
+                document_id=revision.document_id,
+                scene_revision_id=revision.revision_id,
+                scene_content_hash=revision.content_hash,
+                receiver_entity_id=spec.receiver_entity_id,
+                provider_id=spec.provider.provider_id,
+                provider_version=str(
+                    getattr(spec.provider, 'adapter_version', '')
+                ),
+                provider_semantic_sha256=spec.provider.semantic_sha256,
+                max_mode_hz=spec.max_mode_hz,
+                provider_sample_count=self._provider_sample_count(
+                    spec.provider, spec.receiver_entity_id
+                ),
+            )
+        document = revision.document
+        if spec.system_variant is not None:
+            document = materialize_system_variant(
+                revision, spec.system_variant
+            )
+        room = getattr(document, 'room', None)
+        frame = (
+            exact_rectangular_room_frame(room)
+            if room is not None
+            else None
+        )
+        speakers = sum(
+            1 for entity in document.entities if entity.kind == 'speaker'
+        )
+        return plan_for_rectangular_prediction(
+            document_id=revision.document_id,
+            scene_revision_id=revision.revision_id,
+            scene_content_hash=revision.content_hash,
+            receiver_entity_id=spec.receiver_entity_id,
+            room_width_m=(None if frame is None else frame.width_m),
+            room_depth_m=(None if frame is None else frame.depth_m),
+            room_height_m=(None if frame is None else frame.height_m),
+            speaker_count=speakers,
+            max_mode_hz=spec.max_mode_hz,
+            sound_speed_m_s=spec.sound_speed_m_s or 343.0,
+            solver_version=RECTANGULAR_GEOMETRY_MODEL_VERSION,
+        )
+
+    def _persist_prerun_estimate(
+        self, spec: RoomPredictionRunSpec
+    ) -> PrerunEstimate:
+        limits, device_memory = self._device_budget()
+        estimate = estimate_prerun_cost(
+            self._plan_for_spec(spec),
+            budget_limits=limits,
+            device_memory_bytes=device_memory,
+        )
+        try:
+            self.field_metric_repository.save_prerun_estimate(estimate)
+        except (sqlite3.Error, ValueError) as exc:
+            _LOGGER.warning(
+                'pre-run estimate persistence failed: %s', exc
+            )
+        return estimate
+
+    def _begin_prerun_measurement(
+        self, spec: RoomPredictionRunSpec
+    ) -> None:
+        """Seal+persist the run's estimate and start the wall clock."""
+        try:
+            estimate = self._persist_prerun_estimate(spec)
+        except Exception:  # noqa: BLE001 - estimation is advisory
+            _LOGGER.warning('pre-run estimate failed', exc_info=True)
+            estimate = None
+        self._prerun_estimates[spec.token.job_id] = estimate
+        self._run_started[spec.token.job_id] = perf_counter()
+
+    def _record_run_observation(
+        self,
+        estimate: PrerunEstimate | None,
+        started_at: float | None,
+        accepted: tuple[CadPredictionResult, ...] | None,
+    ) -> None:
+        """Record a real measured observation bound to the run+estimate.
+
+        Called only on the accepted-success path — cancel/failure runs
+        never mint observations, so a failed run can never masquerade as
+        a successful prediction cost sample.
+        """
+        if estimate is None or started_at is None or not accepted:
+            return
+        elapsed_s = perf_counter() - started_at
+        if elapsed_s <= 0:
+            return
+        first = accepted[0]
+        try:
+            observation = record_prerun_observation(
+                document_id=self.document_id,
+                estimate=estimate,
+                run_ref=AuthorityRef(
+                    kind='prediction_run',
+                    ref_id=first.run_id,
+                    ref_sha256=first.result_sha256,
+                ),
+                runtime_s=elapsed_s,
+                process_rss_bytes=process_rss_bytes(),
+                hardware_label='windows-box',
+                observed_at_utc=datetime.now(timezone.utc).isoformat(
+                    timespec='seconds'
+                ),
+            )
+            self.field_metric_repository.save_compute_observation(
+                observation
+            )
+        except (ValueError, sqlite3.Error) as exc:
+            _LOGGER.warning(
+                'pre-run observation recording failed: %s', exc
+            )
+
+    def prerun_estimate(
+        self,
+        receiver_entity_id: str,
+        *,
+        model_key: str = RECTANGULAR_MODEL_KEY,
+        max_mode_hz: float = 300.0,
+        environment_profile_id: str | None = None,
+        operating_state_id: str | None = None,
+        operating_state_version: str | None = None,
+        allow_source_receiver: bool = False,
+        system_variant_id: str | None = None,
+    ) -> PrerunEstimate:
+        """Advisory pre-run estimate for the config these inputs run.
+
+        Mirrors ``prepare_run``/``_prepare_provider_run`` resolution so
+        the estimate reads the exact configuration the operator would
+        commit — but submits no job token and persists nothing.
+        """
+        if model_key != RECTANGULAR_MODEL_KEY:
+            variant = self._resolve_prediction_variant(system_variant_id)
+            if variant is not None:
+                raise ValueError(
+                    'プロバイダーレーンはベースのシーンリビジョンに固定されています '
+                    '(提案バリアントにはプロバイダー証拠がありません)'
+                )
+            revision = self._saved_target(
+                receiver_entity_id,
+                allow_source_receiver=allow_source_receiver,
+            )
+            options = {
+                option.model_key: option
+                for option in resolve_room_prediction_options(
+                    revision,
+                    receiver_entity_id,
+                    providers=self.available_providers(),
+                    hybrid_providers=self.available_hybrid_providers(),
+                    max_mode_hz=max_mode_hz,
+                )
+            }
+            option = options.get(model_key)
+            if option is None or option.state != 'READY' or not option.runnable:
+                raise ValueError(
+                    '選択した予測レーンはこのシーンリビジョンでは実行できません'
+                )
+            provider = self._runnable_provider(option)
+            plan = plan_for_provider_prediction(
+                document_id=revision.document_id,
+                scene_revision_id=revision.revision_id,
+                scene_content_hash=revision.content_hash,
+                receiver_entity_id=receiver_entity_id,
+                provider_id=provider.provider_id,
+                provider_version=str(
+                    getattr(provider, 'adapter_version', '')
+                ),
+                provider_semantic_sha256=provider.semantic_sha256,
+                max_mode_hz=max_mode_hz,
+                provider_sample_count=self._provider_sample_count(
+                    provider, receiver_entity_id
+                ),
+            )
+        else:
+            variant = self._resolve_prediction_variant(system_variant_id)
+            revision = self._saved_target(
+                receiver_entity_id,
+                allow_source_receiver=allow_source_receiver,
+                system_variant=variant,
+            )
+            environment = self._resolve_environment(environment_profile_id)
+            sound_speed_m_s: float | None = None
+            if environment is not None:
+                if environment.sound_speed_m_s is None:
+                    raise ValueError(
+                        '選択中の環境プロファイルの音速が不明です '
+                        '(不明な値を捏造せず予測をブロックします)'
+                    )
+                sound_speed_m_s = environment.sound_speed_m_s
+            resolved_sound_speed = (
+                float(sound_speed_m_s)
+                if sound_speed_m_s is not None
+                else 343.0
+            )
+            # Operating state still resolves — fail-closed identity checks
+            # apply to the preview just as they do to the real run.
+            operating_state = self._resolve_operating_state(
+                operating_state_id, operating_state_version
+            )
+            if (
+                operating_state is not None
+                and operating_state.scene_revision_id
+                != revision.revision_id
+            ):
+                raise ValueError(
+                    '選択した部屋状態は現在のシーンリビジョンに固定されていません '
+                    '(現在のシーン用の状態を選択してください)'
+                )
+            document = revision.document
+            if variant is not None:
+                document = materialize_system_variant(revision, variant)
+            room = getattr(document, 'room', None)
+            frame = (
+                exact_rectangular_room_frame(room)
+                if room is not None
+                else None
+            )
+            speakers = sum(
+                1
+                for entity in document.entities
+                if entity.kind == 'speaker'
+            )
+            plan = plan_for_rectangular_prediction(
+                document_id=revision.document_id,
+                scene_revision_id=revision.revision_id,
+                scene_content_hash=revision.content_hash,
+                receiver_entity_id=receiver_entity_id,
+                room_width_m=(None if frame is None else frame.width_m),
+                room_depth_m=(None if frame is None else frame.depth_m),
+                room_height_m=(None if frame is None else frame.height_m),
+                speaker_count=speakers,
+                max_mode_hz=max_mode_hz,
+                sound_speed_m_s=resolved_sound_speed,
+                solver_version=RECTANGULAR_GEOMETRY_MODEL_VERSION,
+            )
+        limits, device_memory = self._device_budget()
+        return estimate_prerun_cost(
+            plan,
+            budget_limits=limits,
+            device_memory_bytes=device_memory,
+        )
+
+    def prerun_observations(
+        self, estimate: PrerunEstimate
+    ) -> tuple[ComputeObservation, ...]:
+        """Past measured observations bound to the same plan estimate."""
+        return self.field_metric_repository.prerun_observations(estimate)
+
     @staticmethod
     def _analyze(
         spec: RoomPredictionRunSpec,
@@ -858,12 +1219,14 @@ class RoomPredictionController(QObject):
                 self._tokens[spec.token.job_id] = spec.token
                 self._specs[spec.token.job_id] = spec
                 self._current_job_id = spec.token.job_id
+                self._begin_prerun_measurement(spec)
                 self.stateChanged.emit(
                     RoomPredictionRunState(
                         True,
                         "登録済みプロバイダー出力を参照しています…",
                     )
                 )
+                self._register_operation(spec)
                 self._pool.start(
                     spec.token.job_id,
                     lambda cancel_event: self._operation(spec, cancel_event),
@@ -901,7 +1264,9 @@ class RoomPredictionController(QObject):
         self._tokens[spec.token.job_id] = spec.token
         self._specs[spec.token.job_id] = spec
         self._current_job_id = spec.token.job_id
+        self._begin_prerun_measurement(spec)
         self.stateChanged.emit(RoomPredictionRunState(True, "予測を計算しています…"))
+        self._register_operation(spec)
         self._pool.start(
             spec.token.job_id,
             lambda cancel_event: self._operation(spec, cancel_event),
@@ -914,11 +1279,18 @@ class RoomPredictionController(QObject):
         job_id = self._current_job_id
         if job_id is None:
             return False
+        return self._cancel_job(job_id)
+
+    def _cancel_job(self, job_id: str) -> bool:
+        """Cooperative cancel of one job — also the ActivityCenter callback (#974)."""
         token = self._tokens.get(job_id)
         if token is not None:
             self.job_guard.cancel(token)
         self._pool.cancel(job_id)
-        self._current_job_id = None
+        if self._current_job_id == job_id:
+            self._current_job_id = None
+        self._prerun_estimates.pop(job_id, None)
+        self._run_started.pop(job_id, None)
         self.stateChanged.emit(
             RoomPredictionRunState(
                 True,
@@ -926,6 +1298,134 @@ class RoomPredictionController(QObject):
             )
         )
         return True
+
+    # -- ActivityCenter registration (#974) -------------------------------
+
+    def _register_operation(
+        self,
+        spec: RoomPredictionRunSpec,
+        *,
+        operation_id: str | None = None,
+        retry_of: str | None = None,
+        attempt: int = 1,
+    ) -> str | None:
+        """Canonically register one pool dispatch before it starts.
+
+        Progress stays INDETERMINATE — the solver reports no stage/fraction
+        and the strip/page show honest 進行中 instead of an invented %.
+        """
+
+        center = self._activity_center
+        if center is None:
+            return None
+        job_id = spec.token.job_id
+        try:
+            operation_id = center.submit(
+                operation_kind='prediction.run',
+                operation_class=OperationClass.COMPUTE,
+                title="部屋の音響予測",
+                project_ref=self.document_id,
+                document_ref=self.document_id,
+                input_authority_refs=(
+                    f'scene-revision:{spec.revision.revision_id}',
+                ),
+                revision_ref=spec.revision.revision_id,
+                cancellability=Cancellability.CANCELLABLE,
+                cancel_callback=lambda: self._cancel_job(job_id),
+                retry_policy=RetryPolicy.SAFE_NEW_ATTEMPT,
+                navigation_policy=NavigationPolicy.BACKGROUNDABLE,
+                deep_link=WorkspaceDeepLink(WorkspaceId.ROOM, 'acoustics'),
+                domain_payload={'retry': self._retry_run},
+                operation_id=operation_id,
+                retry_of=retry_of,
+                attempt=attempt,
+            )
+            center.mark_running(operation_id)
+        except OperationTransitionError:
+            return None
+        self._operation_ids[job_id] = operation_id
+        self._retry_specs[operation_id] = spec
+        return operation_id
+
+    def _finish_operation(
+        self,
+        job_id: str,
+        *,
+        cancelled: bool = False,
+        error: object = None,
+        result_summary: str | None = None,
+    ) -> None:
+        """Map the worker outcome onto the registered operation (#974).
+
+        Registry bookkeeping never blocks the completion path — a transition
+        error here only means the record already reached its terminal state.
+        """
+
+        operation_id = self._operation_ids.pop(job_id, None)
+        center = self._activity_center
+        if operation_id is None or center is None:
+            return
+        try:
+            if cancelled:
+                center.confirm_cancelled(operation_id)
+            elif error is not None:
+                center.fail(
+                    operation_id,
+                    error_summary=operation_error_message(error),
+                )
+            else:
+                center.complete(operation_id, result_summary=result_summary)
+        except (KeyError, OperationTransitionError):
+            pass
+
+    def _retry_run(
+        self, operation: ApplicationOperation, new_operation_id: str
+    ) -> OperationRetryRequest | None:
+        """SAFE_NEW_ATTEMPT adapter: resubmit the stored spec under a new
+        attempt identity pre-bound to ``new_operation_id`` (#974).
+
+        The spec's original revision/identity are kept — ``accept_results``
+        still gates on the CURRENT context at apply time, so a retried run
+        whose input was superseded is discarded honestly, never applied.
+        """
+
+        if self._disposed or self.is_busy or self._activity_center is None:
+            return None
+        spec = self._retry_specs.get(operation.operation_id)
+        if spec is None:
+            return None
+        constraint_hash = self._constraint_hash()
+        token = self.job_guard.submit(
+            spec.revision,
+            model_id=spec.identity.model_id,
+            model_version=spec.identity.model_version,
+            parameters_json=spec.identity.parameters_json,
+            input_hash=spec.identity.input_hash,
+            constraint_workspace_hash=constraint_hash,
+        )
+        new_spec = replace(
+            spec, token=token, constraint_workspace_hash=constraint_hash
+        )
+        job_id = token.job_id
+        self._tokens[job_id] = token
+        self._specs[job_id] = new_spec
+        self._current_job_id = job_id
+        self._begin_prerun_measurement(new_spec)
+        self._operation_ids[job_id] = new_operation_id
+        self._retry_specs[new_operation_id] = new_spec
+        self.stateChanged.emit(
+            RoomPredictionRunState(True, "予測を再実行しています…")
+        )
+        self._pool.start(
+            job_id,
+            lambda cancel_event: self._operation(new_spec, cancel_event),
+            self._task_completed,
+            on_finished=self._task_thread_finished,
+        )
+        return OperationRetryRequest(
+            cancel_callback=lambda: self._cancel_job(job_id),
+            domain_payload={'retry': self._retry_run},
+        )
 
     def _current_apply_context(self) -> PredictionJobApplyContext | None:
         working = self.room_controller.working
@@ -983,9 +1483,12 @@ class RoomPredictionController(QObject):
         job_id = str(key)
         token = self._tokens.pop(job_id, None)
         spec = self._specs.pop(job_id, None)
+        estimate = self._prerun_estimates.pop(job_id, None)
+        started_at = self._run_started.pop(job_id, None)
         if self._current_job_id == job_id:
             self._current_job_id = None
         if token is None or spec is None:
+            self._finish_operation(job_id, cancelled=True)
             self._completion_states[job_id] = RoomPredictionRunState(
                 False,
                 "予測処理を終了しました",
@@ -995,12 +1498,14 @@ class RoomPredictionController(QObject):
         final_state: RoomPredictionRunState
         if self.job_guard.is_cancelled(token) or error == WORKER_CANCELLED:
             final_state = RoomPredictionRunState(False, "予測はキャンセルされました")
+            self._finish_operation(job_id, cancelled=True)
         elif error is not None:
             final_state = RoomPredictionRunState(
                 False,
                 f"予測に失敗しました · {operation_error_message(error)}",
                 error=True,
             )
+            self._finish_operation(job_id, error=error)
         else:
             try:
                 accepted = self.accept_results(spec, result)
@@ -1010,19 +1515,28 @@ class RoomPredictionController(QObject):
                     f"予測結果を拒否しました · {operation_error_message(exc)}",
                     error=True,
                 )
+                self._finish_operation(job_id, error=exc)
             except sqlite3.Error as exc:
                 final_state = RoomPredictionRunState(
                     False,
                     f"予測結果を保存できませんでした · {operation_error_message(exc)}",
                     error=True,
                 )
+                self._finish_operation(job_id, error=exc)
             else:
                 if accepted is None:
                     final_state = RoomPredictionRunState(
                         False,
                         "条件が変更されたため古い予測結果を破棄しました",
                     )
+                    self._finish_operation(
+                        job_id,
+                        result_summary="条件が変更されたため古い予測結果を破棄しました",
+                    )
                 else:
+                    self._record_run_observation(
+                        estimate, started_at, accepted
+                    )
                     self.resultsChanged.emit()
                     self.runSelected.emit(accepted)
                     compatibility = accepted[0].geometry_compatibility
@@ -1033,6 +1547,10 @@ class RoomPredictionController(QObject):
                             if compatibility == "unsupported"
                             else "予測を保存しました"
                         ),
+                    )
+                    self._finish_operation(
+                        job_id,
+                        result_summary=f"予測を保存しました（{len(accepted)}件）",
                     )
 
         # Keep the worker visible as busy until QThread has actually emitted
@@ -1221,8 +1739,10 @@ class RoomPredictionController(QObject):
         return self.select_run(self._selected_run_id)
 
     def before_deactivate(self) -> tuple[bool, str | None]:
-        if self.is_busy:
-            return False, "予測の完了またはキャンセル後に画面を切り替えてください"
+        # #974: prediction runs are BACKGROUNDABLE operations — the mount
+        # persists across workspace switches, the job keeps running, and
+        # the Activity strip/page keep its state visible. Late results
+        # still gate through accept_results() on re-entry.
         return True, None
 
     def stop(self) -> WorkerShutdownReport:
@@ -1233,11 +1753,15 @@ class RoomPredictionController(QObject):
         escalation so the operator can abandon wedged prediction work and
         keep editing instead of being permanently vetoed (#REV19/D1).
         """
+        self._request_operation_cancels()
         for token in tuple(self._tokens.values()):
             self.job_guard.cancel(token)
         report = self._pool.stop_all()
+        self._confirm_operation_cancels()
         self._tokens.clear()
         self._specs.clear()
+        self._prerun_estimates.clear()
+        self._run_started.clear()
         self._completion_states.clear()
         self._current_job_id = None
         self.stateChanged.emit(
@@ -1250,11 +1774,43 @@ class RoomPredictionController(QObject):
         )
         return report
 
+    def _request_operation_cancels(self) -> None:
+        """Mark every registered op CANCELLATION_REQUESTED pre-drain (#974)."""
+
+        center = self._activity_center
+        if center is None:
+            return
+        for operation_id in tuple(self._operation_ids.values()):
+            try:
+                center.request_cancel(operation_id)
+            except (KeyError, OperationTransitionError):
+                pass
+
+    def _confirm_operation_cancels(self) -> None:
+        """Confirm CANCELLED once the pool has drained (#974).
+
+        A job that outlives the drain budget is still confirmed here: its
+        late completion is dropped by the released-task contract and can
+        never be applied, so CANCELLED is the honest terminal state.
+        """
+
+        center = self._activity_center
+        if center is None:
+            return
+        for operation_id in tuple(self._operation_ids.values()):
+            try:
+                center.confirm_cancelled(operation_id)
+            except (KeyError, OperationTransitionError):
+                pass
+        self._operation_ids.clear()
+
     def dispose(self) -> None:
         self._disposed = True
+        self._request_operation_cancels()
         for token in tuple(self._tokens.values()):
             self.job_guard.cancel(token)
         report = self._pool.shutdown()
+        self._confirm_operation_cancels()
         if not report.all_stopped:
             self.stateChanged.emit(
                 RoomPredictionRunState(
@@ -1264,6 +1820,8 @@ class RoomPredictionController(QObject):
             )
         self._tokens.clear()
         self._specs.clear()
+        self._prerun_estimates.clear()
+        self._run_started.clear()
         self._completion_states.clear()
         self._current_job_id = None
 
@@ -1353,6 +1911,7 @@ class RoomPredictionPanel(QWidget):
         self.max_mode.setToolTip(
             '計算する部屋モードの上限周波数（Hz）· 高いほど細かいが計算が重くなります'
         )
+        self.max_mode.valueChanged.connect(self._option_changed)
         form.addRow("モード上限", self.max_mode)
         self.environment = QComboBox()
         self.environment.setMinimumContentsLength(12)
@@ -1396,6 +1955,12 @@ class RoomPredictionPanel(QWidget):
         set_typography_role(self.option_state, TypographyRole.SECONDARY)
         form.addRow("状態", self.option_state)
         layout.addLayout(form)
+
+        # #991: pre-run compute-cost card — the exact config the operator
+        # is about to commit, its estimated runtime/memory ranges, and
+        # explicit blocking/warning reasons before the run starts.
+        self.prerun_card = PrerunCostCard(self)
+        layout.addWidget(self.prerun_card)
 
         action_row = QHBoxLayout()
         self.run_button = QPushButton("予測実行")
@@ -1570,6 +2135,7 @@ class RoomPredictionPanel(QWidget):
         self.receiver.blockSignals(False)
         self._refresh_environments()
         self._refresh_models()
+        self._refresh_prerun_card()
 
         self.runs.clear()
         selected_item = None
@@ -1607,6 +2173,16 @@ class RoomPredictionPanel(QWidget):
                 RoomPredictionRunState(False, "受音点を選択してください", error=True)
             )
             return False
+        self._refresh_prerun_card()
+        if self.prerun_card.blocking:
+            self._state_changed(
+                RoomPredictionRunState(
+                    False,
+                    "見積もりが実行をブロックしています · 条件を調整してください",
+                    error=True,
+                )
+            )
+            return False
         environment_id = self.environment.currentData()
         return self.controller.start(
             str(receiver),
@@ -1618,12 +2194,48 @@ class RoomPredictionPanel(QWidget):
             allow_source_receiver=self.source_receiver.isChecked(),
         )
 
+    def _refresh_prerun_card(self) -> None:
+        """Refresh the #991 estimate card for the current inputs.
+
+        Advisory only — the estimate is recomputed, never persisted, on
+        each option change; only a committed run persists its record.
+        """
+        receiver = self.receiver.currentData()
+        if receiver is None:
+            self.prerun_card.clear()
+            return
+        try:
+            estimate = self.controller.prerun_estimate(
+                str(receiver),
+                model_key=str(
+                    self.model.currentData() or RECTANGULAR_MODEL_KEY
+                ),
+                max_mode_hz=float(self.max_mode.value()),
+                environment_profile_id=(
+                    None
+                    if self.environment.currentData() is None
+                    else str(self.environment.currentData())
+                ),
+                allow_source_receiver=self.source_receiver.isChecked(),
+            )
+        except Exception as exc:  # noqa: BLE001 - shown fail-closed
+            self.prerun_card.show_unavailable(
+                operation_error_message(exc)
+            )
+            return
+        try:
+            observations = self.controller.prerun_observations(estimate)
+        except Exception:  # noqa: BLE001 - history is advisory
+            observations = ()
+        self.prerun_card.show_estimate(estimate, observations)
+
     def _option_changed(self) -> None:
         receiver = self.receiver.currentData()
         model_key = str(self.model.currentData() or RECTANGULAR_MODEL_KEY)
         option = self._options.get(model_key)
         if option is None:
             self.option_state.setText("")
+            self.prerun_card.clear()
             return
         parts = [f"{option.label}: {state_token_label(option.state)}"]
         if option.detail:
@@ -1636,7 +2248,12 @@ class RoomPredictionPanel(QWidget):
             parts.append(f"ソルバー: {option.solver_label}")
         parts.extend(option.reasons)
         self.option_state.setText("\n".join(parts))
-        if receiver is None or not option.runnable:
+        self._refresh_prerun_card()
+        if (
+            receiver is None
+            or not option.runnable
+            or self.prerun_card.blocking
+        ):
             self.run_button.setEnabled(False)
         else:
             # A busy run keeps the button disabled even though this option
@@ -1654,6 +2271,7 @@ class RoomPredictionPanel(QWidget):
         if profile is None:
             return
         self.controller.select_environment_profile(profile)
+        self._refresh_prerun_card()
 
     def _new_environment_profile(self) -> None:
         dialog = EnvironmentProfileDialog(self)

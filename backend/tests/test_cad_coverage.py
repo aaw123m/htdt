@@ -33,6 +33,11 @@ from htdt.cad_equipment import (
 from htdt.cad_equipment_evidence import build_equipment_manual_evidence
 from htdt.cad_equipment_repository import CadEquipmentRepository
 from htdt.cad_repository import SceneRepository
+from htdt.cad_seat_priority import (
+    SeatPriorityMember,
+    CadSeatPriorityProfileRepository,
+    build_seat_priority_profile,
+)
 from htdt.cad_scene import (
     Direction3,
     Offset3,
@@ -1036,3 +1041,138 @@ def test_coverage_maximize_and_loss_minimize_use_direction_aware_pareto(
     assert result.dominated_by[baseline_variant.variant_id] == (
         aimed_variant.variant_id,
     )
+
+
+def test_seat_priority_evaluation_persists_and_replays(tmp_path: Path) -> None:
+    """Regression: _validate_evaluation_binding must replay with the bound
+    SeatPriorityProfile — without it a seat_priority evaluation could never
+    persist (the replay raised for the missing profile)."""
+    (
+        scene_repository,
+        revision,
+        variant_repository,
+        equipment_repository,
+        directivity_repository,
+        definition,
+        dataset,
+        variant,
+        _scenario_unused,
+    ) = _fixture(tmp_path)
+    document_id = revision.document_id
+    profile = build_seat_priority_profile(
+        scene_repository=scene_repository,
+        document_id=document_id,
+        members=(
+            SeatPriorityMember(
+                seat_entity_id='seat-off',
+                seat_role='secondary',
+                required=False,
+                weight=1.0,
+            ),
+            SeatPriorityMember(
+                seat_entity_id='seat-on', seat_role='primary', weight=3.0
+            ),
+        ),
+    )
+    CadSeatPriorityProfileRepository(scene_repository).save(profile)
+    population = SeatPopulation(
+        population_id='priority-population',
+        seat_entity_ids=profile.seat_entity_ids,
+        population_weighting='seat_priority',
+        priority_profile_id=profile.profile_id,
+        priority_profile_sha256=profile.profile_sha256,
+    )
+    scenario = build_coverage_evaluation_scenario(
+        source_entity_id='speaker-fl',
+        channel_role_id='FL',
+        receiver_population=population,
+        directivity_dataset=dataset,
+        equipment_definition=definition,
+        evaluation_frequencies_hz=(500.0,),
+        frequency_aggregation_semantics='worst_over_requested_frequencies',
+        coverage_threshold_db=-6.0,
+    )
+    repository = CadCoverageRepository(
+        scene_repository,
+        variant_repository,
+        equipment_repository,
+        directivity_repository,
+    )
+    assert repository.save_scenario(scenario) == scenario
+    evaluation = evaluate_coverage(
+        revision=revision,
+        variant=variant,
+        equipment_definition=definition,
+        directivity_dataset=dataset,
+        scenario=scenario,
+        priority_profile=profile,
+    )
+    assert repository.save_evaluation(evaluation) == evaluation
+    reopened = CadCoverageRepository(
+        scene_repository,
+        CadSystemVariantRepository(scene_repository),
+        CadEquipmentRepository(
+            scene_repository,
+            CadSystemVariantRepository(scene_repository),
+        ),
+        CadDirectivityRepository(
+            scene_repository,
+            CadEquipmentRepository(
+                scene_repository,
+                CadSystemVariantRepository(scene_repository),
+            ),
+        ),
+    )
+    assert reopened.get_evaluation(evaluation.evaluation_id) == evaluation
+
+
+def test_seat_priority_scenario_rejects_unpersisted_profile(
+    tmp_path: Path,
+) -> None:
+    """A seat_priority scenario must fail closed without the bound profile."""
+    (
+        scene_repository,
+        revision,
+        variant_repository,
+        equipment_repository,
+        directivity_repository,
+        definition,
+        dataset,
+        _variant,
+        _scenario_unused,
+    ) = _fixture(tmp_path)
+    profile = build_seat_priority_profile(
+        scene_repository=scene_repository,
+        document_id=revision.document_id,
+        members=(
+            SeatPriorityMember(
+                seat_entity_id='seat-on', seat_role='primary', weight=1.0
+            ),
+        ),
+    )
+    # Deliberately NOT persisted — the scenario must be rejected.
+    population = SeatPopulation(
+        population_id='orphan-population',
+        seat_entity_ids=profile.seat_entity_ids,
+        population_weighting='seat_priority',
+        priority_profile_id=profile.profile_id,
+        priority_profile_sha256=profile.profile_sha256,
+    )
+    scenario = build_coverage_evaluation_scenario(
+        source_entity_id='speaker-fl',
+        channel_role_id='FL',
+        receiver_population=population,
+        directivity_dataset=dataset,
+        equipment_definition=definition,
+        evaluation_frequencies_hz=(500.0,),
+        frequency_aggregation_semantics='worst_over_requested_frequencies',
+        coverage_threshold_db=-6.0,
+    )
+    repository = CadCoverageRepository(
+        scene_repository,
+        variant_repository,
+        equipment_repository,
+        directivity_repository,
+    )
+    with pytest.raises(ValueError, match='unpersisted SeatPriorityProfile'):
+        repository.save_scenario(scenario)

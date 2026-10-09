@@ -31,6 +31,7 @@ from PySide6.QtWidgets import (
     QFrame,
     QHeaderView,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
     QLineEdit,
     QListWidget,
@@ -76,6 +77,7 @@ from ...cad_scene import Direction3
 from ...export_io import write_text_atomic
 from ...ingress import read_file_bounded
 from ...limits import MAX_ATTACHMENT_BYTES, MAX_NATIVE_REW_TEXT_FILE_BYTES
+from ...window_state import WorkspaceViewState
 from ..domain.measurement_analysis import (
     DISPLAY_SMOOTHING_FRACTIONS,
     phase_trace,
@@ -160,6 +162,14 @@ from ...ui_theme import (
     set_surface_role,
     set_typography_role,
 )
+from ...navigation_target import NavigationTargetKind
+from ...dynamic_a11y import (
+    DynamicAnnouncer,
+    capture_focus,
+    disabled_hint,
+    reason_label,
+    restore_focus,
+)
 from ...workflow_navigation import WorkspaceDeepLink, WorkspaceId
 from ...workflow_shell import WorkspaceFactory, WorkspaceMount
 from ...workspace_dirty_state import DirtyResolutionAction, WorkspaceDirtyState
@@ -170,7 +180,10 @@ _CONTEXT_IDS = (
     "assignment",
     "campaign",
     "quality",
+    # #968: re-measurement queue generated from sealed quality verdicts.
+    "remeasure",
     "comparison",
+    "correspondence",
     "calibration",
     "acquisition",
     # #877 guided calibration wizard — reached from the calibration page,
@@ -595,6 +608,23 @@ def _card(title: str, parent: QWidget | None = None) -> tuple[QFrame, QVBoxLayou
     return frame, layout
 
 
+def _splitter_ratio(splitter: QSplitter) -> float | None:
+    sizes = splitter.sizes()
+    total = sum(sizes)
+    if total <= 0 or not sizes:
+        return None
+    return sizes[0] / total
+
+
+def _apply_splitter_ratio(splitter: QSplitter, ratio: float) -> None:
+    sizes = splitter.sizes()
+    total = sum(sizes)
+    if total <= 0 or len(sizes) != 2:
+        return
+    first = int(round(total * max(0.0, min(1.0, ratio))))
+    splitter.setSizes([first, total - first])
+
+
 def _page(title: str, subtitle: str) -> tuple[QScrollArea, QWidget, QVBoxLayout]:
     scroll = QScrollArea()
     scroll.setFrameShape(QFrame.Shape.NoFrame)
@@ -756,6 +786,9 @@ class MeasurementPageWorkspace(QWidget):
         # operator on this page.
         self._preferences = preferences
         self._activity_center = activity_center
+        # #974: pool key -> ActivityCenter operation id (only for ops
+        # canonically registered through _submit_measure_op).
+        self._job_op_ids: dict[str, str] = {}
         self._rew_launcher = rew_launcher if rew_launcher is not None else launch_rew
         self._rew_auto_interval_ms = rew_auto_interval_ms
         self._rew_launch_timeout_s = rew_launch_timeout_s
@@ -909,7 +942,9 @@ class MeasurementPageWorkspace(QWidget):
         self._build_assignment_page()
         self._build_campaign_page()
         self._build_quality_page()
+        self._build_remeasure_page()
         self._build_comparison_page()
+        self._build_correspondence_page()
         self._build_calibration_page()
         self._build_acquisition_page()
         self._build_calibration_wizard_page()
@@ -933,6 +968,14 @@ class MeasurementPageWorkspace(QWidget):
         self._update_context_label()
 
     def focus_entity(self, entity_id: str) -> None:
+        if (
+            self.current_context_id == "correspondence"
+            and self.correspondence_panel.select_measurement(entity_id)
+        ):
+            # #1002: a deep link into the correspondence surface selects
+            # the measurement there instead of bouncing to the quality row.
+            return
+
         def _match() -> MeasurementView | None:
             for row in self._quality_views:
                 if (
@@ -967,6 +1010,10 @@ class MeasurementPageWorkspace(QWidget):
     def select_measurement_id(self, measurement_id: str) -> bool:
         """Deep-link/palette focus port: select the quality row for
         ``measurement_id``; returns False when the record is absent."""
+        if self.current_context_id == "correspondence":
+            return self.correspondence_panel.select_measurement(
+                measurement_id
+            )
         self.refresh()
         for row in self._quality_views:
             if row.measurement_id != measurement_id:
@@ -983,6 +1030,295 @@ class MeasurementPageWorkspace(QWidget):
             self._show_quality_row(row_index)
             return True
         return False
+
+    # ------------------------------------------------------------------
+    # #973: per-context view-state capture/restore — UX convenience only.
+    # Snapshots re-show where the user was; they never promote stale
+    # results to current/accepted and never guess a vanished selection's
+    # nearest row (deselect + parent focus instead).
+
+    def capture_view_state(self) -> WorkspaceViewState | None:
+        """Mount port: snapshot the current context page's view state."""
+        context = self.current_context_id
+        scroll = self._context_scroll_offset(context)
+        if context == "quality":
+            selected = self._selected_quality_view()
+            return WorkspaceViewState(
+                scroll_offset=scroll,
+                selected_entity=(
+                    None if selected is None else selected.measurement_id
+                ),
+                filters={
+                    "verdict": self._combo_data_text(self.quality_verdict_combo),
+                    "state": self._combo_data_text(self.quality_state_combo),
+                    "channel": self._combo_data_text(self.quality_channel_filter),
+                    "position": self._combo_data_text(self.quality_position_filter),
+                    "search": self.quality_search_edit.text(),
+                },
+                splitter_ratio=_splitter_ratio(self.quality_split),
+            )
+        if context == "comparison":
+            return self._capture_comparison_view_state(scroll)
+        if context == "campaign":
+            return self._capture_campaign_view_state(scroll)
+        return WorkspaceViewState(scroll_offset=scroll)
+
+    def restore_view_state(self, state: WorkspaceViewState) -> None:
+        """Mount port: re-apply a captured view state for the current
+        context. Runs after activate/context-select refresh, so the
+        listing it resolves against is the store's own current view."""
+        context = self.current_context_id
+        if context == "quality":
+            self._restore_quality_view_state(state)
+        elif context == "comparison":
+            self._restore_comparison_view_state(state)
+        elif context == "campaign":
+            self._restore_campaign_view_state(state)
+        self._restore_context_scroll(context, state.scroll_offset)
+
+    @staticmethod
+    def _combo_data_text(combo: QComboBox) -> str:
+        data = combo.currentData()
+        return "" if data is None else str(data)
+
+    def _context_scroll_area(self, context_id: str) -> QScrollArea | None:
+        try:
+            index = _CONTEXT_IDS.index(context_id)
+        except ValueError:
+            return None
+        widget = self.pages.widget(index)
+        if widget is None:
+            return None
+        if isinstance(widget, QScrollArea):
+            return widget
+        return widget.findChild(QScrollArea)
+
+    def _context_scroll_offset(self, context_id: str) -> int | None:
+        area = self._context_scroll_area(context_id)
+        if area is None:
+            return None
+        return area.verticalScrollBar().value()
+
+    def _restore_context_scroll(
+        self, context_id: str, offset: int | None
+    ) -> None:
+        if offset is None:
+            return
+        area = self._context_scroll_area(context_id)
+        if area is None:
+            return
+        bar = area.verticalScrollBar()
+        bar.setValue(min(offset, bar.maximum()))
+        # Layout can still be settling right after the mount/refresh —
+        # re-apply once idle. The bar is the timer receiver, so a dead
+        # widget simply drops the call.
+        QTimer.singleShot(
+            0, bar,
+            lambda: bar.setValue(min(offset, bar.maximum())),
+        )
+
+    def _restore_quality_view_state(self, state: WorkspaceViewState) -> None:
+        filters = state.filters
+        dirty = False
+        for combo, key in (
+            (self.quality_verdict_combo, "verdict"),
+            (self.quality_state_combo, "state"),
+            (self.quality_channel_filter, "channel"),
+            (self.quality_position_filter, "position"),
+        ):
+            value = filters.get(key, "")
+            if not value:
+                continue
+            index = combo.findData(value)
+            if index >= 0:
+                combo.blockSignals(True)
+                combo.setCurrentIndex(index)
+                combo.blockSignals(False)
+                dirty = True
+        search = filters.get("search", "")
+        if search and search != self.quality_search_edit.text():
+            self.quality_search_edit.blockSignals(True)
+            self.quality_search_edit.setText(search)
+            self.quality_search_edit.blockSignals(False)
+            dirty = True
+        if dirty:
+            self._apply_quality_filters()
+        if state.splitter_ratio is not None:
+            _apply_splitter_ratio(self.quality_split, state.splitter_ratio)
+        selected_id = state.selected_entity
+        if not selected_id:
+            return
+        row_index = self._quality_row_index_for_id(selected_id)
+        if row_index is not None:
+            self.quality_table.selectRow(row_index)
+            self._show_quality_row(row_index)
+            return
+        # The saved selection vanished (deleted, another revision, or
+        # hidden by the restored filters) — deselect + parent focus,
+        # never guess the nearest row.
+        self.quality_table.clearSelection()
+        self.quality_detail.setText("測定を選択してください")
+        self._update_quality_selection_note(selected_id)
+        self.quality_table.setFocus(Qt.FocusReason.OtherFocusReason)
+
+    def _capture_comparison_view_state(
+        self, scroll: int | None
+    ) -> WorkspaceViewState:
+        filters = {
+            "preset": self._combo_data_text(self.preset_combo),
+            "dataset_a": self._combo_data_text(self.measured_combo),
+            "dataset_b": self._combo_data_text(self.predicted_combo),
+            "band_low": str(self.compare_low.value()),
+            "band_high": str(self.compare_high.value()),
+            "ref_enabled": "1" if self.ref_band_check.isChecked() else "",
+            "ref_low": str(self.ref_low.value()),
+            "ref_high": str(self.ref_high.value()),
+            "excluded_low": str(self.excluded_low.value()),
+            "excluded_high": str(self.excluded_high.value()),
+            "smooth_a": str(self.smooth_a_combo.currentData()),
+            "smooth_b": str(self.smooth_b_combo.currentData()),
+        }
+        selected: str | None = None
+        row = self.comparison_history.currentRow()
+        item = self.comparison_history.item(row, 0) if row >= 0 else None
+        if item is not None:
+            data = item.data(Qt.ItemDataRole.UserRole)
+            if isinstance(data, str):
+                selected = data
+        return WorkspaceViewState(
+            scroll_offset=scroll,
+            selected_entity=selected,
+            filters=filters,
+        )
+
+    def _restore_comparison_view_state(
+        self, state: WorkspaceViewState
+    ) -> None:
+        filters = state.filters
+        preset = filters.get("preset", "")
+        if preset:
+            index = self.preset_combo.findData(preset)
+            if index >= 0 and index != self.preset_combo.currentIndex():
+                # Drives _refresh_comparison_choices → dataset options
+                # refill before the saved A/B seats below.
+                self.preset_combo.setCurrentIndex(index)
+        for combo, key in (
+            (self.measured_combo, "dataset_a"),
+            (self.predicted_combo, "dataset_b"),
+        ):
+            value = filters.get(key, "")
+            if not value:
+                continue
+            index = combo.findData(value)
+            if index >= 0:
+                combo.blockSignals(True)
+                combo.setCurrentIndex(index)
+                combo.blockSignals(False)
+        for spin, key in (
+            (self.compare_low, "band_low"),
+            (self.compare_high, "band_high"),
+            (self.ref_low, "ref_low"),
+            (self.ref_high, "ref_high"),
+            (self.excluded_low, "excluded_low"),
+            (self.excluded_high, "excluded_high"),
+        ):
+            text = filters.get(key)
+            if text is None:
+                continue
+            try:
+                spin.setValue(float(text))
+            except (TypeError, ValueError):
+                continue
+        self.ref_band_check.setChecked(bool(filters.get("ref_enabled")))
+        for combo, key in (
+            (self.smooth_a_combo, "smooth_a"),
+            (self.smooth_b_combo, "smooth_b"),
+        ):
+            text = filters.get(key)
+            if not text:
+                continue
+            try:
+                fraction = float(text)
+            except ValueError:
+                continue
+            index = combo.findData(fraction)
+            if index >= 0:
+                combo.blockSignals(True)
+                combo.setCurrentIndex(index)
+                combo.blockSignals(False)
+        self._preview_comparison_pair()
+        self._restore_comparison_history_selection(state.selected_entity)
+
+    def _restore_comparison_history_selection(
+        self, comparison_id: str | None
+    ) -> None:
+        if not comparison_id:
+            return
+        for row_index in range(self.comparison_history.rowCount()):
+            item = self.comparison_history.item(row_index, 0)
+            if (
+                item is not None
+                and item.data(Qt.ItemDataRole.UserRole) == comparison_id
+            ):
+                # Re-selecting replays the sealed record via
+                # _history_selection_changed — still labelled 保存済み比較,
+                # never promoted to a fresh/accepted result.
+                self.comparison_history.selectRow(row_index)
+                return
+        self.comparison_history.clearSelection()
+        self.comparison_history.setFocus(Qt.FocusReason.OtherFocusReason)
+
+    def _capture_campaign_view_state(
+        self, scroll: int | None
+    ) -> WorkspaceViewState:
+        filters = {
+            "plan_id": self._combo_data_text(self.campaign_plan_combo),
+        }
+        if self._campaign_run_id:
+            filters["run_id"] = self._campaign_run_id
+        selected = self._selected_campaign_cell()
+        return WorkspaceViewState(
+            scroll_offset=scroll,
+            selected_entity=None if selected is None else str(selected),
+            filters=filters,
+        )
+
+    def _restore_campaign_view_state(self, state: WorkspaceViewState) -> None:
+        filters = state.filters
+        plan_id = filters.get("plan_id", "")
+        if plan_id:
+            index = self.campaign_plan_combo.findData(plan_id)
+            if index >= 0:
+                self.campaign_plan_combo.blockSignals(True)
+                self.campaign_plan_combo.setCurrentIndex(index)
+                self.campaign_plan_combo.blockSignals(False)
+        run_id = filters.get("run_id", "")
+        if run_id and run_id != self._campaign_run_id:
+            # Re-point at a run that still exists in the store — the
+            # matrix never fabricates progress for a vanished run.
+            try:
+                run = self.controller.runner_repository.get_run(run_id)
+            except EXPECTED_OPERATION_ERRORS:
+                run = None
+            if run is not None:
+                self._campaign_run_id = run_id
+                self._refresh_campaign()
+        if not state.selected_entity:
+            return
+        try:
+            cell_index = int(state.selected_entity)
+        except ValueError:
+            return
+        for row_index in range(self.campaign_table.rowCount()):
+            item = self.campaign_table.item(row_index, 0)
+            if (
+                item is not None
+                and item.data(Qt.ItemDataRole.UserRole) == cell_index
+            ):
+                self.campaign_table.selectRow(row_index)
+                return
+        self.campaign_table.clearSelection()
+        self.campaign_table.setFocus(Qt.FocusReason.OtherFocusReason)
 
     # ------------------------------------------------------------------
     # REV32-TERMS — explanations, glossary and help plumbing
@@ -1239,11 +1575,23 @@ class MeasurementPageWorkspace(QWidget):
             views, plans=runner_plans, plan_created=runner_plan_created
         )
         self._refresh_quality(views)
+        self._refresh_remeasure()
         self._refresh_comparison_choices(views)
         self._refresh_onboarding(plans=runner_plans)
         self._refresh_authority_inventory()
         self._refresh_journey(batch_items, views, plans=runner_plans)
         self._refresh_record_surfaces()
+        correspondence_panel = getattr(
+            self, "correspondence_panel", None
+        )
+        if (
+            self.current_context_id == "correspondence"
+            and correspondence_panel is not None
+        ):
+            # #1002: the correspondence surface replays sealed pairings and
+            # registrations — re-read them with the rest of the workspace.
+            correspondence_panel.reload_measurement_options()
+            correspondence_panel.refresh()
 
     def _refresh_journey(
         self,
@@ -1780,9 +2128,9 @@ class MeasurementPageWorkspace(QWidget):
         layout.addStretch(1)
         self.pages.addWidget(page)
 
-    def _refresh_rew_async(self) -> None:
+    def _refresh_rew_async(self) -> str | None:
         self._set_notice("REW測定一覧を読み込み中です。", None)
-        self._start_job(
+        return self._start_job(
             lambda cancel_event: self.controller.list_rew_measurements(
                 cancel_event=cancel_event
             ),
@@ -1790,6 +2138,17 @@ class MeasurementPageWorkspace(QWidget):
             "REW一覧の読み込みに失敗しました",
             on_retry=self._refresh_rew_async,
             purpose="rew_list",
+            activity={
+                'operation_kind': 'measurement.rew_list',
+                'title': 'REW測定一覧の取得',
+                'cancellable': True,
+                'navigation_exclusive': False,
+                'domain_payload': {
+                    'rerun': lambda _op: self._refresh_rew_async()
+                },
+                'cancel_by_key': True,
+                'retry_unsafe': True,
+            },
         )
 
     def _apply_rew_list(self, value: object, *, announce: bool = True) -> None:
@@ -1817,13 +2176,13 @@ class MeasurementPageWorkspace(QWidget):
                 SemanticState.SUCCESS,
             )
 
-    def _read_rew_async(self) -> None:
+    def _read_rew_async(self) -> str | None:
         measurement_uuid = self.rew_combo.currentData()
         if not isinstance(measurement_uuid, str) or not measurement_uuid:
             self._set_notice("先にREW一覧を更新して測定を選択してください。", SemanticState.WARNING)
-            return
+            return None
         self._set_notice("選択したREW測定を読み込み中です。", None)
-        self._start_job(
+        return self._start_job(
             lambda cancel_event: self.controller.fetch_rew_snapshot(
                 measurement_uuid, cancel_event=cancel_event
             ),
@@ -1831,6 +2190,17 @@ class MeasurementPageWorkspace(QWidget):
             "REW測定の読み込みに失敗しました",
             on_retry=self._read_rew_async,
             purpose="rew_read",
+            activity={
+                'operation_kind': 'measurement.rew_read',
+                'title': 'REW測定の取込',
+                'cancellable': True,
+                'navigation_exclusive': False,
+                'domain_payload': {
+                    'rerun': lambda _op: self._read_rew_async()
+                },
+                'cancel_by_key': True,
+                'retry_unsafe': True,
+            },
         )
 
     def _stage_rew_snapshot(self, value: object) -> None:
@@ -2422,6 +2792,124 @@ class MeasurementPageWorkspace(QWidget):
         except EXPECTED_OPERATION_ERRORS as exc:
             # Best-effort reporting surface — degrade, never silently.
             report_boundary_failure(exc, operation='アクティビティ記録の登録')
+
+    def _submit_measure_op(
+        self,
+        *,
+        task_key: str,
+        operation_kind: str,
+        title: str,
+        cancellable: bool,
+        navigation_exclusive: bool,
+        retry_unsafe: bool = False,
+        cancel_callback=None,
+        domain_payload=None,
+        operation_id: str | None = None,
+        retry_of: str | None = None,
+        attempt: int = 1,
+    ) -> str | None:
+        """Canonically register one measurement job (#974)."""
+
+        center = self._activity_center
+        if center is None:
+            return None
+        try:
+            from ...activity_center import (
+                Cancellability,
+                NavigationPolicy,
+                OperationClass,
+                OperationTransitionError,
+                RetryPolicy,
+            )
+        except ImportError:
+            return None
+        try:
+            operation_id = center.submit(
+                operation_kind=operation_kind,
+                operation_class=OperationClass.EXTERNAL_IO,
+                title=title,
+                deep_link=WorkspaceDeepLink(WorkspaceId.MEASUREMENT, 'import'),
+                cancellability=(
+                    Cancellability.CANCELLABLE
+                    if cancellable
+                    else Cancellability.NOT_CANCELLABLE
+                ),
+                cancel_callback=cancel_callback,
+                retry_policy=(
+                    RetryPolicy.UNSAFE if retry_unsafe else RetryPolicy.NONE
+                ),
+                navigation_policy=(
+                    NavigationPolicy.EXCLUSIVE
+                    if navigation_exclusive
+                    else NavigationPolicy.BACKGROUNDABLE
+                ),
+                navigation_block_reason=(
+                    '保存・適用を伴うため画面を切り替えられません'
+                    if navigation_exclusive
+                    else None
+                ),
+                domain_payload=domain_payload,
+                operation_id=operation_id,
+                retry_of=retry_of,
+                attempt=attempt,
+            )
+            center.mark_running(operation_id)
+        except OperationTransitionError:
+            return None
+        self._job_op_ids[task_key] = operation_id
+        return operation_id
+
+    def _finish_measure_op(
+        self,
+        task_key: str,
+        *,
+        cancelled: bool = False,
+        error: object = None,
+        result_summary: str | None = None,
+    ) -> None:
+        """Map a pool completion onto the registered op (#974)."""
+
+        operation_id = self._job_op_ids.pop(task_key, None)
+        center = self._activity_center
+        if operation_id is None or center is None:
+            return
+        try:
+            from ...activity_center import OperationTransitionError
+
+            if cancelled:
+                center.confirm_cancelled(operation_id)
+            elif error is not None:
+                center.fail(
+                    operation_id,
+                    error_summary=operation_error_message(error),
+                )
+            else:
+                center.complete(
+                    operation_id, result_summary=result_summary
+                )
+        except (KeyError, OperationTransitionError):
+            pass
+
+    def _terminate_measure_ops(self) -> None:
+        """Cancel-confirm every live registered op on drain/close (#974)."""
+
+        center = self._activity_center
+        if center is None:
+            return
+        try:
+            from ...activity_center import OperationTransitionError
+        except ImportError:
+            return
+        for operation_id in tuple(self._job_op_ids.values()):
+            try:
+                center.request_cancel(operation_id)
+            except (KeyError, OperationTransitionError):
+                pass
+            try:
+                center.confirm_cancelled(operation_id)
+            except (KeyError, OperationTransitionError):
+                pass
+        self._job_op_ids.clear()
 
     def _refresh_pending(self) -> None:
         pending = self.controller.pending_import
@@ -3291,11 +3779,19 @@ class MeasurementPageWorkspace(QWidget):
             self._operation_error_notice(
                 "レベル基準を登録できませんでした", exc
             )
+            self._quality_announcer.announce(
+                'operation_failed',
+                'レベル基準を登録できませんでした',
+                urgent=True,
+            )
             return
         self._set_notice(
             f"レベル基準を登録しました（"
             f"{level_reference_kind_label(record.level_reference_kind)}）",
             SemanticState.SUCCESS,
+        )
+        self._quality_announcer.announce(
+            'save_state', 'レベル基準を登録しました'
         )
         self.refresh()
 
@@ -3735,6 +4231,23 @@ class MeasurementPageWorkspace(QWidget):
             "バッチを保存できませんでした",
             None,
         )
+        # #974: a commit writes sealed measurement records — EXCLUSIVE keeps
+        # the existing navigation guard and names the reason. Per-item
+        # progress is real (batch_commit_progress) so ITEMS units only.
+        self._submit_measure_op(
+            task_key=key,
+            operation_kind='measurement.batch_commit',
+            title='バッチ測定の保存',
+            cancellable=True,
+            navigation_exclusive=True,
+            cancel_callback=lambda: self._job_pool.cancel(key),
+            retry_unsafe=True,
+            domain_payload={
+                'rerun': lambda _op: self._rerun_batch_commit(
+                    kind, ref, assignment
+                )
+            },
+        )
         self._job_pool.start(
             key,
             lambda cancel_event: self.controller.commit_batch(
@@ -3744,6 +4257,18 @@ class MeasurementPageWorkspace(QWidget):
             ),
             self._job_completed,
         )
+
+    def _rerun_batch_commit(
+        self, kind: str, ref: object,
+        assignment: 'MeasurementAssignment',
+    ) -> str | None:
+        """Unsafe retry path (#974): the Activity page re-authorized the
+        re-run — dispatch a fresh, unlinked commit and report its new op id."""
+
+        self._commit_batch_assignment(kind, ref, assignment)
+        if self._commit_job_key is None:
+            return None
+        return self._job_op_ids.get(self._commit_job_key)
 
     def _set_batch_committing(self, running: bool) -> None:
         self.batch_add_button.setEnabled(not running)
@@ -3770,6 +4295,31 @@ class MeasurementPageWorkspace(QWidget):
     @Slot(int, int)
     def _on_batch_commit_progress(self, done: int, total: int) -> None:
         self._set_notice(f"バッチを保存しています… {done}/{total}", None)
+        center = self._activity_center
+        op_id = (
+            self._job_op_ids.get(self._commit_job_key)
+            if self._commit_job_key is not None
+            else None
+        )
+        if center is not None and op_id is not None:
+            try:
+                from ...activity_center import (
+                    OperationProgress,
+                    OperationTransitionError,
+                    ProgressKind,
+                )
+
+                center.update_progress(
+                    op_id,
+                    OperationProgress(
+                        kind=ProgressKind.ITEMS,
+                        done_units=done,
+                        total_units=total,
+                        unit_label='件',
+                    ),
+                )
+            except (KeyError, OperationTransitionError, ValueError):
+                pass
 
     def _batch_commit_finished(self, value: object) -> None:
         outcomes = value if isinstance(value, tuple) else ()
@@ -3897,6 +4447,17 @@ class MeasurementPageWorkspace(QWidget):
         set_primary_action(self.campaign_open_button)
         self.campaign_open_button.clicked.connect(self._open_campaign_run)
         plan_row.addWidget(self.campaign_open_button)
+        # #1006: deep link into the room acoustics context — read-only
+        # markers for the sealed spatial design + executor progress.
+        self.campaign_3d_button = QPushButton("3Dで測定位置を確認", plan_card)
+        self.campaign_3d_button.setObjectName("campaign3dButton")
+        self.campaign_3d_button.setAccessibleName("測定位置を3Dで確認")
+        self.campaign_3d_button.setToolTip(
+            "空間キャンペーン計画の測定点・ホールドアウトと実行進捗を"
+            "部屋の3Dビューに表示します（読み取り専用）"
+        )
+        self.campaign_3d_button.clicked.connect(self._open_campaign_3d_view)
+        plan_row.addWidget(self.campaign_3d_button)
         plan_layout.addLayout(plan_row)
 
         builder_row = QHBoxLayout()
@@ -4911,6 +5472,63 @@ class MeasurementPageWorkspace(QWidget):
         value = item.data(Qt.ItemDataRole.UserRole)
         return int(value) if value is not None else None
 
+    def _open_campaign_3d_view(self) -> None:
+        """#1006 「3Dで測定位置を確認」 deep link → ROOM acoustics context.
+
+        Carries the selected cell's target entity so its joined marker is
+        emphasized (bounded marker↔cell sync); with no selection the
+        newest spatial design drives instead. Unknown/empty cases stay
+        honest — the room overlay surfaces its own notices.
+        """
+        focus_id: str | None = None
+        cell_index = self._selected_campaign_cell()
+        if cell_index is not None and self._campaign_run_id is not None:
+            plan = self.controller.runner_plan_for_run(self._campaign_run_id)
+            if plan is not None:
+                try:
+                    focus_id = plan.cell(cell_index).target_entity_id
+                except (KeyError, IndexError):
+                    focus_id = None
+        if focus_id is None:
+            try:
+                if self._spatial_campaign_repository is None:
+                    from ...cad_spatial_campaign_repository import (
+                        CadSpatialCampaignRepository,
+                    )
+
+                    self._spatial_campaign_repository = (
+                        CadSpatialCampaignRepository(
+                            self.controller.scene_repository
+                        )
+                    )
+                designs = self._spatial_campaign_repository.list_designs(
+                    self.controller.document_id
+                )
+                if designs:
+                    focus_id = designs[-1].design_id
+            except EXPECTED_OPERATION_ERRORS:
+                focus_id = None
+        if self._on_navigate is None:
+            self._set_notice(
+                "3D表示へのナビゲーションはこの環境では利用できません",
+                SemanticState.WARNING,
+            )
+            return
+        handled = self._on_navigate(
+            WorkspaceDeepLink(
+                WorkspaceId.ROOM,
+                'acoustics',
+                entity_id=focus_id,
+                kind=NavigationTargetKind.MEASUREMENT_CAMPAIGN,
+                intent='inspect',
+            )
+        )
+        if not handled:
+            self._set_notice(
+                "部屋3Dビューを開けませんでした",
+                SemanticState.WARNING,
+            )
+
     def _commit_campaign_cell(self) -> None:
         cell_index = self._selected_campaign_cell()
         measurement_id = self.campaign_measurement_combo.currentData()
@@ -5060,6 +5678,9 @@ class MeasurementPageWorkspace(QWidget):
         table_layout.addWidget(self.quality_selection_note)
 
         self.quality_table = QTableWidget(0, 10, table_card)
+        # #975: the objectName anchors the focus-retention token across
+        # the row rebuild that runs on every refresh/filter pass.
+        self.quality_table.setObjectName('quality-table')
         self.quality_table.setAccessibleName("保存済み測定一覧")
         self.quality_table.setHorizontalHeaderLabels(
             ["入力", "証拠", "測定位置", "品質", "位相", "共通タイミング", "配置", "帯域", "状態", "再測定"]
@@ -5116,6 +5737,19 @@ class MeasurementPageWorkspace(QWidget):
         )
         analysis_row.addWidget(self.quality_target_combo)
         analysis_row.addStretch(1)
+        self.correspondence_link_button = QPushButton(
+            "反射対応を確認", detail_card
+        )
+        self.correspondence_link_button.setObjectName(
+            "correspondence_link_button"
+        )
+        self.correspondence_link_button.setAccessibleName(
+            "反射対応を確認 — 実測ETCピークと予測反射パスの対応レビュー"
+        )
+        self.correspondence_link_button.clicked.connect(
+            self._open_correspondence_for_selection
+        )
+        analysis_row.addWidget(self.correspondence_link_button)
         detail_layout.addLayout(analysis_row)
 
         self.provenance_label = QLabel("", detail_card)
@@ -5194,8 +5828,10 @@ class MeasurementPageWorkspace(QWidget):
         layout.addWidget(spatial_card)
 
         lifecycle_card, lifecycle_layout = _card("ライフサイクルと添付", host)
-        self.disposition_label = QLabel("測定を選択してください", lifecycle_card)
-        self.disposition_label.setWordWrap(True)
+        # #975: reason_label — the disabled-gated explanations are
+        # keyboard-focusable on the same screen.
+        self.disposition_label = reason_label(
+            "測定を選択してください", lifecycle_card)
         lifecycle_layout.addWidget(self.disposition_label)
         disposition_row = QHBoxLayout()
         self.disposition_combo = QComboBox(lifecycle_card)
@@ -5271,8 +5907,8 @@ class MeasurementPageWorkspace(QWidget):
         layout.addWidget(report_card)
 
         retake_card, retake_layout = _card("再測定ガイダンス", host)
-        self.retake_label = QLabel("測定を選択してください", retake_card)
-        self.retake_label.setWordWrap(True)
+        self.retake_label = reason_label(
+            "測定を選択してください", retake_card)
         retake_layout.addWidget(self.retake_label)
         retake_row = QHBoxLayout()
         retake_row.addStretch(1)
@@ -5282,6 +5918,13 @@ class MeasurementPageWorkspace(QWidget):
         retake_row.addWidget(self.retake_button)
         retake_layout.addLayout(retake_row)
         layout.addWidget(retake_card)
+
+        # #975: exactly-once announcements for this surface, and an
+        # honest initial disabled state — the selection-dependent
+        # buttons start disabled with the reason on screen instead of
+        # enabled-and-silent.
+        self._quality_announcer = DynamicAnnouncer(self)
+        self._sync_quality_actions_enabled(False)
 
         # REV44-HEALTHSYNC: the record-entry surfaces for the two previously
         # write-only authorities — AV-sync conditions (this context is where
@@ -5326,6 +5969,10 @@ class MeasurementPageWorkspace(QWidget):
     ) -> None:
         if views is None:
             views = self.controller.measurement_views()
+        # #975: the table is rebuilt below — capture the keyboard
+        # anchor first so it re-points at the same measurement_id
+        # (or stays on the view when that row vanished).
+        focus_token = capture_focus(self)
         self._quality_views = views
         self._quality_views_by_id = {
             row.measurement_id: row for row in views
@@ -5459,8 +6106,17 @@ class MeasurementPageWorkspace(QWidget):
             self.quality_checks_label.setText("")
             self.quality_capabilities_label.setText("")
             self.retake_label.setText("保存済み測定はありません")
-            self.retake_button.setEnabled(False)
+            # #975: every selection-gated action stays disabled with
+            # its reason readable — never enabled-and-silent.
+            self._sync_quality_actions_enabled(
+                False,
+                reason='保存済み測定がありません',
+                resolution='測定を取り込むと各操作を実行できます',
+            )
             self._update_context_label()
+            restore_focus(
+                self, focus_token, fallback=self.quality_table
+            )
             return
         # Selection persists keyed by measurement_id (#969). A vanished or
         # filter-hidden selection stays cleared — the note above explains
@@ -5476,12 +6132,51 @@ class MeasurementPageWorkspace(QWidget):
             self.quality_table.selectRow(0)
         if self.quality_table.selectedItems():
             self._show_quality_row(self.quality_table.currentRow())
-        elif filtered:
-            self.quality_detail.setText("測定を選択してください")
         else:
-            self.quality_detail.setText(
-                "絞り込み条件に一致する測定はありません"
+            self._sync_quality_actions_enabled(False)
+            if filtered:
+                self.quality_detail.setText("測定を選択してください")
+            else:
+                self.quality_detail.setText(
+                    "絞り込み条件に一致する測定はありません"
+                )
+        restore_focus(self, focus_token, fallback=self.quality_table)
+
+    def _sync_quality_actions_enabled(
+        self,
+        enabled: bool,
+        *,
+        reason: str | None = None,
+        resolution: str | None = None,
+    ) -> None:
+        """#975: the selection-gated quality actions.
+
+        Disabled means *explained*: the reason (and how to clear it) is
+        written into the two labels next to the buttons — a disabled
+        button itself drops out of the Tab order, so the reason cannot
+        live on the button alone. Enabled-only-while-selected is
+        honest; the handlers still guard on ``_selected_quality_view``.
+        """
+
+        buttons = (
+            self.retake_button,
+            self.disposition_apply_button,
+            self.correct_button,
+            self.attach_button,
+        )
+        for button in buttons:
+            button.setEnabled(enabled)
+        if not enabled:
+            text = disabled_hint(
+                'quality-actions',
+                reason or '測定が選択されていません',
+                resolution
+                or '一覧から測定を選択すると、各操作を実行できます',
             )
+            self.disposition_label.setText(text)
+            self.retake_label.setText(text)
+            for button in buttons:
+                button.setToolTip(text)
 
     def _quality_row_index_for_id(self, measurement_id: str) -> int | None:
         """#969: resolve a measurement_id to its current VISUAL table row.
@@ -5965,7 +6660,6 @@ class MeasurementPageWorkspace(QWidget):
                 f"この系譜で選択中の測定: {_name(row.selected_measurement_id)}"
             )
         self.retake_label.setText("\n".join(retake_lines))
-        self.retake_button.setEnabled(True)
 
         # Lifecycle state + source attachments (#509, #446).
         disposition_parts = [
@@ -5992,10 +6686,25 @@ class MeasurementPageWorkspace(QWidget):
             if attachments
             else "ソース添付: なし"
         )
-        self.disposition_apply_button.setEnabled(True)
-        self.correct_button.setEnabled(True)
-        self.attach_button.setEnabled(True)
+        self._sync_quality_actions_enabled(True)
         self._update_level_reference_row(row)
+        # #975: the row's report going stale is announced once per
+        # measurement/state — selection changes alone never re-announce.
+        if row.quality_report_state != 'current':
+            self._quality_announcer.announce_state(
+                f'report-stale:{row.measurement_id}',
+                row.quality_report_state,
+                'result_stale',
+                '選択した測定の品質レポートは最新ではありません — '
+                '再評価で更新できます',
+            )
+        else:
+            self._quality_announcer.announce_state(
+                f'report-stale:{row.measurement_id}',
+                None,
+                'result_stale',
+                '',
+            )
 
         self._refresh_target_curve_choices()
         self._refresh_spatial(row)
@@ -6313,8 +7022,16 @@ class MeasurementPageWorkspace(QWidget):
             )
         except EXPECTED_OPERATION_ERRORS as exc:
             self._operation_error_notice("状態を記録できませんでした", exc)
+            self._quality_announcer.announce(
+                'operation_failed',
+                '測定の状態を記録できませんでした',
+                urgent=True,
+            )
             return
         self._set_notice("測定の状態を記録しました", SemanticState.SUCCESS)
+        self._quality_announcer.announce(
+            'save_state', '測定の状態を記録しました'
+        )
         self.refresh()
 
     def _start_correction(self) -> None:
@@ -6326,6 +7043,11 @@ class MeasurementPageWorkspace(QWidget):
             "「割り当て」で訂正する項目を直して保存してください。"
             "元の測定データは変更されません。",
             None,
+        )
+        self._quality_announcer.announce(
+            'operation_queued',
+            f'{row.target_name} の訂正です — '
+            '「割り当て」で直して保存してください',
         )
         self.refresh()
 
@@ -6354,8 +7076,16 @@ class MeasurementPageWorkspace(QWidget):
             )
         except EXPECTED_OPERATION_ERRORS as exc:
             self._operation_error_notice("添付に失敗しました", exc)
+            self._quality_announcer.announce(
+                'operation_failed',
+                'ソース添付を保存できませんでした',
+                urgent=True,
+            )
             return
         self._set_notice("ソース添付を保存しました", SemanticState.SUCCESS)
+        self._quality_announcer.announce(
+            'save_state', 'ソース添付を保存しました'
+        )
         self.refresh()
         self.quality_plot.enableAutoRange()
         self._update_context_label()
@@ -6370,6 +7100,11 @@ class MeasurementPageWorkspace(QWidget):
             f"{row.target_name} の再測定です。REWから再取得し、"
             "「割り当て」で同じ測定点・入力役割・音源を選んでください。",
             None,
+        )
+        self._quality_announcer.announce(
+            'retake_required',
+            f'{row.target_name} の再測定です — '
+            '「割り当て」で同じ測定点・入力役割・音源を選んでください',
         )
         self.set_context("import")
 
@@ -6488,6 +7223,505 @@ class MeasurementPageWorkspace(QWidget):
 
     # ------------------------------------------------------------------
     # Comparison page
+
+    def _open_correspondence_for_selection(self) -> None:
+        """Quality-page link: open the correspondence review for the
+        currently selected measurement (#1002)."""
+        row = self.quality_table.currentRow()
+        measurement_id = None
+        if row is not None and row >= 0:
+            item = self.quality_table.item(row, 0)
+            if item is not None:
+                measurement_id = item.data(Qt.ItemDataRole.UserRole)
+        self.set_context("correspondence")
+        if measurement_id is not None:
+            self.correspondence_panel.select_measurement(measurement_id)
+
+    # ------------------------------------------------------------------
+    # Re-measurement queue (#968)
+
+    def _build_remeasure_page(self) -> None:
+        page, host, layout = _page(
+            "再測定キュー",
+            "保存済みの品質評価から、宣言した基準を満たさなかった測定だけをキューに集めます。"
+            "判定不能な測定は理由を付けて除外し、ファイル再読み込みやメタデータ補完で直せるものは"
+            "再測定ではなく再評価候補として分けます。",
+        )
+        page.setObjectName("measurementRemeasurePage")
+
+        status_card, status_layout = _card("キューの状態", host)
+        self.remeasure_status_label = QLabel("キューはまだ生成されていません。", status_card)
+        self.remeasure_status_label.setObjectName("remeasureStatusLabel")
+        self.remeasure_status_label.setWordWrap(True)
+        set_typography_role(self.remeasure_status_label, TypographyRole.SECONDARY)
+        status_layout.addWidget(self.remeasure_status_label)
+        status_row = QHBoxLayout()
+        self.remeasure_generate_button = QPushButton(
+            "キューを生成 / 再生成", status_card
+        )
+        self.remeasure_generate_button.setObjectName("remeasureGenerateButton")
+        self.remeasure_generate_button.setToolTip(
+            "最新の品質評価セットから再測定キューを再構成します。"
+            "同じ評価セットなら既存のキューがそのまま再利用されます。"
+        )
+        self.remeasure_generate_button.clicked.connect(
+            self._generate_remeasure_queue
+        )
+        status_row.addWidget(self.remeasure_generate_button)
+        self.remeasure_convert_button = QPushButton(
+            "保留中の項目をキャンペーン計画へ変換", status_card
+        )
+        self.remeasure_convert_button.setObjectName("remeasureConvertButton")
+        self.remeasure_convert_button.setToolTip(
+            "保留中のキュー項目を、測定位置・チャンネル・音源を固定した"
+            "キャンペーン計画に変換します。変換は実行ではありません — "
+            "音声出力やマイク移動を伴う実行はキャンペーン側で明示的に承認します。"
+        )
+        self.remeasure_convert_button.clicked.connect(
+            self._convert_remeasure_queue
+        )
+        status_row.addWidget(self.remeasure_convert_button)
+        status_row.addStretch(1)
+        status_layout.addLayout(status_row)
+        layout.addWidget(status_card)
+
+        items_card, items_layout = _card("再測定が必要な測定", host)
+        items_hint = QLabel(
+            "各項目は品質権威が出力した失敗基準名をそのまま表示します。"
+            "却下には理由の記録が必須で、記録は追記のみの権威に残ります。",
+            items_card,
+        )
+        items_hint.setWordWrap(True)
+        set_typography_role(items_hint, TypographyRole.SECONDARY)
+        items_layout.addWidget(items_hint)
+        self.remeasure_table = QTableWidget(0, 6, items_card)
+        self.remeasure_table.setObjectName("remeasureTable")
+        self.remeasure_table.setAccessibleName("再測定キュー項目一覧")
+        self.remeasure_table.setHorizontalHeaderLabels(
+            ["測定", "測定位置", "チャンネル", "音源", "失敗した基準", "状態"]
+        )
+        self.remeasure_table.setSelectionBehavior(
+            QAbstractItemView.SelectionBehavior.SelectRows
+        )
+        self.remeasure_table.setSelectionMode(
+            QAbstractItemView.SelectionMode.SingleSelection
+        )
+        self.remeasure_table.setEditTriggers(
+            QAbstractItemView.EditTrigger.NoEditTriggers
+        )
+        self.remeasure_table.verticalHeader().setVisible(False)
+        self.remeasure_table.horizontalHeader().setSectionResizeMode(
+            QHeaderView.ResizeMode.ResizeToContents
+        )
+        self.remeasure_table.horizontalHeader().setStretchLastSection(True)
+        self.remeasure_table.itemSelectionChanged.connect(
+            self._update_remeasure_buttons
+        )
+        self.remeasure_table.setMinimumHeight(200)
+        items_layout.addWidget(self.remeasure_table)
+        item_actions = QHBoxLayout()
+        self.remeasure_open_button = QPushButton("この測定を開く", items_card)
+        self.remeasure_open_button.setObjectName("remeasureOpenButton")
+        self.remeasure_open_button.clicked.connect(
+            self._open_remeasure_measurement
+        )
+        item_actions.addWidget(self.remeasure_open_button)
+        self.remeasure_dismiss_button = QPushButton(
+            "却下（理由を記録）", items_card
+        )
+        self.remeasure_dismiss_button.setObjectName("remeasureDismissButton")
+        self.remeasure_dismiss_button.setToolTip(
+            "選択した項目を再測定対象から外します。理由は変更不可能な"
+            "キューイベントとして記録されます。"
+        )
+        self.remeasure_dismiss_button.clicked.connect(
+            self._dismiss_remeasure_item
+        )
+        item_actions.addWidget(self.remeasure_dismiss_button)
+        item_actions.addStretch(1)
+        items_layout.addLayout(item_actions)
+        layout.addWidget(items_card)
+
+        soft_card, soft_layout = _card(
+            "再評価で回復できる測定（再測定不要）", host
+        )
+        soft_hint = QLabel(
+            "判定に必要な証拠が未登録なだけで、ファイルの再読み込みや"
+            "メタデータ補完で品質評価をやり直せる測定です。新しい測定は不要です。",
+            soft_card,
+        )
+        soft_hint.setWordWrap(True)
+        set_typography_role(soft_hint, TypographyRole.SECONDARY)
+        soft_layout.addWidget(soft_hint)
+        self.remeasure_soft_table = QTableWidget(0, 4, soft_card)
+        self.remeasure_soft_table.setObjectName("remeasureSoftTable")
+        self.remeasure_soft_table.setAccessibleName("再評価候補一覧")
+        self.remeasure_soft_table.setHorizontalHeaderLabels(
+            ["測定", "測定位置", "欠落している証拠", "対処"]
+        )
+        self.remeasure_soft_table.setSelectionBehavior(
+            QAbstractItemView.SelectionBehavior.SelectRows
+        )
+        self.remeasure_soft_table.setSelectionMode(
+            QAbstractItemView.SelectionMode.SingleSelection
+        )
+        self.remeasure_soft_table.setEditTriggers(
+            QAbstractItemView.EditTrigger.NoEditTriggers
+        )
+        self.remeasure_soft_table.verticalHeader().setVisible(False)
+        self.remeasure_soft_table.horizontalHeader().setSectionResizeMode(
+            QHeaderView.ResizeMode.ResizeToContents
+        )
+        self.remeasure_soft_table.horizontalHeader().setStretchLastSection(
+            True
+        )
+        self.remeasure_soft_table.itemSelectionChanged.connect(
+            self._update_remeasure_buttons
+        )
+        soft_layout.addWidget(self.remeasure_soft_table)
+        soft_actions = QHBoxLayout()
+        self.remeasure_soft_open_button = QPushButton(
+            "この測定を開く", soft_card
+        )
+        self.remeasure_soft_open_button.clicked.connect(
+            self._open_remeasure_measurement
+        )
+        soft_actions.addWidget(self.remeasure_soft_open_button)
+        self.remeasure_reeval_button = QPushButton(
+            "品質を再評価", soft_card
+        )
+        self.remeasure_reeval_button.setObjectName("remeasureReevalButton")
+        self.remeasure_reeval_button.setToolTip(
+            "保存済みの権威（再読み込み済みファイル・補完済みメタデータ）だけで"
+            "品質評価をやり直します。証拠が足りないままなら判定不能のまま残ります。"
+        )
+        self.remeasure_reeval_button.clicked.connect(
+            self._reevaluate_remeasure_item
+        )
+        soft_actions.addWidget(self.remeasure_reeval_button)
+        soft_actions.addStretch(1)
+        soft_layout.addLayout(soft_actions)
+        layout.addWidget(soft_card)
+
+        skipped_card, skipped_layout = _card("対象外となった測定", host)
+        skipped_hint = QLabel(
+            "品質が判定不能でもキューに入れず、理由を記録した測定です。"
+            "未知の品質状態を合格扱いにすることはありません。",
+            skipped_card,
+        )
+        skipped_hint.setWordWrap(True)
+        set_typography_role(skipped_hint, TypographyRole.SECONDARY)
+        skipped_layout.addWidget(skipped_hint)
+        self.remeasure_skipped_table = QTableWidget(0, 3, skipped_card)
+        self.remeasure_skipped_table.setObjectName("remeasureSkippedTable")
+        self.remeasure_skipped_table.setAccessibleName("キュー対象外の測定一覧")
+        self.remeasure_skipped_table.setHorizontalHeaderLabels(
+            ["測定", "理由", "詳細"]
+        )
+        self.remeasure_skipped_table.setSelectionBehavior(
+            QAbstractItemView.SelectionBehavior.SelectRows
+        )
+        self.remeasure_skipped_table.setSelectionMode(
+            QAbstractItemView.SelectionMode.SingleSelection
+        )
+        self.remeasure_skipped_table.setEditTriggers(
+            QAbstractItemView.EditTrigger.NoEditTriggers
+        )
+        self.remeasure_skipped_table.verticalHeader().setVisible(False)
+        self.remeasure_skipped_table.horizontalHeader().setSectionResizeMode(
+            QHeaderView.ResizeMode.ResizeToContents
+        )
+        self.remeasure_skipped_table.horizontalHeader().setStretchLastSection(
+            True
+        )
+        skipped_layout.addWidget(self.remeasure_skipped_table)
+        layout.addWidget(skipped_card)
+        layout.addStretch(1)
+        self.pages.addWidget(page)
+
+    _REMEASURE_SKIP_REASON_LABELS = {
+        'superseded': "新しい測定に置き換え済み",
+        'not_normally_eligible': "通常の測定条件を満たしていない",
+        'target_not_in_current_scene': "測定位置が現在のシーンに存在しない",
+        'no_current_report': "品質評価がまだ存在しない",
+        'report_unreadable': "品質評価を読み込めない",
+        'undetermined': "判定根拠が不明確",
+    }
+
+    _REMEASURE_STATE_LABELS = {
+        'pending': "保留中",
+        'dismissed': "却下済み",
+        'converted': "キャンペーンへ変換済み",
+    }
+
+    _REMEASURE_STATUS_LABELS = {
+        'current': "最新",
+        'lapsed_evaluations': "評価セットが変わったため失効",
+        'lapsed_scene': "シーンが変わったため失効",
+    }
+
+    def _remeasure_selected_id(self, table: QTableWidget) -> str | None:
+        row_index = table.currentRow()
+        if row_index < 0:
+            return None
+        item = table.item(row_index, 0)
+        if item is None:
+            return None
+        value = item.data(Qt.ItemDataRole.UserRole)
+        return str(value) if value else None
+
+    def _refresh_remeasure(self) -> None:
+        snapshot = self.controller.remeasure_queue()
+        if snapshot is None:
+            self.remeasure_status_label.setText(
+                "キューはまだ生成されていません。"
+                "「キューを生成 / 再生成」で品質評価を走査します。"
+            )
+            self.remeasure_table.setRowCount(0)
+            self.remeasure_soft_table.setRowCount(0)
+            self.remeasure_skipped_table.setRowCount(0)
+            self.remeasure_convert_button.setEnabled(False)
+            self._update_remeasure_buttons()
+            return
+        queue = snapshot.queue
+        status_label = self._REMEASURE_STATUS_LABELS.get(
+            snapshot.status, snapshot.status
+        )
+        pending = sum(
+            1 for state in snapshot.item_states.values() if state == 'pending'
+        )
+        self.remeasure_status_label.setText(
+            f"キュー {queue.queue_id}（{status_label}） · "
+            f"再測定 {len(queue.items)}件（保留 {pending}件） · "
+            f"再評価候補 {len(queue.soft_candidates)}件 · "
+            f"対象外 {len(queue.skipped)}件 · "
+            f"基準を満たした測定 {queue.passed_count}件"
+        )
+        self.remeasure_status_label.setToolTip(
+            f"評価セット: {queue.evaluation_set_sha256}\n"
+            f"シーン: {queue.scene_revision_id}"
+        )
+        current = snapshot.status == 'current'
+        self.remeasure_convert_button.setEnabled(current and pending > 0)
+
+        self.remeasure_table.setSortingEnabled(False)
+        self.remeasure_table.setRowCount(len(queue.items))
+        for row_index, item in enumerate(queue.items):
+            inputs = item.inputs
+            state = snapshot.item_states.get(item.measurement_id, 'pending')
+            values = (
+                item.measurement_id,
+                inputs.measurement_entity_id,
+                _channel_role_label(inputs.channel_role),
+                ' / '.join(inputs.source_speaker_ids),
+                ', '.join(item.failed_checks) or ', '.join(item.unknown_checks),
+                self._REMEASURE_STATE_LABELS.get(state, state),
+            )
+            for column, value in enumerate(values):
+                cell = QTableWidgetItem(value)
+                cell.setData(Qt.ItemDataRole.UserRole, item.measurement_id)
+                if column == 4:
+                    # Verbatim authority reasons stay reachable via tooltip;
+                    # the cell itself lists the failed criterion names.
+                    cell.setToolTip('\n'.join(item.retake_reasons))
+                self.remeasure_table.setItem(row_index, column, cell)
+        self.remeasure_table.setSortingEnabled(True)
+
+        self.remeasure_soft_table.setRowCount(len(queue.soft_candidates))
+        for row_index, candidate in enumerate(queue.soft_candidates):
+            values = (
+                candidate.measurement_id,
+                candidate.inputs.measurement_entity_id,
+                ', '.join(candidate.missing_evidence),
+                candidate.detail,
+            )
+            for column, value in enumerate(values):
+                cell = QTableWidgetItem(value)
+                cell.setData(
+                    Qt.ItemDataRole.UserRole, candidate.measurement_id
+                )
+                self.remeasure_soft_table.setItem(row_index, column, cell)
+
+        self.remeasure_skipped_table.setRowCount(len(queue.skipped))
+        for row_index, row in enumerate(queue.skipped):
+            values = (
+                row.measurement_id,
+                self._REMEASURE_SKIP_REASON_LABELS.get(
+                    row.reason_code, row.reason_code
+                ),
+                row.detail,
+            )
+            for column, value in enumerate(values):
+                cell = QTableWidgetItem(value)
+                cell.setData(Qt.ItemDataRole.UserRole, row.measurement_id)
+                self.remeasure_skipped_table.setItem(row_index, column, cell)
+        self._update_remeasure_buttons()
+
+    def _update_remeasure_buttons(self) -> None:
+        has_item = (
+            self._remeasure_selected_id(self.remeasure_table) is not None
+        )
+        has_soft = (
+            self._remeasure_selected_id(self.remeasure_soft_table) is not None
+        )
+        self.remeasure_open_button.setEnabled(has_item)
+        self.remeasure_dismiss_button.setEnabled(has_item)
+        self.remeasure_soft_open_button.setEnabled(has_soft)
+        self.remeasure_reeval_button.setEnabled(has_soft)
+
+    def _generate_remeasure_queue(self) -> None:
+        try:
+            queue = self.controller.generate_remeasure_queue()
+        except EXPECTED_OPERATION_ERRORS as exc:
+            self._operation_error_notice(
+                "再測定キューを生成できませんでした", exc
+            )
+            return
+        self._set_notice(
+            f"再測定キューを生成しました: 再測定 {len(queue.items)}件 · "
+            f"再評価候補 {len(queue.soft_candidates)}件 · "
+            f"対象外 {len(queue.skipped)}件",
+            SemanticState.SUCCESS,
+        )
+        self.refresh()
+        self.set_context("remeasure")
+
+    def _dismiss_remeasure_item(self) -> None:
+        snapshot = self.controller.remeasure_queue()
+        measurement_id = self._remeasure_selected_id(self.remeasure_table)
+        if snapshot is None or measurement_id is None:
+            return
+        reason, accepted = QInputDialog.getText(
+            self,
+            "キュー項目の却下",
+            f"{measurement_id} を再測定キューから外します。\n理由（記録されます・必須）:",
+        )
+        if not accepted:
+            return
+        if not reason.strip():
+            self._set_notice(
+                "却下するには理由の記録が必要です。", SemanticState.WARNING
+            )
+            return
+        try:
+            self.controller.dismiss_remeasure_item(
+                snapshot.queue.queue_id, measurement_id, reason.strip()
+            )
+        except EXPECTED_OPERATION_ERRORS as exc:
+            self._operation_error_notice(
+                "キュー項目を却下できませんでした", exc
+            )
+            return
+        self._set_notice(
+            f"{measurement_id} をキューから却下しました（理由を記録済み）。",
+            SemanticState.SUCCESS,
+        )
+        self.refresh()
+
+    def _convert_remeasure_queue(self) -> None:
+        snapshot = self.controller.remeasure_queue()
+        if snapshot is None:
+            return
+        if snapshot.status != 'current':
+            self._set_notice(
+                "キューが失効しています。先に「キューを生成 / 再生成」で最新化してください。",
+                SemanticState.WARNING,
+            )
+            return
+        pending = sum(
+            1 for state in snapshot.item_states.values() if state == 'pending'
+        )
+        if pending == 0:
+            self._set_notice(
+                "キャンペーンへ変換できる保留中の項目がありません。",
+                SemanticState.WARNING,
+            )
+            return
+        try:
+            plan = self.controller.convert_remeasure_queue(
+                snapshot.queue.queue_id
+            )
+        except EXPECTED_OPERATION_ERRORS as exc:
+            self._operation_error_notice(
+                "キューをキャンペーン計画へ変換できませんでした", exc
+            )
+            return
+        self._set_notice(
+            f"{pending}件をキャンペーン計画 {plan.plan_id} へ変換しました。"
+            "実行はキャンペーンページで明示的に開始してください。",
+            SemanticState.SUCCESS,
+            action=(
+                "キャンペーンを開く",
+                lambda: self.set_context("campaign"),
+            ),
+        )
+        self.refresh()
+
+    def _open_remeasure_measurement(self) -> None:
+        measurement_id = (
+            self._remeasure_selected_id(self.remeasure_table)
+            or self._remeasure_selected_id(self.remeasure_soft_table)
+            or self._remeasure_selected_id(self.remeasure_skipped_table)
+        )
+        if measurement_id is None:
+            return
+        if not self.select_measurement_id(measurement_id):
+            self._set_notice(
+                f"測定 {measurement_id} は一覧に見つかりませんでした。",
+                SemanticState.WARNING,
+            )
+
+    def _reevaluate_remeasure_item(self) -> None:
+        measurement_id = self._remeasure_selected_id(
+            self.remeasure_soft_table
+        )
+        if measurement_id is None:
+            return
+        try:
+            result = self.controller.soft_reevaluate_measurement(
+                measurement_id
+            )
+        except EXPECTED_OPERATION_ERRORS as exc:
+            self._operation_error_notice(
+                "品質の再評価に失敗しました", exc
+            )
+            return
+        verdict = (
+            None
+            if result.report is None
+            else result.report.retake_recommendation
+        )
+        self._set_notice(
+            f"{measurement_id} を再評価しました: "
+            f"{result.status}（判定 {verdict or 'なし'}）。"
+            "「キューを生成 / 再生成」でキューに反映します。",
+            SemanticState.SUCCESS,
+        )
+        self.refresh()
+
+    def _build_correspondence_page(self) -> None:
+        """#1002 — measured ETC ↔ predicted reflection-path correspondence
+        review surface (reuse-only: sealed pairings, #564 registrations,
+        persisted deterministic path artifacts)."""
+        from .reflection_correspondence_panel import (
+            ReflectionCorrespondencePanel,
+        )
+
+        page, host, layout = _page(
+            "反射対応を確認",
+            "実測 ETC の観測イベントと予測反射パスの対応を、宣言済みの"
+            "対応権威だけで照合します。最近接ピークの自動マッチングは"
+            "行いません。",
+        )
+        page.setObjectName("measurementCorrespondencePage")
+        self.correspondence_panel = ReflectionCorrespondencePanel(
+            self.controller, host
+        )
+        self.correspondence_panel.setObjectName(
+            "correspondence_panel"
+        )
+        layout.addWidget(self.correspondence_panel, 1)
+        self.pages.addWidget(page)
 
     def _build_comparison_page(self) -> None:
         page, host, layout = _page(
@@ -7298,6 +8532,11 @@ class MeasurementPageWorkspace(QWidget):
             )
             for column, value in enumerate(values):
                 self.comparison_history.setItem(row_index, column, QTableWidgetItem(value))
+            # #973: bind the sealed comparison_id so view-state restore
+            # resolves rows by identity, not visual index.
+            self.comparison_history.item(row_index, 0).setData(
+                Qt.ItemDataRole.UserRole, comparison.comparison_id
+            )
         # #970: pair summary + the nearest resolvable reason re-derive from
         # the refreshed views — they must never render a verdict computed
         # against a stale listing.
@@ -8459,19 +9698,29 @@ class MeasurementPageWorkspace(QWidget):
         *,
         on_retry: Callable[[], None] | None = None,
         purpose: str | None = None,
-    ) -> None:
+        activity: dict | None = None,
+    ) -> str | None:
         if self._disposed:
-            return
+            return None
         key = uuid4().hex
         self._job_handlers[key] = (on_success, error_prefix, on_retry)
         if purpose is not None:
             self._job_purpose[key] = purpose
             self._latest_job_key[purpose] = key
+        op_id = None
+        if activity is not None:
+            spec = dict(activity)
+            if spec.pop('cancel_by_key', False):
+                spec['cancel_callback'] = (
+                    lambda: self._job_pool.cancel(key)
+                )
+            op_id = self._submit_measure_op(task_key=key, **spec)
         self._job_pool.start(
             key,
             lambda cancel_event: call(cancel_event),
             self._job_completed,
         )
+        return op_id
 
     @Slot(object, object, object)
     def _job_completed(self, key: object, result: object, error: object) -> None:
@@ -8484,6 +9733,10 @@ class MeasurementPageWorkspace(QWidget):
         if purpose is not None and key_str != self._latest_job_key.get(purpose):
             # Superseded by a newer request on the same purpose — the late
             # result must never overwrite what the newer job will stage.
+            self._finish_measure_op(
+                key_str,
+                result_summary='新しい要求に置き換えられたため結果を破棄しました',
+            )
             return
         on_success, error_prefix, on_retry = handler
         if str(key) == self._commit_job_key:
@@ -8497,7 +9750,11 @@ class MeasurementPageWorkspace(QWidget):
                     "保存をキャンセルしました。保存済みの項目はそのまま残っています。",
                     SemanticState.WARNING,
                 )
+                self._finish_measure_op(key_str, cancelled=True)
                 return
+        if error == WORKER_CANCELLED:
+            self._finish_measure_op(key_str, cancelled=True)
+            return
         if error is not None:
             if error != WORKER_CANCELLED:
                 self._set_notice(
@@ -8518,8 +9775,13 @@ class MeasurementPageWorkspace(QWidget):
                         on_retry=on_retry,
                         on_help=self._open_error_help,
                     )
+            self._finish_measure_op(key_str, error=error)
             return
-        on_success(result)
+        summary = on_success(result)
+        self._finish_measure_op(
+            key_str,
+            result_summary=summary if isinstance(summary, str) else None,
+        )
 
     # ------------------------------------------------------------------
     # #869 HTDT-native sweep acquisition context (REV66)
@@ -9947,7 +11209,26 @@ class MeasurementPageWorkspace(QWidget):
         ) - self._batch_released_ids
 
     def before_deactivate(self) -> tuple[bool, str | None]:
-        if self._user_busy_count():
+        if self._activity_center is not None:
+            # #974: registered BACKGROUNDABLE jobs (REW fetch) no longer hold
+            # the operator here — the Activity strip keeps them visible.
+            # EXCLUSIVE ops (batch commit, apply) still block, with reason.
+            blockers = self._activity_center.navigation_blockers()
+            if blockers:
+                first = blockers[0]
+                reason = (
+                    first.navigation_block_reason
+                    or '排他的な処理を実行中です'
+                )
+                return False, f"{first.title}: {reason}"
+            unregistered = (
+                self._job_pool.active_count
+                - len(self._rew_auto_job_keys)
+                - len(self._job_op_ids)
+            )
+            if unregistered > 0:
+                return False, "バックグラウンド処理が完了してから画面を切り替えてください"
+        elif self._user_busy_count():
             return False, "バックグラウンド処理が完了してから画面を切り替えてください"
         pending = self.controller.pending_import
         if pending is not None and self._pending_token(pending) != self._pending_release:
@@ -9994,11 +11275,13 @@ class MeasurementPageWorkspace(QWidget):
             # the workspace stay usable for the next job. Detached workers'
             # completions were disconnected inside stop_all, so late
             # results can never apply.
+            self._terminate_measure_ops()
             report = self._job_pool.stop_all()
             self._job_handlers.clear()
             self._job_purpose.clear()
             self._latest_job_key.clear()
             self._rew_auto_job_keys.clear()
+            self._job_op_ids.clear()
             self._commit_job_key = None
             self._set_batch_committing(False)
             self.refresh()
@@ -10010,10 +11293,12 @@ class MeasurementPageWorkspace(QWidget):
     def closeEvent(self, event) -> None:  # type: ignore[override]
         self._disposed = True
         self._rew_timer.stop()
+        self._terminate_measure_ops()
         report = self._job_pool.shutdown()
         self._job_handlers.clear()
         self._job_purpose.clear()
         self._rew_auto_job_keys.clear()
+        self._job_op_ids.clear()
         if not report.all_stopped:
             self._set_notice(
                 "バックグラウンド処理の停止が遅延しています · 遅延結果は適用しません",
@@ -10050,6 +11335,8 @@ def build_measurement_workspace_mount(
         resolve_dirty_state=workspace.resolve_dirty_state,
         on_context_changed=workspace.set_context,
         on_entity_requested=workspace.focus_entity,
+        capture_view_state=getattr(workspace, "capture_view_state", None),
+        restore_view_state=getattr(workspace, "restore_view_state", None),
     )
 
 

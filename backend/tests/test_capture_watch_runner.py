@@ -445,7 +445,7 @@ def test_runner_watch_path_change_rebaselines(tmp_path: Path) -> None:
     assert _pump(app, lambda: bool(runner._seen))
     # Switch to B — new epoch.
     prefs.watch_dir = str(watch_b)
-    assert _pump(app, lambda: runner._watched_root == watch_b)
+    assert _pump(app, lambda: runner._watched_root == watch_b.resolve())
     # While B is watched, drop a file into A — it pre-dates A's next epoch.
     _write_bundle_zip(watch_a, 'gap')
     # Switch back to A: cumulative markers would stage the gap file; the

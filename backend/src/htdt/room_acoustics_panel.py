@@ -69,6 +69,7 @@ from .cad_acoustic_treatment_comparison import (
 )
 from .cad_scene import Position3
 from .cad_document import CommandPresentation, CompositeEditCommand
+from .room_treatment_overlay import LIFECYCLE_LABELS
 from .error_boundary import EXPECTED_OPERATION_ERRORS
 from .ui_theme import TypographyRole, set_typography_role
 from .user_facing_error import operation_error_message
@@ -946,6 +947,11 @@ class RoomTreatmentPanel(QWidget):
     def __init__(self, controller, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.controller = controller
+        # #1009: set by the workspace — returns the current
+        # TreatmentOverlayScene. The panel never derives patches itself;
+        # it renders the resolved vocabulary (提案/設置/失効・実効面積比・
+        # 警告) verbatim.
+        self.coverage_provider = None
         self._surfaces = ()
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -1022,6 +1028,32 @@ class RoomTreatmentPanel(QWidget):
         self.install_button.clicked.connect(self._install_selected)
         layout.addWidget(self.install_button)
 
+        coverage_header = QLabel('壁面被覆 (ビューポート表示)')
+        set_typography_role(coverage_header, TypographyRole.SECTION_TITLE)
+        coverage_header.setToolTip(
+            '3Dビューに描かれる被覆パッチ — '
+            'クリップ済みの実効範囲のみが着色されます'
+        )
+        layout.addWidget(coverage_header)
+        self.coverage = QTreeWidget()
+        self.coverage.setAccessibleName('被覆一覧')
+        self.coverage.setHeaderLabels(('配置', '被覆'))
+        coverage_tree_header = self.coverage.headerItem()
+        if coverage_tree_header is not None:
+            coverage_tree_header.setToolTip(
+                0, '被覆パッチを持つ配置（または描けない配置）'
+            )
+            coverage_tree_header.setToolTip(
+                1,
+                '実効面積/矩形面積の比率・ライフサイクル・警告 — '
+                '範囲外や失効した配置は描画されず理由が示されます',
+            )
+        self.coverage.setToolTip(
+            '実効パッチ（ホスト面でクリップ済み）だけが壁面に描画されます。'
+            '矩形のはみ出し部分は被覆として着色されません。'
+        )
+        layout.addWidget(self.coverage)
+
         compare_header = QLabel('比較')
         set_typography_role(compare_header, TypographyRole.SECTION_TITLE)
         layout.addWidget(compare_header)
@@ -1043,6 +1075,28 @@ class RoomTreatmentPanel(QWidget):
             comparisons_header.setToolTip(0, '記録した比較セット')
             comparisons_header.setToolTip(1, 'セット内の候補数')
         layout.addWidget(self.comparisons)
+        # #1008: read-only 3D fabrication preview — issues a sealed
+        # TreatmentFabricationPackage and draws its parts in the
+        # viewport. fabrication_host is set by the workspace.
+        self.fabrication_host = None
+        fabrication_header = QLabel('製作プレビュー')
+        set_typography_role(
+            fabrication_header, TypographyRole.SECTION_TITLE
+        )
+        fabrication_header.setToolTip(
+            '発行済み製作パッケージの3D断面/分解プレビュー（読み取り専用）'
+        )
+        layout.addWidget(fabrication_header)
+        self.fabrication_button = QPushButton('製作プレビュー…')
+        self.fabrication_button.setAccessibleName('製作プレビューを開く')
+        self.fabrication_button.setToolTip(
+            '吸音パネル/QRD拡散体の製作パッケージを発行し、'
+            '断面・分解図・部材表を3Dで確認します'
+        )
+        self.fabrication_button.clicked.connect(
+            self._open_fabrication_preview
+        )
+        layout.addWidget(self.fabrication_button)
         self.status = QLabel('')
         self.status.setWordWrap(True)
         set_typography_role(self.status, TypographyRole.SECONDARY)
@@ -1051,6 +1105,26 @@ class RoomTreatmentPanel(QWidget):
 
     def _revision(self):
         return self.controller.repository.current_head(self.controller.document_id)
+
+    def _open_fabrication_preview(self) -> None:
+        """Open the #1008 fabrication preview dialog (non-modal)."""
+
+        from .room_fabrication_panel import FabricationPreviewDialog
+
+        dialog = getattr(self, '_fabrication_dialog', None)
+        if dialog is not None and not dialog.isHidden():
+            dialog.raise_()
+            dialog.activateWindow()
+            dialog.refresh_sources()
+            return
+        dialog = FabricationPreviewDialog(
+            self.controller,
+            host=self.fabrication_host,
+            parent=self.window(),
+        )
+        self._fabrication_dialog = dialog
+        dialog.refresh_sources()
+        dialog.show()
 
     def refresh(self) -> None:
         repository = self.controller.treatment_repository
@@ -1139,9 +1213,56 @@ class RoomTreatmentPanel(QWidget):
             self.comparisons.addTopLevelItem(
                 QTreeWidgetItem((spec.name, roles))
             )
+        self._refresh_coverage()
         if not self._surfaces:
             self.status.setText(
                 'セマンティックジオメトリがありません — 面バインドは未対応です。'
+            )
+
+    def _refresh_coverage(self) -> None:
+        """Populate the 被覆 list from the resolved overlay scene (#1009)."""
+
+        self.coverage.clear()
+        provider = self.coverage_provider
+        if not callable(provider):
+            return
+        scene = provider()
+        if scene is None:
+            self.coverage.addTopLevelItem(
+                QTreeWidgetItem(('', 'シーンリビジョンなし — 描画なし'))
+            )
+            return
+        for patch in scene.patches:
+            lifecycle = LIFECYCLE_LABELS.get(patch.lifecycle, patch.lifecycle)
+            notes = []
+            if patch.clipped:
+                notes.append('クリップ済み')
+            if patch.overlap_with:
+                notes.append('重複: ' + ' / '.join(patch.overlap_with))
+            item = QTreeWidgetItem(
+                (
+                    patch.placement.instance_id,
+                    (
+                        f'{lifecycle} · 実効 {patch.patch_area_m2:.2f} m² '
+                        f'/ 矩形 {patch.rectangle_area_m2:.2f} m² '
+                        f'({patch.effective_ratio:.0%})'
+                        + (f' · {"; ".join(notes)}' if notes else '')
+                    ),
+                )
+            )
+            item.setToolTip(
+                1,
+                '実効面積はホスト面でクリップされた範囲のみ — '
+                'はみ出した矩形部分は被覆として描画されません。',
+            )
+            self.coverage.addTopLevelItem(item)
+        for notice in scene.notices:
+            item = QTreeWidgetItem((notice.instance_id, notice.message))
+            item.setToolTip(1, 'この配置は壁面に描画されません — 理由を確認してください。')
+            self.coverage.addTopLevelItem(item)
+        if not scene.patches and not scene.notices:
+            self.coverage.addTopLevelItem(
+                QTreeWidgetItem(('', '描画対象の配置がありません'))
             )
 
     def _new_definition(self) -> None:
@@ -1264,7 +1385,7 @@ class RoomTreatmentPanel(QWidget):
             return
         instance_id, _version = item.data(0, _PLACEMENT_ROLE)
         repository = self.controller.treatment_repository
-        previous = repository.latest_placement(revision.document_id, instance_id)
+        previous = repository.latest_placement(instance_id)
         if previous is None:
             return
         try:

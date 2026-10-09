@@ -467,6 +467,12 @@ def test_panel_merge_button_labels_wrap_pair(tmp_path) -> None:
 
     panel.merge_wall_button.click()
     app.processEvents()
+    # Issue #982: the dangerous op arms a pre-apply preview; committing is
+    # a separate explicit 適用 click.
+    assert panel._pending_preview is not None
+    assert "壁" in panel.preview_title.text()
+    panel.preview_apply_button.click()
+    app.processEvents()
 
     topology = workspace.controller.committed_document.wall_topology
     assert topology is not None

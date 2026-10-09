@@ -1,6 +1,11 @@
 """Round-8 regression: RetentionPolicyWidget — the Settings > 保持管理
 tab surfacing CaptureRetentionService (round-6 deferred wiring): inventory,
-revision picker, dry-run plan, confirmed purge."""
+revision picker, dry-run plan, confirmed purge.
+
+#1025 replaced the flat revision combo with a searchable/groupable
+``QTreeWidget`` — selection is explicit (no silent first-item selection)
+and pinned by capture_revision_id.
+"""
 
 import os
 
@@ -41,8 +46,12 @@ def test_widget_lists_inventory_and_revisions(qapp, seeded) -> None:
     widget = RetentionPolicyWidget(CaptureRetentionService(scene))
     try:
         assert "リビジョン 1 件" in widget.inventory_label.text()
-        assert widget.revision_combo.count() == 1
-        assert widget.revision_combo.currentData() == REVISION_ID
+        assert widget.listed_revision_ids() == (REVISION_ID,)
+        # Nothing is pre-selected — deletion requires an explicit pick.
+        assert widget._selected_revision_id() is None
+        assert not widget.plan_button.isEnabled()
+        assert widget.select_revision(REVISION_ID)
+        assert widget._selected_revision_id() == REVISION_ID
         assert widget.plan_button.isEnabled()
         # Purge stays disarmed until a ready dry-run exists.
         assert not widget.purge_button.isEnabled()
@@ -56,10 +65,11 @@ def test_dry_run_shows_plan_and_arms_purge(qapp, seeded) -> None:
     service = CaptureRetentionService(scene)
     widget = RetentionPolicyWidget(service)
     try:
+        assert widget.select_revision(REVISION_ID)
         widget._run_dry_run()
         text = widget.plan_label.text()
         assert "削除可能" in text
-        assert "証拠 7 件" in text
+        assert "削除対象 7 件" in text
         assert widget.plan_label.isVisibleTo(widget)
         assert widget.purge_button.isEnabled()
         # Still nothing deleted.
@@ -79,13 +89,14 @@ def test_confirmed_purge_removes_revision(
         QMessageBox, "exec", lambda _self: QMessageBox.StandardButton.Yes
     )
     try:
+        assert widget.select_revision(REVISION_ID)
         widget._run_dry_run()
         widget._confirm_and_purge()
         assert "削除しました" in widget.plan_label.text()
         assert service.plan_capture_revision_purge(REVISION_ID).status == (
             "absent"
         )
-        assert widget.revision_combo.count() == 0
+        assert widget.listed_revision_ids() == ()
     finally:
         widget.close()
         widget.deleteLater()
@@ -99,6 +110,7 @@ def test_busy_gate_disarms_purge(qapp, seeded) -> None:
         is_busy=lambda: busy["flag"],
     )
     try:
+        assert widget.select_revision(REVISION_ID)
         widget._run_dry_run()
         assert widget.purge_button.isEnabled()
         busy["flag"] = True
@@ -125,6 +137,8 @@ def test_blocked_revision_never_arms_purge(
                 raw_mesh_binding_id=binding_ids[0],
             )
         )
+        widget.refresh()
+        assert widget.select_revision(REVISION_ID)
         widget._run_dry_run()
         assert "削除できません" in widget.plan_label.text()
         assert promoted.promotion_id in widget.plan_label.text()
@@ -143,7 +157,7 @@ def test_empty_catalog_renders_empty_picker(
     widget = RetentionPolicyWidget(CaptureRetentionService(scene))
     try:
         assert "リビジョン 0 件" in widget.inventory_label.text()
-        assert widget.revision_combo.count() == 0
+        assert widget.listed_revision_ids() == ()
         assert not widget.plan_button.isEnabled()
     finally:
         widget.close()

@@ -691,6 +691,30 @@ class CadAcousticTreatmentRepository:
             ).fetchall()
         return tuple(self._read_placement_row(row) for row in rows)
 
+    def latest_placements_for_document(
+        self,
+        document_id: str,
+    ) -> tuple[AcousticTreatmentPlacement, ...]:
+        """Latest version of every placement instance in the document (#1009).
+
+        The coverage overlay resolves staleness from this set: an instance
+        whose newest version is bound to a non-current SceneRevision is
+        reported as lapsed instead of silently disappearing.
+        """
+        with closing(self._connect()) as connection, connection:
+            rows = connection.execute(
+                f'SELECT {self._PLACEMENT_ROW_COLUMNS} '
+                'FROM cad_acoustic_treatment_placements p '
+                'WHERE document_id=? '
+                'AND p.placement_version = ('
+                '    SELECT MAX(placement_version) '
+                '    FROM cad_acoustic_treatment_placements '
+                '    WHERE instance_id=p.instance_id'
+                ') ORDER BY p.seq ASC',
+                (document_id,),
+            ).fetchall()
+        return tuple(self._read_placement_row(row) for row in rows)
+
     def proposed_placement_ids(self, document_id: str) -> tuple[str, ...]:
         """Instance ids whose *latest* placement version is still proposed.
 

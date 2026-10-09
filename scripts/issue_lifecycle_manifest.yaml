@@ -893,3 +893,551 @@ entries:
   - docs/issues/issue-1023-activity-scope.md
   - backend/tests/test_issue_1023_activity_scope.py
   close_when_gates_clear: true
+
+- issue: 1019
+  lifecycle: acceptance_remaining
+  landed:
+    prs: [1052]
+    commits: [03d1bab0]
+  remaining_gates:
+  - kind: manual
+    description: 'オペレータ受入 — 共有 drop folder 実環境でのスキップ語彙 (link_external/reparse_point 等) と staging 経路の確認。Windows 実機検証済: st_reparse_tag・mklink /J・dangling link・UNC fail-closed・junction 経由 root'
+  evidence_refs:
+  - docs/issues/issue-1019-watch-symlink.md
+  - backend/tests/test_issue_1019_capture_watch_links.py
+  - backend/src/htdt/staged_capture_drop.py
+  close_when_gates_clear: true
+
+- issue: 1017
+  lifecycle: acceptance_remaining
+  landed:
+    prs: [1053]
+    commits: [b0813c75]
+  remaining_gates:
+  - kind: manual
+    description: 'オペレータ受入 — 任意期間・さらに読み込む cursor・出来事の詳細 inspector の実機確認 (子が実GUI 141イベント/61リビジョンで検証済、activity_focus の深堀りリンクは単体テストのみ)'
+  evidence_refs:
+  - docs/issues/issue-1017-activity-history.md
+  - backend/tests/test_issue_1017_activity_history.py
+  close_when_gates_clear: true
+
+- issue: 1025
+  lifecycle: acceptance_remaining
+  landed:
+    prs: [1054]
+    commits: [1011ad37]
+  remaining_gates:
+  - kind: manual
+    description: 'オペレータ受入 — 実データ規模での検索/グループ/選択ピン留めの実機確認 (子が実GUI 11/11・実 purge 含め検証済)'
+  evidence_refs:
+  - docs/issues/issue-1025-retention-search.md
+  - backend/tests/test_issue_1025_retention_search.py
+  close_when_gates_clear: true
+
+- issue: 1018
+  lifecycle: acceptance_remaining
+  landed:
+    prs: [1056]
+    commits: [c2efe93d]
+  remaining_gates:
+  - kind: manual
+    description: 'オペレータ受入 — 実環境での診断実行・カテゴリ別結果・原因別誘導の確認 (子が実GUI 8/8・非同期非ブロッキング・キャンセル正直化を検証済)'
+  evidence_refs:
+  - docs/issues/issue-1018-support-health-check.md
+  - backend/tests/test_issue_1018_support_health_check.py
+  - backend/src/htdt/support_health_runner.py
+  close_when_gates_clear: true
+
+- issue: 1013
+  lifecycle: acceptance_remaining
+  landed:
+    prs: [1057]
+    commits: [137190bd]
+  remaining_gates:
+  - kind: manual
+    description: 'オペレータ受入 — 実 Hue bridge read-back と設計 scene の4状態表示の実機確認 (子が実GUI Mesa GL で toggle/beads/未配置リストを検証済)'
+  evidence_refs:
+  - docs/issues/issue-1013-lighting-states.md
+  - backend/tests/test_issue_1013_lighting_states.py
+  close_when_gates_clear: true
+
+- issue: 1012
+  lifecycle: acceptance_remaining
+  landed:
+    prs: [1058]
+    commits: [3644796d]
+  remaining_gates:
+  - kind: manual
+    description: 'オペレータ受入 — 実機器プロファイルでの RU elevation・fit 表・移動確認フローの実機確認 (子が実GUI Mesa GL で検証済)'
+  evidence_refs:
+  - docs/issues/issue-1012-rack-workspace.md
+  - backend/tests/test_issue_1012_rack_workspace.py
+  close_when_gates_clear: true
+
+- issue: 1010
+  lifecycle: acceptance_remaining
+  landed:
+    prs: [1060]
+    commits: [5bf984f3]
+  remaining_gates:
+  - kind: manual
+    description: 'オペレータ受入 — 実レイアウトでの運用クリアランス・衝突ハイライトの実機確認 (子が実GUI Mesa GL でドラッグ中の live 再計算含め 7/7 検証済)'
+  evidence_refs:
+  - docs/issues/issue-1010-operational-clearance.md
+  - backend/tests/test_issue_1010_operational_clearance.py
+  - backend/src/htdt/room_operational_clearance.py
+  close_when_gates_clear: true
+
+- issue: 1009
+  lifecycle: acceptance_remaining
+  landed:
+    prs: [1061]
+    commits: [45f03c56]
+  remaining_gates:
+  - kind: manual
+    description: 'オペレータ受入 — 実配置での壁面被覆 overlay・実効面積/失効語彙の実機確認 (子が実GUI Mesa GL で clip 済みパッチ描画を検証済)'
+  evidence_refs:
+  - docs/issues/issue-1009-absorption-coverage.md
+  - backend/tests/test_issue_1009_treatment_overlay.py
+  - backend/src/htdt/room_treatment_overlay.py
+  close_when_gates_clear: true
+
+- issue: 1011
+  lifecycle: structural_followup_remaining
+  landed:
+    prs: [1059]
+    commits: [fd579148]
+  remaining_gates:
+  - kind: structural
+    description: 'M3 — 3D waypoint authoring/preview/edit UI (docs/issues/issue-1011-cable-routes.md に structural note)。M1 一覧+exact-binding、M2 CableRunGeometry 権威 (v116) は着地済み'
+  evidence_refs:
+  - docs/issues/issue-1011-cable-routes.md
+  - backend/tests/test_issue_1011_cable_routes.py
+  - backend/src/htdt/cad_cable_run_geometry.py
+  close_when_gates_clear: true
+
+- issue: 1007
+  lifecycle: acceptance_remaining
+  landed:
+    prs: [1063]
+    commits: [bc9f110b]
+  remaining_gates:
+  - kind: manual
+    description: 'オペレータ受入 — 実デザイン案での A/B ゴースト重畳・移動矢印・差分理由カードの実機確認 (子が実GUI Mesa GL で3モード全カテゴリ検証済)'
+  evidence_refs:
+  - docs/issues/issue-1007-design-ab-ghost.md
+  - backend/tests/test_issue_1007_ab_overlay.py
+  close_when_gates_clear: true
+
+- issue: 1005
+  lifecycle: acceptance_remaining
+  landed:
+    prs: [1064]
+    commits: [edea30da]
+  remaining_gates:
+  - kind: manual
+    description: 'オペレータ受入 — 実設備/壁面アセンブリ証拠での設置可能性グリフ・確認項目の実機確認 (子が実GUI Mesa GL で4状態+stale失効を検証済)'
+  evidence_refs:
+  - docs/issues/issue-1005-mounting-inspection.md
+  - backend/tests/test_issue_1005_installation_inspection.py
+  - backend/src/htdt/installation_feasibility_viewmodel.py
+  close_when_gates_clear: true
+
+- issue: 1006
+  lifecycle: acceptance_remaining
+  landed:
+    prs: [1062]
+    commits: [4b186dcb]
+  remaining_gates:
+  - kind: manual
+    description: 'オペレータ受入 — 実キャンペーン設計での測定点ロールグリフ・進捗リング・holdout 分離の実機確認 (子が実GUI Mesa GL で検証済、first-click バグ修正込み)'
+  evidence_refs:
+  - docs/issues/issue-1006-campaign-3d.md
+  - backend/tests/test_issue_1006_campaign_3d.py
+  - backend/src/htdt/room_campaign_overlay.py
+  close_when_gates_clear: true
+
+- issue: 1003
+  lifecycle: acceptance_remaining
+  landed:
+    prs: [1065]
+    commits: [33494b4c]
+  remaining_gates:
+  - kind: manual
+    description: 'オペレータ受入 — 実スクリーン計測セットでの9点品質マップ・量/視点切替・未測定セル表現の実機確認 (子が実GUI Mesa GL で検証済)'
+  evidence_refs:
+  - docs/issues/issue-1003-screen-quality-map.md
+  - backend/tests/test_issue_1003_screen_quality.py
+  - backend/src/htdt/room_screen_quality_map.py
+  close_when_gates_clear: true
+
+- issue: 1004
+  lifecycle: acceptance_remaining
+  landed:
+    prs: [1066]
+    commits: [605b508d]
+  remaining_gates:
+  - kind: manual
+    description: 'オペレータ受入 — 実測量セットでのティア/不確かさ/状態モード別オーバーレイ・ズームゲート・未記録面のグレー表示の実機確認 (子が実GUI Mesa GL で検証済)'
+  evidence_refs:
+  - docs/issues/issue-1004-survey-uncertainty.md
+  - backend/tests/test_issue_1004_survey_overlay.py
+  - backend/src/htdt/room_survey_overlay.py
+  close_when_gates_clear: true
+
+- issue: 1001
+  lifecycle: acceptance_remaining
+  landed:
+    prs: [1067]
+    commits: [7852dd69]
+  remaining_gates:
+  - kind: manual
+    description: 'オペレータ受入 — 封緘カバレッジ評価を持つ実設計での座席別マーカー・フォーカス連動・失効表示の実機確認 (子が実GUI Mesa GL で検証済)'
+  evidence_refs:
+  - docs/issues/issue-1001-seat-coverage.md
+  - backend/tests/test_issue_1001_seat_coverage.py
+  - backend/src/htdt/room_seat_coverage_overlay.py
+  close_when_gates_clear: true
+
+- issue: 1002
+  lifecycle: acceptance_remaining
+  landed:
+    prs: [1068]
+    commits: [6c9598e3]
+  remaining_gates:
+  - kind: manual
+    description: 'オペレータ受入 — 実ETC測定でのピーク対応レビュー・仮説保存(manual_expert_label)・3D経路描画の実機確認 (子が実GUI Mesa GL で検証済)'
+  evidence_refs:
+  - docs/issues/issue-1002-etc-correspondence.md
+  - backend/tests/test_issue_1002_etc_correspondence.py
+  close_when_gates_clear: true
+
+- issue: 1000
+  lifecycle: acceptance_remaining
+  landed:
+    prs: [1069]
+    commits: [6a9c7315]
+  remaining_gates:
+  - kind: manual
+    description: 'オペレータ受入 — 実機材データでのバルーン向き/周波数選択/UNKNOWN表示・aim矢印の実機確認 (子が実GUI Mesa GL で検証済)'
+  evidence_refs:
+  - docs/issues/issue-1000-directivity-balloon.md
+  - backend/tests/test_issue_1000_directivity_balloon.py
+  - backend/src/htdt/room_directivity_overlay.py
+  close_when_gates_clear: true
+
+- issue: 981
+  lifecycle: acceptance_remaining
+  landed:
+    prs: [1070]
+    commits: [70da69d2]
+  remaining_gates:
+  - kind: manual
+    description: 'オペレータ受入 — 実IFC改訂ファイルでの差分レビュー・承認/スキップ・適用(派生リビジョン)・再開時の決定復元の実機確認 (子が実GUI Mesa GL で検証済)'
+  evidence_refs:
+  - docs/issues/issue-981-ifc-diff-review.md
+  - backend/tests/test_issue_981_ifc_diff_review.py
+  - backend/src/htdt/cad_ifc_diff.py
+  - backend/src/htdt/ifc_diff_review_panel.py
+  close_when_gates_clear: true
+
+- issue: 968
+  lifecycle: acceptance_remaining
+  landed:
+    prs: [1071]
+    commits: [29ddf6a9]
+  remaining_gates:
+  - kind: manual
+    description: 'オペレータ受入 — 実運用測定データでの再測定キュー生成・却下・変換→キャンペーン投入の実機確認 (子が実GUI Mesa GL で検証済)'
+  evidence_refs:
+  - docs/issues/issue-968-remeasure-queue.md
+  - backend/tests/test_issue_968_remeasure_queue.py
+  - backend/src/htdt/measurement/domain/cad_remeasure_queue.py
+  close_when_gates_clear: true
+
+- issue: 971
+  lifecycle: acceptance_remaining
+  landed:
+    prs: [1072]
+    commits: [2c64feb6]
+  remaining_gates:
+  - kind: manual
+    description: 'オペレータ受入 — 実プロジェクトでのブリーフ再計算→次の一手/欠落証拠ボタン遷移の実機確認 (実GUI Mesa GL で検証済)'
+  evidence_refs:
+  - docs/issues/issue-971-brief-next-step.md
+  - backend/tests/test_issue_971_brief_next_step.py
+  - backend/src/htdt/decision_brief_panel.py
+  close_when_gates_clear: true
+
+- issue: 995
+  lifecycle: acceptance_remaining
+  landed:
+    prs: [1073]
+    commits: [bbaf1357]
+  remaining_gates:
+  - kind: manual
+    description: 'オペレータ受入 — 高密度スライスでの実機応答性・間引き表示・失敗時クリアの実機確認 (子が実GUI Mesa GL で検証済)'
+  evidence_refs:
+  - docs/issues/issue-995-field-slice-bounds.md
+  - backend/tests/test_issue_995_field_slice_bounds.py
+  - backend/src/htdt/field_explorer_panel.py
+  close_when_gates_clear: true
+
+- issue: 994
+  lifecycle: acceptance_remaining
+  landed:
+    prs: [1073]
+    commits: [bbaf1357]
+  remaining_gates:
+  - kind: manual
+    description: 'オペレータ受入 — スライス計算失敗/非対応選択時のヒートマップ・凡例・プローブクリアの実機確認 (#995 同一 PR で修正済、実GUI検証済)'
+  evidence_refs:
+  - docs/issues/issue-995-field-slice-bounds.md
+  - backend/tests/test_issue_995_field_slice_bounds.py
+  - backend/src/htdt/field_explorer_panel.py
+  close_when_gates_clear: true
+
+- issue: 993
+  lifecycle: acceptance_remaining
+  landed:
+    prs: [1074]
+    commits: [d85abd6d]
+  remaining_gates:
+  - kind: manual
+    description: 'オペレータ受入 — 実運用での generation ディレクトリ出力・再出力時の番号繰上げ・書込不可時の即時エラーの実機確認 (実GUI検証済)'
+  evidence_refs:
+  - docs/issues/issue-993-export-generation.md
+  - backend/tests/test_issue_993_export_generation.py
+  - backend/src/htdt/export_io.py
+  close_when_gates_clear: true
+
+- issue: 991
+  lifecycle: acceptance_remaining
+  landed:
+    prs: [1075]
+    commits: [409dd5d19b04930660c037d3288948af88a0662c]
+  remaining_gates:
+  - kind: manual
+    description: 'オペレータ受入 — 実行前見積りカード(時間/メモリ/精度条件)の表示確認。実デバイスメモリ境界での blocking パスは未踏'
+  evidence_refs:
+  - docs/issues/issue-991-prerun-estimate.md
+  - backend/tests/test_issue_991_prerun_estimate.py
+  close_when_gates_clear: true
+
+- issue: 1008
+  lifecycle: acceptance_remaining
+  landed:
+    prs: [1076]
+    commits: [d10a30393c5f40eca649909a5aa9051dd0cc2068]
+  remaining_gates:
+  - kind: manual
+    description: 'オペレータ受入 — 製作プレビュー(断面/分解/3D)の実画面確認。非対応形状のフォールバックは設計上正直表示'
+  evidence_refs:
+  - docs/issues/issue-1008-fab-preview.md
+  - backend/tests/test_issue_1008_fab_preview.py
+  close_when_gates_clear: true
+
+- issue: 1078
+  lifecycle: acceptance_remaining
+  landed:
+    prs: [1079]
+    commits: [05034f54217b1efdaf21647b28f39412d1fcc8b8]
+  remaining_gates:
+  - kind: manual
+    description: 'オペレータ受入 — 設置済み化の実画面確認のみ (クラッシュ自体は解消、テスト済)'
+  evidence_refs:
+  - docs/issues/issue-1078-install-crash.md
+  - backend/tests/test_issue_1078_install_placement.py
+  close_when_gates_clear: true
+
+- issue: 987
+  lifecycle: acceptance_remaining
+  landed:
+    prs: [1080]
+    commits: [08da9bba847a9fe98d375149bb3a4d622940f5a0]
+  remaining_gates:
+  - kind: manual
+    description: 'オペレータ受入 — 差分確認ダイアログ・カテゴリ選択・元の設定に戻す動線の実画面確認'
+  evidence_refs:
+  - docs/issues/issue-987-preferences-reset.md
+  - backend/tests/test_issue_987_preferences_reset.py
+  close_when_gates_clear: true
+
+- issue: 986
+  lifecycle: acceptance_remaining
+  landed:
+    prs: [1081]
+    commits: [f62bace729c90c33a54db8af605b3adbd07787f0]
+  remaining_gates:
+  - kind: manual
+    description: 'オペレータ受入 — 検索/並替/状態絞込・IDピン選択・開けない理由表示・DPI 100-200% の実画面確認'
+  evidence_refs:
+  - docs/issues/issue-986-project-picker.md
+  - backend/tests/test_issue_986_project_picker.py
+  close_when_gates_clear: true
+
+- issue: 990
+  lifecycle: acceptance_remaining
+  landed:
+    prs: [1077]
+    commits: [4e704600a9e749bbf7833bb57eed1e65c429b124]
+  remaining_gates:
+  - kind: manual
+    description: 'オペレータ受入 — 横断検索/比較/出典・使用箇所の実画面確認、0/100/1000件の体感確認'
+  evidence_refs:
+  - docs/issues/issue-990-ref-library-search.md
+  - backend/tests/test_issue_990_reference_library.py
+  close_when_gates_clear: true
+
+- issue: 988
+  lifecycle: acceptance_remaining
+  landed:
+    prs: [1082]
+    commits: [8d0c06b2aff03420c05b118bb127d9d9f5e8cee1]
+  remaining_gates:
+  - kind: manual
+    description: 'オペレータ受入 — 検索/状態キュー/次の未処理送り・狭幅操作折りたたみの実画面確認'
+  evidence_refs:
+  - docs/issues/issue-988-inbox-mass.md
+  - backend/tests/test_issue_988_inbox_mass.py
+  close_when_gates_clear: true
+
+- issue: 980
+  lifecycle: acceptance_remaining
+  landed:
+    prs: [1083]
+    commits: [fbd259f87ef0b1ec3fbf0fb06e0b61e56d9ad098]
+  remaining_gates:
+  - kind: manual
+    description: 'オペレータ受入 — 取込ダイアログ 3D プレビュー (単位/軸/原点反映・修復差分・欠陥フォーカス) の実画面確認'
+  evidence_refs:
+  - docs/issues/issue-980-import-3d-preview.md
+  - backend/tests/test_issue_980_import_preview.py
+  close_when_gates_clear: true
+
+- issue: 978
+  lifecycle: acceptance_remaining
+  landed:
+    prs: [1084]
+    commits: [2cca92ea6a9377824832531d57605dde352c0401]
+  remaining_gates:
+  - kind: manual
+    description: 'オペレータ受入 — 検索/グループ/状態フィルタ・一時隔離・一覧⇔3D双方向同期の実画面確認'
+  evidence_refs:
+  - docs/issues/issue-978-objects-panel.md
+  - backend/tests/test_issue_978_objects_panel.py
+  close_when_gates_clear: true
+
+- issue: 983
+  lifecycle: acceptance_remaining
+  landed:
+    prs: [1085]
+    commits: [55f6534c8ec82f3e6823f4fe3261acce39a57712]
+  remaining_gates:
+  - kind: manual
+    description: 'オペレータ受入 — 候補ポップオーバー/ホイール・キー巡回/確定・解除の実ポインタ確認、クリック数比較は #804 レーンへ'
+  evidence_refs:
+  - docs/issues/issue-983-pick-candidates.md
+  - backend/tests/test_issue_983_pick_candidates.py
+  close_when_gates_clear: true
+
+- issue: 985
+  lifecycle: acceptance_remaining
+  landed:
+    prs: [1086]
+    commits: [82ce0e623ecf33ecf88f0bc007fb54e50233a73f]
+  remaining_gates:
+  - kind: manual
+    description: 'オペレータ受入 — 実機での応答性体感と出力時間の #867 指標照合 (360フレーム≈85-90s 実測済)'
+  evidence_refs:
+  - docs/issues/issue-985-async-export.md
+  - backend/tests/test_issue_985_async_export.py
+  close_when_gates_clear: true
+
+- issue: 982
+  lifecycle: acceptance_remaining
+  landed:
+    prs: [1087]
+    commits: [0ca713e34f364097ebee605ace3cfa8a293b8fbd]
+  remaining_gates:
+  - kind: manual
+    description: 'オペレータ受入 — 対象別インスペクタ折りたたみ・危険編集プレビュー・200%DPI/狭幅の実画面確認、操作数比較は #936 レーンへ'
+  evidence_refs:
+  - docs/issues/issue-982-geom-inspector.md
+  - backend/tests/test_issue_982_geom_inspector.py
+  close_when_gates_clear: true
+
+- issue: 989
+  lifecycle: acceptance_remaining
+  landed:
+    prs: [1088]
+    commits: [ff1cd7508359a44c43e5e4a4081a2a62896304cd]
+  remaining_gates:
+  - kind: manual
+    description: 'オペレータ受入 — プレフライト対話 (分類/除外理由/degraded表示) と presentation 面の実GUI確認 (子は bundle/handoff/analysis で検証)'
+  evidence_refs:
+  - docs/issues/issue-989-export-preflight.md
+  - backend/tests/test_issue_989_export_preflight.py
+  close_when_gates_clear: true
+
+- issue: 979
+  lifecycle: acceptance_remaining
+  landed:
+    prs: [1089]
+    commits: [27cb155d379b48fb2dec9d4604e7a1d6a89df436]
+  remaining_gates:
+  - kind: manual
+    description: 'オペレータ受入 — owned-Windows マウス/VTK/DPI 4条件の実機確認 (#804 レーン)、HUD角度とインスペクタ yaw の符号規約差は要 follow-up'
+  evidence_refs:
+  - docs/issues/issue-979-snap-hud.md
+  - backend/tests/test_issue_979_snap_hud.py
+  close_when_gates_clear: true
+
+  - issue: 975
+    lifecycle: acceptance_remaining
+    landed:
+      prs: [1090]
+      commits: [73a90e8f98463b9895466f9f7f09cff3f04826f0]
+    remaining_gates:
+      - kind: manual
+        description: Operator acceptance of the dynamic-a11y UX (announcements, disabled-reason Tab reachability); spec decision pending on Enter activating a focused non-dialog button; pre-existing unnamed controls remain outside scope.
+    evidence_refs:
+      - docs/issues/issue-975-dynamic-a11y.md
+      - backend/tests/test_dynamic_a11y.py
+    close_when_gates_clear: true
+  - issue: 992
+    lifecycle: acceptance_remaining
+    landed:
+      prs: [1092]
+      commits: [760655c3d5649c9ea1f02d0e03f26cb1f7f53ee5]
+    remaining_gates:
+      - kind: manual
+        description: Operator runs the drill on real production backups and accepts the verdict; other-PC migration and physical-disaster recovery remain distinct states the drill deliberately does not claim.
+    evidence_refs:
+      - docs/issues/issue-992-restore-drill.md
+      - backend/tests/test_issue_992_restore_drill.py
+    close_when_gates_clear: true
+  - issue: 973
+    lifecycle: acceptance_remaining
+    landed:
+      prs: [1091]
+      commits: [68b6a1a2a2f30b9c5b7b3f0a4c9d4a2715e91302]
+    remaining_gates:
+      - kind: manual
+        description: Operator acceptance of per-workspace view-state restore (scroll/selection/filters/panels/splitters) across navigation and project switches.
+    evidence_refs:
+      - docs/issues/issue-973-view-state.md
+      - backend/tests/test_view_state.py
+    close_when_gates_clear: true
+  - issue: 974
+    lifecycle: acceptance_remaining
+    landed:
+      prs: [1093]
+      commits: [4e2a58f72371d9d4bf00b71a541d18f5df60110d]
+    remaining_gates:
+      - kind: manual
+        description: Operator acceptance of the ActivityCenter strip integration (progress units, cancel/retry affordances, navigation-block reasons) across long-running workspace operations.
+    evidence_refs:
+      - docs/issues/issue-974-activity-center.md
+      - backend/tests/test_issue_974_activity_integration.py
+    close_when_gates_clear: true
