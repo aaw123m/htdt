@@ -1327,3 +1327,16 @@ entries:
   - docs/issues/issue-978-objects-panel.md
   - backend/tests/test_issue_978_objects_panel.py
   close_when_gates_clear: true
+
+- issue: 983
+  lifecycle: acceptance_remaining
+  landed:
+    prs: [1085]
+    commits: [55f6534c8ec82f3e6823f4fe3261acce39a57712]
+  remaining_gates:
+  - kind: manual
+    description: 'オペレータ受入 — 候補ポップオーバー/ホイール・キー巡回/確定・解除の実ポインタ確認、クリック数比較は #804 レーンへ'
+  evidence_refs:
+  - docs/issues/issue-983-pick-candidates.md
+  - backend/tests/test_issue_983_pick_candidates.py
+  close_when_gates_clear: true
