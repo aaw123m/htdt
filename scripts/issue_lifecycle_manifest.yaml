@@ -1453,3 +1453,15 @@ entries:
       - docs/issues/issue-972-standards-filter.md
       - backend/tests/test_issue_972_standards_filter.py
     close_when_gates_clear: true
+  - issue: 970
+    lifecycle: acceptance_remaining
+    landed:
+      prs: [1100]
+      commits: [c11095240d9f1f4813af494be824937c5b61946f]
+    remaining_gates:
+      - kind: manual
+        description: Operator acceptance of the measurement A/B progressive disclosure (basic-3-step strip, 詳細条件 collapse, nearest-resolvable-reason lines, honest phase lane) on real measurement fixtures.
+    evidence_refs:
+      - docs/issues/issue-970-comparison-progressive.md
+      - backend/tests/test_measurement_workspace_composition.py
+    close_when_gates_clear: true
