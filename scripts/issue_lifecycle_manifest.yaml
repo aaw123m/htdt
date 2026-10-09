@@ -1125,3 +1125,18 @@ entries:
   - backend/tests/test_issue_1000_directivity_balloon.py
   - backend/src/htdt/room_directivity_overlay.py
   close_when_gates_clear: true
+
+- issue: 981
+  lifecycle: acceptance_remaining
+  landed:
+    prs: [1070]
+    commits: [70da69d2]
+  remaining_gates:
+  - kind: manual
+    description: 'オペレータ受入 — 実IFC改訂ファイルでの差分レビュー・承認/スキップ・適用(派生リビジョン)・再開時の決定復元の実機確認 (子が実GUI Mesa GL で検証済)'
+  evidence_refs:
+  - docs/issues/issue-981-ifc-diff-review.md
+  - backend/tests/test_issue_981_ifc_diff_review.py
+  - backend/src/htdt/cad_ifc_diff.py
+  - backend/src/htdt/ifc_diff_review_panel.py
+  close_when_gates_clear: true
