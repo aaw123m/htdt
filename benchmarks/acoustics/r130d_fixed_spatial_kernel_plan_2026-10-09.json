@@ -1,0 +1,120 @@
+{
+  "schema_version": "htdt.r130d.fixed-spatial-gaussian-impulse-diagnostic-plan-1",
+  "date": "2026-10-09",
+  "issue": 938,
+  "pr": 1055,
+  "purpose": "Isolate fixed-physical-width source and receiver operator sensitivity from original point-like source/receiver, while keeping the original q[0]=1 temporal impulse. This is a changed spatial model and NEVER original-impulse qualification.",
+  "geometry": {
+    "kind": "original 56 m3 exactly planar sloped room",
+    "domain": "0<=x<=4, 0<=y<=4, 0<=z<=4-0.25*y",
+    "volume_m3": 56,
+    "source_xyz_m": [
+      1.5,
+      2,
+      2
+    ],
+    "receiver_xyz_m": [
+      2.5,
+      2,
+      2
+    ],
+    "sound_speed_m_s": 343.2,
+    "density_kg_m3": 1.2,
+    "boundary": "natural rigid Neumann"
+  },
+  "spatial_kernel": {
+    "kind": "positive isotropic Gaussian exp(-|x-x0|^2/(2*sigma^2)) over physical air domain",
+    "width_parameter": "sigma_m",
+    "sigma_m": [
+      0.35,
+      0.7
+    ],
+    "source_and_receiver_identical_kernel_rule": true,
+    "integral_over_domain_normalized_to_one_separately_at_each_grid": true,
+    "retains_full_room_gaussian_tail": true,
+    "source_force": "c^2 * volume_integral(N_i * normalized_gaussian_source) * q_mid",
+    "receiver_pressure": "rho * sum(volume_integral(N_i * normalized_gaussian_receiver) * v_mid_i)",
+    "fv_integration": "tensor Gauss-Legendre 4 points x,y,z, exact roof-clipped integration z upper=min(zcell_hi,4-0.25*y), piecewise split at roof crossing within y-cell",
+    "mfem_integration": "MFEM H1 P2 DomainLFIntegrator GaussianCoefficient on independently triangulated sloped room; integration rule explicitly order 10; normalize by sum of P2 linear-form weights (partition of unity)",
+    "point_model_control": "existing point-source/receiver exact-discrete q0 evidence, unchanged; no Gaussian temporal source"
+  },
+  "temporal_source": {
+    "waveform": "q[0]=1, q[n>0]=0",
+    "dt_s": 0.00025,
+    "steps": 1000,
+    "duration_s": 0.25,
+    "frequency_bins_hz": [
+      40,
+      80
+    ],
+    "phase_convention": "P_T/Q_T with exp(+i*2*pi*f*t_mid), same time midpoint samples for both",
+    "window": "un-tapered finite record",
+    "frequency_mask": "none",
+    "temporal_smoothing": false
+  },
+  "spatial_levels": {
+    "fv_n": [
+      12,
+      20,
+      32
+    ],
+    "independent_mfem_P2_r": [
+      2,
+      3,
+      4
+    ],
+    "mfem_pinned_commit": "d964264cdb9a13e94a201b6c236c7721e0c8765f",
+    "original_r4_raw_system_sha256": "e1c67d02db77a6e8775a0a59d8e75fa996434d58f8efae077f4cec2cf2c831ed"
+  },
+  "metrics": {
+    "record_each_level_all_complex_bins": true,
+    "record_per_frequency_magnitude_and_phase": true,
+    "record_adjacent_fv_and_mfem_relative_complex_L2": true,
+    "record_adjacent_max_magnitude_and_phase": true,
+    "record_finest_cross_method": true,
+    "reference_thresholds_unchanged_from_original_impulse": {
+      "fv_complex_l2_max": 0.2,
+      "fv_max_magnitude_relative": 0.25,
+      "fv_max_phase_deg": 15,
+      "mfem_complex_l2_max": 0.05,
+      "mfem_max_magnitude_relative": 0.08,
+      "mfem_max_phase_deg": 5,
+      "cross_complex_l2_max": 0.35,
+      "cross_max_magnitude_relative": 0.4,
+      "cross_max_magnitude_db": 3,
+      "cross_max_phase_deg": 25
+    },
+    "claim": "diagnostic per sigma only; any PASS does not change original impulse, general CAD, or production authority"
+  },
+  "linear_solver": {
+    "method": "Jacobi-PCG for independent P2, direct sparse LU for FV",
+    "rtol": 1e-11,
+    "atol": 0,
+    "maxiter": 350,
+    "true_relative_residual_max": 1e-8
+  },
+  "limits": {
+    "max_wave_steps": 1000,
+    "max_fv_n": 32,
+    "max_mfem_dofs": 35937,
+    "max_gaussian_width_cases": 2,
+    "max_fem_raw_json_bytes": 120000000,
+    "max_integration_order": 10,
+    "CI_job_timeout_minutes": 45
+  },
+  "integrity": {
+    "fail_closed_on_missing_levels_or_nonfinite_bands": true,
+    "no_post_hoc_width_or_threshold_changes": true,
+    "no_dropped_phase_or_amplitude_values": true,
+    "preserve_independent_fem_sparse_system_hash": true,
+    "commit_this_plan_before_any_numerical_result": true
+  },
+  "authority": {
+    "original_fullband_PFFDTD": "SELF_CONVERGENCE_FAILED",
+    "original_discrete_impulse_candidate": "NOT_QUALIFIED",
+    "physical_measurement": "NOT_VALIDATED",
+    "issue938": "OPEN",
+    "pr1055": "DRAFT",
+    "production_ready": false
+  }
+}
