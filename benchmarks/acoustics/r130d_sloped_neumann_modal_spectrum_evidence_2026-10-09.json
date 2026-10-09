@@ -1,0 +1,975 @@
+{
+  "schema_version": "htdt.r130d.sloped-neumann-modal-spectral-evidence-1",
+  "preregistered_plan": {
+    "schema_version": "htdt.r130d.sloped-neumann-modal-spectral-diagnostic-plan-1",
+    "date": "2026-10-09",
+    "issue": 938,
+    "goal": "Independently compare room Neumann modal frequencies and signed source/receiver modal couplings near 40 and 80Hz for FV and pinned MFEM, to identify whether spatial eigenvalue drift plausibly contributes to impulse finite-record response oscillations.",
+    "geometry": {
+      "room": "4m box roof z+.25y<=4, rigid Neumann 56 m3",
+      "source": [
+        1.5,
+        2,
+        2
+      ],
+      "receiver": [
+        2.5,
+        2,
+        2
+      ],
+      "sound_speed_m_s": 343.2,
+      "density_kg_m3": 1.2
+    },
+    "operators": {
+      "generalized_eigenproblem": "K*x=lambda*M*x, K=c^2 stiffness, M FV cell volumes / FEM P2 true consistent mass",
+      "include_constant_zero_mode": true,
+      "normalization": "x.T*M*x=1",
+      "smallest_modes_including_zero": 12,
+      "sort_by": "ascending eigenvalue then ascending frequency",
+      "frequency_hz": "sqrt(max(lambda,0))/(2*pi)",
+      "compare_bins_hz": [
+        40,
+        80
+      ],
+      "shift_invert_sigma": -1,
+      "eigensolver": "scipy.sparse.linalg.eigsh(A=K,M=M,k=12,sigma=-1,which='LM',tol=1e-9,maxiter=1000)",
+      "relative_residual_max": 1e-07,
+      "zero_mode_frequency_hz_max": 0.001,
+      "negative_lambda_tolerance": -1e-06
+    },
+    "spatial_levels": [
+      {
+        "method": "embedded_neumann_FV",
+        "n": 12
+      },
+      {
+        "method": "embedded_neumann_FV",
+        "n": 20
+      },
+      {
+        "method": "embedded_neumann_FV",
+        "n": 32
+      },
+      {
+        "method": "independent_pinned_MFEM_P2",
+        "r": 2
+      },
+      {
+        "method": "independent_pinned_MFEM_P2",
+        "r": 3
+      },
+      {
+        "method": "independent_pinned_MFEM_P2",
+        "r": 4
+      }
+    ],
+    "mfem": {
+      "pinned_commit": "d964264cdb9a13e94a201b6c236c7721e0c8765f",
+      "system_sha256_by_ref": {
+        "2": "e61410d4a69000c39975762b9986008974353953f7d8d9f100f9953a33c5ecb4",
+        "3": "6a43a624223fa512152059d103c4d841723fa1266ea8a22842322fb50db42511",
+        "4": "e1c67d02db77a6e8775a0a59d8e75fa996434d58f8efae077f4cec2cf2c831ed"
+      }
+    },
+    "metrics": [
+      "first 11 nonzero natural mode frequencies by space and refinement",
+      "smallest distance-to-target 40 and 80Hz mode",
+      "normalized signed source and receiver mode shape product (phase arbitrary but product sign invariant)",
+      "relative generalized mode residual",
+      "max relative drift of ordered 11 modal frequencies between adjacent spatial refinements"
+    ],
+    "limits": {
+      "max_dofs": 35937,
+      "max_eigenpairs": 12,
+      "max_per_case_wall_seconds": 360,
+      "max_raw_json_bytes": 120000000
+    },
+    "interpretation": {
+      "not_impulse_finite_time_response": true,
+      "not_temporal_integration_test": true,
+      "spectrum_only_not_fullband_validation": true,
+      "not_a_causal_proof": true,
+      "production_NO_GO": true,
+      "original_R130D_impulse": "SELF_CONVERGENCE_FAILED",
+      "physical_measurements": "NOT_VALIDATED"
+    }
+  },
+  "cases": [
+    {
+      "method": "embedded_neumann_FV",
+      "n": 12,
+      "degrees_of_freedom": 1584,
+      "fluid_volume_m3": 56.000000000000014,
+      "independent_P2_matrix_reused": false,
+      "modes": [
+        {
+          "mode": 0,
+          "lambda_radians2_s2": 3.0438984666147917e-10,
+          "natural_frequency_hz": 2.7767399748829005e-06,
+          "generalized_eigen_relative_residual": 2.5479928140273205e-16,
+          "mass_normalization": 1.0000000000000002,
+          "source_modal_weight": 0.1336306209562121,
+          "receiver_modal_weight": 0.1336306209562121,
+          "signed_source_receiver_modal_product": 0.01785714285714283
+        },
+        {
+          "mode": 1,
+          "lambda_radians2_s2": 69135.23753197418,
+          "natural_frequency_hz": 41.84753307583913,
+          "generalized_eigen_relative_residual": 1.5660243058266844e-14,
+          "mass_normalization": 1.0,
+          "source_modal_weight": 0.0006947973933794445,
+          "receiver_modal_weight": 0.000694797393379209,
+          "signed_source_receiver_modal_product": 4.827434178467069e-07
+        },
+        {
+          "mode": 2,
+          "lambda_radians2_s2": 72242.43844531516,
+          "natural_frequency_hz": 42.7775916002995,
+          "generalized_eigen_relative_residual": 1.43096270790279e-14,
+          "mass_normalization": 1.0,
+          "source_modal_weight": -0.07232037092161675,
+          "receiver_modal_weight": 0.07232037092161658,
+          "signed_source_receiver_modal_product": -0.0052302360502402175
+        },
+        {
+          "mode": 3,
+          "lambda_radians2_s2": 94567.74014982111,
+          "natural_frequency_hz": 48.94311842935864,
+          "generalized_eigen_relative_residual": 1.1826910831509149e-14,
+          "mass_normalization": 0.9999999999999998,
+          "source_modal_weight": 0.0372242292012914,
+          "receiver_modal_weight": 0.03722422920129145,
+          "signed_source_receiver_modal_product": 0.0013856432396302772
+        },
+        {
+          "mode": 4,
+          "lambda_radians2_s2": 141377.67597728927,
+          "natural_frequency_hz": 59.84261330904143,
+          "generalized_eigen_relative_residual": 9.786644647722544e-15,
+          "mass_normalization": 1.0,
+          "source_modal_weight": 0.00037602163968871436,
+          "receiver_modal_weight": -0.00037602163968867555,
+          "signed_source_receiver_modal_product": -1.4139227351417474e-07
+        },
+        {
+          "mode": 5,
+          "lambda_radians2_s2": 166810.17859513592,
+          "natural_frequency_hz": 65.00270136472969,
+          "generalized_eigen_relative_residual": 6.981281196352121e-15,
+          "mass_normalization": 1.0000000000000002,
+          "source_modal_weight": -0.020145607674687246,
+          "receiver_modal_weight": 0.02014560767468693,
+          "signed_source_receiver_modal_product": -0.0004058455085824113
+        },
+        {
+          "mode": 6,
+          "lambda_radians2_s2": 170748.43320990045,
+          "natural_frequency_hz": 65.76555587445029,
+          "generalized_eigen_relative_residual": 6.515270421178668e-15,
+          "mass_normalization": 1.0,
+          "source_modal_weight": -0.060169522071549256,
+          "receiver_modal_weight": -0.06016952207154942,
+          "signed_source_receiver_modal_product": 0.003620371386318663
+        },
+        {
+          "mode": 7,
+          "lambda_radians2_s2": 242990.8716552157,
+          "natural_frequency_hz": 78.45400361101694,
+          "generalized_eigen_relative_residual": 4.8481013453380795e-15,
+          "mass_normalization": 1.0,
+          "source_modal_weight": -0.03256351069278276,
+          "receiver_modal_weight": 0.03256351069278339,
+          "signed_source_receiver_modal_product": -0.0010603822286389976
+        },
+        {
+          "mode": 8,
+          "lambda_radians2_s2": 283400.9232963577,
+          "natural_frequency_hz": 84.72679179828295,
+          "generalized_eigen_relative_residual": 6.032833481478059e-15,
+          "mass_normalization": 0.9999999999999998,
+          "source_modal_weight": -0.17908723253519257,
+          "receiver_modal_weight": -0.1790872325351927,
+          "signed_source_receiver_modal_product": 0.03207223685711416
+        },
+        {
+          "mode": 9,
+          "lambda_radians2_s2": 284046.5509874858,
+          "natural_frequency_hz": 84.82324674812871,
+          "generalized_eigen_relative_residual": 6.4226026858464424e-15,
+          "mass_normalization": 1.0,
+          "source_modal_weight": -0.1336306209562188,
+          "receiver_modal_weight": -0.13363062095621892,
+          "signed_source_receiver_modal_product": 0.01785714285714464
+        },
+        {
+          "mode": 10,
+          "lambda_radians2_s2": 337019.0740959746,
+          "natural_frequency_hz": 92.39476648794682,
+          "generalized_eigen_relative_residual": 6.124067026966757e-12,
+          "mass_normalization": 1.0,
+          "source_modal_weight": 0.09944640056486219,
+          "receiver_modal_weight": 0.0994464005662211,
+          "signed_source_receiver_modal_product": 0.009889586585442162
+        },
+        {
+          "mode": 11,
+          "lambda_radians2_s2": 353181.78851945983,
+          "natural_frequency_hz": 94.584349727782,
+          "generalized_eigen_relative_residual": 1.9551063953056933e-10,
+          "mass_normalization": 1.0,
+          "source_modal_weight": -0.0006947972787912835,
+          "receiver_modal_weight": -0.0006947972313360914,
+          "signed_source_receiver_modal_product": 4.827432256440341e-07
+        }
+      ],
+      "time_seconds": 0.09871459985151887,
+      "closest_mode_to_40hz": 1,
+      "closest_mode_to_80hz": 7
+    },
+    {
+      "method": "embedded_neumann_FV",
+      "n": 20,
+      "degrees_of_freedom": 7200,
+      "fluid_volume_m3": 56.00000000000003,
+      "independent_P2_matrix_reused": false,
+      "modes": [
+        {
+          "mode": 0,
+          "lambda_radians2_s2": 2.4231705531008174e-10,
+          "natural_frequency_hz": 2.477491213947252e-06,
+          "generalized_eigen_relative_residual": 3.08954145856017e-16,
+          "mass_normalization": 1.0000000000000002,
+          "source_modal_weight": 0.13363062095621206,
+          "receiver_modal_weight": 0.13363062095621198,
+          "signed_source_receiver_modal_product": 0.01785714285714281
+        },
+        {
+          "mode": 1,
+          "lambda_radians2_s2": 69372.95429340008,
+          "natural_frequency_hz": 41.91941627030693,
+          "generalized_eigen_relative_residual": 3.6470964259976387e-13,
+          "mass_normalization": 0.9999999999999999,
+          "source_modal_weight": 0.0007103878926912549,
+          "receiver_modal_weight": 0.0007103878926923786,
+          "signed_source_receiver_modal_product": 5.046509580831202e-07
+        },
+        {
+          "mode": 2,
+          "lambda_radians2_s2": 72507.20347296831,
+          "natural_frequency_hz": 42.855908806362315,
+          "generalized_eigen_relative_residual": 2.0744356542707e-13,
+          "mass_normalization": 1.0,
+          "source_modal_weight": -0.07232037092161694,
+          "receiver_modal_weight": 0.07232037092161664,
+          "signed_source_receiver_modal_product": -0.005230236050240236
+        },
+        {
+          "mode": 3,
+          "lambda_radians2_s2": 94985.32841693072,
+          "natural_frequency_hz": 49.05105988625425,
+          "generalized_eigen_relative_residual": 1.1314170835377707e-13,
+          "mass_normalization": 1.0000000000000002,
+          "source_modal_weight": 0.037418177763837726,
+          "receiver_modal_weight": 0.03741817776383766,
+          "signed_source_receiver_modal_product": 0.0014001200271661575
+        },
+        {
+          "mode": 4,
+          "lambda_radians2_s2": 141880.15776636807,
+          "natural_frequency_hz": 59.9488647103722,
+          "generalized_eigen_relative_residual": 2.697742699201557e-13,
+          "mass_normalization": 1.0,
+          "source_modal_weight": 0.000384459157115255,
+          "receiver_modal_weight": -0.00038445915711557725,
+          "signed_source_receiver_modal_product": -1.4780884348989623e-07
+        },
+        {
+          "mode": 5,
+          "lambda_radians2_s2": 167492.5318898992,
+          "natural_frequency_hz": 65.13551562384494,
+          "generalized_eigen_relative_residual": 5.827755665650894e-14,
+          "mass_normalization": 0.9999999999999999,
+          "source_modal_weight": -0.020250571880365713,
+          "receiver_modal_weight": 0.020250571880366122,
+          "signed_source_receiver_modal_product": -0.0004100856614818668
+        },
+        {
+          "mode": 6,
+          "lambda_radians2_s2": 171618.22685785833,
+          "natural_frequency_hz": 65.93284818631273,
+          "generalized_eigen_relative_residual": 2.7096210975083446e-14,
+          "mass_normalization": 0.9999999999999999,
+          "source_modal_weight": 0.060671737658309396,
+          "receiver_modal_weight": 0.06067173765830989,
+          "signed_source_receiver_modal_product": 0.0036810597504787486
+        },
+        {
+          "mode": 7,
+          "lambda_radians2_s2": 244125.43033082673,
+          "natural_frequency_hz": 78.63694672085512,
+          "generalized_eigen_relative_residual": 5.1446735176318016e-14,
+          "mass_normalization": 1.0,
+          "source_modal_weight": -0.032835307809769024,
+          "receiver_modal_weight": 0.03283530780977173,
+          "signed_source_receiver_modal_product": -0.0010781574389623675
+        },
+        {
+          "mode": 8,
+          "lambda_radians2_s2": 287467.2250282336,
+          "natural_frequency_hz": 85.33246670851445,
+          "generalized_eigen_relative_residual": 3.90101203530933e-14,
+          "mass_normalization": 1.0,
+          "source_modal_weight": 0.18342417925472576,
+          "receiver_modal_weight": 0.18342417925472523,
+          "signed_source_receiver_modal_product": 0.03364442953526967
+        },
+        {
+          "mode": 9,
+          "lambda_radians2_s2": 288243.44590475666,
+          "natural_frequency_hz": 85.4475966838976,
+          "generalized_eigen_relative_residual": 2.548570552235903e-14,
+          "mass_normalization": 1.0000000000000002,
+          "source_modal_weight": -0.13363062095630218,
+          "receiver_modal_weight": -0.13363062095630157,
+          "signed_source_receiver_modal_product": 0.017857142857166827
+        },
+        {
+          "mode": 10,
+          "lambda_radians2_s2": 341921.9623252827,
+          "natural_frequency_hz": 93.06441040498305,
+          "generalized_eigen_relative_residual": 3.414780096445794e-14,
+          "mass_normalization": 1.0,
+          "source_modal_weight": -0.1001446081648131,
+          "receiver_modal_weight": -0.10014460816482203,
+          "signed_source_receiver_modal_product": 0.010028942544484845
+        },
+        {
+          "mode": 11,
+          "lambda_radians2_s2": 357616.40019815636,
+          "natural_frequency_hz": 95.17630608243466,
+          "generalized_eigen_relative_residual": 5.68242455989389e-13,
+          "mass_normalization": 1.0,
+          "source_modal_weight": -0.0007103878929158505,
+          "receiver_modal_weight": -0.0007103878930863668,
+          "signed_source_receiver_modal_product": 5.046509585225546e-07
+        }
+      ],
+      "time_seconds": 0.6629121999721974,
+      "closest_mode_to_40hz": 1,
+      "closest_mode_to_80hz": 7
+    },
+    {
+      "method": "embedded_neumann_FV",
+      "n": 32,
+      "degrees_of_freedom": 29184,
+      "fluid_volume_m3": 56.0,
+      "independent_P2_matrix_reused": false,
+      "modes": [
+        {
+          "mode": 0,
+          "lambda_radians2_s2": -7.250893219179488e-10,
+          "natural_frequency_hz": 0.0,
+          "generalized_eigen_relative_residual": 3.6850579189222223e-16,
+          "mass_normalization": 1.0,
+          "source_modal_weight": 0.13363062095621228,
+          "receiver_modal_weight": 0.1336306209562123,
+          "signed_source_receiver_modal_product": 0.017857142857142884
+        },
+        {
+          "mode": 1,
+          "lambda_radians2_s2": 69454.76321125882,
+          "natural_frequency_hz": 41.944125983750816,
+          "generalized_eigen_relative_residual": 2.1301485179727133e-13,
+          "mass_normalization": 1.0,
+          "source_modal_weight": -0.0007170603753641951,
+          "receiver_modal_weight": -0.0007170603753638539,
+          "signed_source_receiver_modal_product": 5.141755819171957e-07
+        },
+        {
+          "mode": 2,
+          "lambda_radians2_s2": 72598.13630133904,
+          "natural_frequency_hz": 42.88277364012105,
+          "generalized_eigen_relative_residual": 1.4020943171908652e-13,
+          "mass_normalization": 1.0,
+          "source_modal_weight": -0.07223325786758336,
+          "receiver_modal_weight": 0.07223325786758379,
+          "signed_source_receiver_modal_product": -0.005217643542164824
+        },
+        {
+          "mode": 3,
+          "lambda_radians2_s2": 95128.77995326371,
+          "natural_frequency_hz": 49.08808557918147,
+          "generalized_eigen_relative_residual": 1.0819658449778963e-13,
+          "mass_normalization": 1.0,
+          "source_modal_weight": -0.037484166901444696,
+          "receiver_modal_weight": -0.03748416690144464,
+          "signed_source_receiver_modal_product": 0.00140506276829536
+        },
+        {
+          "mode": 4,
+          "lambda_radians2_s2": 142052.8995125985,
+          "natural_frequency_hz": 59.98534804108947,
+          "generalized_eigen_relative_residual": 1.418577243660967e-13,
+          "mass_normalization": 0.9999999999999999,
+          "source_modal_weight": -0.0003876028310699879,
+          "receiver_modal_weight": 0.00038760283107057354,
+          "signed_source_receiver_modal_product": -1.5023595465369658e-07
+        },
+        {
+          "mode": 5,
+          "lambda_radians2_s2": 167726.91625460354,
+          "natural_frequency_hz": 65.18107410053108,
+          "generalized_eigen_relative_residual": 8.30421933240348e-14,
+          "mass_normalization": 1.0000000000000002,
+          "source_modal_weight": 0.02026184922564297,
+          "receiver_modal_weight": -0.0202618492256396,
+          "signed_source_receiver_modal_product": -0.00041054253404262036
+        },
+        {
+          "mode": 6,
+          "lambda_radians2_s2": 171917.3963038187,
+          "natural_frequency_hz": 65.99029110826034,
+          "generalized_eigen_relative_residual": 7.239171577096023e-14,
+          "mass_normalization": 1.0,
+          "source_modal_weight": 0.06084920690433542,
+          "receiver_modal_weight": 0.0608492069043363,
+          "signed_source_receiver_modal_product": 0.003702625980886675
+        },
+        {
+          "mode": 7,
+          "lambda_radians2_s2": 244515.53260515866,
+          "natural_frequency_hz": 78.69975092478265,
+          "generalized_eigen_relative_residual": 4.7180208708230184e-14,
+          "mass_normalization": 1.0,
+          "source_modal_weight": -0.032891686216133684,
+          "receiver_modal_weight": 0.0328916862161337,
+          "signed_source_receiver_modal_product": -0.001081863022140599
+        },
+        {
+          "mode": 8,
+          "lambda_radians2_s2": 288876.77060973865,
+          "natural_frequency_hz": 85.54141734410707,
+          "generalized_eigen_relative_residual": 5.4808022107471417e-14,
+          "mass_normalization": 1.0,
+          "source_modal_weight": 0.1849168191976559,
+          "receiver_modal_weight": 0.18491681919765598,
+          "signed_source_receiver_modal_product": 0.03419423002217858
+        },
+        {
+          "mode": 9,
+          "lambda_radians2_s2": 289693.38546659815,
+          "natural_frequency_hz": 85.662238922456,
+          "generalized_eigen_relative_residual": 6.220415823454993e-14,
+          "mass_normalization": 0.9999999999999999,
+          "source_modal_weight": -0.13298715299139247,
+          "receiver_modal_weight": -0.1329871529913929,
+          "signed_source_receiver_modal_product": 0.017685582860756086
+        },
+        {
+          "mode": 10,
+          "lambda_radians2_s2": 343596.3734999438,
+          "natural_frequency_hz": 93.29200295072067,
+          "generalized_eigen_relative_residual": 3.458203718212771e-14,
+          "mass_normalization": 1.0,
+          "source_modal_weight": -0.10031212828847674,
+          "receiver_modal_weight": -0.10031212828847547,
+          "signed_source_receiver_modal_product": 0.010062523081763688
+        },
+        {
+          "mode": 11,
+          "lambda_radians2_s2": 359148.14867785736,
+          "natural_frequency_hz": 95.37991865035691,
+          "generalized_eigen_relative_residual": 4.832203774027952e-13,
+          "mass_normalization": 1.0,
+          "source_modal_weight": 0.0007136075336134422,
+          "receiver_modal_weight": 0.0007136075336326589,
+          "signed_source_receiver_modal_product": 5.092357120435732e-07
+        }
+      ],
+      "time_seconds": 8.238000699784607,
+      "closest_mode_to_40hz": 1,
+      "closest_mode_to_80hz": 7
+    },
+    {
+      "method": "independent_pinned_MFEM_P2",
+      "r": 2,
+      "degrees_of_freedom": 729,
+      "original_pinned_system_sha256": "e61410d4a69000c39975762b9986008974353953f7d8d9f100f9953a33c5ecb4",
+      "independent_P2_matrix_reused": true,
+      "modes": [
+        {
+          "mode": 0,
+          "lambda_radians2_s2": 4.3045789155371494e-11,
+          "natural_frequency_hz": 1.0442042793487235e-06,
+          "generalized_eigen_relative_residual": 2.1301893468975252e-16,
+          "mass_normalization": 1.0000000000000002,
+          "source_modal_weight": -0.1336306209562122,
+          "receiver_modal_weight": -0.13363062095621214,
+          "signed_source_receiver_modal_product": 0.017857142857142853
+        },
+        {
+          "mode": 1,
+          "lambda_radians2_s2": 69538.20982804107,
+          "natural_frequency_hz": 41.969315362971926,
+          "generalized_eigen_relative_residual": 7.777108648187139e-15,
+          "mass_normalization": 1.0,
+          "source_modal_weight": 0.0007284511269934674,
+          "receiver_modal_weight": 0.0007322406498590275,
+          "signed_source_receiver_modal_product": 5.334015266202375e-07
+        },
+        {
+          "mode": 2,
+          "lambda_radians2_s2": 72689.55748281983,
+          "natural_frequency_hz": 42.909765795786676,
+          "generalized_eigen_relative_residual": 7.293107405813983e-15,
+          "mass_normalization": 1.0,
+          "source_modal_weight": 0.07235005352823454,
+          "receiver_modal_weight": -0.0723374186114651,
+          "signed_source_receiver_modal_product": -0.005233616108633809
+        },
+        {
+          "mode": 3,
+          "lambda_radians2_s2": 95270.08436639732,
+          "natural_frequency_hz": 49.12452980362447,
+          "generalized_eigen_relative_residual": 8.155043331890921e-15,
+          "mass_normalization": 1.0,
+          "source_modal_weight": 0.037545323721819075,
+          "receiver_modal_weight": 0.037501815305457584,
+          "signed_source_receiver_modal_product": 0.0014080177957992743
+        },
+        {
+          "mode": 4,
+          "lambda_radians2_s2": 142540.37106144655,
+          "natural_frequency_hz": 60.0881833490658,
+          "generalized_eigen_relative_residual": 3.768436602643616e-15,
+          "mass_normalization": 1.0,
+          "source_modal_weight": 9.141928342168166e-05,
+          "receiver_modal_weight": 0.0007624726035609533,
+          "signed_source_receiver_modal_product": 6.970469904620632e-08
+        },
+        {
+          "mode": 5,
+          "lambda_radians2_s2": 168421.55951594855,
+          "natural_frequency_hz": 65.31590878385668,
+          "generalized_eigen_relative_residual": 4.556634190525081e-15,
+          "mass_normalization": 0.9999999999999998,
+          "source_modal_weight": -0.019968597255499203,
+          "receiver_modal_weight": 0.020541103091033578,
+          "signed_source_receiver_modal_product": -0.0004101770148085393
+        },
+        {
+          "mode": 6,
+          "lambda_radians2_s2": 172465.29760494095,
+          "natural_frequency_hz": 66.0953630948508,
+          "generalized_eigen_relative_residual": 5.1775472670071686e-15,
+          "mass_normalization": 1.0,
+          "source_modal_weight": 0.06126267867784811,
+          "receiver_modal_weight": 0.06168724535190637,
+          "signed_source_receiver_modal_product": 0.003779125890515419
+        },
+        {
+          "mode": 7,
+          "lambda_radians2_s2": 246125.72162925405,
+          "natural_frequency_hz": 78.95845337945228,
+          "generalized_eigen_relative_residual": 3.3556157002504293e-15,
+          "mass_normalization": 1.0,
+          "source_modal_weight": 0.03281626965150888,
+          "receiver_modal_weight": -0.034687999891871824,
+          "signed_source_receiver_modal_product": -0.0011383307581231765
+        },
+        {
+          "mode": 8,
+          "lambda_radians2_s2": 291740.40240456484,
+          "natural_frequency_hz": 85.96435727660975,
+          "generalized_eigen_relative_residual": 3.559440013991927e-15,
+          "mass_normalization": 1.0000000000000002,
+          "source_modal_weight": 0.18671627983388786,
+          "receiver_modal_weight": 0.18679519174431425,
+          "signed_source_receiver_modal_product": 0.03487770329335612
+        },
+        {
+          "mode": 9,
+          "lambda_radians2_s2": 292551.00717797107,
+          "natural_frequency_hz": 86.08370101684477,
+          "generalized_eigen_relative_residual": 1.9122939218397646e-14,
+          "mass_normalization": 1.0,
+          "source_modal_weight": 0.13236775480724672,
+          "receiver_modal_weight": 0.1322850216486524,
+          "signed_source_receiver_modal_product": 0.017510271310260145
+        },
+        {
+          "mode": 10,
+          "lambda_radians2_s2": 346845.7306720759,
+          "natural_frequency_hz": 93.7320915868549,
+          "generalized_eigen_relative_residual": 2.4114789963388832e-12,
+          "mass_normalization": 1.0000000000000002,
+          "source_modal_weight": -0.10141370306994667,
+          "receiver_modal_weight": -0.10053727868623331,
+          "signed_source_receiver_modal_product": 0.010195857728146143
+        },
+        {
+          "mode": 11,
+          "lambda_radians2_s2": 364204.1888311067,
+          "natural_frequency_hz": 96.04894520486056,
+          "generalized_eigen_relative_residual": 1.6884522976103193e-10,
+          "mass_normalization": 1.0,
+          "source_modal_weight": 0.03637106320482795,
+          "receiver_modal_weight": -0.03624125608446706,
+          "signed_source_receiver_modal_product": -0.0013181330156705068
+        }
+      ],
+      "time_seconds": 0.050394299905747175,
+      "closest_mode_to_40hz": 1,
+      "closest_mode_to_80hz": 7
+    },
+    {
+      "method": "independent_pinned_MFEM_P2",
+      "r": 3,
+      "degrees_of_freedom": 4913,
+      "original_pinned_system_sha256": "6a43a624223fa512152059d103c4d841723fa1266ea8a22842322fb50db42511",
+      "independent_P2_matrix_reused": true,
+      "modes": [
+        {
+          "mode": 0,
+          "lambda_radians2_s2": 6.360065807342608e-10,
+          "natural_frequency_hz": 4.013755708943662e-06,
+          "generalized_eigen_relative_residual": 3.557667667272471e-16,
+          "mass_normalization": 1.0,
+          "source_modal_weight": -0.13363062095621173,
+          "receiver_modal_weight": -0.13363062095621187,
+          "signed_source_receiver_modal_product": 0.017857142857142752
+        },
+        {
+          "mode": 1,
+          "lambda_radians2_s2": 69509.48826318709,
+          "natural_frequency_hz": 41.960647114884026,
+          "generalized_eigen_relative_residual": 5.768852464756386e-13,
+          "mass_normalization": 1.0,
+          "source_modal_weight": 0.0007213432119019313,
+          "receiver_modal_weight": 0.0007208864831840004,
+          "signed_source_receiver_modal_product": 5.200065711966345e-07
+        },
+        {
+          "mode": 2,
+          "lambda_radians2_s2": 72658.72179909618,
+          "natural_frequency_hz": 42.900663440743415,
+          "generalized_eigen_relative_residual": 5.5386564523607326e-14,
+          "mass_normalization": 1.0000000000000002,
+          "source_modal_weight": -0.07232652179560597,
+          "receiver_modal_weight": 0.07232561370120363,
+          "signed_source_receiver_modal_product": -0.005231060075740683
+        },
+        {
+          "mode": 3,
+          "lambda_radians2_s2": 95224.24877404398,
+          "natural_frequency_hz": 49.11271117857008,
+          "generalized_eigen_relative_residual": 5.593290631420397e-14,
+          "mass_normalization": 1.0,
+          "source_modal_weight": -0.03753663218161546,
+          "receiver_modal_weight": -0.03753430311482751,
+          "signed_source_receiver_modal_product": 0.0014089113302145435
+        },
+        {
+          "mode": 4,
+          "lambda_radians2_s2": 142190.2891454696,
+          "natural_frequency_hz": 60.01434911474345,
+          "generalized_eigen_relative_residual": 6.37132367171145e-14,
+          "mass_normalization": 1.0000000000000002,
+          "source_modal_weight": -0.0004106210159630978,
+          "receiver_modal_weight": 0.0003568402316895097,
+          "signed_source_receiver_modal_product": -1.465260984728537e-07
+        },
+        {
+          "mode": 5,
+          "lambda_radians2_s2": 167916.41234695134,
+          "natural_frequency_hz": 65.21788414991698,
+          "generalized_eigen_relative_residual": 1.1206888313210384e-13,
+          "mass_normalization": 1.0000000000000002,
+          "source_modal_weight": -0.020440255378824906,
+          "receiver_modal_weight": 0.020220851988030433,
+          "signed_source_receiver_modal_product": -0.00041331937861276136
+        },
+        {
+          "mode": 6,
+          "lambda_radians2_s2": 172134.43749138078,
+          "natural_frequency_hz": 66.0319334720609,
+          "generalized_eigen_relative_residual": 4.614094447719463e-13,
+          "mass_normalization": 1.0000000000000002,
+          "source_modal_weight": -0.060951360638838624,
+          "receiver_modal_weight": -0.060985986285157265,
+          "signed_source_receiver_modal_product": 0.003717178843981887
+        },
+        {
+          "mode": 7,
+          "lambda_radians2_s2": 244866.83610196874,
+          "natural_frequency_hz": 78.75626589136543,
+          "generalized_eigen_relative_residual": 5.1697599882763215e-14,
+          "mass_normalization": 1.0,
+          "source_modal_weight": 0.03307320215387675,
+          "receiver_modal_weight": -0.032970557824690695,
+          "signed_source_receiver_modal_product": -0.001090441924062078
+        },
+        {
+          "mode": 8,
+          "lambda_radians2_s2": 289925.292595636,
+          "natural_frequency_hz": 85.69651949414421,
+          "generalized_eigen_relative_residual": 8.584944647645057e-14,
+          "mass_normalization": 1.0,
+          "source_modal_weight": -0.18610218643093648,
+          "receiver_modal_weight": -0.18610812856120287,
+          "signed_source_receiver_modal_product": 0.034635129637809674
+        },
+        {
+          "mode": 9,
+          "lambda_radians2_s2": 290765.86217875895,
+          "natural_frequency_hz": 85.82065794250344,
+          "generalized_eigen_relative_residual": 2.276940799156244e-14,
+          "mass_normalization": 1.0000000000000002,
+          "source_modal_weight": 0.13377835208010405,
+          "receiver_modal_weight": 0.1337709503874091,
+          "signed_source_receiver_modal_product": 0.017895657299016945
+        },
+        {
+          "mode": 10,
+          "lambda_radians2_s2": 344826.0604786534,
+          "natural_frequency_hz": 93.45879385914083,
+          "generalized_eigen_relative_residual": 1.160176856751187e-13,
+          "mass_normalization": 1.0000000000000002,
+          "source_modal_weight": 0.10055915320155917,
+          "receiver_modal_weight": 0.10046414155701806,
+          "signed_source_receiver_modal_product": 0.010102589002095307
+        },
+        {
+          "mode": 11,
+          "lambda_radians2_s2": 360474.5744470708,
+          "natural_frequency_hz": 95.55588751608298,
+          "generalized_eigen_relative_residual": 3.521380879246034e-13,
+          "mass_normalization": 1.0000000000000002,
+          "source_modal_weight": -0.00479755190756614,
+          "receiver_modal_weight": 0.0035579687273186427,
+          "signed_source_receiver_modal_product": -1.7069539654808225e-05
+        }
+      ],
+      "time_seconds": 0.6809617001563311,
+      "closest_mode_to_40hz": 1,
+      "closest_mode_to_80hz": 7
+    },
+    {
+      "method": "independent_pinned_MFEM_P2",
+      "r": 4,
+      "degrees_of_freedom": 35937,
+      "original_pinned_system_sha256": "e1c67d02db77a6e8775a0a59d8e75fa996434d58f8efae077f4cec2cf2c831ed",
+      "independent_P2_matrix_reused": true,
+      "modes": [
+        {
+          "mode": 0,
+          "lambda_radians2_s2": 4.632048966612956e-09,
+          "natural_frequency_hz": 1.0831951393752793e-05,
+          "generalized_eigen_relative_residual": 5.941899980716784e-16,
+          "mass_normalization": 1.0,
+          "source_modal_weight": -0.13363062095620923,
+          "receiver_modal_weight": -0.1336306209562082,
+          "signed_source_receiver_modal_product": 0.017857142857141926
+        },
+        {
+          "mode": 1,
+          "lambda_radians2_s2": 69507.46888785866,
+          "natural_frequency_hz": 41.96003759442074,
+          "generalized_eigen_relative_residual": 2.133420736156897e-12,
+          "mass_normalization": 1.0,
+          "source_modal_weight": -0.000721829282018798,
+          "receiver_modal_weight": -0.0007217886499512816,
+          "signed_source_receiver_modal_product": 5.210081829636511e-07
+        },
+        {
+          "mode": 2,
+          "lambda_radians2_s2": 72656.62002553482,
+          "natural_frequency_hz": 42.900042949974925,
+          "generalized_eigen_relative_residual": 2.7150741221214427e-13,
+          "mass_normalization": 1.0000000000000002,
+          "source_modal_weight": 0.07232076507370705,
+          "receiver_modal_weight": -0.07232070652128855,
+          "signed_source_receiver_modal_product": -0.005230288826290623
+        },
+        {
+          "mode": 3,
+          "lambda_radians2_s2": 95221.05127413697,
+          "natural_frequency_hz": 49.11188660284619,
+          "generalized_eigen_relative_residual": 4.107843736794963e-12,
+          "mass_normalization": 1.0000000000000004,
+          "source_modal_weight": -0.03752683514479705,
+          "receiver_modal_weight": -0.03752669755100013,
+          "signed_source_receiver_modal_product": 0.0014082581925250412
+        },
+        {
+          "mode": 4,
+          "lambda_radians2_s2": 142165.53276178928,
+          "natural_frequency_hz": 60.009124415725395,
+          "generalized_eigen_relative_residual": 1.6066298674907941e-12,
+          "mass_normalization": 0.9999999999999999,
+          "source_modal_weight": -0.00039191847065053937,
+          "receiver_modal_weight": 0.00038849815005776795,
+          "signed_source_receiver_modal_product": -1.5225960082120418e-07
+        },
+        {
+          "mode": 5,
+          "lambda_radians2_s2": 167879.8756901529,
+          "natural_frequency_hz": 65.21078843767881,
+          "generalized_eigen_relative_residual": 3.911089068133369e-12,
+          "mass_normalization": 0.9999999999999999,
+          "source_modal_weight": -0.02031767903510619,
+          "receiver_modal_weight": 0.020303178357820292,
+          "signed_source_receiver_modal_product": -0.0004125134612667071
+        },
+        {
+          "mode": 6,
+          "lambda_radians2_s2": 172111.20590017075,
+          "natural_frequency_hz": 66.02747742401532,
+          "generalized_eigen_relative_residual": 6.576991082576334e-13,
+          "mass_normalization": 1.0000000000000002,
+          "source_modal_weight": -0.06096328449980172,
+          "receiver_modal_weight": -0.060965673871600075,
+          "signed_source_receiver_modal_product": 0.0037166677209564836
+        },
+        {
+          "mode": 7,
+          "lambda_radians2_s2": 244772.7890123033,
+          "natural_frequency_hz": 78.74114030505716,
+          "generalized_eigen_relative_residual": 2.481113507716989e-13,
+          "mass_normalization": 1.0000000000000002,
+          "source_modal_weight": 0.03299883046494693,
+          "receiver_modal_weight": -0.032992120308561565,
+          "signed_source_receiver_modal_product": -0.0010887013847413556
+        },
+        {
+          "mode": 8,
+          "lambda_radians2_s2": 289793.6307427543,
+          "natural_frequency_hz": 85.67705888810966,
+          "generalized_eigen_relative_residual": 2.901684822021116e-12,
+          "mass_normalization": 1.0,
+          "source_modal_weight": 0.18589149490432255,
+          "receiver_modal_weight": 0.18589188770949833,
+          "signed_source_receiver_modal_product": 0.03455572089690511
+        },
+        {
+          "mode": 9,
+          "lambda_radians2_s2": 290635.14244816796,
+          "natural_frequency_hz": 85.8013645592362,
+          "generalized_eigen_relative_residual": 1.2047879026854976e-12,
+          "mass_normalization": 1.0000000000000002,
+          "source_modal_weight": -0.1336413451313612,
+          "receiver_modal_weight": -0.13364080714020576,
+          "signed_source_receiver_modal_product": 0.01785993723065792
+        },
+        {
+          "mode": 10,
+          "lambda_radians2_s2": 344678.7187968098,
+          "natural_frequency_hz": 93.43882459237336,
+          "generalized_eigen_relative_residual": 1.6397783879272258e-12,
+          "mass_normalization": 1.0,
+          "source_modal_weight": 0.1004133401474374,
+          "receiver_modal_weight": 0.10040648647807707,
+          "signed_source_receiver_modal_product": 0.010082150679732227
+        },
+        {
+          "mode": 11,
+          "lambda_radians2_s2": 360156.4260696839,
+          "natural_frequency_hz": 95.51371025378306,
+          "generalized_eigen_relative_residual": 3.774470046298444e-12,
+          "mass_normalization": 1.0000000000000002,
+          "source_modal_weight": -0.0010039256749541654,
+          "receiver_modal_weight": -0.0004254410306467719,
+          "signed_source_receiver_modal_product": 4.2711117384525623e-07
+        }
+      ],
+      "time_seconds": 30.53566149994731,
+      "closest_mode_to_40hz": 1,
+      "closest_mode_to_80hz": 7
+    }
+  ],
+  "adjacent_modal_frequency_drift": [
+    {
+      "method": "embedded_neumann_FV",
+      "coarse_grid": 12,
+      "fine_grid": 20,
+      "largest_relative_ordered_mode_frequency_difference": 0.00730681680935501,
+      "per_mode_relative_frequency_difference": [
+        0.0017147947386547716,
+        0.0018274540954592098,
+        0.0022005937719983587,
+        0.001772367197345489,
+        0.0020390451790118173,
+        0.0025373135920005434,
+        0.002326426921019552,
+        0.0070978249380791135,
+        0.00730681680935501,
+        0.00719548873862924,
+        0.006219576899107193
+      ]
+    },
+    {
+      "method": "embedded_neumann_FV",
+      "coarse_grid": 20,
+      "fine_grid": 32,
+      "largest_relative_ordered_mode_frequency_difference": 0.0025056809308089414,
+      "per_mode_relative_frequency_difference": [
+        0.0005891102237642462,
+        0.0006264714587771394,
+        0.0007542704607514521,
+        0.0006082040349634,
+        0.0006989525305439546,
+        0.0008704753530087271,
+        0.0007980229059117651,
+        0.0024426838142286578,
+        0.0025056809308089414,
+        0.002439571866174234,
+        0.0021347530046513354
+      ]
+    },
+    {
+      "method": "independent_pinned_MFEM_P2",
+      "coarse_grid": 2,
+      "fine_grid": 3,
+      "largest_relative_ordered_mode_frequency_difference": 0.005159888119866988,
+      "per_mode_relative_frequency_difference": [
+        0.00020658041960525,
+        0.00021217282702011342,
+        0.00024064289612147363,
+        0.0012302763490974762,
+        0.0015030330287068361,
+        0.0009605901183665202,
+        0.0025672558976544448,
+        0.0031254219429977673,
+        0.0030650321338430483,
+        0.0029242590924722306,
+        0.005159888119866988
+      ]
+    },
+    {
+      "method": "independent_pinned_MFEM_P2",
+      "coarse_grid": 3,
+      "fine_grid": 4,
+      "largest_relative_ordered_mode_frequency_difference": 0.0004415833306846664,
+      "per_mode_relative_frequency_difference": [
+        1.4526213469520524e-05,
+        1.4463639796675744e-05,
+        1.6789738308318665e-05,
+        8.706507666838485e-05,
+        0.00010881193753622233,
+        6.748778265398521e-05,
+        0.00019209254844003052,
+        0.00022713905317374417,
+        0.00022486103066483973,
+        0.00021371487553034846,
+        0.0004415833306846664
+      ]
+    }
+  ],
+  "mode_eigenvectors_degenerate_groups_can_rotate": true,
+  "not_fullband_impulse_time_transfer": true,
+  "not_causal_proof": true,
+  "original_R130D_impulse": "SELF_CONVERGENCE_FAILED",
+  "production_ready": false,
+  "physical_validation": "NOT_VALIDATED"
+}
