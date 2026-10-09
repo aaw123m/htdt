@@ -52,3 +52,25 @@ def test_modal_projection_rejects_missing_high_modes():
     with pytest.raises(ValueError):
         simulate_modal({"c_m_s":343.2,"rho_kg_m3":1.2},modes[:23],
                        .00025,1000,required_modes=24)
+
+
+def test_first_twelve_reconstruction_independently_reproduces_prior_modal_evidence():
+    """Numerically cross-check first 12 P2/FV modes against pre-existing independent replay."""
+    old=json.loads((ROOT/"benchmarks/acoustics/r130d_original_impulse_modal_projection_evidence_2026-10-09.json").read_text())
+    new=json.loads((ROOT/"benchmarks/acoustics/r130d_high_mode_count_original_impulse_evidence_2026-10-09.json").read_text())
+    assert len(new["cases"])==2
+    for case in new["cases"]:
+        original_method=("embedded_neumann_FV" if case["method"]=="FV_exact_cutcell"
+                         else "independent_pinned_MFEM_P2")
+        level=case.get("n",case.get("r"))
+        comparison=next(x for x in old["cases"] if
+                        x["method"]==original_method and x["level"]==level)
+        assert case["truncations"][0]["modes_including_zero"]==12
+        np.testing.assert_allclose(
+            case["truncations"][0]["finite_time_original_q0_transfer_40_80_hz"],
+            comparison["first_twelve_modal_original_impulse_transfer_40_80_hz"],
+            rtol=2e-6,atol=1e-5)
+        np.testing.assert_allclose(
+            case["actual_full_state_original_q0_transfer_40_80_hz"],
+            comparison["true_fullspace_original_impulse_transfer_40_80_hz"],
+            rtol=0,atol=0)
