@@ -1314,3 +1314,16 @@ entries:
   - docs/issues/issue-980-import-3d-preview.md
   - backend/tests/test_issue_980_import_preview.py
   close_when_gates_clear: true
+
+- issue: 978
+  lifecycle: acceptance_remaining
+  landed:
+    prs: [1084]
+    commits: [2cca92ea6a9377824832531d57605dde352c0401]
+  remaining_gates:
+  - kind: manual
+    description: 'オペレータ受入 — 検索/グループ/状態フィルタ・一時隔離・一覧⇔3D双方向同期の実画面確認'
+  evidence_refs:
+  - docs/issues/issue-978-objects-panel.md
+  - backend/tests/test_issue_978_objects_panel.py
+  close_when_gates_clear: true
