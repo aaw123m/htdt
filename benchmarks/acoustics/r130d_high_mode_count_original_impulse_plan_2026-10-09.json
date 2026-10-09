@@ -1,0 +1,85 @@
+{
+  "schema_version": "htdt.r130d.original-q0-high-mode-count-diagnostic-plan-1",
+  "issue": 938,
+  "date": "2026-10-09",
+  "scientific_question": "How does the number of independently solved real Neumann spatial eigenmodes alter the finite-time original unsmoothed q[0]=1 receiver transfer, compared with actual full-state wave, without changing any temporal or spatial point operator?",
+  "geometry": "56m3 sloped 4x4x(4-0.25*y), natural rigid Neumann",
+  "source_xyz_m": [
+    1.5,
+    2,
+    2
+  ],
+  "receiver_xyz_m": [
+    2.5,
+    2,
+    2
+  ],
+  "sound_speed_m_s": 343.2,
+  "density_kg_m3": 1.2,
+  "source": {
+    "temporal": "q[0]=1 m3/s, q[n>0]=0",
+    "dt_s": 0.00025,
+    "steps": 1000,
+    "frequencies_hz": [
+      40,
+      80
+    ],
+    "complex_convention": "P_T/Q_T exp(+i2*pi*f*t_mid), no taper",
+    "point_spatial_stencils": "use archived exact same source and receiver for each full-space matrix"
+  },
+  "methods": [
+    {
+      "kind": "FV_exact_cutcell",
+      "n": 20,
+      "dofs": 7200
+    },
+    {
+      "kind": "independent_MFEM_P2",
+      "r": 3,
+      "dofs": 4913,
+      "raw_system_sha256": "6a43a624223fa512152059d103c4d841723fa1266ea8a22842322fb50db42511"
+    }
+  ],
+  "mode_counts_including_zero": [
+    12,
+    24,
+    48
+  ],
+  "eigsolve": {
+    "algo": "scipy.sparse.linalg.eigsh(K,k=48,M=M,sigma=-1,which='LM',tol=1e-9,maxiter=1000)",
+    "deterministic_initial_guess": "sin((i+1)*0.0333)",
+    "negative_lambda_tolerance": -0.000001,
+    "true_generalized_relative_residual_max": 1e-7,
+    "mass_normalization": "x.T M x=1",
+    "project_full_point_source_and_receiver": "signed (b.T x)(r.T x); scalar implicit midpoint forcing c^2*q[n] for each mode",
+    "preregistered_mfem_version": "d964264cdb9a13e94a201b6c236c7721e0c8765f"
+  },
+  "full_reference": {
+    "path": "benchmarks/acoustics/r130d_exact_discrete_impulse_candidate_evidence_2026-10-09.json",
+    "sha256": "fa2a4aae2c6b00f4e1eccda9d0e9bf9271c420eb0a5f971b26927d9ed76e3cf2",
+    "require_unmodified_point_impulse_full_state": true
+  },
+  "metrics": {
+    "record_all_12_24_48_signed_complex_bins": true,
+    "record_40_80_magnitude_and_phase": true,
+    "compare_each_truncation_against_same_fullwave": true,
+    "compare_each_truncation_with_12_mode": true,
+    "never_drop_unfavorable_count_or_frequency": true,
+    "criterion": "diagnostic only; no additional PASS threshold and no original point-source qualification"
+  },
+  "limits": {
+    "max_modes": 48,
+    "max_dofs": 7200,
+    "max_wave_steps": 1000,
+    "max_single_eigsolve_wall_seconds": 180,
+    "max_mfem_raw_json_bytes": 120000000
+  },
+  "authority": {
+    "original_fullband_impulse": "SELF_CONVERGENCE_FAILED",
+    "original_discrete_point_impulse": "NOT_QUALIFIED",
+    "physical_validation": "NOT_VALIDATED",
+    "production_ready": false,
+    "issue938": "OPEN",
+    "pr1055": "DRAFT"
+  }
+}
