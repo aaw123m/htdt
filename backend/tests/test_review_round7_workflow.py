@@ -303,7 +303,11 @@ def test_measurement_focus_entity_switches_to_quality_page(
     from PySide6.QtWidgets import QTableWidgetItem
 
     workspace.quality_table.setRowCount(1)
-    workspace.quality_table.setItem(0, 0, QTableWidgetItem('x'))
+    row_item = QTableWidgetItem('x')
+    # #969 binds rows to their measurement id via UserRole — a visual row
+    # without it is invisible to the focus path.
+    row_item.setData(Qt.ItemDataRole.UserRole, 'meas-1')
+    workspace.quality_table.setItem(0, 0, row_item)
 
     workspace.set_context('comparison')
     assert workspace.current_context_id == 'comparison'

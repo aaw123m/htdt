@@ -459,7 +459,7 @@ class JointOptimizationPanel(QWidget):
                 dsp_variables=dsp_variables,
                 candidate_budget=self.budget_spin.value(),
             )
-        except Exception as exc:  # noqa: BLE001 - shown fail-closed
+        except Exception as exc:  # error-boundary: estimate authority — computation failures surface honestly as unavailable, never a partial estimate (noqa: BLE001)
             self.prerun_card.show_unavailable(
                 operation_error_message(exc)
             )
@@ -470,7 +470,7 @@ class JointOptimizationPanel(QWidget):
                     estimate
                 )
             )
-        except Exception:  # noqa: BLE001 - history is advisory
+        except Exception:  # error-boundary: advisory history — observations are optional context; failures degrade to empty rather than masking the estimate (noqa: BLE001)
             observations = ()
         self.prerun_card.show_estimate(estimate, observations)
 
@@ -478,7 +478,7 @@ class JointOptimizationPanel(QWidget):
         """Show the sealed estimate for the selected persisted spec."""
         try:
             estimate = self.context.prerun_estimate_for_spec(spec_id)
-        except Exception as exc:  # noqa: BLE001 - shown fail-closed
+        except Exception as exc:  # error-boundary: estimate authority — computation failures surface honestly as unavailable, never a partial estimate (noqa: BLE001)
             self.prerun_card.show_unavailable(
                 operation_error_message(exc)
             )
@@ -489,7 +489,7 @@ class JointOptimizationPanel(QWidget):
                     estimate
                 )
             )
-        except Exception:  # noqa: BLE001 - history is advisory
+        except Exception:  # error-boundary: advisory history — observations are optional context; failures degrade to empty rather than masking the estimate (noqa: BLE001)
             observations = ()
         self.prerun_card.show_estimate(estimate, observations)
 
