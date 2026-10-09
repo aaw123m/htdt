@@ -230,6 +230,9 @@ def test_workspace_survives_corrupt_dataset_and_comparison_history(
         good = _commit(controller, REW_TEXT_B, evidence_type="predicted")
         workspace.refresh()
         workspace.set_context("comparison")
+        # #564: measured×predicted requires a persisted registration record
+        # before the comparison can be saved.
+        workspace.register_pair_button.click()
         workspace.compare_button.click()
         assert workspace.comparison_history.rowCount() == 1
 
@@ -336,6 +339,9 @@ def test_history_selection_rebinds_saved_pair_and_verdict(tmp_path: Path) -> Non
         b_index = workspace.predicted_combo.findData(b_dataset)
         assert b_index >= 0
         workspace.predicted_combo.setCurrentIndex(b_index)
+        # #564: measured×predicted requires a persisted registration record
+        # before the comparison can be saved.
+        workspace.register_pair_button.click()
         workspace.compare_button.click()
         assert workspace.comparison_history.rowCount() == 1
 

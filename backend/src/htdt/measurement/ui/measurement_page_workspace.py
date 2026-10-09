@@ -150,9 +150,11 @@ from ...user_facing_error import (
 )
 from ...ui_theme import (
     DARK_THEME,
+    ControlSize,
     SemanticState,
     SurfaceRole,
     TypographyRole,
+    set_control_size,
     set_primary_action,
     set_semantic_state,
     set_surface_role,
@@ -455,6 +457,83 @@ def _comparability_state_label(state: str) -> str:
         "incomparable": "比較不可",
         "insufficient_evidence": "証拠不足",
     }.get(state, state)
+
+
+def _comparability_reason_label(code: str) -> str:
+    """JA labels for the #564 verdict's reason/limitation codes (#970).
+
+    Only the canonical codes emitted by ``evaluate_comparability`` are
+    named — an unknown code renders as-is rather than being paraphrased
+    into a claim the authority never made.
+    """
+    if code.startswith("phase_"):
+        return "位相: " + {
+            "valid": "有効",
+            "unknown": "有効性が未確認です",
+            "invalid": "無効です",
+            "absent": "位相データがありません",
+        }.get(code[len("phase_"):], code)
+    return {
+        "geometry_revision_mismatch": "部屋状態（SceneRevision）が一致しません",
+        "receiver_position_unknown": "受信位置が不明です",
+        "source_position_unknown": "音源位置が不明です",
+        "routing_topology_mismatch": "ルーティング構成が一致しません",
+        "unsupported_frequency_domain": "比較可能な周波数帯域が重なりません",
+        "frequency_domain_evidence_missing": "周波数帯域の証拠がありません",
+        "restricted_frequency_range": "比較可能な帯域が限られています",
+        "timing_reference_unverified": "タイミング基準が未検証です",
+        "timing_reference_unknown": "タイミング基準が不明です",
+        "timing_estimated_not_exact": "タイミングは推定値です",
+        "timing_uncertainty_undeclared": "タイミング不確かさが未宣言です",
+        "absolute_phase_invalidated_by_timing": "タイミング基準により絶対位相が無効化されています",
+        "microphone_calibration_unavailable": "マイク校正を利用できません",
+        "absolute_spl_unsupported": "絶対SPLでは比較できません",
+        "relative_level_only": "相対レベルのみの比較です",
+        "level_reference_unknown": "レベル基準が不明です",
+        "processing_provenance_incomplete": "処理履歴が不完全です",
+        "environment_sound_speed_mismatch": "音速条件が一致しません",
+        "environment_sound_speed_unknown": "音速条件が不明です",
+        "spatial_provenance_unknown": "空間情報の由来が不明です",
+        "receiver_position_uncertainty_unknown": "受信位置の不確かさが不明です",
+        "magnitude_domain_unavailable": "レベル比較に使える帯域がありません",
+    }.get(code, code)
+
+
+def _advanced_block(
+    label: str,
+    description: str,
+    content: QWidget,
+    *,
+    expanded: bool = False,
+) -> QWidget:
+    """Collapsible detail section (#970) — same pattern as the
+    optimization workspace's ``_advanced_block``: a checkable toggle keeps
+    expert-only conditions out of the basic flow while every control
+    stays reachable and keyboard-operable."""
+    frame = QFrame()
+    set_surface_role(frame, SurfaceRole.RAISED)
+    block_layout = QVBoxLayout(frame)
+    block_layout.setContentsMargins(16, 12, 16, 14)
+    block_layout.setSpacing(8)
+
+    toggle = QPushButton(label)
+    toggle.setCheckable(True)
+    toggle.setChecked(expanded)
+    toggle.setAccessibleName(label)
+    toggle.setToolTip(f"{description}（クリックで設定項目を展開・折りたたみ）")
+    toggle.setWhatsThis(f"{description}（クリックで設定項目を展開・折りたたみ）")
+    set_control_size(toggle, ControlSize.COMPACT)
+    block_layout.addWidget(toggle)
+
+    detail = QLabel(description)
+    detail.setWordWrap(True)
+    set_typography_role(detail, TypographyRole.SECONDARY)
+    block_layout.addWidget(detail)
+
+    content.setVisible(expanded)
+    toggle.toggled.connect(content.setVisible)
+    block_layout.addWidget(content)
+    return frame
 
 
 def _timing_method_label(method: str) -> str:
@@ -6417,7 +6496,20 @@ class MeasurementPageWorkspace(QWidget):
         )
         page.setObjectName("measurementComparisonPage")
 
-        setup_card, setup_layout = _card("比較条件", host)
+        # #970 progressive disclosure: the fixed short strip on top carries
+        # the basic 3 steps — pick the purpose, pick A/B, review/save the
+        # verdict — while expert-only conditions live collapsed inside the
+        # 詳細条件 block below. Selection reason and the at-a-glance pair
+        # summary render from canonical verdicts only.
+        setup_card, setup_layout = _card("基本手順（目的 → A/B → 判定・差分）", host)
+        step_hint = QLabel(
+            "基本3手順: ① 比較目的を選ぶ → ② A/Bを選ぶ → ③ 判定/差分を見る",
+            setup_card,
+        )
+        step_hint.setWordWrap(True)
+        set_typography_role(step_hint, TypographyRole.SECONDARY)
+        setup_layout.addWidget(step_hint)
+
         form = QFormLayout()
         self.preset_combo = QComboBox(setup_card)
         for label, value in (
@@ -6430,12 +6522,12 @@ class MeasurementPageWorkspace(QWidget):
         self.preset_combo.currentIndexChanged.connect(
             lambda _i: self._refresh_comparison_choices()
         )
-        form.addRow("プリセット", self.preset_combo)
+        form.addRow("① 比較目的", self.preset_combo)
 
         self.measured_combo = QComboBox(setup_card)
         self.predicted_combo = QComboBox(setup_card)
-        form.addRow("データセット A", self.measured_combo)
-        form.addRow("データセット B", self.predicted_combo)
+        form.addRow("② データセット A", self.measured_combo)
+        form.addRow("② データセット B", self.predicted_combo)
 
         # One coherent band control (#586): low–high range plus presets
         # rather than two disconnected form rows.
@@ -6443,6 +6535,7 @@ class MeasurementPageWorkspace(QWidget):
         band_row = QHBoxLayout(band_widget)
         band_row.setContentsMargins(0, 0, 0, 0)
         self.compare_low = QDoubleSpinBox(band_widget)
+        self.compare_low.setAccessibleName("比較帯域下限")
         self.compare_low.setRange(1.0, 100000.0)
         self.compare_low.setValue(20.0)
         self.compare_low.setSuffix(" Hz")
@@ -6466,16 +6559,44 @@ class MeasurementPageWorkspace(QWidget):
         band_row.addWidget(band_lf)
         band_row.addStretch(1)
         form.addRow("比較帯域", band_widget)
+        setup_layout.addLayout(form)
+
+        # At-a-glance A/B identity + comparability (#970): source,
+        # SceneRevision binding and the measurement/calibration level
+        # verdict render straight from the canonical views/semantics.
+        self.pair_summary_label = QLabel("", setup_card)
+        self.pair_summary_label.setWordWrap(True)
+        set_typography_role(self.pair_summary_label, TypographyRole.SECONDARY)
+        setup_layout.addWidget(self.pair_summary_label)
+
+        # Nearest resolvable reason for the current selection (#970) —
+        # canonical verdict/error text beside the fields, never silent.
+        self.selection_reason_label = QLabel("", setup_card)
+        self.selection_reason_label.setWordWrap(True)
+        setup_layout.addWidget(self.selection_reason_label)
+
+        self.mismatch_label = QLabel("", setup_card)
+        self.mismatch_label.setWordWrap(True)
+        setup_layout.addWidget(self.mismatch_label)
+
+        # 詳細条件 (#970): expert conditions collapse into the advanced
+        # block. Defaults and semantics are unchanged — opening/closing
+        # never alters the selection, band, preview or saved evidence.
+        advanced_content = QWidget(setup_card)
+        advanced_layout = QVBoxLayout(advanced_content)
+        advanced_layout.setContentsMargins(0, 0, 0, 0)
+        advanced_layout.setSpacing(6)
 
         ref_row = QHBoxLayout()
-        self.ref_band_check = QCheckBox("参照帯域でレベル合わせ", setup_card)
+        ref_row.addWidget(QLabel("レベル参照:", advanced_content))
+        self.ref_band_check = QCheckBox("参照帯域でレベル合わせ", advanced_content)
         ref_row.addWidget(self.ref_band_check)
-        self.ref_low = QDoubleSpinBox(setup_card)
+        self.ref_low = QDoubleSpinBox(advanced_content)
         self.ref_low.setAccessibleName("レベル参照帯域下限")
         self.ref_low.setRange(1.0, 100000.0)
         self.ref_low.setValue(20.0)
         self.ref_low.setSuffix(" Hz")
-        self.ref_high = QDoubleSpinBox(setup_card)
+        self.ref_high = QDoubleSpinBox(advanced_content)
         self.ref_high.setAccessibleName("レベル参照帯域上限")
         self.ref_high.setRange(1.0, 100000.0)
         self.ref_high.setValue(120.0)
@@ -6483,33 +6604,32 @@ class MeasurementPageWorkspace(QWidget):
         ref_row.addWidget(self.ref_low)
         ref_row.addWidget(self.ref_high)
         ref_row.addStretch(1)
-        form.addRow("レベル参照", ref_row)
-
-        setup_layout.addLayout(form)
+        advanced_layout.addLayout(ref_row)
 
         exclude_row = QHBoxLayout()
-        exclude_row.addWidget(QLabel("除外帯域:", setup_card))
-        self.excluded_low = QDoubleSpinBox(setup_card)
+        exclude_row.addWidget(QLabel("除外帯域:", advanced_content))
+        self.excluded_low = QDoubleSpinBox(advanced_content)
+        self.excluded_low.setAccessibleName("除外帯域下限")
         self.excluded_low.setRange(1.0, 100000.0)
         self.excluded_low.setValue(45.0)
         self.excluded_low.setSuffix(" Hz")
-        self.excluded_high = QDoubleSpinBox(setup_card)
+        self.excluded_high = QDoubleSpinBox(advanced_content)
         self.excluded_high.setAccessibleName("除外帯域上限")
         self.excluded_high.setRange(1.0, 100000.0)
         self.excluded_high.setValue(65.0)
         self.excluded_high.setSuffix(" Hz")
         exclude_row.addWidget(self.excluded_low)
         exclude_row.addWidget(self.excluded_high)
-        self.add_exclusion_button = QPushButton("追加", setup_card)
+        self.add_exclusion_button = QPushButton("追加", advanced_content)
         self.add_exclusion_button.clicked.connect(self._add_exclusion_band)
         exclude_row.addWidget(self.add_exclusion_button)
-        self.remove_exclusion_button = QPushButton("選択を削除", setup_card)
+        self.remove_exclusion_button = QPushButton("選択を削除", advanced_content)
         self.remove_exclusion_button.clicked.connect(self._remove_exclusion_band)
         exclude_row.addWidget(self.remove_exclusion_button)
         exclude_row.addStretch(1)
-        setup_layout.addLayout(exclude_row)
+        advanced_layout.addLayout(exclude_row)
 
-        self.excluded_table = QTableWidget(0, 2, setup_card)
+        self.excluded_table = QTableWidget(0, 2, advanced_content)
         self.excluded_table.setHorizontalHeaderLabels(["下限", "上限"])
         self.excluded_table.setEditTriggers(
             QAbstractItemView.EditTrigger.NoEditTriggers
@@ -6519,12 +6639,13 @@ class MeasurementPageWorkspace(QWidget):
             QHeaderView.ResizeMode.Stretch
         )
         self.excluded_table.setMaximumHeight(110)
-        setup_layout.addWidget(self.excluded_table)
+        advanced_layout.addWidget(self.excluded_table)
 
         smooth_row = QHBoxLayout()
-        smooth_row.addWidget(QLabel("表示スムージング:", setup_card))
-        self.smooth_a_combo = QComboBox(setup_card)
-        self.smooth_b_combo = QComboBox(setup_card)
+        smooth_row.addWidget(QLabel("表示スムージング:", advanced_content))
+        self.smooth_a_combo = QComboBox(advanced_content)
+        self.smooth_a_combo.setAccessibleName("表示スムージング A")
+        self.smooth_b_combo = QComboBox(advanced_content)
         self.smooth_b_combo.setAccessibleName("表示スムージング B")
         for label, fraction in DISPLAY_SMOOTHING_FRACTIONS:
             self.smooth_a_combo.addItem(f"A: {label}", fraction)
@@ -6538,16 +6659,26 @@ class MeasurementPageWorkspace(QWidget):
         smooth_row.addWidget(self.smooth_a_combo)
         smooth_row.addWidget(self.smooth_b_combo)
         smooth_row.addStretch(1)
-        setup_layout.addLayout(smooth_row)
+        advanced_layout.addLayout(smooth_row)
 
-        self.mismatch_label = QLabel("", setup_card)
-        self.mismatch_label.setWordWrap(True)
-        setup_layout.addWidget(self.mismatch_label)
+        self.comparison_details_block = _advanced_block(
+            "詳細条件（レベル参照・除外帯域・表示スムージング）",
+            "上級者向けの追加条件です。既定値はこれまでどおりで、開閉しても"
+            "選択中のデータセット・帯域・プレビュー・保存済み証拠は変わりません。",
+            advanced_content,
+        )
+        setup_layout.addWidget(self.comparison_details_block)
 
         compare_row = QHBoxLayout()
         self.comparison_availability = QLabel("", setup_card)
         self.comparison_availability.setWordWrap(True)
         compare_row.addWidget(self.comparison_availability, 1)
+        # Next concrete operation beside the save button (#970).
+        self.save_guidance_label = QLabel("", setup_card)
+        self.save_guidance_label.setWordWrap(True)
+        self.save_guidance_label.setMaximumWidth(380)
+        set_typography_role(self.save_guidance_label, TypographyRole.SECONDARY)
+        compare_row.addWidget(self.save_guidance_label)
         self.compare_button = QPushButton("比較結果を保存", setup_card)
         set_primary_action(self.compare_button)
         self.compare_button.clicked.connect(self._run_comparison)
@@ -6646,6 +6777,9 @@ class MeasurementPageWorkspace(QWidget):
         link_x_axis(self.comparison_plot, self.difference_plot)
         plot_layout.addWidget(self.difference_plot)
 
+        # Eye order is FR → A−B → 位相 (#970): the phase lane is never
+        # silently hidden — when a pair is selected but phase cannot be
+        # shown, the plot carries an explicit reason state instead.
         self.phase_compare_plot = pg.PlotWidget(plot_card)
         self.phase_compare_plot.setMinimumHeight(170)
         self.phase_compare_plot.setLabel("bottom", "周波数", units="Hz")
@@ -6654,6 +6788,13 @@ class MeasurementPageWorkspace(QWidget):
         add_scientific_legend(self.phase_compare_plot)
         link_x_axis(self.comparison_plot, self.phase_compare_plot)
         plot_layout.addWidget(self.phase_compare_plot)
+        # Advisory under the phase lane — e.g. phase plotted but the pair
+        # shares no common timing group, so phase differences are not
+        # common-time comparable.
+        self.phase_note_label = QLabel("", plot_card)
+        self.phase_note_label.setWordWrap(True)
+        set_typography_role(self.phase_note_label, TypographyRole.SECONDARY)
+        plot_layout.addWidget(self.phase_note_label)
         layout.addWidget(plot_card)
 
         result_card, result_layout = _card("比較結果", host)
@@ -6729,6 +6870,14 @@ class MeasurementPageWorkspace(QWidget):
         )
         self.predicted_combo.currentIndexChanged.connect(
             self._comparison_selection_changed
+        )
+        # Band edits re-evaluate the overlap blocker beside the fields —
+        # the reason line and the save gate must never go stale (#970).
+        self.compare_low.valueChanged.connect(
+            lambda _v: self._update_selection_reason()
+        )
+        self.compare_high.valueChanged.connect(
+            lambda _v: self._update_selection_reason()
         )
         self.comparison_history.itemSelectionChanged.connect(
             self._history_selection_changed
@@ -7149,6 +7298,11 @@ class MeasurementPageWorkspace(QWidget):
             )
             for column, value in enumerate(values):
                 self.comparison_history.setItem(row_index, column, QTableWidgetItem(value))
+        # #970: pair summary + the nearest resolvable reason re-derive from
+        # the refreshed views — they must never render a verdict computed
+        # against a stale listing.
+        self._update_pair_summary(views)
+        self._update_selection_reason(views)
         self._refresh_registration_panel(views)
 
     @staticmethod
@@ -7196,6 +7350,7 @@ class MeasurementPageWorkspace(QWidget):
         saved = comparisons[row_index]
         self._last_comparison = saved
         self.comparison_state_label.setText("保存済み比較")
+        set_semantic_state(self.comparison_state_label, None)
         self._bind_saved_pair(saved)
         self._show_comparison(saved)
 
@@ -7241,12 +7396,18 @@ class MeasurementPageWorkspace(QWidget):
                 self._comparison_cursor.line, ignoreBounds=True
             )
             self.phase_compare_plot.clear()
-            self.phase_compare_plot.setVisible(False)
+            self.phase_note_label.setText("")
             self._cursor_traces = []
             self.mismatch_label.setText("")
             show_plot_state(
                 self.comparison_plot,
                 "この保存済み比較の測定データは現在の比較候補にありません",
+            )
+            # Same reason on the phase lane — never a silent absence (#970).
+            show_plot_state(
+                self.phase_compare_plot,
+                "位相は表示できません",
+                detail="この保存済み比較の測定データは現在の比較候補にありません",
             )
             return
         self.measured_combo.blockSignals(True)
@@ -7274,11 +7435,305 @@ class MeasurementPageWorkspace(QWidget):
         # comparison (#586): preview never poses as saved evidence.
         self._last_comparison = None
         self.comparison_state_label.setText("プレビュー（未保存）")
+        set_semantic_state(self.comparison_state_label, None)
         self.comparison_export_csv_button.setEnabled(False)
         self.comparison_export_png_button.setEnabled(False)
         self._update_context_label()
-        self._preview_comparison_pair()
+        views = self.controller.measurement_views()
+        self._preview_comparison_pair(views)
+        # #970: at-a-glance pair facts and the nearest resolvable reason
+        # re-derive from the same fresh listing on every selection change.
+        self._update_pair_summary(views)
+        self._update_selection_reason(views)
         self._refresh_registration_panel()
+
+    def _update_pair_summary(
+        self,
+        views: tuple[MeasurementView, ...] | None = None,
+    ) -> None:
+        """At-a-glance A/B identity + comparability for the selection (#970).
+
+        Source, SceneRevision binding and the level/calibration verdict are
+        rendered straight from the canonical views and ``ComparisonSemantics``
+        — nothing about the measurement data is inferred or repaired here.
+        """
+        a_id = self.measured_combo.currentData()
+        b_id = self.predicted_combo.currentData()
+        has_a = isinstance(a_id, str) and bool(a_id)
+        has_b = isinstance(b_id, str) and bool(b_id)
+        if not has_a and not has_b:
+            self.pair_summary_label.setText(
+                "選択した A/B のソース・SceneRevision・比較可否をここに表示します。"
+            )
+            return
+        if views is None:
+            views = self.controller.measurement_views()
+        by_dataset = {
+            row.dataset_id: row for row in views if row.dataset_id
+        }
+        lines: list[str] = []
+        for side, dataset_id, present in (
+            ("A", a_id, has_a),
+            ("B", b_id, has_b),
+        ):
+            if not present:
+                lines.append(f"{side}: 未選択")
+                continue
+            row = by_dataset.get(dataset_id)
+            if row is None:
+                lines.append(f"{side}: 現在の比較候補にありません")
+                continue
+            scene = (
+                "現在の配置" if row.scene_matches_current else "測定時の配置"
+            )
+            lines.append(
+                f"{side}: {_evidence_label(row.evidence_type)} · "
+                f"{_channel_role_label(row.effective_channel_role)} · "
+                f"{row.effective_target_name} · {scene}"
+            )
+        a_row = by_dataset.get(a_id) if has_a else None
+        b_row = by_dataset.get(b_id) if has_b else None
+        if a_row is not None and b_row is not None:
+            lines.append(
+                "SceneRevision: "
+                + (
+                    "両側一致"
+                    if a_row.scene_revision_id == b_row.scene_revision_id
+                    else "両側で異なります"
+                )
+            )
+            semantics = self.controller.comparison_semantics(
+                a_id, b_id, views=views
+            )
+            if semantics is not None:
+                lines.append(
+                    "比較可否: "
+                    + _level_compatibility_label(
+                        semantics.level_compatibility
+                    )
+                )
+            if self._selected_measured_predicted(views)[0] is not None:
+                registration = self._pair_registration()
+                lines.append(
+                    "実測×予測の登録: "
+                    + (
+                        "未登録"
+                        if registration is None
+                        else _comparability_state_label(
+                            registration.comparability.state
+                        )
+                    )
+                )
+        self.pair_summary_label.setText("\n".join(lines))
+
+    def _pair_registration_freshness(self, registration) -> str:
+        """Freshness of the selected pair's registration (#970).
+
+        Unreadable freshness is 'unverified' — never 'current': a stale or
+        unverifiable pair must stay fail-closed like the panel (#815).
+        """
+        service = self._registration_service()
+        if service is None:
+            return 'unverified'
+        try:
+            return service.registration_freshness(registration)
+        except EXPECTED_OPERATION_ERRORS as exc:
+            if is_authority_failure(exc):
+                raise
+            report_boundary_failure(exc, operation='登録の新旧判定')
+            return 'unverified'
+
+    def _update_selection_reason(
+        self,
+        views: tuple[MeasurementView, ...] | None = None,
+    ) -> None:
+        """Show the nearest resolvable comparison blocker beside the fields
+        and guide the next concrete operation next to the save button (#970).
+
+        Reasons come only from the canonical authorities — the #564
+        registration gate (``ComparabilityVerdict`` + freshness), the #852
+        ``ComparisonSemantics`` eligibility and the pinned algorithm's
+        band-overlap rule. A hard blocker disables save and stamps the
+        persisted-state label: a chart that still draws a preview is never
+        mistaken for a saveable difference.
+        """
+        a_id = self.measured_combo.currentData()
+        b_id = self.predicted_combo.currentData()
+        if not (
+            isinstance(a_id, str)
+            and a_id
+            and isinstance(b_id, str)
+            and b_id
+        ):
+            self.selection_reason_label.setText("")
+            self.save_guidance_label.setText("")
+            set_semantic_state(self.selection_reason_label, None)
+            self.compare_button.setEnabled(False)
+            if self._last_comparison is None:
+                self.comparison_state_label.setText("プレビュー（未保存）")
+                set_semantic_state(self.comparison_state_label, None)
+            return
+        if views is None:
+            views = self.controller.measurement_views()
+
+        reason = ""
+        guidance = ""
+        blocked_state: str | None = None
+        advisory: list[str] = []
+
+        measured_view, _predicted_view = self._selected_measured_predicted(views)
+        if measured_view is not None:
+            registration = self._pair_registration()
+            if registration is None:
+                blocked_state = "比較不能（未登録）"
+                reason = (
+                    "実測×予測の比較には登録レコードが必要です（未登録）。"
+                )
+                guidance = "次の操作: 「登録レコードを作成」を実行してください。"
+            else:
+                verdict = registration.comparability
+                if verdict.state not in (
+                    'comparable',
+                    'comparable_with_limitations',
+                ):
+                    blocked_state = (
+                        "比較不能（"
+                        + _comparability_state_label(verdict.state)
+                        + "）"
+                    )
+                    codes = verdict.reasons or verdict.limitations
+                    reason = "登録の比較可否: " + _comparability_state_label(
+                        verdict.state
+                    ) + (
+                        " — "
+                        + "、".join(
+                            _comparability_reason_label(code)
+                            for code in codes
+                        )
+                        if codes
+                        else ""
+                    )
+                    guidance = (
+                        "次の操作: 理由を解消してから登録レコードを再作成してください。"
+                    )
+                elif self._pair_registration_freshness(registration) != 'current':
+                    blocked_state = "stale（古い登録）"
+                    reason = (
+                        "登録レコードが古い配置に紐付いています（stale）。"
+                    )
+                    guidance = (
+                        "次の操作: 「登録レコードを作成」で最新の配置を再登録するか、"
+                        "「残差を計算」で登録内容を確認してください。"
+                    )
+                elif verdict.limitations:
+                    advisory.append(
+                        f"登録の制限 {len(verdict.limitations)} 件: "
+                        + "、".join(
+                            _comparability_reason_label(code)
+                            for code in verdict.limitations[:3]
+                        )
+                    )
+
+        if blocked_state is None:
+            # Band overlap follows the pinned algorithm's own rule
+            # (compare_frequency_responses fails when
+            # overlap_high <= overlap_low) — surfaced before the save
+            # attempt instead of only after it.
+            dataset_a = self.controller.dataset(a_id)
+            dataset_b = self.controller.dataset(b_id)
+            if dataset_a is None or dataset_b is None:
+                blocked_state = "比較不能（データセット未検証）"
+                reason = (
+                    "データセットを読み込めません（再検証が必要です）。"
+                )
+                guidance = (
+                    "次の操作: 品質ページでデータセットを再検証してください。"
+                )
+            else:
+                low = float(self.compare_low.value())
+                high = float(self.compare_high.value())
+                overlap_low = max(
+                    low,
+                    dataset_a.frequency_hz[0],
+                    dataset_b.frequency_hz[0],
+                )
+                overlap_high = min(
+                    high,
+                    dataset_a.frequency_hz[-1],
+                    dataset_b.frequency_hz[-1],
+                )
+            if dataset_a is not None and dataset_b is not None and overlap_high <= overlap_low:
+                blocked_state = "比較不能（帯域の交差なし）"
+                reason = (
+                    "比較帯域に両データの周波数重なりがありません"
+                    f"（A {dataset_a.frequency_hz[0]:.1f}–{dataset_a.frequency_hz[-1]:.1f} Hz、"
+                    f"B {dataset_b.frequency_hz[0]:.1f}–{dataset_b.frequency_hz[-1]:.1f} Hz、"
+                    f"指定 {low:.1f}–{high:.1f} Hz）。"
+                )
+                data_overlap_low = max(
+                    dataset_a.frequency_hz[0], dataset_b.frequency_hz[0]
+                )
+                data_overlap_high = min(
+                    dataset_a.frequency_hz[-1], dataset_b.frequency_hz[-1]
+                )
+                if data_overlap_high > data_overlap_low:
+                    guidance = (
+                        "次の操作: 比較帯域を両データの共通範囲 "
+                        f"{data_overlap_low:.1f}–{data_overlap_high:.1f} Hz "
+                        "に合わせてください。"
+                    )
+                else:
+                    guidance = (
+                        "次の操作: 両データの周波数範囲が重ならないため"
+                        "別のペアを選択してください。"
+                    )
+
+        if blocked_state is None:
+            semantics = self.controller.comparison_semantics(
+                a_id, b_id, views=views
+            )
+            if semantics is not None:
+                if semantics.absolute_level == 'unavailable':
+                    advisory.append(
+                        "レベル比較は "
+                        + _level_compatibility_label(
+                            semantics.level_compatibility
+                        )
+                        + "（絶対レベル差ではありません）"
+                    )
+                if semantics.common_time_phase == 'unavailable':
+                    advisory.append(
+                        "共通のタイミング基準なし — "
+                        "位相・到達時刻の差分は比較できません"
+                    )
+            reason = " · ".join(advisory)
+
+        if blocked_state is not None:
+            self.compare_button.setEnabled(False)
+            self.comparison_state_label.setText(blocked_state)
+            set_semantic_state(
+                self.comparison_state_label,
+                SemanticState.STALE
+                if blocked_state.startswith("stale")
+                else SemanticState.UNSUPPORTED,
+            )
+            set_semantic_state(
+                self.selection_reason_label, SemanticState.ERROR
+            )
+        else:
+            self.compare_button.setEnabled(True)
+            if self._last_comparison is None:
+                self.comparison_state_label.setText("プレビュー（未保存）")
+            else:
+                self.comparison_state_label.setText("保存済み比較")
+            set_semantic_state(self.comparison_state_label, None)
+            set_semantic_state(
+                self.selection_reason_label,
+                SemanticState.WARNING if reason else None,
+            )
+        self.selection_reason_label.setText(reason)
+        self.save_guidance_label.setText(guidance)
+        self._update_context_label()
 
     def _registration_service(self):
         """Lazily build the #564 registration service over the workspace repos."""
@@ -7300,19 +7755,25 @@ class MeasurementPageWorkspace(QWidget):
                 raise
             report_boundary_failure(exc, operation='登録サービスの初期化')
             return None
-            return None
 
-    def _selected_pair_views(self) -> tuple:
+    def _selected_pair_views(
+        self,
+        views: tuple[MeasurementView, ...] | None = None,
+    ) -> tuple:
         a_id = self.measured_combo.currentData()
         b_id = self.predicted_combo.currentData()
-        views = self.controller.measurement_views()
+        if views is None:
+            views = self.controller.measurement_views()
         a_view = next((v for v in views if v.dataset_id == a_id), None)
         b_view = next((v for v in views if v.dataset_id == b_id), None)
         return a_view, b_view
 
-    def _selected_measured_predicted(self) -> tuple:
+    def _selected_measured_predicted(
+        self,
+        views: tuple[MeasurementView, ...] | None = None,
+    ) -> tuple:
         """Return (measured_view, predicted_view) or (None, None) (#564)."""
-        a_view, b_view = self._selected_pair_views()
+        a_view, b_view = self._selected_pair_views(views)
         if a_view is None or b_view is None:
             return None, None
         measured, predicted = a_view, b_view
@@ -7447,6 +7908,10 @@ class MeasurementPageWorkspace(QWidget):
         state = _comparability_state_label(registration.comparability.state)
         self._set_notice(f'登録レコードを作成しました（{state}）。', SemanticState.SUCCESS)
         self._refresh_registration_panel()
+        # The just-created record can resolve the blocker beside the
+        # fields — re-derive both lines from the new state (#970).
+        self._update_pair_summary()
+        self._update_selection_reason()
 
     def _compute_residuals(self) -> None:
         registration = getattr(self, '_current_pair_registration', None)
@@ -7567,7 +8032,10 @@ class MeasurementPageWorkspace(QWidget):
             self._comparison_cursor.line, ignoreBounds=True
         )
         self.phase_compare_plot.clear()
-        self.phase_compare_plot.setVisible(False)
+        # #970: the phase lane stays in place — "not displayable" is a
+        # state with a reason, never a silent absence.
+        self.phase_compare_plot.setVisible(True)
+        self.phase_note_label.setText("")
         a_id = self.measured_combo.currentData()
         b_id = self.predicted_combo.currentData()
         tokens = DARK_THEME.scientific
@@ -7604,7 +8072,10 @@ class MeasurementPageWorkspace(QWidget):
 
         # Stored phase for eligible A/B (#489): phase availability stays a
         # separate axis from common timing and is never implied by it.
+        # #970: a side that cannot show phase is always named with its
+        # reason — never dropped silently from the lane.
         phases_plotted = 0
+        missing_phase_sides: list[str] = []
         for dataset_id, side, color_hex, semantic in (
             (a_id, "A", tokens.primary_trace.hex, semantic_of(a_id)),
             (b_id, "B", tokens.secondary_trace.hex, semantic_of(b_id)),
@@ -7613,6 +8084,7 @@ class MeasurementPageWorkspace(QWidget):
                 continue
             trace = phase_trace(self.controller.dataset(dataset_id))
             if trace is None:
+                missing_phase_sides.append(f"{side}: 位相データがありません")
                 continue
             self.phase_compare_plot.plot(
                 trace.frequency_hz,
@@ -7621,7 +8093,40 @@ class MeasurementPageWorkspace(QWidget):
                 name=f"{side}: 位相",
             )
             phases_plotted += 1
-        self.phase_compare_plot.setVisible(phases_plotted > 0)
+        pair_selected = bool(
+            isinstance(a_id, str) and isinstance(b_id, str) and a_id and b_id
+        )
+        if phases_plotted:
+            notes = list(missing_phase_sides)
+            # Phase drawn but the pair shares no common timing group: the
+            # traces stay, and the note says what may not be claimed.
+            semantics = (
+                self.controller.comparison_semantics(a_id, b_id, views=views)
+                if pair_selected
+                else None
+            )
+            if (
+                semantics is not None
+                and semantics.common_time_phase == 'unavailable'
+            ):
+                notes.append(
+                    "共通のタイミング基準なし — "
+                    "位相・到達時刻の差分は比較できません（表示は参考値）"
+                )
+            if notes:
+                self.phase_note_label.setText(" · ".join(notes))
+        elif pair_selected:
+            show_plot_state(
+                self.phase_compare_plot,
+                "位相は表示できません",
+                detail=" · ".join(missing_phase_sides)
+                or "位相データがありません",
+            )
+        else:
+            show_plot_state(
+                self.phase_compare_plot,
+                "A と B にデータセットを選択すると位相を表示します。",
+            )
 
         # Semantic-mismatch advisory before interpreting the result (#483).
         if isinstance(a_id, str) and isinstance(b_id, str) and a_id and b_id:
@@ -7697,6 +8202,7 @@ class MeasurementPageWorkspace(QWidget):
             return
         self._last_comparison = saved
         self.comparison_state_label.setText("保存済み比較")
+        set_semantic_state(self.comparison_state_label, None)
         self._show_comparison(saved)
         self._set_notice(
             "比較結果を保存しました。",
@@ -7915,7 +8421,11 @@ class MeasurementPageWorkspace(QWidget):
         if self.current_context_id == "comparison":
             saved = self._last_comparison
             if saved is None:
-                self.context_label.setText("比較: プレビュー（未保存）")
+                # Mirrors the state label so a blocked/stale selection never
+                # reads as a plain unsaved preview in the header (#970).
+                self.context_label.setText(
+                    "比較: " + self.comparison_state_label.text()
+                )
                 return
             self.context_label.setText(
                 f"保存済み比較 · {_format_band(saved.actual_band_hz)} · {saved.created_at}"
