@@ -31,6 +31,7 @@ from .data_relocation import (
 )
 
 from PySide6.QtCore import QObject, QThread, Signal, Slot
+from shiboken6 import isValid
 
 from .automatic_backup import (
     AutomaticBackupScheduler,
@@ -836,6 +837,10 @@ def drain_operation_threads(
             thread.requestInterruption()
             thread.quit()
         except RuntimeError:
+            # C++ object already gone: no signal can ever fire to release
+            # the key, so a dead entry is dropped rather than left to
+            # inflate every later count and iteration.
+            _LINGERING_OP_THREADS.pop(thread, None)
             continue
     still_running = 0
     for thread, _worker in threads:
@@ -844,6 +849,7 @@ def drain_operation_threads(
             if not thread.isFinished() and not thread.wait(remaining_ms):
                 still_running += 1
         except RuntimeError:
+            _LINGERING_OP_THREADS.pop(thread, None)
             continue
     return still_running
 
@@ -862,6 +868,7 @@ def cancel_detached_op_threads() -> None:
             thread.requestInterruption()
             thread.quit()
         except RuntimeError:
+            _LINGERING_OP_THREADS.pop(thread, None)
             continue
 
 
@@ -1569,14 +1576,39 @@ class DataManagementController(QObject):
         # flag unset, churning to natural completion through process
         # teardown — the xdist worker-crash class. Event.set is thread-safe.
         active.worker.request_cancel()
+        if not isValid(thread):
+            # The record outlived the thread's C++ object: nothing can
+            # still be running and no finished/destroyed signal will ever
+            # fire to release a pin — and every call on the dead wrapper
+            # raises RuntimeError — so releasing ``_active`` (done above)
+            # is the entire job. The vanished operation must not be
+            # re-reported as running: it is simply gone.
+            return
         # Pin the worker first: the record must never hold the last Python
         # reference while the thread may still be running.
-        _LINGERING_OP_THREADS[thread] = active.worker
-        thread.setParent(None)
-        thread.finished.connect(
-            lambda: _LINGERING_OP_THREADS.pop(thread, None)
-        )
-        if not thread.isRunning():
+        try:
+            _LINGERING_OP_THREADS[thread] = active.worker
+            thread.setParent(None)
+            thread.finished.connect(
+                lambda: _LINGERING_OP_THREADS.pop(thread, None)
+            )
+            # ``destroyed`` covers the window where ``finished`` was
+            # already emitted before this connect: the earlier
+            # finished -> deleteLater wiring still destroys the C++
+            # object, so released-on-destroyed is the guaranteed drop
+            # path for that race.
+            thread.destroyed.connect(
+                lambda *_args: _LINGERING_OP_THREADS.pop(thread, None)
+            )
+            finished = thread.isFinished()
+        except RuntimeError:
+            # The C++ object died mid-detach — it cannot still be running
+            # (a running thread destroyed under itself aborts the process,
+            # which is what this path exists to prevent), so the pin is
+            # pointless: drop it instead of leaking a dead key.
+            _LINGERING_OP_THREADS.pop(thread, None)
+            return
+        if finished:
             # Finished between the last state check and the reparent.
             _LINGERING_OP_THREADS.pop(thread, None)
 

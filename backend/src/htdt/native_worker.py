@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from threading import Event
 
 from PySide6.QtCore import QObject, QThread, Signal, Slot
+from shiboken6 import isValid
 
 
 #: Cooperative shutdown budget shared by every native worker pool. It keeps
@@ -139,6 +140,10 @@ def drain_worker_threads(
             thread.requestInterruption()
             thread.quit()
         except RuntimeError:
+            # C++ object already gone: no signal can ever fire to release
+            # the key, so a dead entry must be dropped here instead of
+            # inflating every later count and iteration.
+            _LINGERING_THREADS.pop(thread, None)
             continue
     still_running = 0
     for thread in list(_LINGERING_THREADS):
@@ -147,6 +152,7 @@ def drain_worker_threads(
             if not thread.isFinished() and not thread.wait(remaining_ms):
                 still_running += 1
         except RuntimeError:
+            _LINGERING_THREADS.pop(thread, None)
             continue
     return still_running
 
@@ -166,6 +172,7 @@ def cancel_detached_threads() -> None:
             thread.requestInterruption()
             thread.quit()
         except RuntimeError:
+            _LINGERING_THREADS.pop(thread, None)
             continue
 
 
@@ -288,9 +295,16 @@ class NativeWorkerPool(QObject):
 
     @property
     def active_count(self) -> int:
-        return sum(
-            1 for thread, _worker in self._tasks.values() if thread.isRunning()
-        )
+        total = 0
+        for thread, _worker in self._tasks.values():
+            try:
+                if thread.isRunning():
+                    total += 1
+            except RuntimeError:
+                # Stale record: the C++ object is gone, so the thread
+                # cannot be running — never report it as active.
+                continue
+        return total
 
     def start(
         self,
@@ -337,8 +351,13 @@ class NativeWorkerPool(QObject):
         # sporadic access violation / abort). Python ownership keeps the C++
         # object alive via ``_tasks``/``_LINGERING_THREADS`` until the thread
         # has finished, then the reference drops on the owner thread.
-        thread.finished.connect(thread.deleteLater)
+        # ``_thread_finished`` first, ``deleteLater`` second — matching
+        # ``data_management._start``: the record must be dropped before a
+        # DeferredDelete can destroy the C++ object, or a typed
+        # ``sendPostedEvents(DeferredDelete)`` flush between the two queued
+        # metacalls leaves ``_tasks`` pointing at a dead thread.
         thread.finished.connect(self._thread_finished)
+        thread.finished.connect(thread.deleteLater)
         self._tasks[key] = (thread, worker)
         self._callbacks[key] = (on_completed, on_finished)
         thread.start()
@@ -432,15 +451,29 @@ class NativeWorkerPool(QObject):
         lingering: list[str] = []
         self.cancel_all()
         for _key, (thread, _worker) in tuple(self._tasks.items()):
-            thread.requestInterruption()
-            thread.quit()
+            try:
+                thread.requestInterruption()
+                thread.quit()
+            except RuntimeError:
+                # Stale record: the C++ object is gone, nothing to
+                # interrupt — the record is released as stopped below.
+                continue
         for key, (thread, _worker) in tuple(self._tasks.items()):
-            if not thread.isFinished():
-                remaining_ms = max(
-                    0, round((deadline - time.monotonic()) * 1000)
-                )
-                thread.wait(remaining_ms)
-            if thread.isFinished() and not thread.isRunning():
+            done = False
+            try:
+                if not thread.isFinished():
+                    remaining_ms = max(
+                        0, round((deadline - time.monotonic()) * 1000)
+                    )
+                    thread.wait(remaining_ms)
+                done = thread.isFinished() and not thread.isRunning()
+            except RuntimeError:
+                # The C++ object is gone: the thread cannot still be
+                # running (~QThread on a live native thread aborts the
+                # process), so the stale record is released as stopped
+                # rather than detached.
+                done = True
+            if done:
                 stopped.append(key)
                 self._release_task(key)
             else:
@@ -471,7 +504,10 @@ class NativeWorkerPool(QObject):
             # Disconnect, never deleteLater: freeing the relay's C++ side
             # would cascade into destroying the pinned worker inside
             # posted-event delivery (see _WorkerCompletionRelay).
-            relay._worker.completed.disconnect(relay.receive)
+            try:
+                relay._worker.completed.disconnect(relay.receive)
+            except RuntimeError:
+                pass
 
     def _detach(self, key: str) -> None:
         """Move a still-running thread to module ownership until finished."""
@@ -479,18 +515,43 @@ class NativeWorkerPool(QObject):
         if record is None:
             return
         thread, worker = record
+        if not isValid(thread):
+            # The record outlived the thread's C++ object (``finished ->
+            # deleteLater`` delivered before the record drop). Nothing can
+            # still be running and no finished/destroyed signal will ever
+            # fire to release a pin — and every call on the dead wrapper
+            # raises RuntimeError — so releasing the stale bookkeeping is
+            # the entire job. Dropping the record must not resurrect the
+            # task as running either: it is simply gone.
+            self._release_task(key)
+            return
         # Pin the worker first: dropping the task record must never release
         # the last Python reference while the thread may still be running.
-        _LINGERING_THREADS[thread] = worker
+        try:
+            _LINGERING_THREADS[thread] = worker
+        except RuntimeError:
+            # Died between the validity check and the pin — same outcome
+            # as the dead-record branch above.
+            self._release_task(key)
+            return
         self._release_task(key)
-        thread.setParent(None)
-        thread.finished.connect(lambda: _release_lingering(thread))
-        # The thread can finish in the window between the bounded wait and
-        # this connect — its earlier finished->deleteLater wiring still
-        # destroys the C++ object, so released-on-destroyed is the
-        # guaranteed drop path for that race.
-        thread.destroyed.connect(lambda *_args: _release_lingering(thread))
-        if not thread.isRunning():
+        try:
+            thread.setParent(None)
+            thread.finished.connect(lambda: _release_lingering(thread))
+            # The thread can finish in the window between the bounded wait
+            # and this connect — its earlier finished->deleteLater wiring
+            # still destroys the C++ object, so released-on-destroyed is
+            # the guaranteed drop path for that race.
+            thread.destroyed.connect(lambda *_args: _release_lingering(thread))
+            finished = thread.isFinished()
+        except RuntimeError:
+            # The C++ object died mid-detach. It cannot still be running
+            # (a running thread destroyed under itself aborts the process,
+            # which is what this path exists to prevent), so the pin is
+            # pointless — drop it instead of leaking a dead key.
+            _LINGERING_THREADS.pop(thread, None)
+            return
+        if finished:
             # Finished between the shutdown check and the reparent.
             _LINGERING_THREADS.pop(thread, None)
 
@@ -507,17 +568,40 @@ class NativeWorkerPool(QObject):
         """
         try:
             self.cancel_all()
-            for key in tuple(self._tasks):
-                self._detach(key)
         except RuntimeError:
             pass
+        for key in tuple(self._tasks):
+            try:
+                self._detach(key)
+            except RuntimeError:
+                # One stale record must never abort the whole detach loop
+                # — an undetached live thread is destroyed together with
+                # the pool, which is the abort this handler prevents.
+                continue
+
+    def _drop_dead_records(self) -> None:
+        """Release records whose QThread's C++ object is already gone.
+
+        A queued ``finished`` whose sender died before delivery arrives
+        here with ``sender() is None`` (verified on PySide6 6.11); the
+        stale record would otherwise sit in ``_tasks`` forever and crash
+        the next ``_detach``/``_stop_tracked``/``start`` that touches it.
+        """
+        for key, (thread, _worker) in tuple(self._tasks.items()):
+            if not isValid(thread):
+                self._release_task(key)
 
     @Slot()
     def _thread_finished(self) -> None:
         thread = self.sender()
         if not isinstance(thread, QThread):
+            self._drop_dead_records()
             return
-        key = thread.property("htdtWorkerKey")
+        try:
+            key = thread.property("htdtWorkerKey")
+        except RuntimeError:
+            self._drop_dead_records()
+            return
         if key is None:
             return
         record = self._tasks.get(str(key))
@@ -529,7 +613,10 @@ class NativeWorkerPool(QObject):
         callbacks = self._callbacks.pop(str(key), None)
         relay = self._relays.pop(str(key), None)
         if relay is not None:
-            relay._worker.completed.disconnect(relay.receive)
+            try:
+                relay._worker.completed.disconnect(relay.receive)
+            except RuntimeError:
+                pass
         on_finished = None if callbacks is None else callbacks[1]
         if on_finished is not None:
             try:
