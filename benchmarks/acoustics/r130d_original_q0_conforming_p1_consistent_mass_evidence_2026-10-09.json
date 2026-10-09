@@ -1,0 +1,799 @@
+{
+  "schema_version": "htdt.r130d.original-q0-conforming-roof-p1-consistent-mass-evidence-1",
+  "prospective_plan_sha256_lf": "6ac3009b416f4c48ac3e570392a202c992e525ac6ff7f5169dda47fdf2b674f9",
+  "preregistered_plan": {
+    "schema_version": "htdt.r130d.original-q0-conforming-roof-p1-consistent-mass-plan-1",
+    "date_jst": "2026-10-09",
+    "issue": 938,
+    "pr": 1055,
+    "objective": "Prospectively isolate physical Galerkin mass consistency, which remained approximate in the previously observed physical roof-conforming P1 mass-lumped FEM FAIL. Compare same true sloping-roof P1 triangles, same 8node original q0 source/receiver and native clocks with standard non-diagonal P1 FEM exact consistent mass, all generalized physical modes and original three gates across ALL PPW28/32/36/40/44.",
+    "preobserved_baseline": {
+      "prior_mass_lumped_FEM_evidence": "benchmarks/acoustics/r130d_original_q0_conforming_roof_p1_fem_multigrid_evidence_2026-10-09.json",
+      "known_lumped_PPW28_32_36_40_44_results_before_this_plan": true,
+      "prior_FEM_mesh_and_source_coupling_unchanged": true,
+      "prior_FEM_yz_nodes": [
+        1081,
+        1359,
+        1716,
+        2101,
+        2497
+      ],
+      "prior_3D_FEM_modes": [
+        37835,
+        53001,
+        75504,
+        102949,
+        132341
+      ],
+      "prior_FEM_mass_lumped_relative_complex_by_pair": [
+        0.15229048259476563,
+        0.1787136237508971,
+        0.40717874888166433,
+        0.5785506308265708
+      ],
+      "new_consistent_mass_outcomes_NOT_known_before_plan": true
+    },
+    "frozen": {
+      "upstream_PFFDTD_sha": "aa319f6c86517cb95aabfae8656277da62c3ead5",
+      "original_raw_source_evidence": "benchmarks/acoustics/r130d_original_point_quadratic_pffdtd_evidence_2026-10-09.json",
+      "ppw": [
+        28,
+        32,
+        36,
+        40,
+        44
+      ],
+      "physical_source_xyz": [
+        1.5,
+        2,
+        2
+      ],
+      "physical_receiver_xyz": [
+        2.5,
+        2,
+        2
+      ],
+      "original_eight_input_weights_and_indices": true,
+      "original_q0_sample_one_then_zero": true,
+      "original_native_individual_dt_nt_h": true,
+      "room_m3": 56,
+      "roof_z_y0": 4,
+      "roof_slope_per_y": 0.25,
+      "record_s": 0.25,
+      "frequency_hz": [
+        40,
+        80
+      ],
+      "c_m_s": 343.2,
+      "rho_kg_m3": 1.2
+    },
+    "new_operator": {
+      "geometry_mesh": "identical existing P1 exact true 56m3 sloped roof conforming triangles; all original native Cartesian interior nodes and native roof grid-line intersections retained, no add/delete/move mesh points",
+      "x_consistent_M": "true 1D P1 physical interval elemental dx/6 * [[2,1],[1,2]], add over all x segments, no lumping",
+      "yz_consistent_M": "true 2D P1 triangular elemental area/12 * [[2,1,1],[1,2,1],[1,1,2]], assemble all original true roof triangles, no lumping",
+      "same_x_K_yz_K": "retain true prior P1 c\u00b2\u222bgradNa dot gradNb exactly, Neumann natural, symmetric",
+      "true_3D_M_K": "M=MxConsistent kron MyzConsistent (genuine off-diagonal true physical mass), K=Kx kron MyzConsistent+MxConsistent kron Kyz (tensor-product Galerkin)",
+      "modal_basis": "all generalized K v = lambda M v, vT M v = 1, retain exact analytical rigid Neumann zero mode",
+      "source_and_receiver": "same original SHA-pinned 8node q0 weights at exact same Cartesian mesh vertices; original F=c\u00b2 original point basis forcing (weak), original receiver nodal weights, no mass fitting",
+      "time": "native same beta=1/4 average-acceleration Newmark, q0 8node modal A=dt\u00b2*c\u00b2*(vsrc)*(vrecv)/(1+dt\u00b2lambda/4); original full N native samples and forward/center/backward pressure",
+      "no_high_mode_filter_or_smoothing_taper_damping_source_reposition": true,
+      "all_3D_true_FE_modes_complete": true
+    },
+    "verification": {
+      "exact_consistent_x_mass_row_sums_equal_prior_lumped_x": true,
+      "exact_consistent_yz_mass_row_sums_equal_prior_lumped_yz": true,
+      "exact_total_true_3D_mass_volume_m3": 56,
+      "true_full_3D_offdiagonal_M_positive_definite": true,
+      "true_full_operator_neumann_constant_null": true,
+      "true_all_generalized_modes_M_orthonormal_and_residual": true,
+      "source_weight_identity_and_original_true_SHA": true,
+      "baseline_lumped_signed_from_preobserved_evidence_exact_relative_max": 2e-10,
+      "all_4_adjacent_original_complex_mag_phase": true,
+      "original_complex_gate": 0.2,
+      "original_magnitude_gate": 0.25,
+      "original_phase_deg_gate": 15,
+      "no_favorable_bin_or_pair_selection": true,
+      "save_all_complex_signed_per_grid_and_unfavorable_bins": true,
+      "independent_manufactured_variational_mass_energy_test": true
+    },
+    "limits": {
+      "max_true_3D_FEM_DOF": 180000,
+      "max_yz_vertices": 3000,
+      "max_ppw_cases": 5,
+      "new_upstream_PFFDTD_wave_runs": 0,
+      "new_github_actions_runs": 0,
+      "retain_scratch": true
+    },
+    "authority": {
+      "original_PFFDTD_q0": "SELF_CONVERGENCE_FAILED",
+      "independent_physics": "NOT_VALIDATED",
+      "product": "NO_GO",
+      "pr_draft": true,
+      "issue_open": true
+    }
+  },
+  "original_native_PFFDTD_q0": "SELF_CONVERGENCE_FAILED",
+  "external_physical_validation": "NOT_VALIDATED",
+  "product": "NO_GO",
+  "new_upstream_pffdtd_waves": 0,
+  "new_github_actions_runs": 0,
+  "actual_conforming_P1_consistent_mass_original_q0_cases": [
+    {
+      "ppw": 28,
+      "source_original_comm_sha256": "4404a9818a8f0c673c97e8ede8665367100aecb3d2f2f8481bc532bc45fd6b6c",
+      "geometry_original_voxel_sha256": "9d8b598fc1e2077840ba5a51e8f2db72c30ad4b6991ae88d3174bac72acf9fc8",
+      "native_Ts_s": 0.00020599032818587005,
+      "native_Nt": 1214,
+      "native_original_total_8node_q0_strength": 2.7140664335664337,
+      "physical_true_FEM_x_nodes": 35,
+      "physical_true_FEM_yz_nodes": 1081,
+      "physical_true_FEM_yz_triangles": 2024,
+      "all_true_nonfiltered_consistent_FEM_3D_modes": 37835,
+      "consistent_full_3D_mass_volume_m3": 56.0,
+      "consistent_true_3D_mass_nnz": 750767,
+      "consistent_true_3D_stiffness_nnz": 749777,
+      "strict_true_3D_FEM_eigenpair_residual": 1.9655455717015496e-11,
+      "strict_true_3D_Neumann_rigid_zero_residual": 5.7071045580570385e-16,
+      "all_true_M_consistent_P1_x_modes_check": {
+        "all_physical_consistent_mass_generalized_modes_retained": true,
+        "exact_rigid_neumann_constant_mode": true,
+        "first_unmodified_numeric_zero_eigenvalue": -1.8101538278430703e-07,
+        "strict_max_all_eigenpair_residual": 1.1641532182693481e-10,
+        "strict_max_M_orthogonality_residual": 1.0399103453351266e-12,
+        "first_nonzero_physical_frequency_hz": 42.91605237240026
+      },
+      "all_true_M_consistent_P1_yz_modes_check": {
+        "all_physical_consistent_mass_generalized_modes_retained": true,
+        "exact_rigid_neumann_constant_mode": true,
+        "first_unmodified_numeric_zero_eigenvalue": -1.469753376327808e-07,
+        "strict_max_all_eigenpair_residual": 1.0113789212448053e-09,
+        "strict_max_M_orthogonality_residual": 2.5084379018380787e-12,
+        "first_nonzero_physical_frequency_hz": 41.97375869879737
+      },
+      "original_source_tensor_8node_residual": 5.551115123125783e-17,
+      "original_receiver_tensor_8node_residual": 1.1102230246251565e-16,
+      "highest_native_omega_dt": 187.60257817302775,
+      "true_modal_count_above_nyquist": 8186,
+      "preobserved_full_lumped_P1_250ms_original_q0_signed_40_80": [
+        [
+          -33.022294830287336,
+          4.048215617839099
+        ],
+        [
+          19.793592187654525,
+          -199.57865285935762
+        ]
+      ],
+      "new_full_consistent_P1_250ms_original_q0_signed_40_80": [
+        [
+          9.058933769956468,
+          0.4783147742207645
+        ],
+        [
+          22.816068033988188,
+          -218.1132161829818
+        ]
+      ],
+      "consistent_vs_lumped_original_full_two_signed_bin_relative": 0.22734780185325631,
+      "all_original_eight_point_q0_causal_full_record_unchanged": true,
+      "all_added_mesh_roof_boundary_nodes_have_zero_original_q0_load": true,
+      "all_high_frequency_physical_modes_retained": true,
+      "seconds": 0.442167199915275
+    },
+    {
+      "ppw": 32,
+      "source_original_comm_sha256": "716199c1cb8f9d982cdafe7deaccdf630073a2b0d8cdec17fcaf3dff52f4b60b",
+      "geometry_original_voxel_sha256": "8f3ebd62703c40793d68fdf703e098bbecc568cc9beb227cfa126b8042954e3b",
+      "native_Ts_s": 0.0001802415371626363,
+      "native_Nt": 1388,
+      "native_original_total_8node_q0_strength": 3.10179020979021,
+      "physical_true_FEM_x_nodes": 39,
+      "physical_true_FEM_yz_nodes": 1359,
+      "physical_true_FEM_yz_triangles": 2564,
+      "all_true_nonfiltered_consistent_FEM_3D_modes": 53001,
+      "consistent_full_3D_mass_volume_m3": 56.0,
+      "consistent_true_3D_mass_nnz": 1058345,
+      "consistent_true_3D_stiffness_nnz": 1057837,
+      "strict_true_3D_FEM_eigenpair_residual": 1.3859043025911863e-12,
+      "strict_true_3D_Neumann_rigid_zero_residual": 3.939493776775045e-16,
+      "all_true_M_consistent_P1_x_modes_check": {
+        "all_physical_consistent_mass_generalized_modes_retained": true,
+        "exact_rigid_neumann_constant_mode": true,
+        "first_unmodified_numeric_zero_eigenvalue": -2.497093408468965e-08,
+        "strict_max_all_eigenpair_residual": 5.206251464550825e-10,
+        "strict_max_M_orthogonality_residual": 5.2301912800700734e-14,
+        "first_nonzero_physical_frequency_hz": 42.91223052920925
+      },
+      "all_true_M_consistent_P1_yz_modes_check": {
+        "all_physical_consistent_mass_generalized_modes_retained": true,
+        "exact_rigid_neumann_constant_mode": true,
+        "first_unmodified_numeric_zero_eigenvalue": 2.7541654556863062e-08,
+        "strict_max_all_eigenpair_residual": 3.189089059420581e-10,
+        "strict_max_M_orthogonality_residual": 2.7698676685616874e-13,
+        "first_nonzero_physical_frequency_hz": 41.970394313361304
+      },
+      "original_source_tensor_8node_residual": 1.3877787807814457e-17,
+      "original_receiver_tensor_8node_residual": 3.469446951953614e-18,
+      "highest_native_omega_dt": 7.581614222806086,
+      "true_modal_count_above_nyquist": 8668,
+      "preobserved_full_lumped_P1_250ms_original_q0_signed_40_80": [
+        [
+          -9.062879521889938,
+          -2.379963812080111
+        ],
+        [
+          33.15925776982416,
+          -217.86353023118758
+        ]
+      ],
+      "new_full_consistent_P1_250ms_original_q0_signed_40_80": [
+        [
+          20.605554226786843,
+          -3.022130276470674
+        ],
+        [
+          36.853968557560314,
+          -225.87732594223448
+        ]
+      ],
+      "consistent_vs_lumped_original_full_two_signed_bin_relative": 0.14036098069915826,
+      "all_original_eight_point_q0_causal_full_record_unchanged": true,
+      "all_added_mesh_roof_boundary_nodes_have_zero_original_q0_load": true,
+      "all_high_frequency_physical_modes_retained": true,
+      "seconds": 0.6403125000651926
+    },
+    {
+      "ppw": 36,
+      "source_original_comm_sha256": "3cd05bcee5f8fed08da3dc94ff2ac90b92969b293daf2db77b4bac8d0c51a2f9",
+      "geometry_original_voxel_sha256": "433c1d334419006b1185a4ef275545d329244d0808b2a3c12a3200e7af4e3d50",
+      "native_Ts_s": 0.00016021469970012116,
+      "native_Nt": 1561,
+      "native_original_total_8node_q0_strength": 3.4895139860139857,
+      "physical_true_FEM_x_nodes": 44,
+      "physical_true_FEM_yz_nodes": 1716,
+      "physical_true_FEM_yz_triangles": 3258,
+      "all_true_nonfiltered_consistent_FEM_3D_modes": 75504,
+      "consistent_full_3D_mass_volume_m3": 55.99999999999999,
+      "consistent_true_3D_mass_nnz": 1516060,
+      "consistent_true_3D_stiffness_nnz": 1515684,
+      "strict_true_3D_FEM_eigenpair_residual": 2.2651647890688966e-12,
+      "strict_true_3D_Neumann_rigid_zero_residual": 3.336673053933023e-16,
+      "all_true_M_consistent_P1_x_modes_check": {
+        "all_physical_consistent_mass_generalized_modes_retained": true,
+        "exact_rigid_neumann_constant_mode": true,
+        "first_unmodified_numeric_zero_eigenvalue": 2.0792276956545427e-08,
+        "strict_max_all_eigenpair_residual": 1.1641532182693481e-10,
+        "strict_max_M_orthogonality_residual": 9.742727458128542e-14,
+        "first_nonzero_physical_frequency_hz": 42.90966952926961
+      },
+      "all_true_M_consistent_P1_yz_modes_check": {
+        "all_physical_consistent_mass_generalized_modes_retained": true,
+        "exact_rigid_neumann_constant_mode": true,
+        "first_unmodified_numeric_zero_eigenvalue": 5.01657806413764e-08,
+        "strict_max_all_eigenpair_residual": 4.788504719869758e-10,
+        "strict_max_M_orthogonality_residual": 7.697453785482367e-13,
+        "first_nonzero_physical_frequency_hz": 41.96826682342911
+      },
+      "original_source_tensor_8node_residual": 2.7755575615628914e-17,
+      "original_receiver_tensor_8node_residual": 2.7755575615628914e-17,
+      "highest_native_omega_dt": 13.78244208464153,
+      "true_modal_count_above_nyquist": 14058,
+      "preobserved_full_lumped_P1_250ms_original_q0_signed_40_80": [
+        [
+          21.458813344884767,
+          1.3448925869063597
+        ],
+        [
+          56.96095620203995,
+          -211.70697350881557
+        ]
+      ],
+      "new_full_consistent_P1_250ms_original_q0_signed_40_80": [
+        [
+          18.009478812337267,
+          -2.699816899486668
+        ],
+        [
+          34.65475641315191,
+          -224.63494938481028
+        ]
+      ],
+      "consistent_vs_lumped_original_full_two_signed_bin_relative": 0.11949858025323289,
+      "all_original_eight_point_q0_causal_full_record_unchanged": true,
+      "all_added_mesh_roof_boundary_nodes_have_zero_original_q0_load": true,
+      "all_high_frequency_physical_modes_retained": true,
+      "seconds": 1.2742554999422282
+    },
+    {
+      "ppw": 40,
+      "source_original_comm_sha256": "64a4f45cf19b92bb7a8a1ffd24af05e10877c99000e29bf985637b18e287763a",
+      "geometry_original_voxel_sha256": "c7c1894826c4774393987855e533081f615b22d510ec6042aacda12acbe0daaf",
+      "native_Ts_s": 0.00014419322973010905,
+      "native_Nt": 1734,
+      "native_original_total_8node_q0_strength": 3.877237762237762,
+      "physical_true_FEM_x_nodes": 49,
+      "physical_true_FEM_yz_nodes": 2101,
+      "physical_true_FEM_yz_triangles": 4008,
+      "all_true_nonfiltered_consistent_FEM_3D_modes": 102949,
+      "consistent_full_3D_mass_volume_m3": 56.0,
+      "consistent_true_3D_mass_nnz": 2075965,
+      "consistent_true_3D_stiffness_nnz": 2073913,
+      "strict_true_3D_FEM_eigenpair_residual": 5.277543816026607e-12,
+      "strict_true_3D_Neumann_rigid_zero_residual": 5.338174461369165e-16,
+      "all_true_M_consistent_P1_x_modes_check": {
+        "all_physical_consistent_mass_generalized_modes_retained": true,
+        "exact_rigid_neumann_constant_mode": true,
+        "first_unmodified_numeric_zero_eigenvalue": -8.101874616275488e-08,
+        "strict_max_all_eigenpair_residual": 1.0347220135521596e-09,
+        "strict_max_M_orthogonality_residual": 5.378598753872796e-13,
+        "first_nonzero_physical_frequency_hz": 42.90794565328166
+      },
+      "all_true_M_consistent_P1_yz_modes_check": {
+        "all_physical_consistent_mass_generalized_modes_retained": true,
+        "exact_rigid_neumann_constant_mode": true,
+        "first_unmodified_numeric_zero_eigenvalue": 1.308957754484198e-07,
+        "strict_max_all_eigenpair_residual": 6.064910966138782e-10,
+        "strict_max_M_orthogonality_residual": 1.480274236520529e-12,
+        "first_nonzero_physical_frequency_hz": 41.96678971165382
+      },
+      "original_source_tensor_8node_residual": 1.1102230246251565e-16,
+      "original_receiver_tensor_8node_residual": 5.551115123125783e-17,
+      "highest_native_omega_dt": 18.36913813990298,
+      "true_modal_count_above_nyquist": 18239,
+      "preobserved_full_lumped_P1_250ms_original_q0_signed_40_80": [
+        [
+          -41.21040727015223,
+          -4.417475963649409
+        ],
+        [
+          -10.741003202231372,
+          -225.4960614489927
+        ]
+      ],
+      "new_full_consistent_P1_250ms_original_q0_signed_40_80": [
+        [
+          85.82346861763827,
+          0.722877819482652
+        ],
+        [
+          103.32183860961177,
+          -218.3686340045767
+        ]
+      ],
+      "consistent_vs_lumped_original_full_two_signed_bin_relative": 0.7448155797009797,
+      "all_original_eight_point_q0_causal_full_record_unchanged": true,
+      "all_added_mesh_roof_boundary_nodes_have_zero_original_q0_load": true,
+      "all_high_frequency_physical_modes_retained": true,
+      "seconds": 2.1157798999920487
+    },
+    {
+      "ppw": 44,
+      "source_original_comm_sha256": "41c537b663ef11aa7404a248862f89398dec80fd3b6c794f4ecce4a0a8577ee4",
+      "geometry_original_voxel_sha256": "4a7cb6c30c013adc31d5b1910d50cef003cacbdd37a271ac3efa7a39956e505b",
+      "native_Ts_s": 0.00013108475430009911,
+      "native_Nt": 1908,
+      "native_original_total_8node_q0_strength": 4.264961538461538,
+      "physical_true_FEM_x_nodes": 53,
+      "physical_true_FEM_yz_nodes": 2497,
+      "physical_true_FEM_yz_triangles": 4784,
+      "all_true_nonfiltered_consistent_FEM_3D_modes": 132341,
+      "consistent_full_3D_mass_volume_m3": 56.0,
+      "consistent_true_3D_mass_nnz": 2677949,
+      "consistent_true_3D_stiffness_nnz": 2676913,
+      "strict_true_3D_FEM_eigenpair_residual": 2.9849059876650465e-12,
+      "strict_true_3D_Neumann_rigid_zero_residual": 3.884758851215652e-16,
+      "all_true_M_consistent_P1_x_modes_check": {
+        "all_physical_consistent_mass_generalized_modes_retained": true,
+        "exact_rigid_neumann_constant_mode": true,
+        "first_unmodified_numeric_zero_eigenvalue": -2.037756108476756e-09,
+        "strict_max_all_eigenpair_residual": 6.68755109251713e-10,
+        "strict_max_M_orthogonality_residual": 8.334323909500601e-14,
+        "first_nonzero_physical_frequency_hz": 42.90653103875185
+      },
+      "all_true_M_consistent_P1_yz_modes_check": {
+        "all_physical_consistent_mass_generalized_modes_retained": true,
+        "exact_rigid_neumann_constant_mode": true,
+        "first_unmodified_numeric_zero_eigenvalue": -2.056029366736907e-08,
+        "strict_max_all_eigenpair_residual": 6.178445262154066e-10,
+        "strict_max_M_orthogonality_residual": 5.452374662873183e-13,
+        "first_nonzero_physical_frequency_hz": 41.96557918342547
+      },
+      "original_source_tensor_8node_residual": 6.938893903907228e-18,
+      "original_receiver_tensor_8node_residual": 1.734723475976807e-18,
+      "highest_native_omega_dt": 11.058519649234583,
+      "true_modal_count_above_nyquist": 19220,
+      "preobserved_full_lumped_P1_250ms_original_q0_signed_40_80": [
+        [
+          -162.18036405010835,
+          1.1771886025728926
+        ],
+        [
+          -135.52775794088305,
+          -214.52756597686255
+        ]
+      ],
+      "new_full_consistent_P1_250ms_original_q0_signed_40_80": [
+        [
+          7.269687038565877,
+          -0.9321965432842703
+        ],
+        [
+          24.685744238620366,
+          -221.72511316015408
+        ]
+      ],
+      "consistent_vs_lumped_original_full_two_signed_bin_relative": 0.7747512187181587,
+      "all_original_eight_point_q0_causal_full_record_unchanged": true,
+      "all_added_mesh_roof_boundary_nodes_have_zero_original_q0_load": true,
+      "all_high_frequency_physical_modes_retained": true,
+      "seconds": 3.5692447000183165
+    }
+  ],
+  "full_frozen_40_80_adjacent": [
+    {
+      "coarse_ppw": 28,
+      "fine_ppw": 32,
+      "arms": {
+        "preobserved_P1_lumped_mass": {
+          "true_original_two_bin_signed_coarse_minus_fine": [
+            [
+              -23.959415308397396,
+              6.42817942991921
+            ],
+            [
+              -13.365665582169633,
+              18.284877371829964
+            ]
+          ],
+          "full_frozen_original_complex_mag_phase": {
+            "complex_rms_relative": 0.15229048259476563,
+            "magnitude_max_relative": 2.550577998399916,
+            "magnitude_max_db": 11.005981151708273,
+            "phase_max_deg": 21.70300860392973,
+            "mask_floor": 0.6968791443330848,
+            "compared_frequency_count": 2,
+            "frequency_metrics": [
+              {
+                "frequency_hz": 40.0,
+                "masked_in": true,
+                "magnitude_absolute": 23.899339527794197,
+                "magnitude_relative": 2.550577998399916,
+                "magnitude_db": 11.005981151708273,
+                "phase_deg": 21.70300860392973,
+                "complex_relative": 2.6474188696848273
+              },
+              {
+                "frequency_hz": 80.0,
+                "masked_in": true,
+                "magnitude_absolute": 19.814750383245155,
+                "magnitude_relative": 0.08991479080452972,
+                "magnitude_db": 0.8183588755350947,
+                "phase_deg": 2.9902166165784365,
+                "complex_relative": 0.10277602094888329
+              }
+            ]
+          },
+          "original_three_gates_all_pass": false
+        },
+        "new_P1_true_consistent_mass": {
+          "true_original_two_bin_signed_coarse_minus_fine": [
+            [
+              -11.546620456830375,
+              3.5004450506914386
+            ],
+            [
+              -14.037900523572127,
+              7.764109759252676
+            ]
+          ],
+          "full_frozen_original_complex_mag_phase": {
+            "complex_rms_relative": 0.08734577514010763,
+            "magnitude_max_relative": 0.5644120795073351,
+            "magnitude_max_db": 7.218483447752235,
+            "phase_max_deg": 11.36627341504709,
+            "mask_floor": 0.7237318659093026,
+            "compared_frequency_count": 2,
+            "frequency_metrics": [
+              {
+                "frequency_hz": 40.0,
+                "masked_in": true,
+                "magnitude_absolute": 11.754444076161247,
+                "magnitude_relative": 0.5644120795073351,
+                "magnitude_db": 7.218483447752235,
+                "phase_deg": 11.36627341504709,
+                "complex_relative": 0.579350549363658
+              },
+              {
+                "frequency_hz": 80.0,
+                "masked_in": true,
+                "magnitude_absolute": 9.560786885474442,
+                "magnitude_relative": 0.04177495037278825,
+                "magnitude_db": 0.37064960270975567,
+                "phase_deg": 3.294887206939933,
+                "complex_relative": 0.07009376237510696
+              }
+            ]
+          },
+          "original_three_gates_all_pass": false
+        }
+      }
+    },
+    {
+      "coarse_ppw": 32,
+      "fine_ppw": 36,
+      "arms": {
+        "preobserved_P1_lumped_mass": {
+          "true_original_two_bin_signed_coarse_minus_fine": [
+            [
+              -30.521692866774707,
+              -3.724856398986471
+            ],
+            [
+              -23.801698432215794,
+              -6.156556722372017
+            ]
+          ],
+          "full_frozen_original_complex_mag_phase": {
+            "complex_rms_relative": 0.1787136237508971,
+            "magnitude_max_relative": 0.564196895792678,
+            "magnitude_max_db": 7.21419361234555,
+            "phase_max_deg": 168.87225005527876,
+            "mask_floor": 0.6932848849045612,
+            "compared_frequency_count": 2,
+            "frequency_metrics": [
+              {
+                "frequency_hz": 40.0,
+                "masked_in": true,
+                "magnitude_absolute": 12.130750292216781,
+                "magnitude_relative": 0.564196895792678,
+                "magnitude_db": 7.21419361234555,
+                "phase_deg": 168.87225005527876,
+                "complex_relative": 1.4300852253245295
+              },
+              {
+                "frequency_hz": 80.0,
+                "masked_in": true,
+                "magnitude_absolute": 1.1366046295669605,
+                "magnitude_relative": 0.005184390294357041,
+                "magnitude_db": 0.04491471457347346,
+                "phase_deg": 6.405019233142895,
+                "complex_relative": 0.11213963354424224
+              }
+            ]
+          },
+          "original_three_gates_all_pass": false
+        },
+        "new_P1_true_consistent_mass": {
+          "true_original_two_bin_signed_coarse_minus_fine": [
+            [
+              2.596075414449576,
+              -0.3223133769840061
+            ],
+            [
+              2.1992121444084063,
+              -1.242376557424194
+            ]
+          ],
+          "full_frozen_original_complex_mag_phase": {
+            "complex_rms_relative": 0.01594774802765642,
+            "magnitude_max_relative": 0.1436119034761875,
+            "magnitude_max_db": 1.1655733427277557,
+            "phase_max_deg": 0.4967169981047732,
+            "mask_floor": 0.7187615225314385,
+            "compared_frequency_count": 2,
+            "frequency_metrics": [
+              {
+                "frequency_hz": 40.0,
+                "masked_in": true,
+                "magnitude_absolute": 2.6152762238488414,
+                "magnitude_relative": 0.1436119034761875,
+                "magnitude_db": 1.1655733427277557,
+                "phase_deg": 0.1819284955044509,
+                "complex_relative": 0.14365204125853046
+              },
+              {
+                "frequency_hz": 80.0,
+                "masked_in": true,
+                "magnitude_absolute": 1.5717605827185537,
+                "magnitude_relative": 0.006915149492642345,
+                "magnitude_db": 0.05985750124660127,
+                "phase_deg": 0.4967169981047732,
+                "complex_relative": 0.01111288094955073
+              }
+            ]
+          },
+          "original_three_gates_all_pass": true
+        }
+      }
+    },
+    {
+      "coarse_ppw": 36,
+      "fine_ppw": 40,
+      "arms": {
+        "preobserved_P1_lumped_mass": {
+          "true_original_two_bin_signed_coarse_minus_fine": [
+            [
+              62.669220615037,
+              5.7623685505557685
+            ],
+            [
+              67.70195940427132,
+              13.789087940177126
+            ]
+          ],
+          "full_frozen_original_complex_mag_phase": {
+            "complex_rms_relative": 0.40717874888166433,
+            "magnitude_max_relative": 0.4812367711193505,
+            "magnitude_max_db": 5.700616305583014,
+            "phase_max_deg": 177.46786353025948,
+            "mask_floor": 0.7138896474862081,
+            "compared_frequency_count": 2,
+            "frequency_metrics": [
+              {
+                "frequency_hz": 40.0,
+                "masked_in": true,
+                "magnitude_absolute": 19.945576345147,
+                "magnitude_relative": 0.4812367711193505,
+                "magnitude_db": 5.700616305583014,
+                "phase_deg": 177.46786353025948,
+                "complex_relative": 1.5184296833913122
+              },
+              {
+                "frequency_hz": 80.0,
+                "masked_in": true,
+                "magnitude_absolute": 6.515798040501579,
+                "magnitude_relative": 0.028862671778756992,
+                "magnitude_db": 0.25438704609125046,
+                "phase_deg": 17.786227739986288,
+                "complex_relative": 0.3060527004427904
+              }
+            ]
+          },
+          "original_three_gates_all_pass": false
+        },
+        "new_P1_true_consistent_mass": {
+          "true_original_two_bin_signed_coarse_minus_fine": [
+            [
+              -67.813989805301,
+              -3.42269471896932
+            ],
+            [
+              -68.66708219645986,
+              -6.2663153802335785
+            ]
+          ],
+          "full_frozen_original_complex_mag_phase": {
+            "complex_rms_relative": 0.3774688964998303,
+            "magnitude_max_relative": 0.7878194067587417,
+            "magnitude_max_db": 13.46588681337401,
+            "phase_max_deg": 16.551361897698683,
+            "mask_floor": 0.7639388892489728,
+            "compared_frequency_count": 2,
+            "frequency_metrics": [
+              {
+                "frequency_hz": 40.0,
+                "masked_in": true,
+                "magnitude_absolute": 67.61579248315721,
+                "magnitude_relative": 0.7878194067587417,
+                "magnitude_db": 13.46588681337401,
+                "phase_deg": 9.008354051250791,
+                "complex_relative": 0.7911344334456912
+              },
+              {
+                "frequency_hz": 80.0,
+                "masked_in": true,
+                "magnitude_absolute": 14.286337751609295,
+                "magnitude_relative": 0.05913740922647375,
+                "magnitude_db": 0.5294759783482484,
+                "phase_deg": 16.551361897698683,
+                "complex_relative": 0.28542422668463574
+              }
+            ]
+          },
+          "original_three_gates_all_pass": false
+        }
+      }
+    },
+    {
+      "coarse_ppw": 40,
+      "fine_ppw": 44,
+      "arms": {
+        "preobserved_P1_lumped_mass": {
+          "true_original_two_bin_signed_coarse_minus_fine": [
+            [
+              120.96995677995612,
+              -5.594664566222301
+            ],
+            [
+              124.78675473865168,
+              -10.968495472130144
+            ]
+          ],
+          "full_frozen_original_complex_mag_phase": {
+            "complex_rms_relative": 0.5785506308265708,
+            "magnitude_max_relative": 0.7444487117171759,
+            "magnitude_max_db": 11.850438506836875,
+            "phase_max_deg": 29.55554791378421,
+            "mask_floor": 0.8024328615930414,
+            "compared_frequency_count": 2,
+            "frequency_metrics": [
+              {
+                "frequency_hz": 40.0,
+                "masked_in": true,
+                "magnitude_absolute": 120.73814356456808,
+                "magnitude_relative": 0.7444487117171759,
+                "magnitude_db": 11.850438506836875,
+                "phase_deg": 6.534230954073877,
+                "complex_relative": 0.7466752863535844
+              },
+              {
+                "frequency_hz": 80.0,
+                "masked_in": true,
+                "magnitude_absolute": 27.999822792954518,
+                "magnitude_relative": 0.110343454692336,
+                "magnitude_db": 1.0155524348746756,
+                "phase_deg": 29.55554791378421,
+                "complex_relative": 0.49366350893544075
+              }
+            ]
+          },
+          "original_three_gates_all_pass": false
+        },
+        "new_P1_true_consistent_mass": {
+          "true_original_two_bin_signed_coarse_minus_fine": [
+            [
+              78.55378157907239,
+              1.6550743627669222
+            ],
+            [
+              78.6360943709914,
+              3.356479155577375
+            ]
+          ],
+          "full_frozen_original_complex_mag_phase": {
+            "complex_rms_relative": 0.4982317979175555,
+            "magnitude_max_relative": 10.710197454201781,
+            "magnitude_max_db": 21.37128436181837,
+            "phase_max_deg": 18.96846869803622,
+            "mask_floor": 0.7054885667003947,
+            "compared_frequency_count": 2,
+            "frequency_metrics": [
+              {
+                "frequency_hz": 40.0,
+                "masked_in": true,
+                "magnitude_absolute": 78.49730148809752,
+                "magnitude_relative": 10.710197454201781,
+                "magnitude_db": 21.37128436181837,
+                "phase_deg": 7.789779091583654,
+                "complex_relative": 10.720282276929627
+              },
+              {
+                "frequency_hz": 80.0,
+                "masked_in": true,
+                "magnitude_absolute": 18.483614922500465,
+                "magnitude_relative": 0.08285084310005644,
+                "magnitude_db": 0.691372780155699,
+                "phase_deg": 18.96846869803622,
+                "complex_relative": 0.35279889440301504
+              }
+            ]
+          },
+          "original_three_gates_all_pass": false
+        }
+      }
+    }
+  ],
+  "all_five_original_q0_consistent_mass_comparison_verdicts": {
+    "preobserved_P1_lumped_mass": {
+      "all_four_pairs_original_three_gate_pass": false,
+      "strict_three_metric_monotonicity": false,
+      "cannot_requalify_original_upstream_PFFDTD": true
+    },
+    "new_P1_true_consistent_mass": {
+      "all_four_pairs_original_three_gate_pass": false,
+      "strict_three_metric_monotonicity": false,
+      "cannot_requalify_original_upstream_PFFDTD": true
+    }
+  },
+  "preobserved_original_point_q0_lumped_FEM_baseline_frozen": true
+}
