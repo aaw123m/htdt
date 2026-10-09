@@ -60,7 +60,8 @@ def native_original_wave_weak_transfer(
     original_velocity_potential_8byNt:np.ndarray,
     original_receiver_8_coefficients:np.ndarray,
     *,dt_s:float,width_s:float,
-    density_kg_m3:float=RHO,
+    density_kg_m3:float=RHO,center_s:float=TAU,
+    radius_s:float=HALF_SUPPORT_S,
 )->dict:
     """Actual ORIGINAL 8node raw u_out full 250ms, untouched spatial weights."""
     from .acoustic_pffdtd_adapter import (
@@ -77,7 +78,7 @@ def native_original_wave_weak_transfer(
     phi=rw@u
     p=pffdtd_velocity_potential_to_pressure_trace(
         phi,time_step_s=dt_s,density_kg_m3=density_kg_m3)
-    witness=compact_odd_witness(t,width_s)
+    witness=compact_odd_witness(t,width_s,center_s=center_s,radius_s=radius_s)
     if np.count_nonzero(witness)<8:
         raise ValueError("native unchanged q0 insufficient samples in fixed causal witness")
     # ratio [dt * sum(p_n w_n)] / [dt * sum(q_n)] for q0[0]=1.
@@ -87,7 +88,7 @@ def native_original_wave_weak_transfer(
     pre=t<=.0015
     premax=float(max(abs(p[pre]),default=0.))
     peak=float(np.max(abs(p)))
-    early=(t>=TAU-HALF_SUPPORT_S)&(t<=TAU+HALF_SUPPORT_S)
+    early=(t>=center_s-radius_s)&(t<=center_s+radius_s)
     earliest_idx=int(np.flatnonzero(early)[np.argmax(abs(p[early]))])
     return {
         "original_full_native_u_P_250ms_nonmodified":True,
@@ -100,9 +101,9 @@ def native_original_wave_weak_transfer(
         "negative_control_before_1p5ms_over_all_250ms_abs_peak":premax/max(peak,1e-300),
         "original_q0_native_weak_pressure_over_unit_input":value,
         "physical_witness_nonzero_samples":int(np.count_nonzero(witness)),
-        "physical_witness_center_s":TAU,
+        "physical_witness_center_s":center_s,
         "physical_witness_sigma_s":width_s,
-        "physical_witness_support_end_s":TAU+HALF_SUPPORT_S}
+        "physical_witness_support_end_s":center_s+radius_s}
 
 
 def original_native_64node_analytic_weak_reference(

@@ -1,0 +1,1421 @@
+{
+  "schema_version": "htdt.r130d.original-q0-first-roof-echo-weak-evidence-1",
+  "precommitted_plan_SHA256_lf": "7ed6cc3eff45d5ca9c7c07f306429f36f622f18256cb9cafbe4eb4ad3bc1d080",
+  "preregistered_plan": {
+    "schema_version": "htdt.r130d.original-q0-first-roof-echo-causal-weak-plan-1",
+    "created_jst": "2026-10-09",
+    "issue": 938,
+    "pr": 1055,
+    "hypothesis": "First true sloping-roof Neumann image arrival in original unmodified PFFDTD q0 wave shows larger or nonmonotonic grid sensitivity than independently validated pre-echo direct arrival, potentially localizing broadband late-room nonconvergence near staircase sloped-boundary reflection; diagnostic only, never replace original full 250ms signed 40/80Hz three gates.",
+    "previously_observed": {
+      "corrected_direct_causal_evidence": "benchmarks/acoustics/r130d_original_q0_causal_prefirst_green_normalization_evidence_2026-10-09.json",
+      "direct_causal_previously_observed_before_this_plan": true,
+      "previous_wrong_c_squared_analytic_experiment_invalid": true,
+      "preexisting_exact_roof_first_image_reference": "benchmarks/acoustics/r130d_original_q0_continuum_retarded_green_evidence_2026-10-09.json"
+    },
+    "unchanged_original": {
+      "original_PFFDTD_pin": "aa319f6c86517cb95aabfae8656277da62c3ead5",
+      "ppw": [
+        28,
+        32,
+        36,
+        40,
+        44
+      ],
+      "source_xyz": [
+        1.5,
+        2,
+        2
+      ],
+      "receiver_xyz": [
+        2.5,
+        2,
+        2
+      ],
+      "original_eight_source_and_eight_receiver_SHA_HDF5_indices_weights_unchanged": true,
+      "q0_first_native_sample_one_and_all_later_zero": true,
+      "original_native_h_dt_Nt_and_comms": true,
+      "c": 343.2,
+      "rho": 1.2,
+      "original_full_record_s": 0.25,
+      "original_signed_bins_hz": [
+        40,
+        80
+      ],
+      "full_original_complex_gate": 0.2,
+      "full_original_magnitude_gate": 0.25,
+      "full_original_phase_deg_gate": 15,
+      "unchanged_full_original_upstream_PFFDTD_self_convergence_failed": true
+    },
+    "diagnostic": {
+      "roof_face_plane": "z=4\u22120.25y true physical Neumann finite planar wall, mirrored source and finite-foot specular hit required for each original 8x8 pair",
+      "true_physical_source_receiver_earliest_roof_echo_s": 0.0089668767033651,
+      "unmodified_physical_point_direct_s": 0.002913752913752914,
+      "nonroof_earliest_point_first_wall_reflection_s": 0.011655011655011656,
+      "physical_support_center_s": 0.0089668767033651,
+      "physical_support_radius_s": 0.0011,
+      "expected_support_upper_s": 0.0100668767033651,
+      "new_widths_s": [
+        0.00035,
+        0.0006,
+        0.00085
+      ],
+      "same_compact_Cinfty_odd_witness": "w=(t-roof_tau)/sigma*exp(-0.5*((t-roof_tau)/sigma)**2)*exp(1-1/(1-((t-roof_tau)/R)**2)) for |t-roof_tau|<R else 0; derivative exact",
+      "true_neumann_roof_reflection_sign": "+1",
+      "causal_analytic_8node_roof": "-rho * sum_i_j sw_i rw_j w'(distance(image_roof(src_i),rec_j)/c)/(4\u03c0 distance), but only valid specular feet within the original TRUE finite roof face",
+      "normalize_original_q0_no_fit": "native q_n=[1,0,..], normalized W = sum_n p_n w(n*dt), since original dt factors cancel, continuum fundamental for ((1/c\u00b2)\u2202t\u00b2\u2212\u0394) has NO extra c\u00b2",
+      "original_raw_pressure": "same native 8 u_out channels, same original out_alpha, same pressure forward/center/backward native derivative, exact all original 250ms raw p unmodified",
+      "physical_interpretation_limitation": "native waveform near roof echo may retain a numerical dispersive tail of direct arrival and edge/multibounce contributions; do not assert full waveform decomposes exactly into one image",
+      "check_all_other_nonroof_finite_specular_64pair_reflections_arrive_strictly_after_upper_support": true,
+      "full_unmodified_250ms_original_signed_40_80_replay_2e_minus6": true,
+      "negative_control_earlier_before_1p5ms_optional": true,
+      "retain_all_true_high_frequency_native_modes_and_unfavorable_results": true
+    },
+    "comparison": {
+      "report_5grid_per_width_native_vs_analytic_roof_signed_ratios_and_errors": true,
+      "report_5grid_8node_direct_test_as_existing_observed_control_not_recomputed_fit": true,
+      "all_four_grid_pairs_original_full250ms_complex_magnitude_phase_frozen": true,
+      "report_nonroof_earliest_finitewall_64pair_s": true,
+      "report_original_eightnode_source_receiver_geometric_shas": true,
+      "no_new_numerical_method_qualified_or_product_release": true
+    },
+    "limits": {
+      "max_ppw_cases": 5,
+      "max_roof_weak_widths": 3,
+      "new_native_upstream_PFFDTD_wave_runs": 0,
+      "new_GitHub_Actions_runs": 0,
+      "preserve_scratch": true
+    },
+    "authority": {
+      "original_UPSTREAM_PFFDTD_q0": "SELF_CONVERGENCE_FAILED",
+      "independent_BRAS_MFEM_room": "NOT_VALIDATED",
+      "product": "NO_GO",
+      "pr_draft": true,
+      "issue_open": true
+    }
+  },
+  "native_real_wave_and_previous_direct_weak_SHA_protected": true,
+  "original_canonical_fullroom": "SELF_CONVERGENCE_FAILED",
+  "independent_physical": "NOT_VALIDATED",
+  "product": "NO_GO",
+  "new_upstream_original_PFFDTD_waves": 0,
+  "new_GitHub_Actions_runs": 0,
+  "genuine_single_echo_continuum_only_not_exact_native_direct_tail_decomposition": true,
+  "actual_original_q0_five_grid_real_first_roof_echo_weak_cases": [
+    {
+      "ppw": 28,
+      "original_true_native_comms_HDF5_SHA256": "4404a9818a8f0c673c97e8ede8665367100aecb3d2f2f8481bc532bc45fd6b6c",
+      "original_true_native_voxel_HDF5_SHA256": "9d8b598fc1e2077840ba5a51e8f2db72c30ad4b6991ae88d3174bac72acf9fc8",
+      "original_true_native_entire_real_q0_HDF5_SHA256": "6e8a94d695fe77e992d8bd66bbb9b63ed9eaf27abd86f5be94f7554d2ba97d6b",
+      "original_native_Ts_s": 0.00020599032818587005,
+      "original_native_Nt": 1214,
+      "original_true_source_pulse_l2_over_h": 2.7140664335664337,
+      "original_full_record_250ms_signed_40_80_replayed": [
+        [
+          101.09876930666194,
+          42.79568096674776
+        ],
+        [
+          150.77953891006572,
+          -21.729992606786688
+        ]
+      ],
+      "original_full_record_relative_to_frozen": 1.591093726964842e-15,
+      "old_observed_causal_DIRECT_weak_green_control_3_widths": [
+        {
+          "physical_weak_test_width_s": 0.00065,
+          "native_unmodified_original_weak_result": {
+            "original_full_native_u_P_250ms_nonmodified": true,
+            "original_velocity_trace_Nt": 1214,
+            "native_receiver_point_p_peak_signed_pa": 171.831494887513,
+            "native_receiver_point_p_peak_abs_pa": 171.831494887513,
+            "native_original_direct_window_peak_signed_pa": -72.16247818359543,
+            "native_original_direct_window_peak_time_s": 0.003707825907345661,
+            "negative_control_native_abs_p_before_1p5ms_pa": 0.13404372904225179,
+            "negative_control_before_1p5ms_over_all_250ms_abs_peak": 0.0007800882436016841,
+            "original_q0_native_weak_pressure_over_unit_input": -112.07968598820682,
+            "physical_witness_nonzero_samples": 30,
+            "physical_witness_center_s": 0.002913752913752914,
+            "physical_witness_sigma_s": 0.00065,
+            "physical_witness_support_end_s": 0.006113752913752914
+          },
+          "analytic_all_original_64pair_continuum_direct": {
+            "original_64_native_pairs_continuum_causal_green_weak_distribution": -128.75465721520007,
+            "true_physical_source_to_receiver_point_continuum_weak_distribution": -146.91225516174956,
+            "analytic_original_8node_over_true_point_weak_relative": 0.12359484868405334,
+            "earliest_real_original_64node_single_wall_reflection_s": 0.008689176935985083,
+            "earliest_real_original_64node_single_wall_reflection_name": "true_sloping_roof",
+            "analytic_all_64_original_pair_wave_derivative_witness_nontruncated": true,
+            "historical_old_analytic_expected_with_extra_c_squared_INVALID": -15165526.955867287,
+            "pre_observed_analytic_c_squared_units_error_corrected": true,
+            "analytic_absolute_source_scale_fixed_by_PDE_not_fitted": true
+          },
+          "actual_native_over_assumed_continuum_source_model_signed_ratio": 0.8704903450667205,
+          "actual_native_vs_assumed_continuum_weak_relative": 0.12950965493327948,
+          "conditional_source_normalization_not_fitted_or_verified": true
+        },
+        {
+          "physical_weak_test_width_s": 0.001,
+          "native_unmodified_original_weak_result": {
+            "original_full_native_u_P_250ms_nonmodified": true,
+            "original_velocity_trace_Nt": 1214,
+            "native_receiver_point_p_peak_signed_pa": 171.831494887513,
+            "native_receiver_point_p_peak_abs_pa": 171.831494887513,
+            "native_original_direct_window_peak_signed_pa": -72.16247818359543,
+            "native_original_direct_window_peak_time_s": 0.003707825907345661,
+            "negative_control_native_abs_p_before_1p5ms_pa": 0.13404372904225179,
+            "negative_control_before_1p5ms_over_all_250ms_abs_peak": 0.0007800882436016841,
+            "original_q0_native_weak_pressure_over_unit_input": -86.88883159088917,
+            "physical_witness_nonzero_samples": 30,
+            "physical_witness_center_s": 0.002913752913752914,
+            "physical_witness_sigma_s": 0.001,
+            "physical_witness_support_end_s": 0.006113752913752914
+          },
+          "analytic_all_original_64pair_continuum_direct": {
+            "original_64_native_pairs_continuum_causal_green_weak_distribution": -89.5910220798026,
+            "true_physical_source_to_receiver_point_continuum_weak_distribution": -95.49296585513719,
+            "analytic_original_8node_over_true_point_weak_relative": 0.06180501068830393,
+            "earliest_real_original_64node_single_wall_reflection_s": 0.008689176935985083,
+            "earliest_real_original_64node_single_wall_reflection_name": "true_sloping_roof",
+            "analytic_all_64_original_pair_wave_derivative_witness_nontruncated": true,
+            "historical_old_analytic_expected_with_extra_c_squared_INVALID": -10552589.628536927,
+            "pre_observed_analytic_c_squared_units_error_corrected": true,
+            "analytic_absolute_source_scale_fixed_by_PDE_not_fitted": true
+          },
+          "actual_native_over_assumed_continuum_source_model_signed_ratio": 0.9698386018355001,
+          "actual_native_vs_assumed_continuum_weak_relative": 0.03016139816449992,
+          "conditional_source_normalization_not_fitted_or_verified": true
+        },
+        {
+          "physical_weak_test_width_s": 0.0015,
+          "native_unmodified_original_weak_result": {
+            "original_full_native_u_P_250ms_nonmodified": true,
+            "original_velocity_trace_Nt": 1214,
+            "native_receiver_point_p_peak_signed_pa": 171.831494887513,
+            "native_receiver_point_p_peak_abs_pa": 171.831494887513,
+            "native_original_direct_window_peak_signed_pa": -72.16247818359543,
+            "native_original_direct_window_peak_time_s": 0.003707825907345661,
+            "negative_control_native_abs_p_before_1p5ms_pa": 0.13404372904225179,
+            "negative_control_before_1p5ms_over_all_250ms_abs_peak": 0.0007800882436016841,
+            "original_q0_native_weak_pressure_over_unit_input": -61.62266943280093,
+            "physical_witness_nonzero_samples": 30,
+            "physical_witness_center_s": 0.002913752913752914,
+            "physical_witness_sigma_s": 0.0015,
+            "physical_witness_support_end_s": 0.006113752913752914
+          },
+          "analytic_all_original_64pair_continuum_direct": {
+            "original_64_native_pairs_continuum_causal_green_weak_distribution": -61.486069856438476,
+            "true_physical_source_to_receiver_point_continuum_weak_distribution": -63.66197723675813,
+            "analytic_original_8node_over_true_point_weak_relative": 0.03417907320452016,
+            "earliest_real_original_64node_single_wall_reflection_s": 0.008689176935985083,
+            "earliest_real_original_64node_single_wall_reflection_name": "true_sloping_roof",
+            "analytic_all_64_original_pair_wave_derivative_witness_nontruncated": true,
+            "historical_old_analytic_expected_with_extra_c_squared_INVALID": -7242212.980767228,
+            "pre_observed_analytic_c_squared_units_error_corrected": true,
+            "analytic_absolute_source_scale_fixed_by_PDE_not_fitted": true
+          },
+          "actual_native_over_assumed_continuum_source_model_signed_ratio": 1.0022216345374066,
+          "actual_native_vs_assumed_continuum_weak_relative": 0.002221634537406647,
+          "conditional_source_normalization_not_fitted_or_verified": true
+        }
+      ],
+      "new_original_q0_roof_echo_fixed_weak_width_cases": [
+        {
+          "physical_original_roof_echo_weak_width_s": 0.00035,
+          "original_entire_wave_native_roof_window_weak": {
+            "original_full_native_u_P_250ms_nonmodified": true,
+            "original_velocity_trace_Nt": 1214,
+            "native_receiver_point_p_peak_signed_pa": 171.831494887513,
+            "native_receiver_point_p_peak_abs_pa": 171.831494887513,
+            "native_original_direct_window_peak_signed_pa": 23.93838742049726,
+            "native_original_direct_window_peak_time_s": 0.008651593783806543,
+            "negative_control_native_abs_p_before_1p5ms_pa": 0.13404372904225179,
+            "negative_control_before_1p5ms_over_all_250ms_abs_peak": 0.0007800882436016841,
+            "original_q0_native_weak_pressure_over_unit_input": -20.834296795301235,
+            "physical_witness_nonzero_samples": 10,
+            "physical_witness_center_s": 0.0089668767033651,
+            "physical_witness_sigma_s": 0.00035,
+            "physical_witness_support_end_s": 0.0100668767033651
+          },
+          "continuum_true_physical_neumann_roof_64_original_nodes_analytic": {
+            "original_64pair_finite_roof_single_bounce_signed_weak_analytic": -54.673452339804584,
+            "true_physical_point_roof_single_bounce_signed_weak_analytic": -88.65737335558683,
+            "all_64_native_direct_wave_analytic_contribution_within_roof_window": -0.0,
+            "physical_reflection_sign": 1,
+            "true_finite_roof_valid_original_native_64_pair_count": 64,
+            "earliest_actual_original_8node_roof_single_echo_s": 0.008689176935985083,
+            "latest_actual_original_8node_roof_single_echo_s": 0.009733978343982734,
+            "earliest_actual_original_nonroof_single_bounce_s": 0.011071428571428572,
+            "earliest_actual_original_nonroof_single_bounce_wall": "x0",
+            "roof_echo_only_analytic_causality_NOT_native_pulse_decomposition": true,
+            "pre_registered_physical_witness_center_s": 0.0089668767033651,
+            "pre_registered_physical_witness_sigma_s": 0.00035,
+            "pre_registered_physical_witness_upper_support_s": 0.0100668767033651,
+            "original_source_receiver_8node_weights_unmodified": true
+          },
+          "native_total_roof_window_vs_single_roof_analytic_signed_ratio": 0.3810678840218946,
+          "native_total_roof_window_vs_single_roof_analytic_relative": 0.6189321159781054,
+          "native_window_direct_numeric_dispersive_tail_may_be_present": true,
+          "not_original_full_record_acceptance": true
+        },
+        {
+          "physical_original_roof_echo_weak_width_s": 0.0006,
+          "original_entire_wave_native_roof_window_weak": {
+            "original_full_native_u_P_250ms_nonmodified": true,
+            "original_velocity_trace_Nt": 1214,
+            "native_receiver_point_p_peak_signed_pa": 171.831494887513,
+            "native_receiver_point_p_peak_abs_pa": 171.831494887513,
+            "native_original_direct_window_peak_signed_pa": 23.93838742049726,
+            "native_original_direct_window_peak_time_s": 0.008651593783806543,
+            "negative_control_native_abs_p_before_1p5ms_pa": 0.13404372904225179,
+            "negative_control_before_1p5ms_over_all_250ms_abs_peak": 0.0007800882436016841,
+            "original_q0_native_weak_pressure_over_unit_input": -12.257985346613564,
+            "physical_witness_nonzero_samples": 10,
+            "physical_witness_center_s": 0.0089668767033651,
+            "physical_witness_sigma_s": 0.0006,
+            "physical_witness_support_end_s": 0.0100668767033651
+          },
+          "continuum_true_physical_neumann_roof_64_original_nodes_analytic": {
+            "original_64pair_finite_roof_single_bounce_signed_weak_analytic": -40.6070836036602,
+            "true_physical_point_roof_single_bounce_signed_weak_analytic": -51.71680112409231,
+            "all_64_native_direct_wave_analytic_contribution_within_roof_window": -0.0,
+            "physical_reflection_sign": 1,
+            "true_finite_roof_valid_original_native_64_pair_count": 64,
+            "earliest_actual_original_8node_roof_single_echo_s": 0.008689176935985083,
+            "latest_actual_original_8node_roof_single_echo_s": 0.009733978343982734,
+            "earliest_actual_original_nonroof_single_bounce_s": 0.011071428571428572,
+            "earliest_actual_original_nonroof_single_bounce_wall": "x0",
+            "roof_echo_only_analytic_causality_NOT_native_pulse_decomposition": true,
+            "pre_registered_physical_witness_center_s": 0.0089668767033651,
+            "pre_registered_physical_witness_sigma_s": 0.0006,
+            "pre_registered_physical_witness_upper_support_s": 0.0100668767033651,
+            "original_source_receiver_8node_weights_unmodified": true
+          },
+          "native_total_roof_window_vs_single_roof_analytic_signed_ratio": 0.3018681535038548,
+          "native_total_roof_window_vs_single_roof_analytic_relative": 0.6981318464961452,
+          "native_window_direct_numeric_dispersive_tail_may_be_present": true,
+          "not_original_full_record_acceptance": true
+        },
+        {
+          "physical_original_roof_echo_weak_width_s": 0.00085,
+          "original_entire_wave_native_roof_window_weak": {
+            "original_full_native_u_P_250ms_nonmodified": true,
+            "original_velocity_trace_Nt": 1214,
+            "native_receiver_point_p_peak_signed_pa": 171.831494887513,
+            "native_receiver_point_p_peak_abs_pa": 171.831494887513,
+            "native_original_direct_window_peak_signed_pa": 23.93838742049726,
+            "native_original_direct_window_peak_time_s": 0.008651593783806543,
+            "negative_control_native_abs_p_before_1p5ms_pa": 0.13404372904225179,
+            "negative_control_before_1p5ms_over_all_250ms_abs_peak": 0.0007800882436016841,
+            "original_q0_native_weak_pressure_over_unit_input": -8.117242685432922,
+            "physical_witness_nonzero_samples": 10,
+            "physical_witness_center_s": 0.0089668767033651,
+            "physical_witness_sigma_s": 0.00085,
+            "physical_witness_support_end_s": 0.0100668767033651
+          },
+          "continuum_true_physical_neumann_roof_64_original_nodes_analytic": {
+            "original_64pair_finite_roof_single_bounce_signed_weak_analytic": -30.629754487265473,
+            "true_physical_point_roof_single_bounce_signed_weak_analytic": -36.50597726406516,
+            "all_64_native_direct_wave_analytic_contribution_within_roof_window": -0.0,
+            "physical_reflection_sign": 1,
+            "true_finite_roof_valid_original_native_64_pair_count": 64,
+            "earliest_actual_original_8node_roof_single_echo_s": 0.008689176935985083,
+            "latest_actual_original_8node_roof_single_echo_s": 0.009733978343982734,
+            "earliest_actual_original_nonroof_single_bounce_s": 0.011071428571428572,
+            "earliest_actual_original_nonroof_single_bounce_wall": "x0",
+            "roof_echo_only_analytic_causality_NOT_native_pulse_decomposition": true,
+            "pre_registered_physical_witness_center_s": 0.0089668767033651,
+            "pre_registered_physical_witness_sigma_s": 0.00085,
+            "pre_registered_physical_witness_upper_support_s": 0.0100668767033651,
+            "original_source_receiver_8node_weights_unmodified": true
+          },
+          "native_total_roof_window_vs_single_roof_analytic_signed_ratio": 0.2650116796988275,
+          "native_total_roof_window_vs_single_roof_analytic_relative": 0.7349883203011724,
+          "native_window_direct_numeric_dispersive_tail_may_be_present": true,
+          "not_original_full_record_acceptance": true
+        }
+      ],
+      "full_250ms_native_wave_never_filtered_or_windowed_for_authority": true
+    },
+    {
+      "ppw": 32,
+      "original_true_native_comms_HDF5_SHA256": "716199c1cb8f9d982cdafe7deaccdf630073a2b0d8cdec17fcaf3dff52f4b60b",
+      "original_true_native_voxel_HDF5_SHA256": "8f3ebd62703c40793d68fdf703e098bbecc568cc9beb227cfa126b8042954e3b",
+      "original_true_native_entire_real_q0_HDF5_SHA256": "773601d4be74cef568739d8957082c9561912ccfd4fa860c415585409a1d84b7",
+      "original_native_Ts_s": 0.0001802415371626363,
+      "original_native_Nt": 1388,
+      "original_true_source_pulse_l2_over_h": 3.10179020979021,
+      "original_full_record_250ms_signed_40_80_replayed": [
+        [
+          16.566281665940135,
+          -21.002334508771654
+        ],
+        [
+          -21.520688403756928,
+          -230.65774208886285
+        ]
+      ],
+      "original_full_record_relative_to_frozen": 1.0850914818395571e-15,
+      "old_observed_causal_DIRECT_weak_green_control_3_widths": [
+        {
+          "physical_weak_test_width_s": 0.00065,
+          "native_unmodified_original_weak_result": {
+            "original_full_native_u_P_250ms_nonmodified": true,
+            "original_velocity_trace_Nt": 1388,
+            "native_receiver_point_p_peak_signed_pa": -322.5780592959287,
+            "native_receiver_point_p_peak_abs_pa": 322.5780592959287,
+            "native_original_direct_window_peak_signed_pa": -62.20227915977642,
+            "native_original_direct_window_peak_time_s": 0.0034245892060900895,
+            "negative_control_native_abs_p_before_1p5ms_pa": 0.07996231577307923,
+            "negative_control_before_1p5ms_over_all_250ms_abs_peak": 0.00024788516598930524,
+            "original_q0_native_weak_pressure_over_unit_input": -115.22767073775829,
+            "physical_witness_nonzero_samples": 34,
+            "physical_witness_center_s": 0.002913752913752914,
+            "physical_witness_sigma_s": 0.00065,
+            "physical_witness_support_end_s": 0.006113752913752914
+          },
+          "analytic_all_original_64pair_continuum_direct": {
+            "original_64_native_pairs_continuum_causal_green_weak_distribution": -126.40118558037024,
+            "true_physical_source_to_receiver_point_continuum_weak_distribution": -146.91225516174956,
+            "analytic_original_8node_over_true_point_weak_relative": 0.13961442194728232,
+            "earliest_real_original_64node_single_wall_reflection_s": 0.008223737271334509,
+            "earliest_real_original_64node_single_wall_reflection_name": "true_sloping_roof",
+            "analytic_all_64_original_pair_wave_derivative_witness_nontruncated": true,
+            "historical_old_analytic_expected_with_extra_c_squared_INVALID": -14888320.381054027,
+            "pre_observed_analytic_c_squared_units_error_corrected": true,
+            "analytic_absolute_source_scale_fixed_by_PDE_not_fitted": true
+          },
+          "actual_native_over_assumed_continuum_source_model_signed_ratio": 0.9116027686662207,
+          "actual_native_vs_assumed_continuum_weak_relative": 0.0883972313337793,
+          "conditional_source_normalization_not_fitted_or_verified": true
+        },
+        {
+          "physical_weak_test_width_s": 0.001,
+          "native_unmodified_original_weak_result": {
+            "original_full_native_u_P_250ms_nonmodified": true,
+            "original_velocity_trace_Nt": 1388,
+            "native_receiver_point_p_peak_signed_pa": -322.5780592959287,
+            "native_receiver_point_p_peak_abs_pa": 322.5780592959287,
+            "native_original_direct_window_peak_signed_pa": -62.20227915977642,
+            "native_original_direct_window_peak_time_s": 0.0034245892060900895,
+            "negative_control_native_abs_p_before_1p5ms_pa": 0.07996231577307923,
+            "negative_control_before_1p5ms_over_all_250ms_abs_peak": 0.00024788516598930524,
+            "original_q0_native_weak_pressure_over_unit_input": -87.06128445188844,
+            "physical_witness_nonzero_samples": 34,
+            "physical_witness_center_s": 0.002913752913752914,
+            "physical_witness_sigma_s": 0.001,
+            "physical_witness_support_end_s": 0.006113752913752914
+          },
+          "analytic_all_original_64pair_continuum_direct": {
+            "original_64_native_pairs_continuum_causal_green_weak_distribution": -89.02845360226725,
+            "true_physical_source_to_receiver_point_continuum_weak_distribution": -95.49296585513719,
+            "analytic_original_8node_over_true_point_weak_relative": 0.06769621400885802,
+            "earliest_real_original_64node_single_wall_reflection_s": 0.008223737271334509,
+            "earliest_real_original_64node_single_wall_reflection_name": "true_sloping_roof",
+            "analytic_all_64_original_pair_wave_derivative_witness_nontruncated": true,
+            "historical_old_analytic_expected_with_extra_c_squared_INVALID": -10486326.802825514,
+            "pre_observed_analytic_c_squared_units_error_corrected": true,
+            "analytic_absolute_source_scale_fixed_by_PDE_not_fitted": true
+          },
+          "actual_native_over_assumed_continuum_source_model_signed_ratio": 0.9779040399918986,
+          "actual_native_vs_assumed_continuum_weak_relative": 0.022095960008101434,
+          "conditional_source_normalization_not_fitted_or_verified": true
+        },
+        {
+          "physical_weak_test_width_s": 0.0015,
+          "native_unmodified_original_weak_result": {
+            "original_full_native_u_P_250ms_nonmodified": true,
+            "original_velocity_trace_Nt": 1388,
+            "native_receiver_point_p_peak_signed_pa": -322.5780592959287,
+            "native_receiver_point_p_peak_abs_pa": 322.5780592959287,
+            "native_original_direct_window_peak_signed_pa": -62.20227915977642,
+            "native_original_direct_window_peak_time_s": 0.0034245892060900895,
+            "negative_control_native_abs_p_before_1p5ms_pa": 0.07996231577307923,
+            "negative_control_before_1p5ms_over_all_250ms_abs_peak": 0.00024788516598930524,
+            "original_q0_native_weak_pressure_over_unit_input": -60.54787663019127,
+            "physical_witness_nonzero_samples": 34,
+            "physical_witness_center_s": 0.002913752913752914,
+            "physical_witness_sigma_s": 0.0015,
+            "physical_witness_support_end_s": 0.006113752913752914
+          },
+          "analytic_all_original_64pair_continuum_direct": {
+            "original_64_native_pairs_continuum_causal_green_weak_distribution": -61.35432167669366,
+            "true_physical_source_to_receiver_point_continuum_weak_distribution": -63.66197723675813,
+            "analytic_original_8node_over_true_point_weak_relative": 0.03624856877257101,
+            "earliest_real_original_64node_single_wall_reflection_s": 0.008223737271334509,
+            "earliest_real_original_64node_single_wall_reflection_name": "true_sloping_roof",
+            "analytic_all_64_original_pair_wave_derivative_witness_nontruncated": true,
+            "historical_old_analytic_expected_with_extra_c_squared_INVALID": -7226694.858048241,
+            "pre_observed_analytic_c_squared_units_error_corrected": true,
+            "analytic_absolute_source_scale_fixed_by_PDE_not_fitted": true
+          },
+          "actual_native_over_assumed_continuum_source_model_signed_ratio": 0.9868559373738667,
+          "actual_native_vs_assumed_continuum_weak_relative": 0.013144062626133324,
+          "conditional_source_normalization_not_fitted_or_verified": true
+        }
+      ],
+      "new_original_q0_roof_echo_fixed_weak_width_cases": [
+        {
+          "physical_original_roof_echo_weak_width_s": 0.00035,
+          "original_entire_wave_native_roof_window_weak": {
+            "original_full_native_u_P_250ms_nonmodified": true,
+            "original_velocity_trace_Nt": 1388,
+            "native_receiver_point_p_peak_signed_pa": -322.5780592959287,
+            "native_receiver_point_p_peak_abs_pa": 322.5780592959287,
+            "native_original_direct_window_peak_signed_pa": -33.768239078126975,
+            "native_original_direct_window_peak_time_s": 0.009913284543944996,
+            "negative_control_native_abs_p_before_1p5ms_pa": 0.07996231577307923,
+            "negative_control_before_1p5ms_over_all_250ms_abs_peak": 0.00024788516598930524,
+            "original_q0_native_weak_pressure_over_unit_input": -18.39963581679601,
+            "physical_witness_nonzero_samples": 12,
+            "physical_witness_center_s": 0.0089668767033651,
+            "physical_witness_sigma_s": 0.00035,
+            "physical_witness_support_end_s": 0.0100668767033651
+          },
+          "continuum_true_physical_neumann_roof_64_original_nodes_analytic": {
+            "original_64pair_finite_roof_single_bounce_signed_weak_analytic": -63.00402022588567,
+            "true_physical_point_roof_single_bounce_signed_weak_analytic": -88.65737335558683,
+            "all_64_native_direct_wave_analytic_contribution_within_roof_window": -0.0,
+            "physical_reflection_sign": 1,
+            "true_finite_roof_valid_original_native_64_pair_count": 64,
+            "earliest_actual_original_8node_roof_single_echo_s": 0.008223737271334509,
+            "latest_actual_original_8node_roof_single_echo_s": 0.009143078345636177,
+            "earliest_actual_original_nonroof_single_bounce_s": 0.01125,
+            "earliest_actual_original_nonroof_single_bounce_wall": "x0",
+            "roof_echo_only_analytic_causality_NOT_native_pulse_decomposition": true,
+            "pre_registered_physical_witness_center_s": 0.0089668767033651,
+            "pre_registered_physical_witness_sigma_s": 0.00035,
+            "pre_registered_physical_witness_upper_support_s": 0.0100668767033651,
+            "original_source_receiver_8node_weights_unmodified": true
+          },
+          "native_total_roof_window_vs_single_roof_analytic_signed_ratio": 0.29203907545627356,
+          "native_total_roof_window_vs_single_roof_analytic_relative": 0.7079609245437264,
+          "native_window_direct_numeric_dispersive_tail_may_be_present": true,
+          "not_original_full_record_acceptance": true
+        },
+        {
+          "physical_original_roof_echo_weak_width_s": 0.0006,
+          "original_entire_wave_native_roof_window_weak": {
+            "original_full_native_u_P_250ms_nonmodified": true,
+            "original_velocity_trace_Nt": 1388,
+            "native_receiver_point_p_peak_signed_pa": -322.5780592959287,
+            "native_receiver_point_p_peak_abs_pa": 322.5780592959287,
+            "native_original_direct_window_peak_signed_pa": -33.768239078126975,
+            "native_original_direct_window_peak_time_s": 0.009913284543944996,
+            "negative_control_native_abs_p_before_1p5ms_pa": 0.07996231577307923,
+            "negative_control_before_1p5ms_over_all_250ms_abs_peak": 0.00024788516598930524,
+            "original_q0_native_weak_pressure_over_unit_input": -16.9435286427235,
+            "physical_witness_nonzero_samples": 12,
+            "physical_witness_center_s": 0.0089668767033651,
+            "physical_witness_sigma_s": 0.0006,
+            "physical_witness_support_end_s": 0.0100668767033651
+          },
+          "continuum_true_physical_neumann_roof_64_original_nodes_analytic": {
+            "original_64pair_finite_roof_single_bounce_signed_weak_analytic": -43.65219013430588,
+            "true_physical_point_roof_single_bounce_signed_weak_analytic": -51.71680112409231,
+            "all_64_native_direct_wave_analytic_contribution_within_roof_window": -0.0,
+            "physical_reflection_sign": 1,
+            "true_finite_roof_valid_original_native_64_pair_count": 64,
+            "earliest_actual_original_8node_roof_single_echo_s": 0.008223737271334509,
+            "latest_actual_original_8node_roof_single_echo_s": 0.009143078345636177,
+            "earliest_actual_original_nonroof_single_bounce_s": 0.01125,
+            "earliest_actual_original_nonroof_single_bounce_wall": "x0",
+            "roof_echo_only_analytic_causality_NOT_native_pulse_decomposition": true,
+            "pre_registered_physical_witness_center_s": 0.0089668767033651,
+            "pre_registered_physical_witness_sigma_s": 0.0006,
+            "pre_registered_physical_witness_upper_support_s": 0.0100668767033651,
+            "original_source_receiver_8node_weights_unmodified": true
+          },
+          "native_total_roof_window_vs_single_roof_analytic_signed_ratio": 0.3881484202875705,
+          "native_total_roof_window_vs_single_roof_analytic_relative": 0.6118515797124295,
+          "native_window_direct_numeric_dispersive_tail_may_be_present": true,
+          "not_original_full_record_acceptance": true
+        },
+        {
+          "physical_original_roof_echo_weak_width_s": 0.00085,
+          "original_entire_wave_native_roof_window_weak": {
+            "original_full_native_u_P_250ms_nonmodified": true,
+            "original_velocity_trace_Nt": 1388,
+            "native_receiver_point_p_peak_signed_pa": -322.5780592959287,
+            "native_receiver_point_p_peak_abs_pa": 322.5780592959287,
+            "native_original_direct_window_peak_signed_pa": -33.768239078126975,
+            "native_original_direct_window_peak_time_s": 0.009913284543944996,
+            "negative_control_native_abs_p_before_1p5ms_pa": 0.07996231577307923,
+            "negative_control_before_1p5ms_over_all_250ms_abs_peak": 0.00024788516598930524,
+            "original_q0_native_weak_pressure_over_unit_input": -13.698109637030555,
+            "physical_witness_nonzero_samples": 12,
+            "physical_witness_center_s": 0.0089668767033651,
+            "physical_witness_sigma_s": 0.00085,
+            "physical_witness_support_end_s": 0.0100668767033651
+          },
+          "continuum_true_physical_neumann_roof_64_original_nodes_analytic": {
+            "original_64pair_finite_roof_single_bounce_signed_weak_analytic": -32.32177873819361,
+            "true_physical_point_roof_single_bounce_signed_weak_analytic": -36.50597726406516,
+            "all_64_native_direct_wave_analytic_contribution_within_roof_window": -0.0,
+            "physical_reflection_sign": 1,
+            "true_finite_roof_valid_original_native_64_pair_count": 64,
+            "earliest_actual_original_8node_roof_single_echo_s": 0.008223737271334509,
+            "latest_actual_original_8node_roof_single_echo_s": 0.009143078345636177,
+            "earliest_actual_original_nonroof_single_bounce_s": 0.01125,
+            "earliest_actual_original_nonroof_single_bounce_wall": "x0",
+            "roof_echo_only_analytic_causality_NOT_native_pulse_decomposition": true,
+            "pre_registered_physical_witness_center_s": 0.0089668767033651,
+            "pre_registered_physical_witness_sigma_s": 0.00085,
+            "pre_registered_physical_witness_upper_support_s": 0.0100668767033651,
+            "original_source_receiver_8node_weights_unmodified": true
+          },
+          "native_total_roof_window_vs_single_roof_analytic_signed_ratio": 0.4238043254978396,
+          "native_total_roof_window_vs_single_roof_analytic_relative": 0.5761956745021604,
+          "native_window_direct_numeric_dispersive_tail_may_be_present": true,
+          "not_original_full_record_acceptance": true
+        }
+      ],
+      "full_250ms_native_wave_never_filtered_or_windowed_for_authority": true
+    },
+    {
+      "ppw": 36,
+      "original_true_native_comms_HDF5_SHA256": "3cd05bcee5f8fed08da3dc94ff2ac90b92969b293daf2db77b4bac8d0c51a2f9",
+      "original_true_native_voxel_HDF5_SHA256": "433c1d334419006b1185a4ef275545d329244d0808b2a3c12a3200e7af4e3d50",
+      "original_true_native_entire_real_q0_HDF5_SHA256": "8fad2511eee77d463b43a1aa5d6f7ae13047ed8bf5d27e0cb0b76ffb7b3bd486",
+      "original_native_Ts_s": 0.00016021469970012116,
+      "original_native_Nt": 1561,
+      "original_true_source_pulse_l2_over_h": 3.4895139860139857,
+      "original_full_record_250ms_signed_40_80_replayed": [
+        [
+          57.86557590696425,
+          12.21253055210823
+        ],
+        [
+          119.4368140007726,
+          -167.8458584505423
+        ]
+      ],
+      "original_full_record_relative_to_frozen": 1.0142767680232727e-15,
+      "old_observed_causal_DIRECT_weak_green_control_3_widths": [
+        {
+          "physical_weak_test_width_s": 0.00065,
+          "native_unmodified_original_weak_result": {
+            "original_full_native_u_P_250ms_nonmodified": true,
+            "original_velocity_trace_Nt": 1561,
+            "native_receiver_point_p_peak_signed_pa": 118.84111866679044,
+            "native_receiver_point_p_peak_abs_pa": 118.84111866679044,
+            "native_original_direct_window_peak_signed_pa": -59.52934460512491,
+            "native_original_direct_window_peak_time_s": 0.0035247233934026655,
+            "negative_control_native_abs_p_before_1p5ms_pa": 0.010586172155065809,
+            "negative_control_before_1p5ms_over_all_250ms_abs_peak": 8.90783617137396e-05,
+            "original_q0_native_weak_pressure_over_unit_input": -121.85005342018951,
+            "physical_witness_nonzero_samples": 39,
+            "physical_witness_center_s": 0.002913752913752914,
+            "physical_witness_sigma_s": 0.00065,
+            "physical_witness_support_end_s": 0.006113752913752914
+          },
+          "analytic_all_original_64pair_continuum_direct": {
+            "original_64_native_pairs_continuum_causal_green_weak_distribution": -130.8349482292531,
+            "true_physical_source_to_receiver_point_continuum_weak_distribution": -146.91225516174956,
+            "analytic_original_8node_over_true_point_weak_relative": 0.10943475692205136,
+            "earliest_real_original_64node_single_wall_reflection_s": 0.008505007789776281,
+            "earliest_real_original_64node_single_wall_reflection_name": "true_sloping_roof",
+            "analytic_all_64_original_pair_wave_derivative_witness_nontruncated": true,
+            "historical_old_analytic_expected_with_extra_c_squared_INVALID": -15410556.61251838,
+            "pre_observed_analytic_c_squared_units_error_corrected": true,
+            "analytic_absolute_source_scale_fixed_by_PDE_not_fitted": true
+          },
+          "actual_native_over_assumed_continuum_source_model_signed_ratio": 0.9313264924191359,
+          "actual_native_vs_assumed_continuum_weak_relative": 0.0686735075808641,
+          "conditional_source_normalization_not_fitted_or_verified": true
+        },
+        {
+          "physical_weak_test_width_s": 0.001,
+          "native_unmodified_original_weak_result": {
+            "original_full_native_u_P_250ms_nonmodified": true,
+            "original_velocity_trace_Nt": 1561,
+            "native_receiver_point_p_peak_signed_pa": 118.84111866679044,
+            "native_receiver_point_p_peak_abs_pa": 118.84111866679044,
+            "native_original_direct_window_peak_signed_pa": -59.52934460512491,
+            "native_original_direct_window_peak_time_s": 0.0035247233934026655,
+            "negative_control_native_abs_p_before_1p5ms_pa": 0.010586172155065809,
+            "negative_control_before_1p5ms_over_all_250ms_abs_peak": 8.90783617137396e-05,
+            "original_q0_native_weak_pressure_over_unit_input": -88.85543408821977,
+            "physical_witness_nonzero_samples": 39,
+            "physical_witness_center_s": 0.002913752913752914,
+            "physical_witness_sigma_s": 0.001,
+            "physical_witness_support_end_s": 0.006113752913752914
+          },
+          "analytic_all_original_64pair_continuum_direct": {
+            "original_64_native_pairs_continuum_causal_green_weak_distribution": -90.36482238543663,
+            "true_physical_source_to_receiver_point_continuum_weak_distribution": -95.49296585513719,
+            "analytic_original_8node_over_true_point_weak_relative": 0.053701792836552575,
+            "earliest_real_original_64node_single_wall_reflection_s": 0.008505007789776281,
+            "earliest_real_original_64node_single_wall_reflection_name": "true_sloping_roof",
+            "analytic_all_64_original_pair_wave_derivative_witness_nontruncated": true,
+            "historical_old_analytic_expected_with_extra_c_squared_INVALID": -10643732.65704841,
+            "pre_observed_analytic_c_squared_units_error_corrected": true,
+            "analytic_absolute_source_scale_fixed_by_PDE_not_fitted": true
+          },
+          "actual_native_over_assumed_continuum_source_model_signed_ratio": 0.9832967270075649,
+          "actual_native_vs_assumed_continuum_weak_relative": 0.016703272992435125,
+          "conditional_source_normalization_not_fitted_or_verified": true
+        },
+        {
+          "physical_weak_test_width_s": 0.0015,
+          "native_unmodified_original_weak_result": {
+            "original_full_native_u_P_250ms_nonmodified": true,
+            "original_velocity_trace_Nt": 1561,
+            "native_receiver_point_p_peak_signed_pa": 118.84111866679044,
+            "native_receiver_point_p_peak_abs_pa": 118.84111866679044,
+            "native_original_direct_window_peak_signed_pa": -59.52934460512491,
+            "native_original_direct_window_peak_time_s": 0.0035247233934026655,
+            "negative_control_native_abs_p_before_1p5ms_pa": 0.010586172155065809,
+            "negative_control_before_1p5ms_over_all_250ms_abs_peak": 8.90783617137396e-05,
+            "original_q0_native_weak_pressure_over_unit_input": -61.16207889189546,
+            "physical_witness_nonzero_samples": 39,
+            "physical_witness_center_s": 0.002913752913752914,
+            "physical_witness_sigma_s": 0.0015,
+            "physical_witness_support_end_s": 0.006113752913752914
+          },
+          "analytic_all_original_64pair_continuum_direct": {
+            "original_64_native_pairs_continuum_causal_green_weak_distribution": -61.770205510052364,
+            "true_physical_source_to_receiver_point_continuum_weak_distribution": -63.66197723675813,
+            "analytic_original_8node_over_true_point_weak_relative": 0.029715880794438557,
+            "earliest_real_original_64node_single_wall_reflection_s": 0.008505007789776281,
+            "earliest_real_original_64node_single_wall_reflection_name": "true_sloping_roof",
+            "analytic_all_64_original_pair_wave_derivative_witness_nontruncated": true,
+            "historical_old_analytic_expected_with_extra_c_squared_INVALID": -7275680.25105635,
+            "pre_observed_analytic_c_squared_units_error_corrected": true,
+            "analytic_absolute_source_scale_fixed_by_PDE_not_fitted": true
+          },
+          "actual_native_over_assumed_continuum_source_model_signed_ratio": 0.9901550170808815,
+          "actual_native_vs_assumed_continuum_weak_relative": 0.009844982919118506,
+          "conditional_source_normalization_not_fitted_or_verified": true
+        }
+      ],
+      "new_original_q0_roof_echo_fixed_weak_width_cases": [
+        {
+          "physical_original_roof_echo_weak_width_s": 0.00035,
+          "original_entire_wave_native_roof_window_weak": {
+            "original_full_native_u_P_250ms_nonmodified": true,
+            "original_velocity_trace_Nt": 1561,
+            "native_receiver_point_p_peak_signed_pa": 118.84111866679044,
+            "native_receiver_point_p_peak_abs_pa": 118.84111866679044,
+            "native_original_direct_window_peak_signed_pa": -14.594853087032714,
+            "native_original_direct_window_peak_time_s": 0.009933311381407512,
+            "negative_control_native_abs_p_before_1p5ms_pa": 0.010586172155065809,
+            "negative_control_before_1p5ms_over_all_250ms_abs_peak": 8.90783617137396e-05,
+            "original_q0_native_weak_pressure_over_unit_input": -18.376700854034915,
+            "physical_witness_nonzero_samples": 13,
+            "physical_witness_center_s": 0.0089668767033651,
+            "physical_witness_sigma_s": 0.00035,
+            "physical_witness_support_end_s": 0.0100668767033651
+          },
+          "continuum_true_physical_neumann_roof_64_original_nodes_analytic": {
+            "original_64pair_finite_roof_single_bounce_signed_weak_analytic": -52.69609946506689,
+            "true_physical_point_roof_single_bounce_signed_weak_analytic": -88.65737335558683,
+            "all_64_native_direct_wave_analytic_contribution_within_roof_window": -0.0,
+            "physical_reflection_sign": 1,
+            "true_finite_roof_valid_original_native_64_pair_count": 64,
+            "earliest_actual_original_8node_roof_single_echo_s": 0.008505007789776281,
+            "latest_actual_original_8node_roof_single_echo_s": 0.009318208794358912,
+            "earliest_actual_original_nonroof_single_bounce_s": 0.011365578865578865,
+            "earliest_actual_original_nonroof_single_bounce_wall": "x4",
+            "roof_echo_only_analytic_causality_NOT_native_pulse_decomposition": true,
+            "pre_registered_physical_witness_center_s": 0.0089668767033651,
+            "pre_registered_physical_witness_sigma_s": 0.00035,
+            "pre_registered_physical_witness_upper_support_s": 0.0100668767033651,
+            "original_source_receiver_8node_weights_unmodified": true
+          },
+          "native_total_roof_window_vs_single_roof_analytic_signed_ratio": 0.34872981189465707,
+          "native_total_roof_window_vs_single_roof_analytic_relative": 0.6512701881053429,
+          "native_window_direct_numeric_dispersive_tail_may_be_present": true,
+          "not_original_full_record_acceptance": true
+        },
+        {
+          "physical_original_roof_echo_weak_width_s": 0.0006,
+          "original_entire_wave_native_roof_window_weak": {
+            "original_full_native_u_P_250ms_nonmodified": true,
+            "original_velocity_trace_Nt": 1561,
+            "native_receiver_point_p_peak_signed_pa": 118.84111866679044,
+            "native_receiver_point_p_peak_abs_pa": 118.84111866679044,
+            "native_original_direct_window_peak_signed_pa": -14.594853087032714,
+            "native_original_direct_window_peak_time_s": 0.009933311381407512,
+            "negative_control_native_abs_p_before_1p5ms_pa": 0.010586172155065809,
+            "negative_control_before_1p5ms_over_all_250ms_abs_peak": 8.90783617137396e-05,
+            "original_q0_native_weak_pressure_over_unit_input": -18.06237876402087,
+            "physical_witness_nonzero_samples": 13,
+            "physical_witness_center_s": 0.0089668767033651,
+            "physical_witness_sigma_s": 0.0006,
+            "physical_witness_support_end_s": 0.0100668767033651
+          },
+          "continuum_true_physical_neumann_roof_64_original_nodes_analytic": {
+            "original_64pair_finite_roof_single_bounce_signed_weak_analytic": -40.19699182956294,
+            "true_physical_point_roof_single_bounce_signed_weak_analytic": -51.71680112409231,
+            "all_64_native_direct_wave_analytic_contribution_within_roof_window": -0.0,
+            "physical_reflection_sign": 1,
+            "true_finite_roof_valid_original_native_64_pair_count": 64,
+            "earliest_actual_original_8node_roof_single_echo_s": 0.008505007789776281,
+            "latest_actual_original_8node_roof_single_echo_s": 0.009318208794358912,
+            "earliest_actual_original_nonroof_single_bounce_s": 0.011365578865578865,
+            "earliest_actual_original_nonroof_single_bounce_wall": "x4",
+            "roof_echo_only_analytic_causality_NOT_native_pulse_decomposition": true,
+            "pre_registered_physical_witness_center_s": 0.0089668767033651,
+            "pre_registered_physical_witness_sigma_s": 0.0006,
+            "pre_registered_physical_witness_upper_support_s": 0.0100668767033651,
+            "original_source_receiver_8node_weights_unmodified": true
+          },
+          "native_total_roof_window_vs_single_roof_analytic_signed_ratio": 0.44934652922801216,
+          "native_total_roof_window_vs_single_roof_analytic_relative": 0.5506534707719879,
+          "native_window_direct_numeric_dispersive_tail_may_be_present": true,
+          "not_original_full_record_acceptance": true
+        },
+        {
+          "physical_original_roof_echo_weak_width_s": 0.00085,
+          "original_entire_wave_native_roof_window_weak": {
+            "original_full_native_u_P_250ms_nonmodified": true,
+            "original_velocity_trace_Nt": 1561,
+            "native_receiver_point_p_peak_signed_pa": 118.84111866679044,
+            "native_receiver_point_p_peak_abs_pa": 118.84111866679044,
+            "native_original_direct_window_peak_signed_pa": -14.594853087032714,
+            "native_original_direct_window_peak_time_s": 0.009933311381407512,
+            "negative_control_native_abs_p_before_1p5ms_pa": 0.010586172155065809,
+            "negative_control_before_1p5ms_over_all_250ms_abs_peak": 8.90783617137396e-05,
+            "original_q0_native_weak_pressure_over_unit_input": -15.362614323977589,
+            "physical_witness_nonzero_samples": 13,
+            "physical_witness_center_s": 0.0089668767033651,
+            "physical_witness_sigma_s": 0.00085,
+            "physical_witness_support_end_s": 0.0100668767033651
+          },
+          "continuum_true_physical_neumann_roof_64_original_nodes_analytic": {
+            "original_64pair_finite_roof_single_bounce_signed_weak_analytic": -30.543351374360743,
+            "true_physical_point_roof_single_bounce_signed_weak_analytic": -36.50597726406516,
+            "all_64_native_direct_wave_analytic_contribution_within_roof_window": -0.0,
+            "physical_reflection_sign": 1,
+            "true_finite_roof_valid_original_native_64_pair_count": 64,
+            "earliest_actual_original_8node_roof_single_echo_s": 0.008505007789776281,
+            "latest_actual_original_8node_roof_single_echo_s": 0.009318208794358912,
+            "earliest_actual_original_nonroof_single_bounce_s": 0.011365578865578865,
+            "earliest_actual_original_nonroof_single_bounce_wall": "x4",
+            "roof_echo_only_analytic_causality_NOT_native_pulse_decomposition": true,
+            "pre_registered_physical_witness_center_s": 0.0089668767033651,
+            "pre_registered_physical_witness_sigma_s": 0.00085,
+            "pre_registered_physical_witness_upper_support_s": 0.0100668767033651,
+            "original_source_receiver_8node_weights_unmodified": true
+          },
+          "native_total_roof_window_vs_single_roof_analytic_signed_ratio": 0.5029773627550759,
+          "native_total_roof_window_vs_single_roof_analytic_relative": 0.4970226372449241,
+          "native_window_direct_numeric_dispersive_tail_may_be_present": true,
+          "not_original_full_record_acceptance": true
+        }
+      ],
+      "full_250ms_native_wave_never_filtered_or_windowed_for_authority": true
+    },
+    {
+      "ppw": 40,
+      "original_true_native_comms_HDF5_SHA256": "64a4f45cf19b92bb7a8a1ffd24af05e10877c99000e29bf985637b18e287763a",
+      "original_true_native_voxel_HDF5_SHA256": "c7c1894826c4774393987855e533081f615b22d510ec6042aacda12acbe0daaf",
+      "original_true_native_entire_real_q0_HDF5_SHA256": "79763a63cedf667e98cbcf5867b848675d634a861e63fc3e1cf94ed9982596fa",
+      "original_native_Ts_s": 0.00014419322973010905,
+      "original_native_Nt": 1734,
+      "original_true_source_pulse_l2_over_h": 3.877237762237762,
+      "original_full_record_250ms_signed_40_80_replayed": [
+        [
+          23.0817605749197,
+          18.909536564347956
+        ],
+        [
+          109.07263342140816,
+          -119.86161783862613
+        ]
+      ],
+      "original_full_record_relative_to_frozen": 6.950130991884988e-15,
+      "old_observed_causal_DIRECT_weak_green_control_3_widths": [
+        {
+          "physical_weak_test_width_s": 0.00065,
+          "native_unmodified_original_weak_result": {
+            "original_full_native_u_P_250ms_nonmodified": true,
+            "original_velocity_trace_Nt": 1734,
+            "native_receiver_point_p_peak_signed_pa": -265.137672692204,
+            "native_receiver_point_p_peak_abs_pa": 265.137672692204,
+            "native_original_direct_window_peak_signed_pa": -79.27433379402915,
+            "native_original_direct_window_peak_time_s": 0.0054793427297441435,
+            "negative_control_native_abs_p_before_1p5ms_pa": 0.0,
+            "negative_control_before_1p5ms_over_all_250ms_abs_peak": 0.0,
+            "original_q0_native_weak_pressure_over_unit_input": -131.50275325251545,
+            "physical_witness_nonzero_samples": 43,
+            "physical_witness_center_s": 0.002913752913752914,
+            "physical_witness_sigma_s": 0.00065,
+            "physical_witness_support_end_s": 0.006113752913752914
+          },
+          "analytic_all_original_64pair_continuum_direct": {
+            "original_64_native_pairs_continuum_causal_green_weak_distribution": -138.20843862110266,
+            "true_physical_source_to_receiver_point_continuum_weak_distribution": -146.91225516174956,
+            "analytic_original_8node_over_true_point_weak_relative": 0.05924499988829418,
+            "earliest_real_original_64node_single_wall_reflection_s": 0.00880550974477419,
+            "earliest_real_original_64node_single_wall_reflection_name": "true_sloping_roof",
+            "analytic_all_64_original_pair_wave_derivative_witness_nontruncated": true,
+            "historical_old_analytic_expected_with_extra_c_squared_INVALID": -16279052.321450464,
+            "pre_observed_analytic_c_squared_units_error_corrected": true,
+            "analytic_absolute_source_scale_fixed_by_PDE_not_fitted": true
+          },
+          "actual_native_over_assumed_continuum_source_model_signed_ratio": 0.9514813607946849,
+          "actual_native_vs_assumed_continuum_weak_relative": 0.04851863920531507,
+          "conditional_source_normalization_not_fitted_or_verified": true
+        },
+        {
+          "physical_weak_test_width_s": 0.001,
+          "native_unmodified_original_weak_result": {
+            "original_full_native_u_P_250ms_nonmodified": true,
+            "original_velocity_trace_Nt": 1734,
+            "native_receiver_point_p_peak_signed_pa": -265.137672692204,
+            "native_receiver_point_p_peak_abs_pa": 265.137672692204,
+            "native_original_direct_window_peak_signed_pa": -79.27433379402915,
+            "native_original_direct_window_peak_time_s": 0.0054793427297441435,
+            "negative_control_native_abs_p_before_1p5ms_pa": 0.0,
+            "negative_control_before_1p5ms_over_all_250ms_abs_peak": 0.0,
+            "original_q0_native_weak_pressure_over_unit_input": -91.61325547414017,
+            "physical_witness_nonzero_samples": 43,
+            "physical_witness_center_s": 0.002913752913752914,
+            "physical_witness_sigma_s": 0.001,
+            "physical_witness_support_end_s": 0.006113752913752914
+          },
+          "analytic_all_original_64pair_continuum_direct": {
+            "original_64_native_pairs_continuum_causal_green_weak_distribution": -92.79310204471146,
+            "true_physical_source_to_receiver_point_continuum_weak_distribution": -95.49296585513719,
+            "analytic_original_8node_over_true_point_weak_relative": 0.02827290770842133,
+            "earliest_real_original_64node_single_wall_reflection_s": 0.00880550974477419,
+            "earliest_real_original_64node_single_wall_reflection_name": "true_sloping_roof",
+            "analytic_all_64_original_pair_wave_derivative_witness_nontruncated": true,
+            "historical_old_analytic_expected_with_extra_c_squared_INVALID": -10929750.587782875,
+            "pre_observed_analytic_c_squared_units_error_corrected": true,
+            "analytic_absolute_source_scale_fixed_by_PDE_not_fitted": true
+          },
+          "actual_native_over_assumed_continuum_source_model_signed_ratio": 0.9872851909832394,
+          "actual_native_vs_assumed_continuum_weak_relative": 0.012714809016760587,
+          "conditional_source_normalization_not_fitted_or_verified": true
+        },
+        {
+          "physical_weak_test_width_s": 0.0015,
+          "native_unmodified_original_weak_result": {
+            "original_full_native_u_P_250ms_nonmodified": true,
+            "original_velocity_trace_Nt": 1734,
+            "native_receiver_point_p_peak_signed_pa": -265.137672692204,
+            "native_receiver_point_p_peak_abs_pa": 265.137672692204,
+            "native_original_direct_window_peak_signed_pa": -79.27433379402915,
+            "native_original_direct_window_peak_time_s": 0.0054793427297441435,
+            "negative_control_native_abs_p_before_1p5ms_pa": 0.0,
+            "negative_control_before_1p5ms_over_all_250ms_abs_peak": 0.0,
+            "original_q0_native_weak_pressure_over_unit_input": -62.62716734885799,
+            "physical_witness_nonzero_samples": 43,
+            "physical_witness_center_s": 0.002913752913752914,
+            "physical_witness_sigma_s": 0.0015,
+            "physical_witness_support_end_s": 0.006113752913752914
+          },
+          "analytic_all_original_64pair_continuum_direct": {
+            "original_64_native_pairs_continuum_causal_green_weak_distribution": -62.680141498354246,
+            "true_physical_source_to_receiver_point_continuum_weak_distribution": -63.66197723675813,
+            "analytic_original_8node_over_true_point_weak_relative": 0.015422639714007825,
+            "earliest_real_original_64node_single_wall_reflection_s": 0.00880550974477419,
+            "earliest_real_original_64node_single_wall_reflection_name": "true_sloping_roof",
+            "analytic_all_64_original_pair_wave_derivative_witness_nontruncated": true,
+            "historical_old_analytic_expected_with_extra_c_squared_INVALID": -7382858.189759112,
+            "pre_observed_analytic_c_squared_units_error_corrected": true,
+            "analytic_absolute_source_scale_fixed_by_PDE_not_fitted": true
+          },
+          "actual_native_over_assumed_continuum_source_model_signed_ratio": 0.9991548495547405,
+          "actual_native_vs_assumed_continuum_weak_relative": 0.0008451504452594572,
+          "conditional_source_normalization_not_fitted_or_verified": true
+        }
+      ],
+      "new_original_q0_roof_echo_fixed_weak_width_cases": [
+        {
+          "physical_original_roof_echo_weak_width_s": 0.00035,
+          "original_entire_wave_native_roof_window_weak": {
+            "original_full_native_u_P_250ms_nonmodified": true,
+            "original_velocity_trace_Nt": 1734,
+            "native_receiver_point_p_peak_signed_pa": -265.137672692204,
+            "native_receiver_point_p_peak_abs_pa": 265.137672692204,
+            "native_original_direct_window_peak_signed_pa": -44.14665091619502,
+            "native_original_direct_window_peak_time_s": 0.009516753162187197,
+            "negative_control_native_abs_p_before_1p5ms_pa": 0.0,
+            "negative_control_before_1p5ms_over_all_250ms_abs_peak": 0.0,
+            "original_q0_native_weak_pressure_over_unit_input": -22.60918652161327,
+            "physical_witness_nonzero_samples": 15,
+            "physical_witness_center_s": 0.0089668767033651,
+            "physical_witness_sigma_s": 0.00035,
+            "physical_witness_support_end_s": 0.0100668767033651
+          },
+          "continuum_true_physical_neumann_roof_64_original_nodes_analytic": {
+            "original_64pair_finite_roof_single_bounce_signed_weak_analytic": -68.73916110437304,
+            "true_physical_point_roof_single_bounce_signed_weak_analytic": -88.65737335558683,
+            "all_64_native_direct_wave_analytic_contribution_within_roof_window": -0.0,
+            "physical_reflection_sign": 1,
+            "true_finite_roof_valid_original_native_64_pair_count": 64,
+            "earliest_actual_original_8node_roof_single_echo_s": 0.00880550974477419,
+            "latest_actual_original_8node_roof_single_echo_s": 0.009541949171670977,
+            "earliest_actual_original_nonroof_single_bounce_s": 0.01125,
+            "earliest_actual_original_nonroof_single_bounce_wall": "x0",
+            "roof_echo_only_analytic_causality_NOT_native_pulse_decomposition": true,
+            "pre_registered_physical_witness_center_s": 0.0089668767033651,
+            "pre_registered_physical_witness_sigma_s": 0.00035,
+            "pre_registered_physical_witness_upper_support_s": 0.0100668767033651,
+            "original_source_receiver_8node_weights_unmodified": true
+          },
+          "native_total_roof_window_vs_single_roof_analytic_signed_ratio": 0.3289127501466544,
+          "native_total_roof_window_vs_single_roof_analytic_relative": 0.6710872498533456,
+          "native_window_direct_numeric_dispersive_tail_may_be_present": true,
+          "not_original_full_record_acceptance": true
+        },
+        {
+          "physical_original_roof_echo_weak_width_s": 0.0006,
+          "original_entire_wave_native_roof_window_weak": {
+            "original_full_native_u_P_250ms_nonmodified": true,
+            "original_velocity_trace_Nt": 1734,
+            "native_receiver_point_p_peak_signed_pa": -265.137672692204,
+            "native_receiver_point_p_peak_abs_pa": 265.137672692204,
+            "native_original_direct_window_peak_signed_pa": -44.14665091619502,
+            "native_original_direct_window_peak_time_s": 0.009516753162187197,
+            "negative_control_native_abs_p_before_1p5ms_pa": 0.0,
+            "negative_control_before_1p5ms_over_all_250ms_abs_peak": 0.0,
+            "original_q0_native_weak_pressure_over_unit_input": -37.13156710392742,
+            "physical_witness_nonzero_samples": 15,
+            "physical_witness_center_s": 0.0089668767033651,
+            "physical_witness_sigma_s": 0.0006,
+            "physical_witness_support_end_s": 0.0100668767033651
+          },
+          "continuum_true_physical_neumann_roof_64_original_nodes_analytic": {
+            "original_64pair_finite_roof_single_bounce_signed_weak_analytic": -45.768502319550706,
+            "true_physical_point_roof_single_bounce_signed_weak_analytic": -51.71680112409231,
+            "all_64_native_direct_wave_analytic_contribution_within_roof_window": -0.0,
+            "physical_reflection_sign": 1,
+            "true_finite_roof_valid_original_native_64_pair_count": 64,
+            "earliest_actual_original_8node_roof_single_echo_s": 0.00880550974477419,
+            "latest_actual_original_8node_roof_single_echo_s": 0.009541949171670977,
+            "earliest_actual_original_nonroof_single_bounce_s": 0.01125,
+            "earliest_actual_original_nonroof_single_bounce_wall": "x0",
+            "roof_echo_only_analytic_causality_NOT_native_pulse_decomposition": true,
+            "pre_registered_physical_witness_center_s": 0.0089668767033651,
+            "pre_registered_physical_witness_sigma_s": 0.0006,
+            "pre_registered_physical_witness_upper_support_s": 0.0100668767033651,
+            "original_source_receiver_8node_weights_unmodified": true
+          },
+          "native_total_roof_window_vs_single_roof_analytic_signed_ratio": 0.8112908489921488,
+          "native_total_roof_window_vs_single_roof_analytic_relative": 0.18870915100785124,
+          "native_window_direct_numeric_dispersive_tail_may_be_present": true,
+          "not_original_full_record_acceptance": true
+        },
+        {
+          "physical_original_roof_echo_weak_width_s": 0.00085,
+          "original_entire_wave_native_roof_window_weak": {
+            "original_full_native_u_P_250ms_nonmodified": true,
+            "original_velocity_trace_Nt": 1734,
+            "native_receiver_point_p_peak_signed_pa": -265.137672692204,
+            "native_receiver_point_p_peak_abs_pa": 265.137672692204,
+            "native_original_direct_window_peak_signed_pa": -44.14665091619502,
+            "native_original_direct_window_peak_time_s": 0.009516753162187197,
+            "negative_control_native_abs_p_before_1p5ms_pa": 0.0,
+            "negative_control_before_1p5ms_over_all_250ms_abs_peak": 0.0,
+            "original_q0_native_weak_pressure_over_unit_input": -32.999136774394714,
+            "physical_witness_nonzero_samples": 15,
+            "physical_witness_center_s": 0.0089668767033651,
+            "physical_witness_sigma_s": 0.00085,
+            "physical_witness_support_end_s": 0.0100668767033651
+          },
+          "continuum_true_physical_neumann_roof_64_original_nodes_analytic": {
+            "original_64pair_finite_roof_single_bounce_signed_weak_analytic": -33.4919873398251,
+            "true_physical_point_roof_single_bounce_signed_weak_analytic": -36.50597726406516,
+            "all_64_native_direct_wave_analytic_contribution_within_roof_window": -0.0,
+            "physical_reflection_sign": 1,
+            "true_finite_roof_valid_original_native_64_pair_count": 64,
+            "earliest_actual_original_8node_roof_single_echo_s": 0.00880550974477419,
+            "latest_actual_original_8node_roof_single_echo_s": 0.009541949171670977,
+            "earliest_actual_original_nonroof_single_bounce_s": 0.01125,
+            "earliest_actual_original_nonroof_single_bounce_wall": "x0",
+            "roof_echo_only_analytic_causality_NOT_native_pulse_decomposition": true,
+            "pre_registered_physical_witness_center_s": 0.0089668767033651,
+            "pre_registered_physical_witness_sigma_s": 0.00085,
+            "pre_registered_physical_witness_upper_support_s": 0.0100668767033651,
+            "original_source_receiver_8node_weights_unmodified": true
+          },
+          "native_total_roof_window_vs_single_roof_analytic_signed_ratio": 0.9852845231180312,
+          "native_total_roof_window_vs_single_roof_analytic_relative": 0.014715476881968836,
+          "native_window_direct_numeric_dispersive_tail_may_be_present": true,
+          "not_original_full_record_acceptance": true
+        }
+      ],
+      "full_250ms_native_wave_never_filtered_or_windowed_for_authority": true
+    },
+    {
+      "ppw": 44,
+      "original_true_native_comms_HDF5_SHA256": "41c537b663ef11aa7404a248862f89398dec80fd3b6c794f4ecce4a0a8577ee4",
+      "original_true_native_voxel_HDF5_SHA256": "4a7cb6c30c013adc31d5b1910d50cef003cacbdd37a271ac3efa7a39956e505b",
+      "original_true_native_entire_real_q0_HDF5_SHA256": "a5603179fa00ef7a82e5e5e486d864b1b2f08e3f432692d80631fcf406c0ce89",
+      "original_native_Ts_s": 0.00013108475430009911,
+      "original_native_Nt": 1908,
+      "original_true_source_pulse_l2_over_h": 4.264961538461538,
+      "original_full_record_250ms_signed_40_80_replayed": [
+        [
+          -64.44884936510246,
+          -11.312555997628882
+        ],
+        [
+          -83.61305811577184,
+          -224.3177326070581
+        ]
+      ],
+      "original_full_record_relative_to_frozen": 1.3944025047719968e-15,
+      "old_observed_causal_DIRECT_weak_green_control_3_widths": [
+        {
+          "physical_weak_test_width_s": 0.00065,
+          "native_unmodified_original_weak_result": {
+            "original_full_native_u_P_250ms_nonmodified": true,
+            "original_velocity_trace_Nt": 1908,
+            "native_receiver_point_p_peak_signed_pa": -333.7286817265555,
+            "native_receiver_point_p_peak_abs_pa": 333.7286817265555,
+            "native_original_direct_window_peak_signed_pa": 73.1626603488705,
+            "native_original_direct_window_peak_time_s": 0.0048501359091036676,
+            "negative_control_native_abs_p_before_1p5ms_pa": 0.0,
+            "negative_control_before_1p5ms_over_all_250ms_abs_peak": 0.0,
+            "original_q0_native_weak_pressure_over_unit_input": -130.4354122152454,
+            "physical_witness_nonzero_samples": 47,
+            "physical_witness_center_s": 0.002913752913752914,
+            "physical_witness_sigma_s": 0.00065,
+            "physical_witness_support_end_s": 0.006113752913752914
+          },
+          "analytic_all_original_64pair_continuum_direct": {
+            "original_64_native_pairs_continuum_causal_green_weak_distribution": -134.92808001919417,
+            "true_physical_source_to_receiver_point_continuum_weak_distribution": -146.91225516174956,
+            "analytic_original_8node_over_true_point_weak_relative": 0.0815736926055684,
+            "earliest_real_original_64node_single_wall_reflection_s": 0.008458523717680008,
+            "earliest_real_original_64node_single_wall_reflection_name": "true_sloping_roof",
+            "analytic_all_64_original_pair_wave_derivative_witness_nontruncated": true,
+            "historical_old_analytic_expected_with_extra_c_squared_INVALID": -15892671.215880007,
+            "pre_observed_analytic_c_squared_units_error_corrected": true,
+            "analytic_absolute_source_scale_fixed_by_PDE_not_fitted": true
+          },
+          "actual_native_over_assumed_continuum_source_model_signed_ratio": 0.9667032406945266,
+          "actual_native_vs_assumed_continuum_weak_relative": 0.03329675930547338,
+          "conditional_source_normalization_not_fitted_or_verified": true
+        },
+        {
+          "physical_weak_test_width_s": 0.001,
+          "native_unmodified_original_weak_result": {
+            "original_full_native_u_P_250ms_nonmodified": true,
+            "original_velocity_trace_Nt": 1908,
+            "native_receiver_point_p_peak_signed_pa": -333.7286817265555,
+            "native_receiver_point_p_peak_abs_pa": 333.7286817265555,
+            "native_original_direct_window_peak_signed_pa": 73.1626603488705,
+            "native_original_direct_window_peak_time_s": 0.0048501359091036676,
+            "negative_control_native_abs_p_before_1p5ms_pa": 0.0,
+            "negative_control_before_1p5ms_over_all_250ms_abs_peak": 0.0,
+            "original_q0_native_weak_pressure_over_unit_input": -90.88426587215402,
+            "physical_witness_nonzero_samples": 47,
+            "physical_witness_center_s": 0.002913752913752914,
+            "physical_witness_sigma_s": 0.001,
+            "physical_witness_support_end_s": 0.006113752913752914
+          },
+          "analytic_all_original_64pair_continuum_direct": {
+            "original_64_native_pairs_continuum_causal_green_weak_distribution": -91.81239596285047,
+            "true_physical_source_to_receiver_point_continuum_weak_distribution": -95.49296585513719,
+            "analytic_original_8node_over_true_point_weak_relative": 0.03854283778210582,
+            "earliest_real_original_64node_single_wall_reflection_s": 0.008458523717680008,
+            "earliest_real_original_64node_single_wall_reflection_name": "true_sloping_roof",
+            "analytic_all_64_original_pair_wave_derivative_witness_nontruncated": true,
+            "historical_old_analytic_expected_with_extra_c_squared_INVALID": -10814236.905855335,
+            "pre_observed_analytic_c_squared_units_error_corrected": true,
+            "analytic_absolute_source_scale_fixed_by_PDE_not_fitted": true
+          },
+          "actual_native_over_assumed_continuum_source_model_signed_ratio": 0.9898910154673232,
+          "actual_native_vs_assumed_continuum_weak_relative": 0.010108984532676835,
+          "conditional_source_normalization_not_fitted_or_verified": true
+        },
+        {
+          "physical_weak_test_width_s": 0.0015,
+          "native_unmodified_original_weak_result": {
+            "original_full_native_u_P_250ms_nonmodified": true,
+            "original_velocity_trace_Nt": 1908,
+            "native_receiver_point_p_peak_signed_pa": -333.7286817265555,
+            "native_receiver_point_p_peak_abs_pa": 333.7286817265555,
+            "native_original_direct_window_peak_signed_pa": 73.1626603488705,
+            "native_original_direct_window_peak_time_s": 0.0048501359091036676,
+            "negative_control_native_abs_p_before_1p5ms_pa": 0.0,
+            "negative_control_before_1p5ms_over_all_250ms_abs_peak": 0.0,
+            "original_q0_native_weak_pressure_over_unit_input": -62.12862686398201,
+            "physical_witness_nonzero_samples": 47,
+            "physical_witness_center_s": 0.002913752913752914,
+            "physical_witness_sigma_s": 0.0015,
+            "physical_witness_support_end_s": 0.006113752913752914
+          },
+          "analytic_all_original_64pair_continuum_direct": {
+            "original_64_native_pairs_continuum_causal_green_weak_distribution": -62.36691778505717,
+            "true_physical_source_to_receiver_point_continuum_weak_distribution": -63.66197723675813,
+            "analytic_original_8node_over_true_point_weak_relative": 0.020342746297128848,
+            "earliest_real_original_64node_single_wall_reflection_s": 0.008458523717680008,
+            "earliest_real_original_64node_single_wall_reflection_name": "true_sloping_roof",
+            "analytic_all_64_original_pair_wave_derivative_witness_nontruncated": true,
+            "historical_old_analytic_expected_with_extra_c_squared_INVALID": -7345964.746291012,
+            "pre_observed_analytic_c_squared_units_error_corrected": true,
+            "analytic_absolute_source_scale_fixed_by_PDE_not_fitted": true
+          },
+          "actual_native_over_assumed_continuum_source_model_signed_ratio": 0.9961792095947981,
+          "actual_native_vs_assumed_continuum_weak_relative": 0.0038207904052018904,
+          "conditional_source_normalization_not_fitted_or_verified": true
+        }
+      ],
+      "new_original_q0_roof_echo_fixed_weak_width_cases": [
+        {
+          "physical_original_roof_echo_weak_width_s": 0.00035,
+          "original_entire_wave_native_roof_window_weak": {
+            "original_full_native_u_P_250ms_nonmodified": true,
+            "original_velocity_trace_Nt": 1908,
+            "native_receiver_point_p_peak_signed_pa": -333.7286817265555,
+            "native_receiver_point_p_peak_abs_pa": 333.7286817265555,
+            "native_original_direct_window_peak_signed_pa": 31.036355910356775,
+            "native_original_direct_window_peak_time_s": 0.00904484804670684,
+            "negative_control_native_abs_p_before_1p5ms_pa": 0.0,
+            "negative_control_before_1p5ms_over_all_250ms_abs_peak": 0.0,
+            "original_q0_native_weak_pressure_over_unit_input": -26.05066411059996,
+            "physical_witness_nonzero_samples": 16,
+            "physical_witness_center_s": 0.0089668767033651,
+            "physical_witness_sigma_s": 0.00035,
+            "physical_witness_support_end_s": 0.0100668767033651
+          },
+          "continuum_true_physical_neumann_roof_64_original_nodes_analytic": {
+            "original_64pair_finite_roof_single_bounce_signed_weak_analytic": -73.55952911342028,
+            "true_physical_point_roof_single_bounce_signed_weak_analytic": -88.65737335558683,
+            "all_64_native_direct_wave_analytic_contribution_within_roof_window": -0.0,
+            "physical_reflection_sign": 1,
+            "true_finite_roof_valid_original_native_64_pair_count": 64,
+            "earliest_actual_original_8node_roof_single_echo_s": 0.008458523717680008,
+            "latest_actual_original_8node_roof_single_echo_s": 0.009130354417908961,
+            "earliest_actual_original_nonroof_single_bounce_s": 0.011363636363636364,
+            "earliest_actual_original_nonroof_single_bounce_wall": "x0",
+            "roof_echo_only_analytic_causality_NOT_native_pulse_decomposition": true,
+            "pre_registered_physical_witness_center_s": 0.0089668767033651,
+            "pre_registered_physical_witness_sigma_s": 0.00035,
+            "pre_registered_physical_witness_upper_support_s": 0.0100668767033651,
+            "original_source_receiver_8node_weights_unmodified": true
+          },
+          "native_total_roof_window_vs_single_roof_analytic_signed_ratio": 0.3541439759685363,
+          "native_total_roof_window_vs_single_roof_analytic_relative": 0.6458560240314637,
+          "native_window_direct_numeric_dispersive_tail_may_be_present": true,
+          "not_original_full_record_acceptance": true
+        },
+        {
+          "physical_original_roof_echo_weak_width_s": 0.0006,
+          "original_entire_wave_native_roof_window_weak": {
+            "original_full_native_u_P_250ms_nonmodified": true,
+            "original_velocity_trace_Nt": 1908,
+            "native_receiver_point_p_peak_signed_pa": -333.7286817265555,
+            "native_receiver_point_p_peak_abs_pa": 333.7286817265555,
+            "native_original_direct_window_peak_signed_pa": 31.036355910356775,
+            "native_original_direct_window_peak_time_s": 0.00904484804670684,
+            "negative_control_native_abs_p_before_1p5ms_pa": 0.0,
+            "negative_control_before_1p5ms_over_all_250ms_abs_peak": 0.0,
+            "original_q0_native_weak_pressure_over_unit_input": -33.68816349846983,
+            "physical_witness_nonzero_samples": 16,
+            "physical_witness_center_s": 0.0089668767033651,
+            "physical_witness_sigma_s": 0.0006,
+            "physical_witness_support_end_s": 0.0100668767033651
+          },
+          "continuum_true_physical_neumann_roof_64_original_nodes_analytic": {
+            "original_64pair_finite_roof_single_bounce_signed_weak_analytic": -47.287176401166036,
+            "true_physical_point_roof_single_bounce_signed_weak_analytic": -51.71680112409231,
+            "all_64_native_direct_wave_analytic_contribution_within_roof_window": -0.0,
+            "physical_reflection_sign": 1,
+            "true_finite_roof_valid_original_native_64_pair_count": 64,
+            "earliest_actual_original_8node_roof_single_echo_s": 0.008458523717680008,
+            "latest_actual_original_8node_roof_single_echo_s": 0.009130354417908961,
+            "earliest_actual_original_nonroof_single_bounce_s": 0.011363636363636364,
+            "earliest_actual_original_nonroof_single_bounce_wall": "x0",
+            "roof_echo_only_analytic_causality_NOT_native_pulse_decomposition": true,
+            "pre_registered_physical_witness_center_s": 0.0089668767033651,
+            "pre_registered_physical_witness_sigma_s": 0.0006,
+            "pre_registered_physical_witness_upper_support_s": 0.0100668767033651,
+            "original_source_receiver_8node_weights_unmodified": true
+          },
+          "native_total_roof_window_vs_single_roof_analytic_signed_ratio": 0.7124164744511817,
+          "native_total_roof_window_vs_single_roof_analytic_relative": 0.2875835255488183,
+          "native_window_direct_numeric_dispersive_tail_may_be_present": true,
+          "not_original_full_record_acceptance": true
+        },
+        {
+          "physical_original_roof_echo_weak_width_s": 0.00085,
+          "original_entire_wave_native_roof_window_weak": {
+            "original_full_native_u_P_250ms_nonmodified": true,
+            "original_velocity_trace_Nt": 1908,
+            "native_receiver_point_p_peak_signed_pa": -333.7286817265555,
+            "native_receiver_point_p_peak_abs_pa": 333.7286817265555,
+            "native_original_direct_window_peak_signed_pa": 31.036355910356775,
+            "native_original_direct_window_peak_time_s": 0.00904484804670684,
+            "negative_control_native_abs_p_before_1p5ms_pa": 0.0,
+            "negative_control_before_1p5ms_over_all_250ms_abs_peak": 0.0,
+            "original_q0_native_weak_pressure_over_unit_input": -29.106239068326833,
+            "physical_witness_nonzero_samples": 16,
+            "physical_witness_center_s": 0.0089668767033651,
+            "physical_witness_sigma_s": 0.00085,
+            "physical_witness_support_end_s": 0.0100668767033651
+          },
+          "continuum_true_physical_neumann_roof_64_original_nodes_analytic": {
+            "original_64pair_finite_roof_single_bounce_signed_weak_analytic": -34.2774218200162,
+            "true_physical_point_roof_single_bounce_signed_weak_analytic": -36.50597726406516,
+            "all_64_native_direct_wave_analytic_contribution_within_roof_window": -0.0,
+            "physical_reflection_sign": 1,
+            "true_finite_roof_valid_original_native_64_pair_count": 64,
+            "earliest_actual_original_8node_roof_single_echo_s": 0.008458523717680008,
+            "latest_actual_original_8node_roof_single_echo_s": 0.009130354417908961,
+            "earliest_actual_original_nonroof_single_bounce_s": 0.011363636363636364,
+            "earliest_actual_original_nonroof_single_bounce_wall": "x0",
+            "roof_echo_only_analytic_causality_NOT_native_pulse_decomposition": true,
+            "pre_registered_physical_witness_center_s": 0.0089668767033651,
+            "pre_registered_physical_witness_sigma_s": 0.00085,
+            "pre_registered_physical_witness_upper_support_s": 0.0100668767033651,
+            "original_source_receiver_8node_weights_unmodified": true
+          },
+          "native_total_roof_window_vs_single_roof_analytic_signed_ratio": 0.8491373482275826,
+          "native_total_roof_window_vs_single_roof_analytic_relative": 0.15086265177241742,
+          "native_window_direct_numeric_dispersive_tail_may_be_present": true,
+          "not_original_full_record_acceptance": true
+        }
+      ],
+      "full_250ms_native_wave_never_filtered_or_windowed_for_authority": true
+    }
+  ],
+  "unaltered_original_250ms_all_adjacent_frozen_three_scores": [
+    {
+      "coarse_ppw": 28,
+      "fine_ppw": 32,
+      "canonical_original_full_unfiltered_250ms_P_T_over_Q_T": {
+        "complex_rms_relative": 1.2469270700426662,
+        "magnitude_max_relative": 3.1041238212532622,
+        "magnitude_max_db": 12.264409098974966,
+        "phase_max_deg": 87.12947751814937,
+        "mask_floor": 0.7325717303780155,
+        "compared_frequency_count": 2,
+        "frequency_metrics": [
+          {
+            "frequency_hz": 40.0,
+            "masked_in": true,
+            "magnitude_absolute": 83.03399182710316,
+            "magnitude_relative": 3.1041238212532622,
+            "magnitude_db": 12.264409098974966,
+            "phase_deg": 74.6774437475728,
+            "complex_relative": 3.959138829081376
+          },
+          {
+            "frequency_hz": 80.0,
+            "masked_in": true,
+            "magnitude_absolute": 79.32219233173214,
+            "magnitude_relative": 0.3424085128657372,
+            "magnitude_db": 3.640876352016603,
+            "phase_deg": 87.12947751814937,
+            "complex_relative": 1.169001012744118
+          }
+        ]
+      },
+      "original_full_three_gate_pass": false,
+      "first_roof_weak_not_canonical_acceptance": true
+    },
+    {
+      "coarse_ppw": 32,
+      "fine_ppw": 36,
+      "canonical_original_full_unfiltered_250ms_P_T_over_Q_T": {
+        "complex_rms_relative": 0.7613047721569628,
+        "magnitude_max_relative": 0.5476926714692754,
+        "magnitude_max_db": 6.891327510406865,
+        "phase_max_deg": 63.65161559834692,
+        "mask_floor": 0.6514398263666002,
+        "compared_frequency_count": 2,
+        "frequency_metrics": [
+          {
+            "frequency_hz": 40.0,
+            "masked_in": true,
+            "magnitude_absolute": 32.39068895717156,
+            "magnitude_relative": 0.5476926714692754,
+            "magnitude_db": 6.891327510406865,
+            "phase_deg": 63.65161559834692,
+            "complex_relative": 0.8961520672161258
+          },
+          {
+            "frequency_hz": 80.0,
+            "masked_in": true,
+            "magnitude_absolute": 25.65616075822234,
+            "magnitude_relative": 0.12454243773201218,
+            "magnitude_db": 1.019516987786429,
+            "phase_deg": 40.765478351612614,
+            "complex_relative": 0.7491090813120069
+          }
+        ]
+      },
+      "original_full_three_gate_pass": false,
+      "first_roof_weak_not_canonical_acceptance": true
+    },
+    {
+      "coarse_ppw": 36,
+      "fine_ppw": 40,
+      "canonical_original_full_unfiltered_250ms_P_T_over_Q_T": {
+        "complex_rms_relative": 0.36736729325072404,
+        "magnitude_max_relative": 0.982009544152205,
+        "magnitude_max_db": 5.942114829046252,
+        "phase_max_deg": 27.40837044937203,
+        "mask_floor": 0.5124807000499993,
+        "compared_frequency_count": 2,
+        "frequency_metrics": [
+          {
+            "frequency_hz": 40.0,
+            "masked_in": true,
+            "magnitude_absolute": 29.30172736085337,
+            "magnitude_relative": 0.982009544152205,
+            "magnitude_db": 5.942114829046252,
+            "phase_deg": 27.40837044937203,
+            "complex_relative": 1.1871441546382009
+          },
+          {
+            "frequency_hz": 80.0,
+            "masked_in": true,
+            "magnitude_absolute": 43.94273408275029,
+            "magnitude_relative": 0.271149969751141,
+            "magnitude_db": 2.083935829225804,
+            "phase_deg": 6.866684363922531,
+            "complex_relative": 0.30291607398380493
+          }
+        ]
+      },
+      "original_full_three_gate_pass": false,
+      "first_roof_weak_not_canonical_acceptance": true
+    },
+    {
+      "coarse_ppw": 40,
+      "fine_ppw": 44,
+      "canonical_original_full_unfiltered_250ms_P_T_over_Q_T": {
+        "complex_rms_relative": 0.9587423413785162,
+        "magnitude_max_relative": 0.5439913897220735,
+        "magnitude_max_db": 6.820539139654827,
+        "phase_max_deg": 150.62981979481629,
+        "mask_floor": 0.757030967989045,
+        "compared_frequency_count": 2,
+        "frequency_metrics": [
+          {
+            "frequency_hz": 40.0,
+            "masked_in": true,
+            "magnitude_absolute": 35.59561469867676,
+            "magnitude_relative": 0.5439913897220735,
+            "magnitude_db": 6.820539139654827,
+            "phase_deg": 150.62981979481629,
+            "complex_relative": 1.4151815280125029
+          },
+          {
+            "frequency_hz": 80.0,
+            "masked_in": true,
+            "magnitude_absolute": 77.33358490918354,
+            "magnitude_relative": 0.3230386579675358,
+            "magnitude_db": 3.3887226210191406,
+            "phase_deg": 62.74444928198932,
+            "complex_relative": 0.9155512944726367
+          }
+        ]
+      },
+      "original_full_three_gate_pass": false,
+      "first_roof_weak_not_canonical_acceptance": true
+    }
+  ],
+  "canonical_original_all_pairs_accepted": false,
+  "do_not_promote_original_production_or_physical_claim": true
+}
