@@ -1,0 +1,74 @@
+{
+  "schema_version": "htdt.r130d.exact-roof-q0-kmk-dispersion-plan-1",
+  "date_jst": "2026-10-09",
+  "issue": 938,
+  "pr": 1055,
+  "purpose": "Prospectively test one conservative symmetric positive semidefinite uniform-grid leading-order dispersion correction to an EXACT 56m3 roof cutcell finite-volume solver. No guarantee global fourth order on cutcells, and not native original PFFDTD repair.",
+  "frozen_input": {
+    "ppw": [
+      40,
+      44
+    ],
+    "original_PFFDTD_sha": "aa319f6c86517cb95aabfae8656277da62c3ead5",
+    "original_true_native_geometry_source_evidence": "benchmarks/acoustics/r130d_original_point_quadratic_pffdtd_evidence_2026-10-09.json",
+    "original_exact_roof_full_modal_baseline": "benchmarks/acoustics/r130d_native_exact_roof_full_xy_z_modal_q0_evidence_2026-10-09.json",
+    "original_native_HDF5_source_receiver_eight_nodes": true,
+    "source_xyz_m": [
+      1.5,
+      2,
+      2
+    ],
+    "receiver_xyz_m": [
+      2.5,
+      2,
+      2
+    ],
+    "physical_sloped_volume_m3": 56,
+    "original_native_q0": "q[0]=1, all n>0 zero, original archived eight source weights normalized and unchanged",
+    "native_dt_and_Nt_per_grid": true,
+    "record_seconds": 0.25,
+    "original_signed_pressure_transfer_hz": [
+      40,
+      80
+    ],
+    "rho_kg_m3": 1.2,
+    "c_m_s": 343.2
+  },
+  "scheme": {
+    "base": "exact roof cutcell FV native x-yz Kronecker M/K, original 8/8 point source receiver, implicit beta=1/4 Newmark, original finite pressure derivative",
+    "candidate": "M unchanged, K4 = K+(h^2/(12 c^2)) K M^{-1} K, no additional free coefficient, original point source RHS unchanged",
+    "alpha_multiplier_h2_over_c2": 0.08333333333333333,
+    "original_native_full_mode_eigenvectors_unchanged": true,
+    "all_modes": "all PPW40 and PPW44 native exact-roof x⊗yz generalized eigenmodes; lambda4=lambda+(h^2/(12c^2))*lambda^2, includes all zero, low, and Nyquist/high modes",
+    "source_amplitude": "original q0 * dt^2 c^2 * mass-orthonormal source/receiver coupling / (1+dt^2 lambda_candidate/4); no fitted amplitude",
+    "finite_record": "exact analytic full native Newmark 250ms endpoint inclusive pressure/DTFT, no taper, no damping, no mode cut, no noise floor change",
+    "discrete_matrix_required": "symmetric positive semidefinite, constant vector null, same diagonal positive M; K4 applied in true sparse M/K operator, check on independent 1D Neumann fixture",
+    "mass_and_wall_geometry_unchanged": true,
+    "original_source_q0_unchanged": true
+  },
+  "precommitted_tests": {
+    "baseline_all_modes_reproduce_prior_real_newmark_cg_complex_relative_max": 0.00002,
+    "all_original_modal_nodes_no_truncation": true,
+    "frozen_complex_limit": 0.2,
+    "frozen_magnitude_limit": 0.25,
+    "frozen_phase_deg_limit": 15,
+    "report_both_bins_signed_per_grid_and_40_to_44_pair": true,
+    "record_full_adverse_metrics": true,
+    "frequency_correction_and_high_mode_modification_not_assumed_physically_better": true,
+    "uniform_box_spectral_low_frequency_error_should_improve": true,
+    "original_PFFDTD_canonical_not_requalified": true,
+    "physical_validation_required": true
+  },
+  "limits": {
+    "max_grid_cases": 2,
+    "new_actual_native_PFFDTD_wave_runs": 0,
+    "new_github_actions_runs": 0
+  },
+  "release": {
+    "canonical_original_q0": "SELF_CONVERGENCE_FAILED",
+    "external_physics": "NOT_VALIDATED",
+    "product": "NO_GO",
+    "issue_open": true,
+    "pr_draft": true
+  }
+}
