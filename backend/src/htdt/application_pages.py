@@ -1647,10 +1647,9 @@ _INBOX_GROUP_OPTIONS = (
     ("series", "シリーズ"),
     ("classification", "分類"),
 )
-# Below this width (logical px) the secondary action set folds into the
-# overflow menu — high-DPI screens shrink logical width, which is exactly
-# when a crowded action row invites mis-taps.
-_INBOX_ACTIONS_COLLAPSE_WIDTH = 1020
+# Secondary actions fold once the row's required width exceeds what the
+# page can give it (high-DPI logical widths) — measured live, never a
+# fixed threshold, so the trigger stays reachable at every window size.
 
 
 def _inbox_queue_state(item) -> str:
@@ -1911,6 +1910,7 @@ class CaptureInboxPage(QWidget):
         set_typography_role(self.detail, TypographyRole.SECONDARY)
         detail_layout.addWidget(self.detail, 1)
         actions = QHBoxLayout()
+        self._actions_layout = actions
         # Primary triage ops stay first and never collapse (#988).
         self.next_unprocessed_button = QPushButton("次の未処理を表示")
         self.next_unprocessed_button.setAccessibleName("次の未処理を表示")
@@ -2441,14 +2441,54 @@ class CaptureInboxPage(QWidget):
         super().resizeEvent(event)
         self._sync_action_layout()
 
+    def _actions_required_width(self) -> int:
+        """Width the action row needs to show every control unclipped.
+
+        Computed from child size hints so it stays correct whether the
+        row is currently folded or not (hidden widgets keep their hints);
+        the stretch-factor scope combo contributes only its minimum —
+        folding guards the fixed controls, not its slack.
+        """
+        total = 0
+        visible = 0
+        for index in range(self._actions_layout.count()):
+            item = self._actions_layout.itemAt(index)
+            widget = item.widget()
+            if widget is self.actions_overflow:
+                continue  # replaces the secondary set, never coexists
+            if widget is self.scope_combo:
+                total += widget.minimumSizeHint().width()
+                visible += 1
+            elif widget is not None:
+                total += widget.sizeHint().width()
+                visible += 1
+            else:
+                total += item.sizeHint().width()
+        if visible > 1:
+            total += self._actions_layout.spacing() * (visible - 1)
+        return total
+
     def _sync_action_layout(self) -> None:
         """Fold secondary actions into 操作 ▾ when the row cannot fit.
 
-        High-DPI screens shrink logical width — exactly when a crowded
-        action row invites a mis-tap. The primary triage ops
+        Trigger = required row width vs the width the page can give it —
+        a fixed pixel threshold can sit below the page's own minimum and
+        never fire. High-DPI screens shrink logical width, which is
+        exactly the crowded case. The primary triage ops
         (次の未処理/詳細) never collapse.
         """
-        collapse = self.width() < _INBOX_ACTIONS_COLLAPSE_WIDTH
+        chrome = 0
+        layout = self.layout()
+        if layout is not None:
+            margins = layout.contentsMargins()
+            chrome = margins.left() + margins.right()
+        available = self.width() - chrome
+        required = self._actions_required_width()
+        if self._collapsed_actions is True:
+            # Small hysteresis so a borderline resize doesn't flap open.
+            collapse = required > available - 24
+        else:
+            collapse = required > available
         if self._collapsed_actions == collapse:
             return
         self._collapsed_actions = collapse
