@@ -1012,11 +1012,18 @@ class RackWorkspacePanel(QFrame):
         move_row = QHBoxLayout()
         self.move_device_combo = QComboBox()
         self.move_device_combo.setAccessibleName('移動する機器')
+        # #1012: keep the controls usable inside the narrow placement
+        # column — unconstrained they squeeze to unusable slivers ~360px.
+        self.move_device_combo.setMinimumWidth(96)
+        self.move_device_combo.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+        )
         move_row.addWidget(self.move_device_combo)
         self.move_ru_spin = QSpinBox()
         self.move_ru_spin.setAccessibleName('移動先の下端RU')
         self.move_ru_spin.setMinimum(1)
         self.move_ru_spin.setMaximum(999)
+        self.move_ru_spin.setMinimumWidth(72)
         move_row.addWidget(self.move_ru_spin)
         self.move_preview_button = QPushButton('移動プレビュー')
         self.move_preview_button.setAccessibleName('移動プレビュー')
