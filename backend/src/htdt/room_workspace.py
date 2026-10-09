@@ -313,6 +313,7 @@ from .workspace_dirty_state import DirtyResolutionAction, WorkspaceDirtyState
 from .system_expansion_workflow import SystemExpansionWorkflowService
 from .system_expansion_widgets import SystemExpansionRoomPanel
 from .standards_workspace import StandardsCriterionPanel
+from .cable_run_panel import CableRunPanel
 from .installation_panel import InstallationPanel
 from .rack_workspace import RackWorkspacePanel
 from .length_spinbox import MetricSpinBox, PendingTextSpinBox
@@ -4376,6 +4377,13 @@ class RoomWorkspace(QWidget):
         self.rack_workspace_panel = RackWorkspacePanel(
             repository, document_id
         )
+        # REV73: #1011 cable wiring listing — read-only runs + honest
+        # endpoint/経路未登録 overlay state for the 3D view.
+        self.cable_run_panel = CableRunPanel(repository, document_id)
+        self._cable_route_items: tuple = ()
+        self.cable_run_panel.routeSelectionChanged.connect(
+            self._cable_route_selection_changed
+        )
         placement_body = QWidget()
         placement_layout = QVBoxLayout(placement_body)
         placement_layout.setContentsMargins(0, 0, 0, 0)
@@ -4389,6 +4397,7 @@ class RoomWorkspace(QWidget):
         placement_layout.addWidget(self.standards_panel)
         placement_layout.addWidget(self.installation_panel)
         placement_layout.addWidget(self.rack_workspace_panel)
+        placement_layout.addWidget(self.cable_run_panel)
         placement_layout.addStretch(1)
         # Narrow-column safety: every combo in this column shrinks to a short
         # minimum, every line edit and spin box may squeeze below its size
@@ -5993,6 +6002,7 @@ class RoomWorkspace(QWidget):
             self.standards_panel.refresh()
             self.installation_panel.refresh()
             self.rack_workspace_panel.refresh()
+            self.cable_run_panel.refresh()
             self._sync_constraints_panel()
             self._sync_video_panel()
             self._sync_seat_priority_panel()
@@ -7629,6 +7639,9 @@ class RoomWorkspace(QWidget):
             installation_panel = getattr(self, "installation_panel", None)
             if installation_panel is not None:
                 installation_panel.refresh()
+            cable_run_panel = getattr(self, "cable_run_panel", None)
+            if cable_run_panel is not None:
+                cable_run_panel.refresh()
         if self.current_context == "history":
             self._sync_history_panel()
         if self.geometry_panel is not None:
@@ -7857,6 +7870,12 @@ class RoomWorkspace(QWidget):
             selection=tuple(selection),
         )
 
+    def _cable_route_selection_changed(self, item) -> None:
+        # #1011: the listing resolves which endpoints may be placed; the
+        # viewport only ever draws bound endpoints + recorded waypoints.
+        self._cable_route_items = () if item is None else (item,)
+        self._render()
+
     def _render(self, *, reset_camera: bool = False) -> None:
         overlays = replace(
             self.overlay_controls.state(),
@@ -7977,6 +7996,13 @@ class RoomWorkspace(QWidget):
             )
             if callable(render_guidance):
                 render_guidance(self._visible_guidance_markers(overlays))
+            # #1011: cable-route overlay — endpoints + recorded waypoints
+            # only, never an invented line between endpoints.
+            render_cable_routes = getattr(
+                self.viewport, "render_cable_route_overlay", None
+            )
+            if callable(render_cable_routes):
+                render_cable_routes(self._cable_route_items)
             # #999: 3D field overlay — acoustics context + overlay ON +
             # armed request + CURRENT head; anything else draws nothing.
             render_field = getattr(self.viewport, 'render_field_overlay', None)

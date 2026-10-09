@@ -4206,6 +4206,9 @@ class WorkflowApplicationComposition:
         rack_workspace_panel = getattr(workspace, 'rack_workspace_panel', None)
         if rack_workspace_panel is not None:
             bind_length_policy_widget(rack_workspace_panel, preferences)
+        cable_run_panel = getattr(workspace, 'cable_run_panel', None)
+        if cable_run_panel is not None:
+            bind_length_policy_widget(cable_run_panel, preferences)
 
         geometry_input = _self.RoomGeometryInputController(workspace, workspace.viewport)
         workspace.attach_geometry_input(geometry_input)

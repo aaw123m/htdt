@@ -161,6 +161,54 @@ class GuideRenderItem:
     label: str | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class CableRouteEndpointItem:
+    """One cable-run endpoint resolved for overlay rendering (#1011).
+
+    ``position`` is a domain-coordinate (x, y, z) metres triple — present
+    only when the endpoint is exactly bound to an entity that exists in
+    the current head document (status ``'bound'``).
+    """
+
+    label: str
+    position: tuple[float, float, float] | None
+    status: str  # 'bound' | 'unbound' | 'missing'
+
+
+@dataclass(frozen=True, slots=True)
+class CableRouteSegmentRouteItem:
+    """Recorded waypoint polyline for one segment, domain coordinates."""
+
+    segment_sequence: int
+    points: tuple[tuple[float, float, float], ...]
+
+
+@dataclass(frozen=True, slots=True)
+class CableRouteOverlayItem:
+    """One cable run resolved for the honest route overlay (#1011).
+
+    ``route_state`` drives what may be drawn: ``'unregistered'`` renders
+    bound endpoints plus the unregistered-route label and never a line;
+    ``'registered'`` may connect only the explicitly recorded waypoints of
+    ``waypoint_segments``; ``'stale'`` draws endpoints and a stale label —
+    the recorded line is never presented as the current route.
+    """
+
+    run_id: str
+    label: str
+    route_state: str  # 'unregistered' | 'registered' | 'stale'
+    from_endpoint: CableRouteEndpointItem
+    to_endpoint: CableRouteEndpointItem
+    waypoint_segments: tuple[CableRouteSegmentRouteItem, ...] = ()
+    record_kind: str = 'design'  # 'design' | 'as_built'
+
+
+def _domain_to_render_tuple(point: tuple[float, float, float]) -> tuple[float, float, float]:
+    """Map a domain (x, y, z) metres triple into VTK's right-handed world."""
+
+    return (point[0], -point[1], point[2])
+
+
 _SELECTION_FORWARD_RAY_LENGTH_M = 0.6
 _SELECTION_AIM_RAY_LENGTH_M = 1.2
 
@@ -1341,6 +1389,7 @@ class RoomViewport3D(QFrame):
         'lighting-',
         'opclear-',
         'treatment-overlay-',
+        'cable-route-',
     )
 
     def _remove_overlay_actors(self) -> None:
@@ -1471,6 +1520,114 @@ class RoomViewport3D(QFrame):
             color=DARK_THEME.text.secondary.hex,
             render=False,
         )
+        self._render()
+
+    def render_cable_route_overlay(
+        self,
+        items: tuple[CableRouteOverlayItem, ...] | list[CableRouteOverlayItem],
+    ) -> None:
+        """Honest cable-route overlay (#1011): endpoints + recorded waypoints.
+
+        Only exactly-bound endpoints render — an endpoint whose entity is
+        absent draws nothing and a label-only endpoint has no position to
+        place. Between endpoints nothing is connected: a run without
+        recorded geometry gets the ``経路形状未登録`` label at the span's
+        midpoint, never an invented line. A run whose geometry exists
+        draws only the recorded waypoint polylines — design records in
+        the accent colour, as-built records in the warning colour — while
+        a stale geometry draws the stale label instead of presenting an
+        old line as the current route. All actors are non-pickable and
+        share the ``cable-route-`` prefix so signature-skipped renders
+        drop them with every other overlay namespace.
+        """
+        if not items:
+            return
+        endpoint_colors = {
+            'bound': DARK_THEME.semantic.success.hex,
+            'missing': DARK_THEME.semantic.error.hex,
+        }
+        for item in items:
+            bound_positions: list[tuple[float, float, float]] = []
+            for side, endpoint in (
+                ('from', item.from_endpoint),
+                ('to', item.to_endpoint),
+            ):
+                if endpoint.position is None or endpoint.status == 'unbound':
+                    continue
+                bound_positions.append(endpoint.position)
+                self.plotter.add_mesh(
+                    pv.Sphere(radius=0.05, center=_domain_to_render_tuple(endpoint.position)),
+                    color=endpoint_colors.get(
+                        endpoint.status, DARK_THEME.semantic.warning.hex
+                    ),
+                    opacity=0.95,
+                    pickable=False,
+                    name=f"cable-route-endpoint-{item.run_id}-{side}",
+                    render=False,
+                )
+                self.plotter.add_point_labels(
+                    [_domain_to_render_tuple(endpoint.position)],
+                    [endpoint.label],
+                    text_color=DARK_THEME.text.primary.hex,
+                    shape_color=DARK_THEME.surfaces.overlay.hex,
+                    shape_opacity=0.85,
+                    font_size=10,
+                    point_size=0,
+                    always_visible=True,
+                    name=f"cable-route-endpoint-label-{item.run_id}-{side}",
+                    render=False,
+                )
+            if item.route_state == 'registered':
+                color = (
+                    DARK_THEME.accent.primary.hex
+                    if item.record_kind == 'design'
+                    else DARK_THEME.semantic.warning.hex
+                )
+                for segment in item.waypoint_segments:
+                    for first, second in zip(
+                        segment.points, segment.points[1:]
+                    ):
+                        self.plotter.add_mesh(
+                            pv.Line(
+                                _domain_to_render_tuple(first),
+                                _domain_to_render_tuple(second),
+                            ),
+                            color=color,
+                            line_width=4,
+                            opacity=0.9,
+                            pickable=False,
+                            name=(
+                                f"cable-route-line-{item.run_id}-"
+                                f"{segment.segment_sequence}"
+                            ),
+                            render=False,
+                        )
+            elif bound_positions:
+                # No line between endpoints — ever. The label marks the
+                # gap honestly at the span midpoint (or beside the only
+                # bound endpoint).
+                midpoint = tuple(
+                    sum(point[axis] for point in bound_positions)
+                    / len(bound_positions)
+                    for axis in range(3)
+                )
+                state_label = (
+                    '経路形状未登録'
+                    if item.route_state == 'unregistered'
+                    else '経路情報が最新ではありません'
+                )
+                self.plotter.add_point_labels(
+                    [_domain_to_render_tuple(midpoint)],
+                    [f'{item.label} — {state_label}'],
+                    text_color=DARK_THEME.semantic.warning.hex,
+                    shape_color=DARK_THEME.surfaces.overlay.hex,
+                    shape_opacity=0.88,
+                    font_size=10,
+                    point_size=0,
+                    always_visible=True,
+                    name=f"cable-route-state-{item.run_id}",
+                    render=False,
+                )
         self._render()
 
     def _render_acoustic_overlay(self, document: SceneDocument) -> None:

@@ -10362,6 +10362,21 @@ _ROW_BINDINGS: dict[str, tuple[str, tuple[RowBinding, ...], tuple[ExtraCheck, ..
         ),
         (),
     ),
+    'cad_cable_run_geometries': (
+        'payload_json',
+        (
+            _b('geometry_id', 'geometry_id'),
+            _b('version', 'version'),
+            _b('document_id', 'document_id'),
+            _b('run_id', 'run_id'),
+            _b('run_version', 'run_version'),
+            _b('run_semantic_sha256', 'run_semantic_sha256'),
+            _b('geometric_length_m', 'geometric_length_m'),
+            _b('semantic_sha256', 'semantic_sha256'),
+            _b('recorded_at_utc', 'created_at_utc'),
+        ),
+        (),
+    ),
 }
 
 

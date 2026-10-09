@@ -9298,6 +9298,18 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
         CREATE INDEX IF NOT EXISTS idx_garun_verdict ON cad_gate_acceptance_runs(verdict, seq ASC)
     """
     ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_cable_run_geometries ( seq INTEGER PRIMARY KEY AUTOINCREMENT, geometry_id TEXT NOT NULL, version TEXT NOT NULL, document_id TEXT NOT NULL, run_id TEXT NOT NULL, run_version TEXT NOT NULL, run_semantic_sha256 TEXT NOT NULL, geometric_length_m REAL NOT NULL, semantic_sha256 TEXT NOT NULL UNIQUE, payload_json TEXT NOT NULL, recorded_at_utc TEXT NOT NULL, UNIQUE(geometry_id, version) )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_cable_run_geometry_doc ON cad_cable_run_geometries(document_id, seq ASC)
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_cable_run_geometry_run ON cad_cable_run_geometries(run_id, run_version, seq ASC)
+    """
+    ,
 )
 
 
@@ -10503,4 +10515,6 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     # REV72: #1030 lifecycle-gate operator plans + acceptance runs.
     'cad_gate_operator_plans',
     'cad_gate_acceptance_runs',
+    # REV73: #1011 cable-run route geometry authority (M2).
+    'cad_cable_run_geometries',
 )

@@ -1588,6 +1588,12 @@ class _RepositoryChain:
             )
 
             return CadEvidenceInvalidationRepository(scene)
+        if name == 'cable_run_geometry':
+            from .cad_cable_run_geometry_repository import (
+                CadCableRunGeometryRepository,
+            )
+
+            return CadCableRunGeometryRepository(scene)
         raise KeyError(name)
 
 
@@ -7982,6 +7988,14 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         'cad_revalidation_queue_runs',
         ('run_id',),
         _get('evidence_invalidation', 'get_run'),
+    ),
+
+    # REV73: #1011 cable-run route geometry authority.
+    _ReplayProbe(
+        'cable_run_geometry',
+        'cad_cable_run_geometries',
+        ('geometry_id', 'version'),
+        _get('cable_run_geometry', 'get_geometry'),
     ),
 
 )
