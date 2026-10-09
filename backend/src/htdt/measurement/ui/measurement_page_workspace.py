@@ -160,6 +160,11 @@ from ...ui_theme import (
     set_typography_role,
 )
 from ...navigation_target import NavigationTargetKind
+from ...dynamic_a11y import (
+    DynamicAnnouncer,
+    capture_focus,
+    restore_focus,
+)
 from ...workflow_navigation import WorkspaceDeepLink, WorkspaceId
 from ...workflow_shell import WorkspaceFactory, WorkspaceMount
 from ...workspace_dirty_state import DirtyResolutionAction, WorkspaceDirtyState
@@ -3243,11 +3248,19 @@ class MeasurementPageWorkspace(QWidget):
             self._operation_error_notice(
                 "レベル基準を登録できませんでした", exc
             )
+            self._quality_announcer.announce(
+                'operation_failed',
+                'レベル基準を登録できませんでした',
+                urgent=True,
+            )
             return
         self._set_notice(
             f"レベル基準を登録しました（"
             f"{level_reference_kind_label(record.level_reference_kind)}）",
             SemanticState.SUCCESS,
+        )
+        self._quality_announcer.announce(
+            'save_state', 'レベル基準を登録しました'
         )
         self.refresh()
 
@@ -5080,6 +5093,9 @@ class MeasurementPageWorkspace(QWidget):
         table_layout.addWidget(self.quality_selection_note)
 
         self.quality_table = QTableWidget(0, 10, table_card)
+        # #975: the objectName anchors the focus-retention token across
+        # the row rebuild that runs on every refresh/filter pass.
+        self.quality_table.setObjectName('quality-table')
         self.quality_table.setAccessibleName("保存済み測定一覧")
         self.quality_table.setHorizontalHeaderLabels(
             ["入力", "証拠", "測定位置", "品質", "位相", "共通タイミング", "配置", "帯域", "状態", "再測定"]
@@ -5316,6 +5332,13 @@ class MeasurementPageWorkspace(QWidget):
         retake_layout.addLayout(retake_row)
         layout.addWidget(retake_card)
 
+        # #975: exactly-once announcements for this surface, and an
+        # honest initial disabled state — the selection-dependent
+        # buttons start disabled with the reason on screen instead of
+        # enabled-and-silent.
+        self._quality_announcer = DynamicAnnouncer(self)
+        self._sync_quality_actions_enabled(False)
+
         # REV44-HEALTHSYNC: the record-entry surfaces for the two previously
         # write-only authorities — AV-sync conditions (this context is where
         # AV_SYNC_CONDITION deep links already route) and health baselines /
@@ -5359,6 +5382,10 @@ class MeasurementPageWorkspace(QWidget):
     ) -> None:
         if views is None:
             views = self.controller.measurement_views()
+        # #975: the table is rebuilt below — capture the keyboard
+        # anchor first so it re-points at the same measurement_id
+        # (or stays on the view when that row vanished).
+        focus_token = capture_focus(self)
         self._quality_views = views
         self._quality_views_by_id = {
             row.measurement_id: row for row in views
@@ -5492,8 +5519,19 @@ class MeasurementPageWorkspace(QWidget):
             self.quality_checks_label.setText("")
             self.quality_capabilities_label.setText("")
             self.retake_label.setText("保存済み測定はありません")
-            self.retake_button.setEnabled(False)
+            # #975: every selection-gated action stays disabled with
+            # its reason readable — never enabled-and-silent.
+            self._sync_quality_actions_enabled(
+                False,
+                reason=(
+                    '保存済み測定がありません — '
+                    '測定を取り込むと各操作を実行できます'
+                ),
+            )
             self._update_context_label()
+            restore_focus(
+                self, focus_token, fallback=self.quality_table
+            )
             return
         # Selection persists keyed by measurement_id (#969). A vanished or
         # filter-hidden selection stays cleared — the note above explains
@@ -5509,12 +5547,45 @@ class MeasurementPageWorkspace(QWidget):
             self.quality_table.selectRow(0)
         if self.quality_table.selectedItems():
             self._show_quality_row(self.quality_table.currentRow())
-        elif filtered:
-            self.quality_detail.setText("測定を選択してください")
         else:
-            self.quality_detail.setText(
-                "絞り込み条件に一致する測定はありません"
+            self._sync_quality_actions_enabled(False)
+            if filtered:
+                self.quality_detail.setText("測定を選択してください")
+            else:
+                self.quality_detail.setText(
+                    "絞り込み条件に一致する測定はありません"
+                )
+        restore_focus(self, focus_token, fallback=self.quality_table)
+
+    def _sync_quality_actions_enabled(
+        self, enabled: bool, *, reason: str | None = None
+    ) -> None:
+        """#975: the selection-gated quality actions.
+
+        Disabled means *explained*: the reason (and how to clear it) is
+        written into the two labels next to the buttons — a disabled
+        button itself drops out of the Tab order, so the reason cannot
+        live on the button alone. Enabled-only-while-selected is
+        honest; the handlers still guard on ``_selected_quality_view``.
+        """
+
+        buttons = (
+            self.retake_button,
+            self.disposition_apply_button,
+            self.correct_button,
+            self.attach_button,
+        )
+        for button in buttons:
+            button.setEnabled(enabled)
+        if not enabled:
+            text = (
+                reason
+                or '一覧から測定を選択すると、各操作を実行できます'
             )
+            self.disposition_label.setText(text)
+            self.retake_label.setText(text)
+            for button in buttons:
+                button.setToolTip(text)
 
     def _quality_row_index_for_id(self, measurement_id: str) -> int | None:
         """#969: resolve a measurement_id to its current VISUAL table row.
@@ -5998,7 +6069,6 @@ class MeasurementPageWorkspace(QWidget):
                 f"この系譜で選択中の測定: {_name(row.selected_measurement_id)}"
             )
         self.retake_label.setText("\n".join(retake_lines))
-        self.retake_button.setEnabled(True)
 
         # Lifecycle state + source attachments (#509, #446).
         disposition_parts = [
@@ -6025,10 +6095,25 @@ class MeasurementPageWorkspace(QWidget):
             if attachments
             else "ソース添付: なし"
         )
-        self.disposition_apply_button.setEnabled(True)
-        self.correct_button.setEnabled(True)
-        self.attach_button.setEnabled(True)
+        self._sync_quality_actions_enabled(True)
         self._update_level_reference_row(row)
+        # #975: the row's report going stale is announced once per
+        # measurement/state — selection changes alone never re-announce.
+        if row.quality_report_state != 'current':
+            self._quality_announcer.announce_state(
+                f'report-stale:{row.measurement_id}',
+                row.quality_report_state,
+                'result_stale',
+                '選択した測定の品質レポートは最新ではありません — '
+                '再評価で更新できます',
+            )
+        else:
+            self._quality_announcer.announce_state(
+                f'report-stale:{row.measurement_id}',
+                None,
+                'result_stale',
+                '',
+            )
 
         self._refresh_target_curve_choices()
         self._refresh_spatial(row)
@@ -6346,8 +6431,16 @@ class MeasurementPageWorkspace(QWidget):
             )
         except EXPECTED_OPERATION_ERRORS as exc:
             self._operation_error_notice("状態を記録できませんでした", exc)
+            self._quality_announcer.announce(
+                'operation_failed',
+                '測定の状態を記録できませんでした',
+                urgent=True,
+            )
             return
         self._set_notice("測定の状態を記録しました", SemanticState.SUCCESS)
+        self._quality_announcer.announce(
+            'save_state', '測定の状態を記録しました'
+        )
         self.refresh()
 
     def _start_correction(self) -> None:
@@ -6359,6 +6452,11 @@ class MeasurementPageWorkspace(QWidget):
             "「割り当て」で訂正する項目を直して保存してください。"
             "元の測定データは変更されません。",
             None,
+        )
+        self._quality_announcer.announce(
+            'operation_queued',
+            f'{row.target_name} の訂正です — '
+            '「割り当て」で直して保存してください',
         )
         self.refresh()
 
@@ -6387,8 +6485,16 @@ class MeasurementPageWorkspace(QWidget):
             )
         except EXPECTED_OPERATION_ERRORS as exc:
             self._operation_error_notice("添付に失敗しました", exc)
+            self._quality_announcer.announce(
+                'operation_failed',
+                'ソース添付を保存できませんでした',
+                urgent=True,
+            )
             return
         self._set_notice("ソース添付を保存しました", SemanticState.SUCCESS)
+        self._quality_announcer.announce(
+            'save_state', 'ソース添付を保存しました'
+        )
         self.refresh()
         self.quality_plot.enableAutoRange()
         self._update_context_label()
@@ -6403,6 +6509,11 @@ class MeasurementPageWorkspace(QWidget):
             f"{row.target_name} の再測定です。REWから再取得し、"
             "「割り当て」で同じ測定点・入力役割・音源を選んでください。",
             None,
+        )
+        self._quality_announcer.announce(
+            'retake_required',
+            f'{row.target_name} の再測定です — '
+            '「割り当て」で同じ測定点・入力役割・音源を選んでください',
         )
         self.set_context("import")
 

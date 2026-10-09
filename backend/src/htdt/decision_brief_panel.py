@@ -55,6 +55,13 @@ from .ui_theme import (
     set_typography_role,
 )
 from .user_facing_error import operation_error_message
+from .dynamic_a11y import (
+    DynamicAnnouncer,
+    capture_focus,
+    disabled_hint,
+    reason_label,
+    restore_focus,
+)
 
 
 _TIER_LABELS = {
@@ -184,6 +191,7 @@ class DecisionBriefPanel(QFrame):
             or CadDesignComparisonRepository(scene_repository)
         )
         self._on_status = on_status
+        self._announcer = DynamicAnnouncer(self)
         set_surface_role(self, SurfaceRole.RAISED)
         self.setFrameShape(QFrame.Shape.StyledPanel)
         layout = QVBoxLayout(self)
@@ -223,6 +231,7 @@ class DecisionBriefPanel(QFrame):
 
         controls = QHBoxLayout()
         self.rebuild_button = QPushButton('最新の比較セットから再計算')
+        self.rebuild_button.setObjectName('brief-rebuild')
         self.rebuild_button.setToolTip(
             '保存済みの最新比較セットから決定ブリーフを再計算して保存します。'
             'ゲート証拠は実際の検証レコードからスコープ一致で自動解決し、'
@@ -298,33 +307,53 @@ class DecisionBriefPanel(QFrame):
         return '\n'.join(lines)
 
     def refresh(self) -> None:
-        """Reload the newest persisted brief for this document."""
+        """Reload the newest persisted brief for this document.
 
-        try:  # error-boundary: repository read must never crash the page
-            head = self._scene_repository.current_head(self._document_id)
-            brief = self._brief_repository.latest_brief(self._document_id)
-        except Exception as exc:  # noqa: BLE001
-            self.freshness_label.setText('')
-            self.headline_label.setText(
-                f'決定ブリーフを読み込めません: '
-                f'{operation_error_message(exc)}'
-            )
-            self.ranking_label.setText('')
-            self._clear_actions()
-            return
-        if brief is None:
-            self.freshness_label.setText('')
-            self.headline_label.setText(
-                '決定ブリーフはまだ生成されていません。'
-            )
-            self.ranking_label.setText(
-                '比較セットを保存してから再計算してください。'
-            )
-            self._clear_actions()
-            return
-        self._render(brief, head_revision_id=(
-            head.revision_id if head is not None else None
-        ))
+        #975: the action cards are destroyed and rebuilt here — the
+        keyboard anchor is captured first and re-pointed at the same
+        action id after render, falling back to the rebuild control
+        only when that card genuinely disappeared.
+        """
+
+        token = capture_focus(self)
+        try:
+            try:  # error-boundary: repository read must never crash the page
+                head = self._scene_repository.current_head(self._document_id)
+                brief = self._brief_repository.latest_brief(self._document_id)
+            except Exception as exc:  # noqa: BLE001
+                self.freshness_label.setText('')
+                self.headline_label.setText(
+                    f'決定ブリーフを読み込めません: '
+                    f'{operation_error_message(exc)}'
+                )
+                self.ranking_label.setText('')
+                self._clear_actions()
+                self._announcer.announce_state(
+                    'brief',
+                    f'error:{type(exc).__name__}',
+                    'operation_failed',
+                    '決定ブリーフを読み込めませんでした',
+                    urgent=True,
+                )
+                return
+            if brief is None:
+                self.freshness_label.setText('')
+                self.headline_label.setText(
+                    '決定ブリーフはまだ生成されていません。'
+                )
+                self.ranking_label.setText(
+                    '比較セットを保存してから再計算してください。'
+                )
+                self._clear_actions()
+                self._announcer.announce_state(
+                    'brief', None, 'operation_completed', ''
+                )
+                return
+            self._render(brief, head_revision_id=(
+                head.revision_id if head is not None else None
+            ))
+        finally:
+            restore_focus(self, token, fallback=self.rebuild_button)
 
     def _render(
         self,
@@ -338,14 +367,32 @@ class DecisionBriefPanel(QFrame):
             )
         else:
             state, reason = 'stale', '現在のシーンリビジョンを確認できません'
+        # #975: a stale-evidence transition is announced exactly once
+        # per brief/state pair; re-rendering the same brief stays silent.
         if state == 'stale':
             self.freshness_label.setText(
                 f'この決定ブリーフは最新のシーンに対応しません（{reason}）。'
                 '結論は現在の候補として再表示されません。'
+                '「最新の比較セットから再計算」で現在のシーンに対応する'
+                'ブリーフを生成できます。'
             )
             set_semantic_state(self.freshness_label, SemanticState.WARNING)
+            self._announcer.announce_state(
+                'brief',
+                f'{brief.brief_id}:stale',
+                'result_stale',
+                '決定ブリーフが最新のシーンに対応しません — '
+                '再計算で更新できます',
+            )
         else:
             self.freshness_label.setText('')
+            self._announcer.announce_state(
+                'brief',
+                f'{brief.brief_id}:current',
+                'operation_completed',
+                '決定ブリーフを更新しました — '
+                f'{brief.ready_count}/{brief.action_count} 件が推奨可能',
+            )
         self.headline_label.setText(
             f'上位の次の一手: {_TIER_LABELS.get(brief.top_tier, brief.top_tier)}'
             f'（{brief.ready_count}/{brief.action_count} 件が推奨可能）'
@@ -361,7 +408,14 @@ class DecisionBriefPanel(QFrame):
         declared data (rec kind / gap gate), so an unroutable step shows
         as a disabled button with the reason instead of a dead click."""
 
-        card = QWidget()
+        # #975: create the card already parented to the container —
+        # rebuilt children only become visible via a posted show
+        # event, and restore_focus() flushes that queue before it
+        # resolves the keyboard anchor to this card's controls.
+        card = QWidget(self.actions_container)
+        # #975: stable objectName so a focus token re-resolves to the
+        # rebuilt card/buttons for this same action_id.
+        card.setObjectName(f'brief-action:{action.action_id}')
         layout = QVBoxLayout(card)
         layout.setContentsMargins(0, 0, 0, 4)
         layout.setSpacing(4)
@@ -373,40 +427,57 @@ class DecisionBriefPanel(QFrame):
         nav_row = QHBoxLayout()
         nav_row.setContentsMargins(0, 0, 0, 0)
         nav_row.setSpacing(6)
+        unreachable: list[str] = []
 
         rec_link = _recommendation_route(action)
         rec_kind = _REC_KIND_LABELS.get(
             action.recommendation.kind, action.recommendation.kind
         )
         rec_button = QPushButton(f'次の一手へ: {rec_kind}')
+        rec_button.setObjectName(f'brief-next:{action.action_id}')
         rec_button.setAccessibleName(
             f'次の一手 {action.rank}: {rec_kind}'
         )
-        self._wire_nav_button(
+        if not self._wire_nav_button(
             rec_button, rec_link,
-            unreachable_reason=(
-                'この「次の一手」の作業先はまだ接続されていません。'
+            unreachable_reason=disabled_hint(
+                f'brief.next.{action.action_id}',
+                'この「次の一手」の作業先はまだ接続されていません',
+                '対応するワークスペース画面から作業を進めてください',
             ),
-        )
+        ):
+            unreachable.append(rec_button.toolTip())
         nav_row.addWidget(rec_button)
 
         for gap in action.gaps:
             gate_label = _GATE_LABELS.get(gap.gate, gap.gate)
             gap_button = QPushButton(f'{gate_label} の証拠を作る画面へ')
+            gap_button.setObjectName(
+                f'brief-gap:{action.action_id}:{gap.gate}'
+            )
             gap_button.setAccessibleName(
                 f'{action.rank} の欠落証拠 {gate_label} の生成画面へ'
             )
-            self._wire_nav_button(
+            if not self._wire_nav_button(
                 gap_button, _gap_route(gap.gate),
-                unreachable_reason=(
+                unreachable_reason=disabled_hint(
+                    f'brief.gap.{action.action_id}.{gap.gate}',
                     f'{gate_label} の証拠を生成する画面は'
-                    'まだ接続されていません。'
+                    'まだ接続されていません',
+                    '対応するワークスペース画面から証拠を生成してください',
                 ),
-            )
+            ):
+                unreachable.append(gap_button.toolTip())
             nav_row.addWidget(gap_button)
 
         nav_row.addStretch(1)
         layout.addLayout(nav_row)
+        if unreachable:
+            # #975: a disabled button leaves the Tab order — its reason
+            # and the resolution path must be readable on this screen.
+            hint = reason_label('\n'.join(unreachable), card)
+            hint.setObjectName(f'brief-hint:{action.action_id}')
+            layout.addWidget(hint)
         return card
 
     def _wire_nav_button(
@@ -415,11 +486,14 @@ class DecisionBriefPanel(QFrame):
         link: WorkspaceDeepLink | None,
         *,
         unreachable_reason: str,
-    ) -> None:
+    ) -> bool:
+        """Returns False when the button ends up disabled — the caller
+        then surfaces the reason on the card itself (#975)."""
         if link is None or self._on_navigate is None:
             button.setEnabled(False)
             button.setToolTip(unreachable_reason)
-            return
+            button.setAccessibleDescription(unreachable_reason)
+            return False
         button.setToolTip(
             f'{link.workspace}/{link.section or ""} へ移動します。'
         )
@@ -427,6 +501,7 @@ class DecisionBriefPanel(QFrame):
             lambda _checked=False, target=link, b=button:
                 self._navigate(target, b)
         )
+        return True
 
     def _navigate(
         self, link: WorkspaceDeepLink, _button: QPushButton
@@ -523,12 +598,19 @@ class DecisionBriefPanel(QFrame):
             )
             self._brief_repository.save_brief(brief)
         except Exception as exc:  # noqa: BLE001
-            self._set_status(
+            message = (
                 f'決定ブリーフを作成できません: '
                 f'{operation_error_message(exc)}'
             )
+            self._set_status(message)
+            self._announcer.announce(
+                'operation_failed', message, urgent=True
+            )
             return None
         self._set_status('決定ブリーフを保存しました')
+        self._announcer.announce(
+            'save_state', '決定ブリーフを保存しました'
+        )
         self.refresh()
         return brief
 

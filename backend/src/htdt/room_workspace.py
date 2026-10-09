@@ -4862,12 +4862,38 @@ class RoomWorkspace(QWidget):
             )
             panel.set_report(controller.report)
             panel.set_proposal(controller.proposal)
+            derive_enabled = (
+                controller.acceptance is not None
+                and controller.revision is None
+            )
+            # #975: the on-screen disabled-reason text must name the
+            # real block — the controller knows which stage gate it.
+            derive_blocked = derive_resolution = None
+            if not derive_enabled:
+                if controller.revision is not None:
+                    derive_blocked = (
+                        '派生リビジョンはこの受理レコードから生成済みです'
+                    )
+                    derive_resolution = (
+                        '別の派生が必要な場合は、修復提案への決定を'
+                        'やり直して受理レコードを再記録してください'
+                    )
+                elif controller.proposal is None:
+                    derive_blocked = '修復提案がまだありません'
+                    derive_resolution = (
+                        '診断を実行して修復提案を作成してください'
+                    )
+                else:
+                    derive_blocked = '修復提案への決定が未完了です'
+                    derive_resolution = (
+                        '各提案の承認/却下をすべて記録して'
+                        '受理レコードを生成してください'
+                    )
             panel.set_stage(
                 has_subject=controller.subject is not None,
-                derive_enabled=(
-                    controller.acceptance is not None
-                    and controller.revision is None
-                ),
+                derive_enabled=derive_enabled,
+                derive_blocked=derive_blocked,
+                derive_resolution=derive_resolution,
             )
             if controller.verdict is not None:
                 evidence = controller.verdict_evidence_state()

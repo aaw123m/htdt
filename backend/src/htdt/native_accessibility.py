@@ -22,6 +22,8 @@ AnnouncementEvent = Literal[
     'operation_running',
     'operation_completed',
     'operation_failed',
+    'operation_blocked',
+    'operation_unblocked',
     'retake_required',
     'result_stale',
     'save_state',
@@ -38,6 +40,8 @@ REQUIRED_ANNOUNCEMENTS: frozenset[AnnouncementEvent] = frozenset(
         'operation_queued',
         'operation_completed',
         'operation_failed',
+        'operation_blocked',
+        'operation_unblocked',
         'retake_required',
         'result_stale',
         'save_state',
@@ -47,22 +51,47 @@ REQUIRED_ANNOUNCEMENTS: frozenset[AnnouncementEvent] = frozenset(
 
 
 class DisabledControlReason(BaseModel):
-    """Every disabled primary control must expose a human-readable why."""
+    """Every disabled primary control must expose a human-readable why.
+
+    #975: ``reason`` says why the action cannot run; ``resolution`` says
+    where/how the block clears — both must be readable from the same
+    screen, because a disabled button drops out of Tab order and its
+    tooltip can never be reached by keyboard alone.
+    """
 
     model_config = ConfigDict(frozen=True, extra='forbid')
 
     control_id: str = Field(min_length=1)
     reason: str = Field(min_length=1)
+    resolution: str | None = None
 
     @model_validator(mode='after')
     def valid_reason(self) -> 'DisabledControlReason':
         # Internal class names, UUIDs and schema tokens are not readable
-        # reasons (#731: name/role/value contract).
-        if len(self.reason) < 8 or ' ' not in self.reason:
+        # reasons (#731: name/role/value contract). Japanese phrases
+        # legitimately carry no spaces — a CJK character count is the
+        # readability signal there.
+        for field, value in (
+            ('reason', self.reason),
+            ('resolution', self.resolution),
+        ):
+            if value is None:
+                continue
+            if len(value) >= 8 and (
+                ' ' in value
+                or any('぀' <= c <= 'ヿ' or '一' <= c <= '鿿' for c in value)
+            ):
+                continue
             raise ValueError(
-                'disabled reason must be a human-readable phrase'
+                f'disabled {field} must be a human-readable phrase'
             )
         return self
+
+    def display_text(self) -> str:
+        """On-screen 'why + how to resolve' sentence for the surface."""
+        if self.resolution:
+            return f'{self.reason} — 解消: {self.resolution}'
+        return self.reason
 
 
 class StatusAnnouncement(BaseModel):
