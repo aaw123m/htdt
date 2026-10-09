@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 import logging
 import sqlite3
@@ -141,6 +141,17 @@ from .prediction_interpretation import (
 from .prediction_matrix_service import PredictionMatrixService
 from .prerun_cost_card import PrerunCostCard
 from .room_workspace import RoomWorkspaceController
+from .activity_center import (
+    ActivityCenter,
+    ApplicationOperation,
+    Cancellability,
+    NavigationPolicy,
+    OperationClass,
+    OperationRetryRequest,
+    OperationTransitionError,
+    RetryPolicy,
+)
+from .workflow_navigation import WorkspaceDeepLink, WorkspaceId
 from .ui_theme import (
     DARK_THEME,
     SemanticState,
@@ -210,6 +221,7 @@ class RoomPredictionController(QObject):
         operating_state_repository: CadRoomOperatingStateRepository | None = None,
         variant_repository: CadSystemVariantRepository | None = None,
         hybrid_provider_repository: CadHybridPredictionProviderRepository | None = None,
+        activity_center: ActivityCenter | None = None,
     ) -> None:
         super().__init__(parent)
         self.scene_repository = scene_repository
@@ -267,6 +279,12 @@ class RoomPredictionController(QObject):
         self._current_job_id: str | None = None
         self._selected_run_id: str | None = None
         self._disposed = False
+        # #974: every pool job is canonically registered in the app
+        # ActivityCenter — job_id → operation_id for completion mapping,
+        # operation_id → spec for SAFE_NEW_ATTEMPT retries.
+        self._activity_center = activity_center
+        self._operation_ids: dict[str, str] = {}
+        self._retry_specs: dict[str, RoomPredictionRunSpec] = {}
 
     @property
     def _tasks(self) -> dict[str, tuple[QThread, NativeWorker]]:
@@ -1208,6 +1226,7 @@ class RoomPredictionController(QObject):
                         "登録済みプロバイダー出力を参照しています…",
                     )
                 )
+                self._register_operation(spec)
                 self._pool.start(
                     spec.token.job_id,
                     lambda cancel_event: self._operation(spec, cancel_event),
@@ -1247,6 +1266,7 @@ class RoomPredictionController(QObject):
         self._current_job_id = spec.token.job_id
         self._begin_prerun_measurement(spec)
         self.stateChanged.emit(RoomPredictionRunState(True, "予測を計算しています…"))
+        self._register_operation(spec)
         self._pool.start(
             spec.token.job_id,
             lambda cancel_event: self._operation(spec, cancel_event),
@@ -1259,11 +1279,16 @@ class RoomPredictionController(QObject):
         job_id = self._current_job_id
         if job_id is None:
             return False
+        return self._cancel_job(job_id)
+
+    def _cancel_job(self, job_id: str) -> bool:
+        """Cooperative cancel of one job — also the ActivityCenter callback (#974)."""
         token = self._tokens.get(job_id)
         if token is not None:
             self.job_guard.cancel(token)
         self._pool.cancel(job_id)
-        self._current_job_id = None
+        if self._current_job_id == job_id:
+            self._current_job_id = None
         self._prerun_estimates.pop(job_id, None)
         self._run_started.pop(job_id, None)
         self.stateChanged.emit(
@@ -1273,6 +1298,134 @@ class RoomPredictionController(QObject):
             )
         )
         return True
+
+    # -- ActivityCenter registration (#974) -------------------------------
+
+    def _register_operation(
+        self,
+        spec: RoomPredictionRunSpec,
+        *,
+        operation_id: str | None = None,
+        retry_of: str | None = None,
+        attempt: int = 1,
+    ) -> str | None:
+        """Canonically register one pool dispatch before it starts.
+
+        Progress stays INDETERMINATE — the solver reports no stage/fraction
+        and the strip/page show honest 進行中 instead of an invented %.
+        """
+
+        center = self._activity_center
+        if center is None:
+            return None
+        job_id = spec.token.job_id
+        try:
+            operation_id = center.submit(
+                operation_kind='prediction.run',
+                operation_class=OperationClass.COMPUTE,
+                title="部屋の音響予測",
+                project_ref=self.document_id,
+                document_ref=self.document_id,
+                input_authority_refs=(
+                    f'scene-revision:{spec.revision.revision_id}',
+                ),
+                revision_ref=spec.revision.revision_id,
+                cancellability=Cancellability.CANCELLABLE,
+                cancel_callback=lambda: self._cancel_job(job_id),
+                retry_policy=RetryPolicy.SAFE_NEW_ATTEMPT,
+                navigation_policy=NavigationPolicy.BACKGROUNDABLE,
+                deep_link=WorkspaceDeepLink(WorkspaceId.ROOM, 'acoustics'),
+                domain_payload={'retry': self._retry_run},
+                operation_id=operation_id,
+                retry_of=retry_of,
+                attempt=attempt,
+            )
+            center.mark_running(operation_id)
+        except OperationTransitionError:
+            return None
+        self._operation_ids[job_id] = operation_id
+        self._retry_specs[operation_id] = spec
+        return operation_id
+
+    def _finish_operation(
+        self,
+        job_id: str,
+        *,
+        cancelled: bool = False,
+        error: object = None,
+        result_summary: str | None = None,
+    ) -> None:
+        """Map the worker outcome onto the registered operation (#974).
+
+        Registry bookkeeping never blocks the completion path — a transition
+        error here only means the record already reached its terminal state.
+        """
+
+        operation_id = self._operation_ids.pop(job_id, None)
+        center = self._activity_center
+        if operation_id is None or center is None:
+            return
+        try:
+            if cancelled:
+                center.confirm_cancelled(operation_id)
+            elif error is not None:
+                center.fail(
+                    operation_id,
+                    error_summary=operation_error_message(error),
+                )
+            else:
+                center.complete(operation_id, result_summary=result_summary)
+        except (KeyError, OperationTransitionError):
+            pass
+
+    def _retry_run(
+        self, operation: ApplicationOperation, new_operation_id: str
+    ) -> OperationRetryRequest | None:
+        """SAFE_NEW_ATTEMPT adapter: resubmit the stored spec under a new
+        attempt identity pre-bound to ``new_operation_id`` (#974).
+
+        The spec's original revision/identity are kept — ``accept_results``
+        still gates on the CURRENT context at apply time, so a retried run
+        whose input was superseded is discarded honestly, never applied.
+        """
+
+        if self._disposed or self.is_busy or self._activity_center is None:
+            return None
+        spec = self._retry_specs.get(operation.operation_id)
+        if spec is None:
+            return None
+        constraint_hash = self._constraint_hash()
+        token = self.job_guard.submit(
+            spec.revision,
+            model_id=spec.identity.model_id,
+            model_version=spec.identity.model_version,
+            parameters_json=spec.identity.parameters_json,
+            input_hash=spec.identity.input_hash,
+            constraint_workspace_hash=constraint_hash,
+        )
+        new_spec = replace(
+            spec, token=token, constraint_workspace_hash=constraint_hash
+        )
+        job_id = token.job_id
+        self._tokens[job_id] = token
+        self._specs[job_id] = new_spec
+        self._current_job_id = job_id
+        self._begin_prerun_measurement(new_spec)
+        self._operation_ids[job_id] = new_operation_id
+        self._retry_specs[new_operation_id] = new_spec
+        self.stateChanged.emit(
+            RoomPredictionRunState(True, "予測を再実行しています…")
+        )
+        self._pool.start(
+            job_id,
+            lambda cancel_event: self._operation(new_spec, cancel_event),
+            self._task_completed,
+            on_finished=self._task_thread_finished,
+        )
+        return OperationRetryRequest(
+            cancel_callback=lambda: self._cancel_job(job_id),
+            domain_payload={'retry': self._retry_run},
+        )
 
     def _current_apply_context(self) -> PredictionJobApplyContext | None:
         working = self.room_controller.working
@@ -1335,6 +1488,7 @@ class RoomPredictionController(QObject):
         if self._current_job_id == job_id:
             self._current_job_id = None
         if token is None or spec is None:
+            self._finish_operation(job_id, cancelled=True)
             self._completion_states[job_id] = RoomPredictionRunState(
                 False,
                 "予測処理を終了しました",
@@ -1344,12 +1498,14 @@ class RoomPredictionController(QObject):
         final_state: RoomPredictionRunState
         if self.job_guard.is_cancelled(token) or error == WORKER_CANCELLED:
             final_state = RoomPredictionRunState(False, "予測はキャンセルされました")
+            self._finish_operation(job_id, cancelled=True)
         elif error is not None:
             final_state = RoomPredictionRunState(
                 False,
                 f"予測に失敗しました · {operation_error_message(error)}",
                 error=True,
             )
+            self._finish_operation(job_id, error=error)
         else:
             try:
                 accepted = self.accept_results(spec, result)
@@ -1359,17 +1515,23 @@ class RoomPredictionController(QObject):
                     f"予測結果を拒否しました · {operation_error_message(exc)}",
                     error=True,
                 )
+                self._finish_operation(job_id, error=exc)
             except sqlite3.Error as exc:
                 final_state = RoomPredictionRunState(
                     False,
                     f"予測結果を保存できませんでした · {operation_error_message(exc)}",
                     error=True,
                 )
+                self._finish_operation(job_id, error=exc)
             else:
                 if accepted is None:
                     final_state = RoomPredictionRunState(
                         False,
                         "条件が変更されたため古い予測結果を破棄しました",
+                    )
+                    self._finish_operation(
+                        job_id,
+                        result_summary="条件が変更されたため古い予測結果を破棄しました",
                     )
                 else:
                     self._record_run_observation(
@@ -1385,6 +1547,10 @@ class RoomPredictionController(QObject):
                             if compatibility == "unsupported"
                             else "予測を保存しました"
                         ),
+                    )
+                    self._finish_operation(
+                        job_id,
+                        result_summary=f"予測を保存しました（{len(accepted)}件）",
                     )
 
         # Keep the worker visible as busy until QThread has actually emitted
@@ -1573,8 +1739,10 @@ class RoomPredictionController(QObject):
         return self.select_run(self._selected_run_id)
 
     def before_deactivate(self) -> tuple[bool, str | None]:
-        if self.is_busy:
-            return False, "予測の完了またはキャンセル後に画面を切り替えてください"
+        # #974: prediction runs are BACKGROUNDABLE operations — the mount
+        # persists across workspace switches, the job keeps running, and
+        # the Activity strip/page keep its state visible. Late results
+        # still gate through accept_results() on re-entry.
         return True, None
 
     def stop(self) -> WorkerShutdownReport:
@@ -1585,9 +1753,11 @@ class RoomPredictionController(QObject):
         escalation so the operator can abandon wedged prediction work and
         keep editing instead of being permanently vetoed (#REV19/D1).
         """
+        self._request_operation_cancels()
         for token in tuple(self._tokens.values()):
             self.job_guard.cancel(token)
         report = self._pool.stop_all()
+        self._confirm_operation_cancels()
         self._tokens.clear()
         self._specs.clear()
         self._prerun_estimates.clear()
@@ -1604,11 +1774,43 @@ class RoomPredictionController(QObject):
         )
         return report
 
+    def _request_operation_cancels(self) -> None:
+        """Mark every registered op CANCELLATION_REQUESTED pre-drain (#974)."""
+
+        center = self._activity_center
+        if center is None:
+            return
+        for operation_id in tuple(self._operation_ids.values()):
+            try:
+                center.request_cancel(operation_id)
+            except (KeyError, OperationTransitionError):
+                pass
+
+    def _confirm_operation_cancels(self) -> None:
+        """Confirm CANCELLED once the pool has drained (#974).
+
+        A job that outlives the drain budget is still confirmed here: its
+        late completion is dropped by the released-task contract and can
+        never be applied, so CANCELLED is the honest terminal state.
+        """
+
+        center = self._activity_center
+        if center is None:
+            return
+        for operation_id in tuple(self._operation_ids.values()):
+            try:
+                center.confirm_cancelled(operation_id)
+            except (KeyError, OperationTransitionError):
+                pass
+        self._operation_ids.clear()
+
     def dispose(self) -> None:
         self._disposed = True
+        self._request_operation_cancels()
         for token in tuple(self._tokens.values()):
             self.job_guard.cancel(token)
         report = self._pool.shutdown()
+        self._confirm_operation_cancels()
         if not report.all_stopped:
             self.stateChanged.emit(
                 RoomPredictionRunState(

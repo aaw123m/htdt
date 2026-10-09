@@ -5,7 +5,7 @@ from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field, replace
 from typing import TypeAlias
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QCloseEvent, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QButtonGroup,
@@ -22,8 +22,15 @@ from PySide6.QtWidgets import (
 )
 
 from .accessible_labels import (
+    announce_status,
     wire_label_buddies,
     wire_status_announcements,
+)
+from .activity_center import (
+    ActivityCenter,
+    ApplicationOperation,
+    OperationState,
+    operation_state_label,
 )
 from .ui_theme import (
     ControlSize,
@@ -807,6 +814,163 @@ class TopContextBar(QFrame):
         )
 
 
+class ActivityStatusStrip(QFrame):
+    """Shell-level ActivityCenter summary (#974).
+
+    Sits under the context bar so in-flight work stays visible from every
+    workspace: running/queued counts, the latest failure, and — for
+    exclusive operations — *why* navigation is blocked and what is still
+    possible. Per-operation cancel/retry/deep-links live on the Activity
+    destination behind the open button; the strip only reports real state
+    and announces state transitions politely to screen readers.
+    """
+
+    openRequested = Signal()
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setObjectName("activityStatusStrip")
+        set_surface_role(self, SurfaceRole.RAISED)
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(8, 2, 8, 2)
+        layout.setSpacing(8)
+
+        self._title = QLabel("アクティビティ")
+        set_typography_role(self._title, TypographyRole.SECTION_TITLE)
+        layout.addWidget(self._title)
+
+        self._status_label = QLabel()
+        self._status_label.setObjectName("activityStatusText")
+        self._status_label.setAccessibleName("処理の状態")
+        layout.addWidget(self._status_label, 1)
+
+        self._block_label = QLabel()
+        self._block_label.setObjectName("activityBlockText")
+        self._block_label.setAccessibleName("画面移動の制限")
+        layout.addWidget(self._block_label)
+
+        self._open_button = QPushButton("状況を開く")
+        self._open_button.setObjectName("activityOpenButton")
+        self._open_button.setAccessibleName("アクティビティの状況画面を開く")
+        self._open_button.clicked.connect(self.openRequested.emit)
+        layout.addWidget(self._open_button)
+
+        self._center: "ActivityCenter | None" = None
+        self._listener: "Callable[[ApplicationOperation], None] | None" = None
+        self._refresh_queued = False
+        # op_id -> last announced JA state label; only *changes* are
+        # announced so a refresh storm never reads the same state twice.
+        self._announced: dict[str, str] = {}
+        self._update_display((), (), ())
+
+    def bind(self, center: "ActivityCenter | None") -> None:
+        """Attach/detach the registry; rebinds safely across project switches."""
+
+        if self._center is center:
+            return
+        if self._center is not None and self._listener is not None:
+            self._center.unsubscribe(self._listener)
+        self._center = center
+        self._listener = None
+        self._announced.clear()
+        if center is not None:
+            def listener(_operation) -> None:
+                self._queue_refresh()
+
+            self._listener = listener
+            center.subscribe(listener)
+        self._queue_refresh()
+
+    def _queue_refresh(self) -> None:
+        # Registry listeners fire on the mutating thread (often a worker);
+        # singleShot with a receiver posts the refresh to this widget's
+        # thread — the same pattern the Activity page uses.
+        if self._refresh_queued:
+            return
+        self._refresh_queued = True
+        QTimer.singleShot(0, self, self._refresh)
+
+    def _refresh(self) -> None:
+        self._refresh_queued = False
+        center = self._center
+        if center is None:
+            self._update_display((), (), ())
+            return
+        self._update_display(
+            center.active(),
+            center.recent(1),
+            center.navigation_blockers(),
+        )
+
+    def _update_display(
+        self,
+        active: "tuple[ApplicationOperation, ...]",
+        recent: "tuple[ApplicationOperation, ...]",
+        blockers: "tuple[ApplicationOperation, ...]",
+    ) -> None:
+        counts = {
+            OperationState.RUNNING: 0,
+            OperationState.QUEUED: 0,
+            OperationState.PREFLIGHTING: 0,
+            OperationState.CANCELLATION_REQUESTED: 0,
+        }
+        for operation in active:
+            if operation.state in counts:
+                counts[operation.state] += 1
+        parts = []
+        if counts[OperationState.RUNNING]:
+            parts.append(f"実行中 {counts[OperationState.RUNNING]}件")
+        if counts[OperationState.CANCELLATION_REQUESTED]:
+            parts.append(
+                f"中止要求中 {counts[OperationState.CANCELLATION_REQUESTED]}件"
+            )
+        waiting = counts[OperationState.QUEUED] + counts[OperationState.PREFLIGHTING]
+        if waiting:
+            parts.append(f"待機 {waiting}件")
+        text = " · ".join(parts) if parts else "実行中の処理はありません"
+        if recent:
+            latest = recent[-1]
+            detail = latest.error_summary or latest.result_summary
+            latest_text = (
+                f"直近: {latest.title} — {operation_state_label(latest.state)}"
+            )
+            if latest.state == OperationState.FAILED and detail:
+                latest_text += f"（{detail}）"
+            text = f"{text}　{latest_text}"
+        self._status_label.setText(text)
+
+        if blockers:
+            first = blockers[0]
+            reason = first.navigation_block_reason or "排他的な処理を実行中です"
+            overflow = (
+                f"（ほか {len(blockers) - 1} 件）" if len(blockers) > 1 else ""
+            )
+            self._block_label.setText(
+                f"画面を移動できません: {first.title} — {reason}{overflow}"
+            )
+        else:
+            self._block_label.setText("")
+        self._announce_changes(active, recent)
+
+    def _announce_changes(
+        self,
+        active: "tuple[ApplicationOperation, ...]",
+        recent: "tuple[ApplicationOperation, ...]",
+    ) -> None:
+        visible = {op.operation_id: op for op in (*active, *recent)}
+        announced: dict[str, str] = {}
+        for operation_id, operation in visible.items():
+            label = operation_state_label(operation.state)
+            previous = self._announced.get(operation_id)
+            if previous is not None and previous != label:
+                announce_status(
+                    self._status_label,
+                    f"{operation.title}: {previous} → {label}",
+                )
+            announced[operation_id] = label
+        self._announced = announced
+
+
 class WorkflowShellWindow(QMainWindow):
     """Workflow-first shell; domain and SceneRevision authority stay in workspaces."""
 
@@ -880,6 +1044,11 @@ class WorkflowShellWindow(QMainWindow):
             on_palette=self.paletteRequested.emit,
         )
         content_layout.addWidget(self.context_bar)
+
+        # #974: ActivityCenter summary strip — bound by the composition
+        # once the registry exists; idle text until then.
+        self.activity_strip = ActivityStatusStrip()
+        content_layout.addWidget(self.activity_strip)
 
         self.router = WorkspaceRouter(registration_tuple)
         content_layout.addWidget(self.router, 1)

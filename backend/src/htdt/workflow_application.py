@@ -50,6 +50,7 @@ from .activity_center import (
     OperationClass,
     OperationState,
     OperationTransitionError,
+    RetryPolicy,
 )
 from .capture_inbox import CaptureInboxRepository
 from .capture_watch_failures import (
@@ -898,6 +899,13 @@ class WorkflowApplicationComposition:
         # data root so the next session can see what ran/failed last.
         self.activity_center = ActivityCenter()
         self.activity_center.subscribe(self._persist_activity_history)
+        # #974: the shell strip mirrors registry state from every
+        # workspace; the open button lands on the Activity destination
+        # through the normal guarded navigate path.
+        self.shell.activity_strip.bind(self.activity_center)
+        self.shell.activity_strip.openRequested.connect(
+            lambda: self.shell.navigate(ApplicationDestinationId.ACTIVITY)
+        )
         # Round10: uncaught exceptions also land here as failed
         # pseudo-operations — the status-bar line fades, this record does
         # not. Bounded per session so a crash-looping slot cannot flood the
@@ -3534,6 +3542,8 @@ class WorkflowApplicationComposition:
             list_operations=operations,
             list_events=list_events,
             open_link=self._open_activity_link,
+            cancel_operation=self._cancel_activity_operation,
+            retry_operation=self._retry_activity_operation,
             document_id=self.document_id or None,
             project_refs=project_refs,
             document_label=lambda doc_id: library_names.get(doc_id, doc_id),
@@ -3559,6 +3569,67 @@ class WorkflowApplicationComposition:
             on_activate=page.refresh,
             focus_target=lambda target: _self.activity_focus(page, target),
         )
+
+    def _cancel_activity_operation(self, operation_id: str) -> bool:
+        """Activity-page cancel: request cooperative cancellation (#974).
+
+        The center flips the record to CANCELLATION_REQUESTED and invokes
+        the adapter's live cancel callback — the operation only reaches
+        CANCELLED once its executor actually confirms.
+        """
+
+        try:
+            return self.activity_center.request_cancel(operation_id)
+        except (KeyError, OperationTransitionError):
+            return False
+
+    def _retry_activity_operation(self, operation_id: str) -> bool:
+        """Activity-page retry: dispatch through the op's adapter retrier (#974).
+
+        SAFE_NEW_ATTEMPT attempts stay linked to the original record via
+        ``center.retry`` — the adapter pre-binds its executor key to the
+        new attempt id, then the registry creates it. UNSAFE re-runs are
+        deliberately not linked attempts: the page has already collected
+        the explicit re-authorization, so the adapter submits a fresh
+        operation of its own.
+        """
+
+        center = self.activity_center
+        snapshot = center.get(operation_id)
+        if snapshot is None or snapshot.is_active:
+            return False
+        payload = center.domain_payload_of(operation_id)
+        if not isinstance(payload, dict):
+            return False
+        if snapshot.retry_policy == RetryPolicy.SAFE_NEW_ATTEMPT:
+            retrier = payload.get('retry')
+            if retrier is None:
+                return False
+            new_operation_id = f'op-{uuid4().hex[:12]}'
+            try:
+                request = retrier(snapshot, new_operation_id)
+            except EXPECTED_OPERATION_ERRORS:
+                return False
+            if request is None:
+                return False
+            try:
+                center.retry(
+                    operation_id,
+                    retry_factory=lambda _op: request,
+                    new_operation_id=new_operation_id,
+                )
+            except (KeyError, OperationTransitionError):
+                return False
+            return True
+        if snapshot.retry_policy == RetryPolicy.UNSAFE:
+            rerun = payload.get('rerun')
+            if rerun is None:
+                return False
+            try:
+                return rerun(snapshot) is not None
+            except EXPECTED_OPERATION_ERRORS:
+                return False
+        return False
 
     def _open_activity_link(self, uri: str) -> bool:
         try:
@@ -3709,7 +3780,7 @@ class WorkflowApplicationComposition:
             open_credential_vault=self._open_credential_vault,
             health_runner=SupportHealthRunner(
                 self.data_dir,
-                self.activity_center,
+                getattr(self, 'activity_center', None),
                 self._support_health_job_factory,
             ),
             open_data_management=(
@@ -3748,6 +3819,9 @@ class WorkflowApplicationComposition:
             self.data_dir,
             rew_base_url=self.preferences.rew_api_base_url,
         )
+        set_activity_center = getattr(page, 'set_activity_center', None)
+        if set_activity_center is not None:
+            set_activity_center(getattr(self, 'activity_center', None))
         return WorkspaceMount.from_widget(page, on_activate=page.refresh)
 
     def _make_verification_wizard(self) -> WorkspaceMount:
@@ -4538,7 +4612,7 @@ class WorkflowApplicationComposition:
             navigate=self._navigate_target,
             # #985: package exports register their worker-lane jobs in the
             # shared ActivityCenter (progress/cancel/history).
-            activity_center=self.activity_center,
+            activity_center=getattr(self, 'activity_center', None),
         )
 
         def activate() -> None:
@@ -4576,6 +4650,7 @@ class WorkflowApplicationComposition:
             self.document_id,
             on_navigate=self._navigate_target,
         )
+        workspace.set_activity_center(getattr(self, 'activity_center', None))
         if not isinstance(workspace.viewport, _self.RoomViewport3D):
             raise TypeError("UX120 Room workspace requires RoomViewport3D")
 
@@ -4661,6 +4736,7 @@ class WorkflowApplicationComposition:
             workspace.controller,
             parent=workspace,
             provider_repository=prediction_lane.provider_repository,
+            activity_center=getattr(self, 'activity_center', None),
         )
         prediction_panel = _self.RoomPredictionPanel(
             prediction, prediction_lane=prediction_lane
@@ -4989,7 +5065,9 @@ class WorkflowApplicationComposition:
             return workspace.before_deactivate()
 
         def dirty_state() -> WorkspaceDirtyState:
-            if prediction.before_deactivate()[0] is False:
+            # #974: navigation is allowed mid-run, but a close still
+            # resolves in-flight work through the stop_busy path.
+            if prediction.is_busy:
                 return 'busy'
             return workspace.controller.dirty_state()
 
@@ -5185,7 +5263,7 @@ class WorkflowApplicationComposition:
             help_registry=self.help_registry,
             open_help=self._open_help_topic,
             preferences=self.preferences,
-            activity_center=self.activity_center,
+            activity_center=getattr(self, 'activity_center', None),
         )
         workspace = mount.widget
         original_activate = mount.on_activate
@@ -5292,6 +5370,7 @@ class WorkflowApplicationComposition:
             self.document_id,
             on_navigate=self._navigate_target,
             rew_client=self._make_rew_client(),
+            activity_center=getattr(self, 'activity_center', None),
         )
         workspace = mount.widget
         controller = workspace.controller  # type: ignore[attr-defined]

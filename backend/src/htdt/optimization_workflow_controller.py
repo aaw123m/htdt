@@ -22,6 +22,17 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .activity_center import (
+    ActivityCenter,
+    ApplicationOperation,
+    Cancellability,
+    NavigationPolicy,
+    OperationClass,
+    OperationRetryRequest,
+    OperationTransitionError,
+    RetryPolicy,
+)
+from .workflow_navigation import WorkspaceDeepLink, WorkspaceId
 from .cad_adaptive_extended_repository import CadAdaptiveExtendedRepository
 from .cad_adaptive_extended_service import CadAdaptiveExtendedPlannerService
 from .cad_adaptive_repository import CadAdaptivePlanRepository
@@ -159,6 +170,7 @@ class OptimizationWorkflowController(
         document_id: str,
         *,
         rew_client: RewReadSource | None = None,
+        activity_center: ActivityCenter | None = None,
     ) -> None:
         QObject.__init__(self)
         self.repository = repository
@@ -262,6 +274,10 @@ class OptimizationWorkflowController(
 
         self.rew_client = rew_client if rew_client is not None else RewApiClient()
         self.rew_job_guard = MeasurementJobGuard()
+        # #974: every pool task is canonically registered in the app
+        # ActivityCenter — task key → operation_id for completion mapping.
+        self._activity_center = activity_center
+        self._operation_ids_by_key: dict[str, str] = {}
         self._rew_pool = NativeWorkerPool(self)
         self._rew_tokens: dict[str, MeasurementJobToken] = {}
         self._rew_semantics: dict[str, tuple[str, str, str | None, str | None]] = {}
@@ -304,13 +320,138 @@ class OptimizationWorkflowController(
         self._rebuild(reset_camera=changed)
 
     def before_deactivate(self) -> tuple[bool, str | None]:
-        if self.active_search_worker_count() or self.active_extended_worker_count():
-            return False, "候補生成が完了またはキャンセルされるまで画面を切り替えられません"
-        if self._rew_tasks:
-            return False, "REW読み込みが完了するまで画面を切り替えられません"
-        if self._adaptive_pool.active_count:
-            return False, "アダプティブ計画計算が完了またはキャンセルされるまで画面を切り替えられません"
+        if self._activity_center is not None:
+            # #974: BACKGROUNDABLE work (candidate search, REW fetch)
+            # keeps running while the operator navigates — the Activity
+            # strip/page show its state and the mount persists. Only
+            # EXCLUSIVE operations (commit-point writes like plan builds)
+            # still block, with the reason shown.
+            blockers = self._activity_center.navigation_blockers()
+            if blockers:
+                first = blockers[0]
+                reason = (
+                    first.navigation_block_reason
+                    or '排他的な処理を実行中です'
+                )
+                return False, f"{first.title}: {reason}"
+        else:
+            # Unregistered wiring (tests): keep the pool-busy guard.
+            if (
+                self.active_search_worker_count()
+                or self.active_extended_worker_count()
+            ):
+                return False, "候補生成が完了またはキャンセルされるまで画面を切り替えられません"
+            if self._rew_tasks:
+                return False, "REW読み込みが完了するまで画面を切り替えられません"
+            if self._adaptive_pool.active_count:
+                return False, "アダプティブ計画計算が完了またはキャンセルされるまで画面を切り替えられません"
         return self.scene.before_deactivate()
+
+    # -- ActivityCenter registration (#974) -------------------------------
+
+    def _submit_operation(
+        self,
+        *,
+        task_key: str,
+        operation_kind: str,
+        title: str,
+        input_authority_refs: tuple[str, ...] = (),
+        revision_ref: str | None = None,
+        cancellability: Cancellability = Cancellability.NOT_CANCELLABLE,
+        cancel_callback: Callable[[], None] | None = None,
+        retry_policy: RetryPolicy = RetryPolicy.NONE,
+        navigation_policy: NavigationPolicy = NavigationPolicy.BACKGROUNDABLE,
+        navigation_block_reason: str | None = None,
+        deep_link: WorkspaceDeepLink | None = None,
+        domain_payload: object = None,
+        operation_id: str | None = None,
+        retry_of: str | None = None,
+        attempt: int = 1,
+    ) -> str | None:
+        """Canonically register one dispatched worker task (#974)."""
+
+        center = self._activity_center
+        if center is None:
+            return None
+        try:
+            op_id = center.submit(
+                operation_kind=operation_kind,
+                operation_class=OperationClass.COMPUTE,
+                title=title,
+                project_ref=self.document_id,
+                document_ref=self.document_id,
+                input_authority_refs=input_authority_refs,
+                revision_ref=revision_ref,
+                cancellability=cancellability,
+                cancel_callback=cancel_callback,
+                retry_policy=retry_policy,
+                navigation_policy=navigation_policy,
+                navigation_block_reason=navigation_block_reason,
+                deep_link=deep_link,
+                domain_payload=domain_payload,
+                operation_id=operation_id,
+                retry_of=retry_of,
+                attempt=attempt,
+            )
+            center.mark_running(op_id)
+        except OperationTransitionError:
+            return None
+        self._operation_ids_by_key[task_key] = op_id
+        return op_id
+
+    def _finish_operation(
+        self,
+        task_key: str,
+        *,
+        cancelled: bool = False,
+        error: object = None,
+        result_summary: str | None = None,
+    ) -> None:
+        """Map a pool completion onto the registered operation (#974).
+
+        Registry bookkeeping never blocks the domain completion path.
+        """
+
+        operation_id = self._operation_ids_by_key.pop(task_key, None)
+        center = self._activity_center
+        if operation_id is None or center is None:
+            return
+        try:
+            if cancelled:
+                center.confirm_cancelled(operation_id)
+            elif error is not None:
+                center.fail(
+                    operation_id,
+                    error_summary=operation_error_message(error),
+                )
+            else:
+                center.complete(
+                    operation_id, result_summary=result_summary
+                )
+        except (KeyError, OperationTransitionError):
+            pass
+
+    def _terminate_operations(self) -> None:
+        """Cancel-confirm every live op on drain/dispose (#974).
+
+        A worker that outlives the pool drain still gets CANCELLED: its
+        completion is dropped by the released-task contract and can never
+        apply, so running forever would be the dishonest record.
+        """
+
+        center = self._activity_center
+        if center is None:
+            return
+        for operation_id in tuple(self._operation_ids_by_key.values()):
+            try:
+                center.request_cancel(operation_id)
+            except (KeyError, OperationTransitionError):
+                pass
+            try:
+                center.confirm_cancelled(operation_id)
+            except (KeyError, OperationTransitionError):
+                pass
+        self._operation_ids_by_key.clear()
 
     def dirty_state(self) -> WorkspaceDirtyState:
         """#610: worker activity blocks outright; scene state resolves."""
@@ -330,6 +471,7 @@ class OptimizationWorkflowController(
             # drain every pool like dispose() does but keep the controller
             # usable. Detached workers' completions are disconnected inside
             # stop_all, so late results can never apply or be saved.
+            self._terminate_operations()
             for token in tuple(self._rew_tokens.values()):
                 self.rew_job_guard.cancel(token)
             reports = (
@@ -434,6 +576,7 @@ class OptimizationWorkflowController(
 
     def dispose(self) -> None:
         self._disposed = True
+        self._terminate_operations()
         for token in tuple(self._rew_tokens.values()):
             self.rew_job_guard.cancel(token)
         reports = (
@@ -874,6 +1017,29 @@ class OptimizationWorkflowController(
             validation_campaign_id,
         )
         self._current_rew_token_id = token.job_id
+        # #974: REW取込 writes a sealed measurement record on apply —
+        # EXCLUSIVE so the existing navigation guard is preserved with a
+        # real reason while the commit point is in flight.
+        self._submit_operation(
+            task_key=token.job_id,
+            operation_kind='optimization.rew_import',
+            title='REW測定の取込',
+            input_authority_refs=(
+                f'scene-revision:{token.scene_revision_id}',
+                f'measurement-entity:{token.measurement_entity_id}',
+            ),
+            revision_ref=token.scene_revision_id,
+            cancellability=Cancellability.CANCELLABLE,
+            cancel_callback=lambda: self._rew_pool.cancel(token.job_id),
+            retry_policy=RetryPolicy.NONE,
+            navigation_policy=NavigationPolicy.EXCLUSIVE,
+            navigation_block_reason=(
+                '取込結果の保存を伴うため画面を切り替えられません'
+            ),
+            deep_link=WorkspaceDeepLink(
+                WorkspaceId.OPTIMIZATION, 'interventions'
+            ),
+        )
         self._start_rew_task(
             token.job_id,
             lambda cancel_event: self.rew_client.get_frequency_response_snapshot(
@@ -932,7 +1098,10 @@ class OptimizationWorkflowController(
         if token is None:
             return
         if error is not None:
-            if error != WORKER_CANCELLED and not self.rew_job_guard.is_cancelled(token):
+            if error == WORKER_CANCELLED or self.rew_job_guard.is_cancelled(token):
+                self._finish_operation(task_key, cancelled=True)
+            else:
+                self._finish_operation(task_key, error=error)
                 self.statusChanged.emit(f"REW読み込み失敗 · {operation_error_message(error)}")
             return
         context = self._current_job_apply_context()
@@ -940,10 +1109,18 @@ class OptimizationWorkflowController(
             self.statusChanged.emit(
                 "REWの遅延結果は現在の配置へ適用しません · 部屋の保存状態または制約が変更されています"
             )
+            self._finish_operation(
+                task_key,
+                result_summary='部屋の保存状態または制約が変更されたため遅延結果を破棄しました',
+            )
             return
         revision = self.repository.get(token.scene_revision_id)
         if revision is None:
             self.statusChanged.emit("REW結果に対応する保存状態が見つかりません")
+            self._finish_operation(
+                task_key,
+                result_summary='対応する保存状態が見つからず結果を破棄しました',
+            )
             return
         evidence, channel_role, validation_scope, validation_campaign_id = (
             self._rew_semantics.get(task_key, ("unknown", "unknown", None, None))
@@ -967,7 +1144,14 @@ class OptimizationWorkflowController(
             self._produce_quality_report(record.measurement_id)
         except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: REW save surface — expected validation/store errors surface with reason; unexpected errors propagate to diagnostics
             self.statusChanged.emit(f"REW結果保存失敗 · {operation_error_message(exc)}")
+            self._finish_operation(task_key, error=exc)
             return
+        self._finish_operation(
+            task_key,
+            result_summary=(
+                f"REW測定 {record.measurement_id[:12]} を保存しました"
+            ),
+        )
         self.refresh_measurement_plans()
         self.refresh_validation_campaigns()
         self.statusChanged.emit("REW測定を保存しました")

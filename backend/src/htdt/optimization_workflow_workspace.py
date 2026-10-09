@@ -87,6 +87,7 @@ from .workspace_dirty_state import DirtyResolutionAction, WorkspaceDirtyState
 from .system_expansion_workflow import SystemExpansionWorkflowService
 
 if TYPE_CHECKING:
+    from .activity_center import ActivityCenter
     from .measurement_workflow import RewReadSource
 from .multi_sub_optimization_panel import MultiSubBaselinePanel
 from .standards_workspace import StandardsVariantComparisonPanel
@@ -252,12 +253,16 @@ class OptimizationWorkflowWorkspace(QWidget):
         viewport_factory: Callable[[QWidget | None], QWidget] | None = None,
         on_navigate: Callable[[WorkspaceDeepLink], bool] | None = None,
         rew_client: RewReadSource | None = None,
+        activity_center: ActivityCenter | None = None,
     ) -> None:
         super().__init__()
         self.setObjectName("optimizationWorkflowWorkspace")
         set_surface_role(self, SurfaceRole.BASE)
         self.controller = OptimizationWorkflowController(
-            repository, document_id, rew_client=rew_client
+            repository,
+            document_id,
+            rew_client=rew_client,
+            activity_center=activity_center,
         )
         self.controller.statusChanged.connect(self._set_status)
         # Every persisted mutation path (spec save/re-author, candidate apply,
@@ -2237,6 +2242,7 @@ def build_optimization_workspace_mount(
     *,
     on_navigate: Callable[[WorkspaceDeepLink], bool] | None = None,
     rew_client: RewReadSource | None = None,
+    activity_center: ActivityCenter | None = None,
 ) -> WorkspaceMount:
     """Build the UX140 workspace through the shell's existing mount contract."""
 
@@ -2245,6 +2251,7 @@ def build_optimization_workspace_mount(
         document_id,
         on_navigate=on_navigate,
         rew_client=rew_client,
+        activity_center=activity_center,
     )
 
     return WorkspaceMount.from_widget(

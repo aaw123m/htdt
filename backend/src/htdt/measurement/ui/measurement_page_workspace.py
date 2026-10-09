@@ -707,6 +707,9 @@ class MeasurementPageWorkspace(QWidget):
         # operator on this page.
         self._preferences = preferences
         self._activity_center = activity_center
+        # #974: pool key -> ActivityCenter operation id (only for ops
+        # canonically registered through _submit_measure_op).
+        self._job_op_ids: dict[str, str] = {}
         self._rew_launcher = rew_launcher if rew_launcher is not None else launch_rew
         self._rew_auto_interval_ms = rew_auto_interval_ms
         self._rew_launch_timeout_s = rew_launch_timeout_s
@@ -2046,9 +2049,9 @@ class MeasurementPageWorkspace(QWidget):
         layout.addStretch(1)
         self.pages.addWidget(page)
 
-    def _refresh_rew_async(self) -> None:
+    def _refresh_rew_async(self) -> str | None:
         self._set_notice("REW測定一覧を読み込み中です。", None)
-        self._start_job(
+        return self._start_job(
             lambda cancel_event: self.controller.list_rew_measurements(
                 cancel_event=cancel_event
             ),
@@ -2056,6 +2059,17 @@ class MeasurementPageWorkspace(QWidget):
             "REW一覧の読み込みに失敗しました",
             on_retry=self._refresh_rew_async,
             purpose="rew_list",
+            activity={
+                'operation_kind': 'measurement.rew_list',
+                'title': 'REW測定一覧の取得',
+                'cancellable': True,
+                'navigation_exclusive': False,
+                'domain_payload': {
+                    'rerun': lambda _op: self._refresh_rew_async()
+                },
+                'cancel_by_key': True,
+                'retry_unsafe': True,
+            },
         )
 
     def _apply_rew_list(self, value: object, *, announce: bool = True) -> None:
@@ -2083,13 +2097,13 @@ class MeasurementPageWorkspace(QWidget):
                 SemanticState.SUCCESS,
             )
 
-    def _read_rew_async(self) -> None:
+    def _read_rew_async(self) -> str | None:
         measurement_uuid = self.rew_combo.currentData()
         if not isinstance(measurement_uuid, str) or not measurement_uuid:
             self._set_notice("先にREW一覧を更新して測定を選択してください。", SemanticState.WARNING)
-            return
+            return None
         self._set_notice("選択したREW測定を読み込み中です。", None)
-        self._start_job(
+        return self._start_job(
             lambda cancel_event: self.controller.fetch_rew_snapshot(
                 measurement_uuid, cancel_event=cancel_event
             ),
@@ -2097,6 +2111,17 @@ class MeasurementPageWorkspace(QWidget):
             "REW測定の読み込みに失敗しました",
             on_retry=self._read_rew_async,
             purpose="rew_read",
+            activity={
+                'operation_kind': 'measurement.rew_read',
+                'title': 'REW測定の取込',
+                'cancellable': True,
+                'navigation_exclusive': False,
+                'domain_payload': {
+                    'rerun': lambda _op: self._read_rew_async()
+                },
+                'cancel_by_key': True,
+                'retry_unsafe': True,
+            },
         )
 
     def _stage_rew_snapshot(self, value: object) -> None:
@@ -2688,6 +2713,124 @@ class MeasurementPageWorkspace(QWidget):
         except EXPECTED_OPERATION_ERRORS as exc:
             # Best-effort reporting surface — degrade, never silently.
             report_boundary_failure(exc, operation='アクティビティ記録の登録')
+
+    def _submit_measure_op(
+        self,
+        *,
+        task_key: str,
+        operation_kind: str,
+        title: str,
+        cancellable: bool,
+        navigation_exclusive: bool,
+        retry_unsafe: bool = False,
+        cancel_callback=None,
+        domain_payload=None,
+        operation_id: str | None = None,
+        retry_of: str | None = None,
+        attempt: int = 1,
+    ) -> str | None:
+        """Canonically register one measurement job (#974)."""
+
+        center = self._activity_center
+        if center is None:
+            return None
+        try:
+            from ...activity_center import (
+                Cancellability,
+                NavigationPolicy,
+                OperationClass,
+                OperationTransitionError,
+                RetryPolicy,
+            )
+        except ImportError:
+            return None
+        try:
+            operation_id = center.submit(
+                operation_kind=operation_kind,
+                operation_class=OperationClass.EXTERNAL_IO,
+                title=title,
+                deep_link=WorkspaceDeepLink(WorkspaceId.MEASUREMENT, 'import'),
+                cancellability=(
+                    Cancellability.CANCELLABLE
+                    if cancellable
+                    else Cancellability.NOT_CANCELLABLE
+                ),
+                cancel_callback=cancel_callback,
+                retry_policy=(
+                    RetryPolicy.UNSAFE if retry_unsafe else RetryPolicy.NONE
+                ),
+                navigation_policy=(
+                    NavigationPolicy.EXCLUSIVE
+                    if navigation_exclusive
+                    else NavigationPolicy.BACKGROUNDABLE
+                ),
+                navigation_block_reason=(
+                    '保存・適用を伴うため画面を切り替えられません'
+                    if navigation_exclusive
+                    else None
+                ),
+                domain_payload=domain_payload,
+                operation_id=operation_id,
+                retry_of=retry_of,
+                attempt=attempt,
+            )
+            center.mark_running(operation_id)
+        except OperationTransitionError:
+            return None
+        self._job_op_ids[task_key] = operation_id
+        return operation_id
+
+    def _finish_measure_op(
+        self,
+        task_key: str,
+        *,
+        cancelled: bool = False,
+        error: object = None,
+        result_summary: str | None = None,
+    ) -> None:
+        """Map a pool completion onto the registered op (#974)."""
+
+        operation_id = self._job_op_ids.pop(task_key, None)
+        center = self._activity_center
+        if operation_id is None or center is None:
+            return
+        try:
+            from ...activity_center import OperationTransitionError
+
+            if cancelled:
+                center.confirm_cancelled(operation_id)
+            elif error is not None:
+                center.fail(
+                    operation_id,
+                    error_summary=operation_error_message(error),
+                )
+            else:
+                center.complete(
+                    operation_id, result_summary=result_summary
+                )
+        except (KeyError, OperationTransitionError):
+            pass
+
+    def _terminate_measure_ops(self) -> None:
+        """Cancel-confirm every live registered op on drain/close (#974)."""
+
+        center = self._activity_center
+        if center is None:
+            return
+        try:
+            from ...activity_center import OperationTransitionError
+        except ImportError:
+            return
+        for operation_id in tuple(self._job_op_ids.values()):
+            try:
+                center.request_cancel(operation_id)
+            except (KeyError, OperationTransitionError):
+                pass
+            try:
+                center.confirm_cancelled(operation_id)
+            except (KeyError, OperationTransitionError):
+                pass
+        self._job_op_ids.clear()
 
     def _refresh_pending(self) -> None:
         pending = self.controller.pending_import
@@ -4009,6 +4152,23 @@ class MeasurementPageWorkspace(QWidget):
             "バッチを保存できませんでした",
             None,
         )
+        # #974: a commit writes sealed measurement records — EXCLUSIVE keeps
+        # the existing navigation guard and names the reason. Per-item
+        # progress is real (batch_commit_progress) so ITEMS units only.
+        self._submit_measure_op(
+            task_key=key,
+            operation_kind='measurement.batch_commit',
+            title='バッチ測定の保存',
+            cancellable=True,
+            navigation_exclusive=True,
+            cancel_callback=lambda: self._job_pool.cancel(key),
+            retry_unsafe=True,
+            domain_payload={
+                'rerun': lambda _op: self._rerun_batch_commit(
+                    kind, ref, assignment
+                )
+            },
+        )
         self._job_pool.start(
             key,
             lambda cancel_event: self.controller.commit_batch(
@@ -4018,6 +4178,18 @@ class MeasurementPageWorkspace(QWidget):
             ),
             self._job_completed,
         )
+
+    def _rerun_batch_commit(
+        self, kind: str, ref: object,
+        assignment: 'MeasurementAssignment',
+    ) -> str | None:
+        """Unsafe retry path (#974): the Activity page re-authorized the
+        re-run — dispatch a fresh, unlinked commit and report its new op id."""
+
+        self._commit_batch_assignment(kind, ref, assignment)
+        if self._commit_job_key is None:
+            return None
+        return self._job_op_ids.get(self._commit_job_key)
 
     def _set_batch_committing(self, running: bool) -> None:
         self.batch_add_button.setEnabled(not running)
@@ -4044,6 +4216,31 @@ class MeasurementPageWorkspace(QWidget):
     @Slot(int, int)
     def _on_batch_commit_progress(self, done: int, total: int) -> None:
         self._set_notice(f"バッチを保存しています… {done}/{total}", None)
+        center = self._activity_center
+        op_id = (
+            self._job_op_ids.get(self._commit_job_key)
+            if self._commit_job_key is not None
+            else None
+        )
+        if center is not None and op_id is not None:
+            try:
+                from ...activity_center import (
+                    OperationProgress,
+                    OperationTransitionError,
+                    ProgressKind,
+                )
+
+                center.update_progress(
+                    op_id,
+                    OperationProgress(
+                        kind=ProgressKind.ITEMS,
+                        done_units=done,
+                        total_units=total,
+                        unit_label='件',
+                    ),
+                )
+            except (KeyError, OperationTransitionError, ValueError):
+                pass
 
     def _batch_commit_finished(self, value: object) -> None:
         outcomes = value if isinstance(value, tuple) else ()
@@ -8991,19 +9188,29 @@ class MeasurementPageWorkspace(QWidget):
         *,
         on_retry: Callable[[], None] | None = None,
         purpose: str | None = None,
-    ) -> None:
+        activity: dict | None = None,
+    ) -> str | None:
         if self._disposed:
-            return
+            return None
         key = uuid4().hex
         self._job_handlers[key] = (on_success, error_prefix, on_retry)
         if purpose is not None:
             self._job_purpose[key] = purpose
             self._latest_job_key[purpose] = key
+        op_id = None
+        if activity is not None:
+            spec = dict(activity)
+            if spec.pop('cancel_by_key', False):
+                spec['cancel_callback'] = (
+                    lambda: self._job_pool.cancel(key)
+                )
+            op_id = self._submit_measure_op(task_key=key, **spec)
         self._job_pool.start(
             key,
             lambda cancel_event: call(cancel_event),
             self._job_completed,
         )
+        return op_id
 
     @Slot(object, object, object)
     def _job_completed(self, key: object, result: object, error: object) -> None:
@@ -9016,6 +9223,10 @@ class MeasurementPageWorkspace(QWidget):
         if purpose is not None and key_str != self._latest_job_key.get(purpose):
             # Superseded by a newer request on the same purpose — the late
             # result must never overwrite what the newer job will stage.
+            self._finish_measure_op(
+                key_str,
+                result_summary='新しい要求に置き換えられたため結果を破棄しました',
+            )
             return
         on_success, error_prefix, on_retry = handler
         if str(key) == self._commit_job_key:
@@ -9029,7 +9240,11 @@ class MeasurementPageWorkspace(QWidget):
                     "保存をキャンセルしました。保存済みの項目はそのまま残っています。",
                     SemanticState.WARNING,
                 )
+                self._finish_measure_op(key_str, cancelled=True)
                 return
+        if error == WORKER_CANCELLED:
+            self._finish_measure_op(key_str, cancelled=True)
+            return
         if error is not None:
             if error != WORKER_CANCELLED:
                 self._set_notice(
@@ -9050,8 +9265,13 @@ class MeasurementPageWorkspace(QWidget):
                         on_retry=on_retry,
                         on_help=self._open_error_help,
                     )
+            self._finish_measure_op(key_str, error=error)
             return
-        on_success(result)
+        summary = on_success(result)
+        self._finish_measure_op(
+            key_str,
+            result_summary=summary if isinstance(summary, str) else None,
+        )
 
     # ------------------------------------------------------------------
     # #869 HTDT-native sweep acquisition context (REV66)
@@ -10479,7 +10699,26 @@ class MeasurementPageWorkspace(QWidget):
         ) - self._batch_released_ids
 
     def before_deactivate(self) -> tuple[bool, str | None]:
-        if self._user_busy_count():
+        if self._activity_center is not None:
+            # #974: registered BACKGROUNDABLE jobs (REW fetch) no longer hold
+            # the operator here — the Activity strip keeps them visible.
+            # EXCLUSIVE ops (batch commit, apply) still block, with reason.
+            blockers = self._activity_center.navigation_blockers()
+            if blockers:
+                first = blockers[0]
+                reason = (
+                    first.navigation_block_reason
+                    or '排他的な処理を実行中です'
+                )
+                return False, f"{first.title}: {reason}"
+            unregistered = (
+                self._job_pool.active_count
+                - len(self._rew_auto_job_keys)
+                - len(self._job_op_ids)
+            )
+            if unregistered > 0:
+                return False, "バックグラウンド処理が完了してから画面を切り替えてください"
+        elif self._user_busy_count():
             return False, "バックグラウンド処理が完了してから画面を切り替えてください"
         pending = self.controller.pending_import
         if pending is not None and self._pending_token(pending) != self._pending_release:
@@ -10526,11 +10765,13 @@ class MeasurementPageWorkspace(QWidget):
             # the workspace stay usable for the next job. Detached workers'
             # completions were disconnected inside stop_all, so late
             # results can never apply.
+            self._terminate_measure_ops()
             report = self._job_pool.stop_all()
             self._job_handlers.clear()
             self._job_purpose.clear()
             self._latest_job_key.clear()
             self._rew_auto_job_keys.clear()
+            self._job_op_ids.clear()
             self._commit_job_key = None
             self._set_batch_committing(False)
             self.refresh()
@@ -10542,10 +10783,12 @@ class MeasurementPageWorkspace(QWidget):
     def closeEvent(self, event) -> None:  # type: ignore[override]
         self._disposed = True
         self._rew_timer.stop()
+        self._terminate_measure_ops()
         report = self._job_pool.shutdown()
         self._job_handlers.clear()
         self._job_purpose.clear()
         self._rew_auto_job_keys.clear()
+        self._job_op_ids.clear()
         if not report.all_stopped:
             self._set_notice(
                 "バックグラウンド処理の停止が遅延しています · 遅延結果は適用しません",

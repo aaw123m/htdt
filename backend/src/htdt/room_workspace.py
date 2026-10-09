@@ -4212,6 +4212,7 @@ class RoomWorkspace(QWidget):
         super().__init__(parent)
         self.setObjectName("roomWorkspace")
         set_surface_role(self, SurfaceRole.BASE)
+        self._activity_center = None
         self.controller = RoomWorkspaceController(repository, document_id)
         self.listener_pose_repository = CadListenerPoseRepository(
             repository.path, repository
@@ -5029,6 +5030,81 @@ class RoomWorkspace(QWidget):
             self._set_status(f'{len(scene_ids)} 件の対象を選択しました')
         self._render()
 
+    def set_activity_center(self, activity_center) -> None:
+        """Wire the app ActivityCenter for long-running intake ops (#974)."""
+
+        self._activity_center = activity_center
+
+    def _submit_sync_op(
+        self,
+        *,
+        operation_kind: str,
+        title: str,
+        input_authority_refs: tuple[str, ...] = (),
+    ) -> str | None:
+        """Register a synchronous (UI-thread) import op (#974).
+
+        The op is honest: EXCLUSIVE + NOT_CANCELLABLE because the work
+        blocks the thread it runs on — navigation can never interleave,
+        so the record is submitted and completed in one call.
+        """
+
+        center = self._activity_center
+        if center is None:
+            return None
+        from .activity_center import (
+            Cancellability,
+            NavigationPolicy,
+            OperationClass,
+            OperationTransitionError,
+            RetryPolicy,
+        )
+
+        try:
+            operation_id = center.submit(
+                operation_kind=operation_kind,
+                operation_class=OperationClass.EXTERNAL_IO,
+                title=title,
+                document_ref=self.document_id,
+                input_authority_refs=input_authority_refs,
+                cancellability=Cancellability.NOT_CANCELLABLE,
+                retry_policy=RetryPolicy.NONE,
+                navigation_policy=NavigationPolicy.EXCLUSIVE,
+                navigation_block_reason=(
+                    '取込処理はメインスレッドで実行中です'
+                ),
+                deep_link=WorkspaceDeepLink(WorkspaceId.ROOM, 'geometry'),
+            )
+            center.mark_running(operation_id)
+        except OperationTransitionError:
+            return None
+        return operation_id
+
+    def _finish_sync_op(
+        self,
+        operation_id: str | None,
+        *,
+        error: object = None,
+        result_summary: str | None = None,
+    ) -> None:
+        center = self._activity_center
+        if operation_id is None or center is None:
+            return
+        from .activity_center import OperationTransitionError
+
+        try:
+            if error is not None:
+                center.fail(
+                    operation_id,
+                    error_summary=operation_error_message(error),
+                )
+            else:
+                center.complete(
+                    operation_id, result_summary=result_summary
+                )
+        except (KeyError, OperationTransitionError):
+            pass
+
     def _geometry_intake_import_ifc(self) -> None:
         controller = self.geometry_intake_controller
         path_text, _ = file_dialog_memory.get_open_file_name(
@@ -5039,6 +5115,10 @@ class RoomWorkspace(QWidget):
         )
         if not path_text:
             return
+        op_id = self._submit_sync_op(
+            operation_kind='room.ifc_import',
+            title='IFC の取り込み',
+        )
         try:
             source = Path(path_text).read_bytes()
             artifact, _subject = controller.import_ifc_source(
@@ -5046,10 +5126,17 @@ class RoomWorkspace(QWidget):
             )
             report, proposal = controller.run_health_check()
         except (OSError, ValueError) as exc:
+            self._finish_sync_op(op_id, error=exc)
             self._set_operation_error(
                 'IFC の取り込みに失敗しました', exc
             )
             return
+        self._finish_sync_op(
+            op_id,
+            result_summary=(
+                f'{artifact.file_name} · 欠陥 {len(report.defects)} 件'
+            ),
+        )
         self._sync_geometry_intake_panel()
         self._set_status(
             f'IFC「{artifact.file_name}」を取り込みました: '
@@ -5199,16 +5286,28 @@ class RoomWorkspace(QWidget):
         )
         if not path_text:
             return
+        op_id = self._submit_sync_op(
+            operation_kind='room.ifc_diff_import',
+            title='改訂 IFC の取り込み',
+        )
         try:
             source = Path(path_text).read_bytes()
             artifact, delta, rows = controller.import_revised_ifc_source(
                 source, file_name=Path(path_text).name
             )
         except (OSError, ValueError) as exc:
+            self._finish_sync_op(op_id, error=exc)
             self._set_operation_error(
                 '改訂 IFC の取り込みに失敗しました', exc
             )
             return
+        self._finish_sync_op(
+            op_id,
+            result_summary=(
+                f'{artifact.file_name} · 差分 {len(rows)} 行'
+                f'（{delta.delta_id[:12]}）'
+            ),
+        )
         self._sync_ifc_diff_panel()
         self._set_status(
             f'改訂 IFC「{artifact.file_name}」を取り込みました: '

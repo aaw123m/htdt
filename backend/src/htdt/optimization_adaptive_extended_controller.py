@@ -5,6 +5,14 @@ from PySide6.QtWidgets import QTreeWidgetItem
 from .cad_adaptive_extended_service import CadAdaptiveExtendedPlannerService
 from .developer_mode import developer_mode_enabled
 from .tree_item_role import ROLE
+from .activity_center import (
+    ApplicationOperation,
+    Cancellability,
+    NavigationPolicy,
+    OperationRetryRequest,
+    RetryPolicy,
+)
+from .workflow_navigation import WorkspaceDeepLink, WorkspaceId
 from .native_worker import WORKER_CANCELLED
 from .error_boundary import EXPECTED_OPERATION_ERRORS
 from .user_facing_error import operation_error_message
@@ -52,6 +60,35 @@ class AdaptiveExtendedControllerMixin:
         extended_search_id = extended_spec.extended_search_id
         validation_id = validation.validation_id
         self.statusBar().showMessage('アダプティブ拡張計画を計算しています…')
+        refs = [
+            f'extended-search:{extended_search_id}',
+            f'validation:{validation_id}',
+        ]
+        if self.working is not None and self.working.source_revision_id:
+            refs.append(f'scene-revision:{self.working.source_revision_id}')
+        self._submit_operation(
+            task_key='adaptive_extended:build',
+            operation_kind='optimization.adaptive_extended_build',
+            title='アダプティブ拡張計画の作成',
+            input_authority_refs=tuple(refs),
+            revision_ref=(
+                self.working.source_revision_id
+                if self.working is not None
+                else None
+            ),
+            cancellability=Cancellability.CANCELLABLE,
+            cancel_callback=lambda: self._adaptive_pool.cancel(
+                'adaptive_extended:build'
+            ),
+            retry_policy=RetryPolicy.NONE,
+            navigation_policy=NavigationPolicy.EXCLUSIVE,
+            navigation_block_reason=(
+                '計画の保存を伴うため画面を切り替えられません'
+            ),
+            deep_link=WorkspaceDeepLink(
+                WorkspaceId.OPTIMIZATION, 'interventions'
+            ),
+        )
         self._refresh_adaptive_run_state()
         self._adaptive_pool.start(
             'adaptive_extended:build',
@@ -74,12 +111,14 @@ class AdaptiveExtendedControllerMixin:
             self.statusBar().showMessage(
                 'アダプティブ拡張計画計算を中止しました'
             )
+            self._finish_operation(str(key), cancelled=True)
             return
         if error is not None:
             self.statusBar().showMessage(
                 f'アダプティブ拡張計画を作成できません · '
                 f'{operation_error_message(error)}'
             )
+            self._finish_operation(str(key), error=error)
             return
         plan = result
         self.refresh_adaptive_extended_plans(select_plan_id=plan.plan_id)
@@ -88,10 +127,12 @@ class AdaptiveExtendedControllerMixin:
             if plan.execution_scope == 'development_synthetic'
             else '実室本番'
         )
-        self.statusBar().showMessage(
-            f'O80A アダプティブ拡張計画を保存しました · {mode} · '
+        summary = (
+            f'アダプティブ拡張計画を保存しました · {mode} · '
             f'次候補 {plan.selected_candidate_id[:12]}'
         )
+        self._finish_operation(str(key), result_summary=summary)
+        self.statusBar().showMessage(f'O80A {summary}')
 
     def cancel_adaptive_extended_build(self) -> None:
         self._adaptive_pool.cancel('adaptive_extended:build')

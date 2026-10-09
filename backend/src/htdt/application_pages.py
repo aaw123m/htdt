@@ -94,6 +94,11 @@ from .ui_theme import (
 from .user_facing_error import operation_error_message, warn_user
 from .workflow_navigation import WorkspaceDeepLink, WorkspaceId
 from .workflow_shell import TargetFocusResult
+from .activity_center import (
+    RetryPolicy,
+    operation_progress_text,
+    operation_state_label,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -4105,6 +4110,8 @@ class ActivityPage(QWidget):
         list_operations: Callable[[], tuple] | None = None,
         list_events: Callable[[str | None], tuple] | None = None,
         open_link: Callable[[str], bool] | None = None,
+        cancel_operation: Callable[[str], bool] | None = None,
+        retry_operation: Callable[[str], bool] | None = None,
         document_id: str | None = None,
         project_refs: Iterable[str] = (),
         document_label: Callable[[str], str] | None = None,
@@ -4116,6 +4123,11 @@ class ActivityPage(QWidget):
         self._list_operations = list_operations
         self._list_events = list_events
         self._open_link = open_link
+        self._cancel_operation = cancel_operation
+        self._retry_operation = retry_operation
+        # Live snapshot lookup for row activation/action wiring (#974) —
+        # refreshed alongside the operations tables.
+        self._operations_by_id: dict[str, object] = {}
         self._document_id = document_id
         self._document_label = document_label
         # An operation's ``project_ref`` is a free-form ref: match against
@@ -4553,16 +4565,21 @@ class ActivityPage(QWidget):
     # -- operations ---------------------------------------------------------------
 
     def _operations_table(self, tooltip: str | None = None) -> QTableWidget:
-        table = QTableWidget(0, 3)
+        table = QTableWidget(0, 5)
         table.setToolTip(
             tooltip
             or "実行中・実行済みの操作（バックアップ・復元など）の一覧です。"
+            "ダブルクリックでその処理を始めた画面へ戻れます。"
         )
-        table.setHorizontalHeaderLabels(("状態", "操作", "更新時刻"))
+        table.setHorizontalHeaderLabels(
+            ("状態", "操作", "進捗", "更新時刻", "対応")
+        )
         for _col, _tip in enumerate((
             "操作の進行状態（実行中・完了・失敗など）",
             "行われた操作の種類（バックアップ・復元・インポートなど）",
+            "実際に報告された進捗（割合・段階・件数のみ）",
             "状態が最後に更新された時刻",
+            "中止・再試行・発生元画面への移動",
         )):
             table.horizontalHeaderItem(_col).setToolTip(_tip)
         table.horizontalHeader().setSectionResizeMode(
@@ -4571,10 +4588,17 @@ class ActivityPage(QWidget):
         table.horizontalHeader().setSectionResizeMode(
             2, QHeaderView.ResizeMode.ResizeToContents
         )
+        table.horizontalHeader().setSectionResizeMode(
+            3, QHeaderView.ResizeMode.ResizeToContents
+        )
+        table.horizontalHeader().setSectionResizeMode(
+            4, QHeaderView.ResizeMode.ResizeToContents
+        )
         table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         table.setSelectionBehavior(
             QTableWidget.SelectionBehavior.SelectRows
         )
+        table.itemDoubleClicked.connect(self._activate_operation)
         return table
 
     def _operation_matches_project(self, operation: object) -> bool:
@@ -4598,8 +4622,11 @@ class ActivityPage(QWidget):
             )
             for column, value in enumerate(
                 (
-                    _OPERATION_STATE_LABELS.get(state, str(state)),
+                    operation_state_label(state),
                     f"{operation.title} — {detail}",
+                    operation_progress_text(
+                        getattr(operation, "progress", None)
+                    ),
                     operation.updated_at,
                 )
             ):
@@ -4609,10 +4636,129 @@ class ActivityPage(QWidget):
                         Qt.ItemDataRole.UserRole, operation.operation_id
                     )
                 table.setItem(row, column, cell)
+            self._operations_by_id[operation.operation_id] = operation
+            actions = self._operation_actions(operation)
+            if actions is not None:
+                # An item under the cell widget keeps row-hit-testing and
+                # keyboard activation working on the covered column.
+                table.setItem(row, 4, QTableWidgetItem(""))
+                table.setCellWidget(row, 4, actions)
+
+    def _activate_operation(self, item: QTableWidgetItem) -> None:
+        """Double-click: return to the workspace that launched the op (#974)."""
+
+        table = item.tableWidget()
+        if table is None or self._open_link is None:
+            return
+        cell = table.item(item.row(), 0)
+        if cell is None:
+            return
+        operation = self._operations_by_id.get(
+            cell.data(Qt.ItemDataRole.UserRole)
+        )
+        deep_link = getattr(operation, "deep_link", None)
+        if deep_link is not None:
+            self._open_link(deep_link.as_uri())
+
+    def _operation_actions(self, operation: object) -> QWidget | None:
+        """Per-row affordances: cooperative cancel, policy-respecting retry,
+        and the originating deep link (#974)."""
+
+        buttons: list[QPushButton] = []
+        operation_id = operation.operation_id
+        if (
+            getattr(operation, "can_cancel_now", False)
+            and self._cancel_operation is not None
+        ):
+            cancel = QPushButton("中止")
+            cancel.setAccessibleName(f"{operation.title} を中止")
+            cancel.setToolTip(
+                "実行中の処理へ協調キャンセルを要求します。"
+                "キャンセルされるまで結果は確定しません。"
+            )
+            cancel.clicked.connect(
+                lambda _checked=False, op_id=operation_id:
+                    self._cancel_operation(op_id)
+            )
+            buttons.append(cancel)
+        if not getattr(operation, "is_active", True):
+            policy = getattr(operation, "retry_policy", None)
+            policy_value = getattr(policy, "value", policy)
+            if (
+                policy_value == RetryPolicy.SAFE_NEW_ATTEMPT.value
+                and self._retry_operation is not None
+            ):
+                retry = QPushButton("再試行")
+                retry.setAccessibleName(f"{operation.title} を再試行")
+                retry.setToolTip(
+                    "同じ入力に対する新しい試行として安全に再実行します。"
+                )
+                retry.clicked.connect(
+                    lambda _checked=False, op_id=operation_id:
+                        self._retry_operation(op_id)
+                )
+                buttons.append(retry)
+            elif (
+                policy_value == RetryPolicy.UNSAFE.value
+                and self._retry_operation is not None
+            ):
+                retry = QPushButton("再試行（要確認）")
+                retry.setAccessibleName(
+                    f"{operation.title} を確認のうえ再試行"
+                )
+                retry.setToolTip(
+                    "適用・上書きを伴う再実行です。確認のうえで実行します。"
+                )
+                retry.clicked.connect(
+                    lambda _checked=False, op_id=operation_id:
+                        self._confirm_retry(op_id)
+                )
+                buttons.append(retry)
+        deep_link = getattr(operation, "deep_link", None)
+        if deep_link is not None and self._open_link is not None:
+            open_button = QPushButton("開く")
+            open_button.setAccessibleName(
+                f"{operation.title} の発生元画面を開く"
+            )
+            open_button.setToolTip("この処理を始めた画面へ移動します。")
+            uri = deep_link.as_uri()
+            open_button.clicked.connect(
+                lambda _checked=False, link=uri: self._open_link(link)
+            )
+            buttons.append(open_button)
+        if not buttons:
+            return None
+        box = QWidget()
+        row = QHBoxLayout(box)
+        row.setContentsMargins(2, 0, 2, 0)
+        row.setSpacing(4)
+        for button in buttons:
+            row.addWidget(button)
+        return box
+
+    def _confirm_retry(self, operation_id: str) -> None:
+        """UNSAFE retry policy: explicit re-authorization before re-run (#974)."""
+
+        operation = self._operations_by_id.get(operation_id)
+        title = getattr(operation, "title", operation_id)
+        answer = QMessageBox.question(
+            self,
+            "再実行の確認",
+            f"「{title}」を再実行します。適用・上書きを伴う可能性があります。"
+            "続行しますか？",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if (
+            answer == QMessageBox.StandardButton.Yes
+            and self._retry_operation is not None
+        ):
+            self._retry_operation(operation_id)
 
     def _refresh_operations(self) -> None:
         if self.operations_table is None or self._list_operations is None:
             return
+        self._operations_by_id.clear()
         operations = tuple(self._list_operations())
         project_ops = [
             op for op in operations if self._operation_matches_project(op)
