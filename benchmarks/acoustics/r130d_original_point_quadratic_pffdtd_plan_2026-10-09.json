@@ -1,0 +1,126 @@
+{
+  "schema_version": "htdt.r130d.original-point-quadratic-pffdtd-plan-1",
+  "date_jst": "2026-10-09",
+  "issue": 938,
+  "pr": 1055,
+  "purpose": "Bounded full native PFFDTD linear-to-quadratic point delta injection and observation test. Change numerical discretization only; preserve physical point coordinates, original discrete temporal q[0] impulse, boundary, solver, room, 40/80 Hz and frozen acceptance. Diagnostic not eligible for automatic qualification.",
+  "identities": {
+    "repository": "ka0923s-a11y/HTDT",
+    "pinned_upstream": "aa319f6c86517cb95aabfae8656277da62c3ead5",
+    "upstream_patch_ids": [
+      "numpy-removed-np-float-alias-v1",
+      "python312-shared-memory-exported-view-cleanup-v1",
+      "python312-vox-scene-shared-memory-view-cleanup-v1"
+    ],
+    "original_high_ppw_evidence_sha256": "9a0c7c4cf6080fdd75ce42a4e4a4a08256973b1d8c73724974073782dd9aeb34",
+    "original_high_ppw_evidence_origin": "unmerged independent high-PPW diagnostic run artifact; must preserve its absolute raw hash, not promote"
+  },
+  "source_fixture": {
+    "geometry": "rigid planar wedge 0<=x<=4,0<=y<=4,0<=z<=4-0.25*y",
+    "sound_speed_m_s": 343.2,
+    "density_kg_m3": 1.2,
+    "source_xyz_m": [
+      1.5,
+      2,
+      2
+    ],
+    "receiver_xyz_m": [
+      2.5,
+      2,
+      2
+    ],
+    "boundary": "natural rigid reflective; original solver boundary voxel mask unmodified",
+    "time_waveform": "original PFFDTD SimComms native unit input signal impulse: only q[0] nonzero; no differentiation",
+    "duration_s": 0.25,
+    "frequency_hz": [
+      40,
+      80
+    ],
+    "Fourier_convention": "direct DTFT exp(+i2pi f*n*Ts), identical numerator/denominator record [0,Nt), no taper, no fitted scale or phase"
+  },
+  "frozen_ppw": [
+    28,
+    32,
+    36,
+    40,
+    44
+  ],
+  "original_native_comms_sha_by_ppw": {
+    "28": "4404a9818a8f0c673c97e8ede8665367100aecb3d2f2f8481bc532bc45fd6b6c",
+    "32": "716199c1cb8f9d982cdafe7deaccdf630073a2b0d8cdec17fcaf3dff52f4b60b",
+    "36": "3cd05bcee5f8fed08da3dc94ff2ac90b92969b293daf2db77b4bac8d0c51a2f9",
+    "40": "64a4f45cf19b92bb7a8a1ffd24af05e10877c99000e29bf985637b18e287763a",
+    "44": "41c537b663ef11aa7404a248862f89398dec80fd3b6c794f4ecce4a0a8577ee4"
+  },
+  "numerical_delta": {
+    "mode": "tensor_quadratic_lagrange_3x3x3_exact_point",
+    "axis_node_offsets": [
+      -1,
+      0,
+      1
+    ],
+    "center": "nearest Cartesian grid node, exact point offset t in [-0.5,0.5]",
+    "weights": [
+      "w[-1]=t*(t-1)/2",
+      "w[0]=1-t*t",
+      "w[1]=t*(t+1)/2"
+    ],
+    "physical_moments": "sum weights 1, sum weights*(x-point) 0, sum weights*(x-point)^2 0 per axis; cross moments 0; same for receiver",
+    "source_and_receiver_both": "27 nodes each; original temporal source samples and PFFDTD scale c^2 Ts^2 / voxel volume, equal to sum of original 8-native source signals at each n",
+    "allow_negative_weights": true,
+    "assume_nonnegative": false,
+    "require_unique_nodes": true,
+    "require_air_interior_and_no_boundary_or_abc_overlap": true,
+    "require_unit_sum": true,
+    "require_first_second_moment_atol": 1e-10,
+    "fc_only": false
+  },
+  "comparisons": {
+    "frozen_original_native_same_grid_controls": true,
+    "calculate_all_5_levels": true,
+    "adjacent_pairs": [
+      [
+        28,
+        32
+      ],
+      [
+        32,
+        36
+      ],
+      [
+        36,
+        40
+      ],
+      [
+        40,
+        44
+      ]
+    ],
+    "original_numeric_thresholds": {
+      "complex_rms_relative_max": 0.2,
+      "magnitude_max_relative": 0.25,
+      "phase_max_deg": 15
+    },
+    "magnitude_mask_relative_db": -50,
+    "original_canonical_point_r130d": "SELF_CONVERGENCE_FAILED",
+    "no_threshold_change": true,
+    "retain_all_signed_complex_frequency_results": true,
+    "do_not_conflate_numerical_point_representation_with_original_8_node_implementation": true,
+    "fullband_8_10_12_retained_FAILED": true,
+    "held_out_measurements_unavailable": true
+  },
+  "resource_limits": {
+    "max_grid_cells": 1700000,
+    "max_native_steps": 2000,
+    "max_wave_cases": 5,
+    "max_total_output_bytes": 1500000000,
+    "max_true_wave_wall_seconds_per_case": 600
+  },
+  "authority": {
+    "pr_draft": true,
+    "issue_open": true,
+    "physical_validation": "NOT_VALIDATED",
+    "production_ready": false,
+    "canonical_original_8_node_point_point": "SELF_CONVERGENCE_FAILED"
+  }
+}
