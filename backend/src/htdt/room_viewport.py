@@ -11,7 +11,7 @@ import pyvista as pv
 from PySide6.QtCore import QEvent, QObject, QPointF, QRectF, Qt, QTimer, Signal
 from PySide6.QtWidgets import QFrame, QLabel, QRubberBand, QVBoxLayout, QWidget
 from pyvistaqt import QtInteractor
-from shapely.geometry import Polygon
+from shapely.geometry import Point, Polygon
 from shapely.ops import triangulate
 
 from .cad_prediction_models import CadPredictionResult
@@ -233,6 +233,94 @@ def _domain_to_render_tuple(point: tuple[float, float, float]) -> tuple[float, f
     """Map a domain (x, y, z) metres triple into VTK's right-handed world."""
 
     return (point[0], -point[1], point[2])
+
+
+def _ray_room_boundary_domain(
+    near: Sequence[float],
+    far: Sequence[float],
+    document: SceneDocument | None,
+) -> tuple[float, float, float] | None:
+    """First room-boundary hit along a domain-space click ray (#1011 M3).
+
+    Waypoint recording fallback: when no pickable actor lies under the
+    cursor, the honest "point on the room" is the nearest boundary plane
+    the ray actually meets — the floor (z=0), one of the footprint walls
+    (each vertex edge extruded to the room height), or the ceiling plane
+    (z=height_m — for sloped ceilings the declared envelope plane, never
+    a fabricated sloped hit). The smallest positive ray parameter wins;
+    a ray that misses every boundary returns None.
+    """
+
+    room = getattr(document, 'room', None) if document is not None else None
+    if room is None:
+        return None
+    try:
+        origin = np.asarray(near, dtype=float).reshape(-1)[:3]
+        direction = np.asarray(far, dtype=float).reshape(-1)[:3] - origin
+    except Exception:
+        return None
+    if not np.all(np.isfinite(direction)) or not np.any(direction):
+        return None
+
+    vertices = room_vertices(room)
+    height = float(room.height_m)
+    hits: list[tuple[float, np.ndarray]] = []
+
+    def _push(t: float) -> None:
+        if isfinite(t) and t > 0.0:
+            hits.append((t, origin + t * direction))
+
+    # Floor / ceiling planes: accept only hits inside the footprint.
+    footprint = Polygon(
+        [(float(vertex.x_m), float(vertex.y_m)) for vertex in vertices]
+    )
+    for plane_z in (0.0, height):
+        if abs(direction[2]) > 1e-12:
+            t = (plane_z - origin[2]) / direction[2]
+            if isfinite(t) and t > 0.0:
+                point = origin + t * direction
+                # covers() is boundary-inclusive — a ray landing exactly
+                # on a wall edge still resolves to the floor/ceiling.
+                if footprint.covers(Point(point[0], point[1])):
+                    _push(t)
+    # Footprint walls: each vertex edge extruded vertically; the hit must
+    # land inside the edge's span and below the ceiling.
+    for index, start in enumerate(vertices):
+        end = vertices[(index + 1) % len(vertices)]
+        edge = np.asarray(
+            (float(end.x_m) - float(start.x_m),
+             float(end.y_m) - float(start.y_m)),
+            dtype=float,
+        )
+        edge_len = float(np.hypot(*edge))
+        if edge_len < 1e-12:
+            continue
+        normal = np.asarray((edge[1], -edge[0]), dtype=float) / edge_len
+        denom = float(normal[0] * direction[0] + normal[1] * direction[1])
+        if abs(denom) < 1e-12:
+            continue
+        offset = (
+            normal[0] * (float(start.x_m) - origin[0])
+            + normal[1] * (float(start.y_m) - origin[1])
+        )
+        t = float(offset / denom)
+        if not (isfinite(t) and t > 0.0):
+            continue
+        point = origin + t * direction
+        along = (
+            (point[0] - float(start.x_m)) * edge[0]
+            + (point[1] - float(start.y_m)) * edge[1]
+        ) / (edge_len * edge_len)
+        if (
+            -1e-9 <= along <= 1.0 + 1e-9
+            and -1e-9 <= point[2] <= height + 1e-9
+        ):
+            _push(t)
+    if not hits:
+        return None
+    hits.sort(key=lambda item: item[0])
+    point = hits[0][1]
+    return (float(point[0]), float(point[1]), float(point[2]))
 
 
 _SELECTION_FORWARD_RAY_LENGTH_M = 0.6
@@ -1351,6 +1439,10 @@ class RoomViewport3D(QFrame):
     entitySelected = Signal(object)
     proposedEntitySelected = Signal(object)
     contextMenuRequested = Signal(object, object)
+    #: Emitted while waypoint recording is armed (#1011 M3): a domain-space
+    #: (x, y, z) triple for every successful pick — entities, room surfaces
+    #: and authoring primitives all resolve to the point on their face.
+    waypointPicked = Signal(object)
     #: Emitted when a left click lands on no pickable entity (deselect/measure free point).
     emptyClicked = Signal(object)
     #: Emitted for every successful entity pick with the display position; lets
@@ -1455,6 +1547,12 @@ class RoomViewport3D(QFrame):
         #: Optional workspace hook: ``(entity_id) -> reason | None`` for
         #: edit-blocking state the viewport cannot see (e.g. ``!can_edit``).
         self.pick_candidate_reason_provider = None
+        # Waypoint recording mode (#1011 M3): while armed, every pick emits
+        # ``waypointPicked`` instead of selecting entities, and the room
+        # floor/shell/authoring surfaces become pickable so a click on them
+        # resolves to the true surface point. Disarming restores the normal
+        # "entity selection = pickable mesh" contract exactly.
+        self._waypoint_pick_armed = False
         self._search_domain_handles: dict[int, tuple[str, str, str, bool]] = {}
         # deferred_render(): compositing callers (e.g. the workspace refresh
         # that stacks document + constraint + measure + video + proposal
@@ -1805,6 +1903,10 @@ class RoomViewport3D(QFrame):
         # candidate set against the new document/hidden state and re-add its
         # preview envelope, or dismiss it when the stack went stale (#983).
         self._restore_pick_candidates(previous_document, previous_hidden)
+        if self._waypoint_pick_armed:
+            # Room surfaces were recreated above — re-arm their pickable
+            # flags or waypoint recording silently loses its targets.
+            self._apply_waypoint_pickable()
         self._render()
 
     #: Named-actor prefixes owned by the compositing overlay renderers
@@ -4178,6 +4280,25 @@ class RoomViewport3D(QFrame):
             return
         self._in_pick_dispatch = True
         try:
+            if self._waypoint_pick_armed:
+                # #1011 M3: while waypoint recording is armed every pick —
+                # entity, room floor/shell, committed authoring surface —
+                # resolves to the domain point on its face, never to a
+                # selection. Entities stay pickable anyway; the room
+                # surfaces were armed by set_waypoint_pick_armed.
+                picked = getattr(self.plotter, "picked_position", None)
+                if picked is not None:
+                    array = np.asarray(picked, dtype=float).reshape(-1)
+                    if array.size >= 3:
+                        # Render space -> domain space (Y negated).
+                        self.waypointPicked.emit(
+                            (
+                                float(array[0]),
+                                float(-array[1]),
+                                float(array[2]),
+                            )
+                        )
+                return
             underlay_id = self._actor_underlay_ids.get(id(actor))
             if underlay_id is not None:
                 self.dismiss_pick_candidates()
@@ -4421,6 +4542,191 @@ class RoomViewport3D(QFrame):
         if picked is None:
             return None
         return (float(picked[0]), float(picked[1]), float(picked[2]))
+
+    # -- Waypoint recording (#1011 M3) ----------------------------------------
+    #
+    # The authoring mode coexists with entity picking exactly like the
+    # measure tool does: while armed, the pick pipeline feeds
+    # ``waypointPicked``/``pick_waypoint_domain`` instead of selection —
+    # entity actors keep their pickable flag (a click on a speaker records
+    # the point on its cabinet, where a cable would touch), and the room
+    # floor/shell/authoring surfaces go pickable for the armed duration
+    # only. Everything emitted is a domain-space (x, y, z) triple.
+
+    #: Named actors that become pickable while waypoint recording is armed —
+    #: the room surfaces a cable route actually runs along. Grid lines are
+    #: intentionally left non-pickable: they are hairline targets that would
+    #: report floor-plane points slightly off the true floor.
+    _WAYPOINT_SURFACE_NAMES = ('room-floor', 'room-shell')
+    _WAYPOINT_SURFACE_PREFIXES = ('authoring-surface-',)
+
+    def set_waypoint_pick_armed(self, armed: bool) -> None:
+        """Arm/disarm waypoint recording picks (#1011 M3).
+
+        Armed: every pick emits ``waypointPicked`` (domain point) instead of
+        selecting, room surfaces become pickable, and the overlapping-pick
+        chooser stays suppressed so a record click cannot open it. Disarmed
+        restores the pickable flags and chooser behaviour exactly — a click
+        on the floor deselects again like it always did.
+        """
+
+        armed = bool(armed)
+        if armed == self._waypoint_pick_armed:
+            return
+        self._waypoint_pick_armed = armed
+        self.pick_popover_enabled = not armed
+        self.dismiss_pick_candidates()
+        self._apply_waypoint_pickable()
+
+    def _apply_waypoint_pickable(self) -> None:
+        """Set room-surface pickable flags to the armed state.
+
+        ``render_document`` rebuilds the room actors on every real scene
+        change, so this must re-run after a rebuild — a re-render while
+        armed must never silently drop the recording surface.
+        """
+
+        renderer = getattr(self.plotter, 'renderer', None)
+        actors = getattr(renderer, 'actors', None)
+        if not actors:
+            return
+        for name in tuple(actors):
+            if not isinstance(name, str):
+                continue
+            if name in self._WAYPOINT_SURFACE_NAMES or name.startswith(
+                self._WAYPOINT_SURFACE_PREFIXES
+            ):
+                actor = actors.get(name) if hasattr(actors, 'get') else None
+                if actor is not None:
+                    actor.SetPickable(self._waypoint_pick_armed)
+
+    def pick_waypoint_domain(
+        self, position: QPointF
+    ) -> tuple[float, float, float] | None:
+        """Domain-space room point under a Qt display point (#1011 M3).
+
+        First the shared picker — while armed, room surfaces are pickable,
+        so a click on them resolves to the true surface point (an entity
+        click resolves to the point on its body). When nothing pickable is
+        under the cursor, the click ray is intersected with the room
+        boundary — floor, the footprint walls, the ceiling plane — which
+        is the surface the user is actually pointing at; a ray that misses
+        every boundary returns None rather than a fabricated point.
+        """
+
+        display = self._widget_to_display_position(position)
+        if display is None:
+            return None
+        try:
+            picker = self.plotter.iren.picker
+            renderer = self.plotter.iren.get_poked_renderer()
+            if picker.Pick(display[0], display[1], 0.0, renderer):
+                got = picker.GetPickPosition()
+                if got is not None and len(got) >= 3:
+                    return (float(got[0]), -float(got[1]), float(got[2]))
+        except Exception:
+            pass
+        try:
+            renderer = self.plotter.renderer
+            renderer.SetDisplayPoint(display[0], display[1], 0.0)
+            renderer.DisplayToWorld()
+            near = renderer.GetWorldPoint()
+            renderer.SetDisplayPoint(display[0], display[1], 1.0)
+            renderer.DisplayToWorld()
+            far = renderer.GetWorldPoint()
+        except Exception:
+            return None
+        if near is None or far is None or len(near) < 4 or len(far) < 4:
+            return None
+        near_domain = (near[0], -near[1], near[2])
+        far_domain = (far[0], -far[1], far[2])
+        return _ray_room_boundary_domain(
+            near_domain, far_domain, self._document
+        )
+
+    def render_cable_route_draft(
+        self,
+        active_points: (
+            tuple[tuple[float, float, float], ...]
+            | list[tuple[float, float, float]]
+        ),
+        staged_segments: (
+            tuple[CableRouteSegmentRouteItem, ...]
+            | list[CableRouteSegmentRouteItem]
+        ) = (),
+    ) -> None:
+        """In-progress waypoint recording preview (#1011 M3).
+
+        The uncommitted point list draws in the draft colour under
+        ``cable-route-draft-`` — visibly distinct from the recorded-route
+        accent/warning palette so a work-in-progress line can never be
+        mistaken for a registered route. Staged-but-uncommitted segments
+        draw dimmer under the same prefix. Every actor is non-pickable
+        (clicks keep recording) and the ``cable-route-`` prefix sweep drops
+        them with every other overlay — nothing draft persists across a
+        scene rebuild unless the controller re-pushes it.
+        """
+
+        color = DARK_THEME.semantic.stale.hex
+        for segment in staged_segments:
+            for leg, (first, second) in enumerate(
+                zip(segment.points, segment.points[1:])
+            ):
+                self.plotter.add_mesh(
+                    pv.Line(
+                        _domain_to_render_tuple(first),
+                        _domain_to_render_tuple(second),
+                    ),
+                    color=color,
+                    line_width=2,
+                    opacity=0.45,
+                    pickable=False,
+                    name=(
+                        f"cable-route-draft-staged-"
+                        f"{segment.segment_sequence}-{leg}"
+                    ),
+                    render=False,
+                )
+        points = tuple(active_points)
+        for index, point in enumerate(points):
+            self.plotter.add_mesh(
+                pv.Sphere(
+                    radius=0.04, center=_domain_to_render_tuple(point)
+                ),
+                color=color,
+                opacity=0.95,
+                pickable=False,
+                name=f"cable-route-draft-point-{index}",
+                render=False,
+            )
+            # Point order is authoring state, so the indices are drawn —
+            # plain ASCII digits (VTK label fonts have no CJK coverage).
+            self.plotter.add_point_labels(
+                [_domain_to_render_tuple(point)],
+                [str(index + 1)],
+                text_color=DARK_THEME.text.primary.hex,
+                shape_color=DARK_THEME.surfaces.overlay.hex,
+                shape_opacity=0.85,
+                font_size=9,
+                point_size=0,
+                always_visible=True,
+                name=f"cable-route-draft-point-label-{index}",
+                render=False,
+            )
+        for leg, (first, second) in enumerate(zip(points, points[1:])):
+            self.plotter.add_mesh(
+                pv.Line(
+                    _domain_to_render_tuple(first),
+                    _domain_to_render_tuple(second),
+                ),
+                color=color,
+                line_width=3,
+                opacity=0.85,
+                pickable=False,
+                name=f"cable-route-draft-line-{leg}",
+                render=False,
+            )
+        self._render()
 
     # -- Field overlay (issue #999) -------------------------------------------
     #

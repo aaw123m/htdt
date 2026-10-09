@@ -602,7 +602,9 @@ class GeometryRepositoryTests(unittest.TestCase):
 class SchemaMigrationTests(unittest.TestCase):
     def test_v116_table_declared_and_registry_complete(self):
         self.assertIn('cad_cable_run_geometries', NATIVE_SCHEMA_TABLES)
-        self.assertEqual(NATIVE_SCHEMA_VERSION, 116)
+        # The table was added at v116; later migrations move the head —
+        # assert the floor, never a pinned ceiling.
+        self.assertGreaterEqual(NATIVE_SCHEMA_VERSION, 116)
         assert_row_integrity_registry_complete()
 
     def test_v115_to_v116_migration_preserves_runs(self):
@@ -636,7 +638,9 @@ class SchemaMigrationTests(unittest.TestCase):
                 version = connection.execute(
                     'SELECT schema_version FROM native_schema_metadata'
                 ).fetchone()[0]
-                self.assertEqual(version, 116)
+                # Migration re-runs the whole ledger: head is the current
+                # schema version, never a stale v116 pin.
+                self.assertEqual(version, NATIVE_SCHEMA_VERSION)
                 tables = {
                     row[0]
                     for row in connection.execute(

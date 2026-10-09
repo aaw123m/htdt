@@ -15,12 +15,11 @@ from __future__ import annotations
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
-    QFormLayout,
     QFrame,
-    QHBoxLayout,
     QLabel,
     QListWidget,
     QListWidgetItem,
+    QPushButton,
     QVBoxLayout,
     QWidget,
 )
@@ -136,6 +135,8 @@ class CableRunPanel(QFrame):
     """ケーブル配線の一覧 — 記録済み CableRun の状態と系譜を示す。"""
 
     routeSelectionChanged = Signal(object)
+    #: #1011 M3: operator asked to record route waypoints for a run.
+    waypointAuthoringRequested = Signal(str)  # run_id
 
     def __init__(
         self,
@@ -208,6 +209,20 @@ class CableRunPanel(QFrame):
         set_typography_role(self.detail, TypographyRole.SECONDARY)
         layout.addWidget(self.detail)
 
+        # #1011 M3: entry into the waypoint recording session. The
+        # authoring card itself is mounted by set_waypoint_panel so this
+        # panel never needs to know the controller type.
+        self.record_button = QPushButton('この配線の経路を記録')
+        self.record_button.setAccessibleName('選択中の配線の経路を記録')
+        self.record_button.setToolTip(
+            '3D上で点を記録し、宣言済み区間の経路形状を登録します'
+        )
+        self.record_button.clicked.connect(self._request_authoring)
+        layout.addWidget(self.record_button)
+        self._waypoint_panel: QWidget | None = None
+        self._layout = layout
+        self._sync_record_button()
+
     # -- refresh / selection -------------------------------------------------
 
     def set_length_policy(self, policy: LengthDisplayPolicy) -> None:
@@ -246,6 +261,26 @@ class CableRunPanel(QFrame):
             self._render_detail()
             self._emit_selection()
 
+    def set_waypoint_panel(self, panel: QWidget) -> None:
+        """Mount the #1011 waypoint authoring card under the detail."""
+
+        if self._waypoint_panel is not None:
+            self._waypoint_panel.setParent(None)
+        self._waypoint_panel = panel
+        panel.setVisible(False)
+        self._layout.addWidget(panel)
+
+    def _request_authoring(self) -> None:
+        inspection = self._current_inspection()
+        if inspection is not None:
+            self.waypointAuthoringRequested.emit(inspection.run_id)
+
+    def _sync_record_button(self) -> None:
+        inspection = self._current_inspection()
+        self.record_button.setEnabled(
+            inspection is not None and bool(inspection.segments)
+        )
+
     def _current_inspection(self) -> CableRunInspection | None:
         row = self.run_list.currentRow()
         if row < 0 or row >= len(self._inspections):
@@ -258,6 +293,7 @@ class CableRunPanel(QFrame):
             inspection.run_id if inspection is not None else None
         )
         self._render_detail()
+        self._sync_record_button()
         self._emit_selection()
 
     def _emit_selection(self) -> None:

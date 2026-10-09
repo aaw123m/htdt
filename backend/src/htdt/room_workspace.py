@@ -355,6 +355,11 @@ from .cad_room_qualification_repository import CadRoomQualificationRepository
 from .room_objects_panel import RoomObjectsPanel
 from .room_constraints_panel import RoomConstraintsPanel
 from .room_measure_input import RoomMeasureController, RoomMeasurePanel
+from .cable_run_waypoint import (
+    CableRunWaypointController,
+    CableRunWaypointPanel,
+)
+from .cad_cable_run_inspection import inspect_cable_runs
 from .room_history_panel import RoomHistoryPanel
 from .seat_priority_panel import SeatPriorityPanel
 from .room_video_panel import (
@@ -4625,6 +4630,35 @@ class RoomWorkspace(QWidget):
         self.cable_run_panel.routeSelectionChanged.connect(
             self._cable_route_selection_changed
         )
+        # #1011 M3: waypoint authoring — a dedicated recording mode that
+        # borrows the measure controller's shape: armed picks feed the
+        # point list, the draft polyline is a non-persistent overlay, and
+        # commit goes through the geometry authority's save path only.
+        self.cable_waypoint_controller = CableRunWaypointController(
+            self,
+            self.viewport,
+            cable_run_repository=self.cable_run_panel.cable_run_repository,
+            geometry_repository=self.cable_run_panel.geometry_repository,
+            inspection_provider=self._cable_run_inspection,
+        )
+        self.cable_waypoint_panel = CableRunWaypointPanel(
+            self.cable_waypoint_controller
+        )
+        self.cable_run_panel.set_waypoint_panel(self.cable_waypoint_panel)
+        self.cable_run_panel.waypointAuthoringRequested.connect(
+            self._begin_cable_waypoint_recording
+        )
+        self.cable_waypoint_controller.committed.connect(
+            self._cable_waypoint_committed
+        )
+        self.cable_waypoint_controller.stateChanged.connect(
+            lambda: self._render()
+        )
+        waypoint_signal = getattr(viewport_widget, 'waypointPicked', None)
+        if waypoint_signal is not None and hasattr(
+            waypoint_signal, 'connect'
+        ):
+            waypoint_signal.connect(self._cable_waypoint_picked)
         placement_body = QWidget()
         placement_layout = QVBoxLayout(placement_body)
         placement_layout.setContentsMargins(0, 0, 0, 0)
@@ -4747,6 +4781,10 @@ class RoomWorkspace(QWidget):
         self._refresh(reset_camera=changed)
 
     def before_deactivate(self) -> tuple[bool, str | None]:
+        if self.cable_waypoint_controller.is_active:
+            # Recording state is in-memory only — leaving the page drops
+            # it like the measure tool rather than blocking navigation.
+            self.cable_waypoint_controller.cancel()
         if self.measure_controller.is_active:
             self.measure_controller.cancel()
         if self.geometry_input is not None and self.geometry_input.is_active:
@@ -6449,6 +6487,10 @@ class RoomWorkspace(QWidget):
             self.controller.cancel_underlay_calibration()
             self._set_status("校正を中止しました")
             return True
+        if self.cable_waypoint_controller.is_active:
+            self.cable_waypoint_controller.cancel()
+            self._render()
+            return True
         if self.measure_controller.is_active:
             self.measure_controller.cancel()
             self._render()
@@ -6546,6 +6588,7 @@ class RoomWorkspace(QWidget):
             self.installation_panel.refresh()
             self.rack_workspace_panel.refresh()
             self.cable_run_panel.refresh()
+            self._refresh_cable_waypoint_session()
             self._sync_constraints_panel()
             self._sync_video_panel()
             self._sync_seat_priority_panel()
@@ -6722,10 +6765,13 @@ class RoomWorkspace(QWidget):
     def _entities_marquee_selected(self, entity_ids: object, additive: object = False) -> None:
         """Left-drag marquee: replace selection, or Shift-extend it.
 
-        Measure mode swallows the gesture — a region of space is not an
-        endpoint, so the marquee is inert there rather than misfiring.
+        Measure and waypoint-recording modes swallow the gesture — a
+        region of space is not an endpoint, so the marquee is inert
+        there rather than misfiring.
         """
         if self.measure_controller.is_active:
+            return
+        if self.cable_waypoint_controller.is_active:
             return
         ids = [str(item) for item in entity_ids]
         self.controller.set_selection_many(ids, additive=bool(additive))
@@ -6735,6 +6781,11 @@ class RoomWorkspace(QWidget):
         """Click on empty space: measure free-point or clear selection."""
         if self.field_overlay.probe_armed:
             self._field_probe_at(display_position)
+            return
+        # #1011 M3: while recording, an unpicked click still resolves to
+        # the room boundary plane — the honest surface the user aimed at.
+        if self.cable_waypoint_controller.is_active:
+            self.cable_waypoint_controller.record_at(display_position)
             return
         if self.measure_controller.is_active:
             self.measure_controller.pick_free_point(display_position)
@@ -8484,6 +8535,7 @@ class RoomWorkspace(QWidget):
             cable_run_panel = getattr(self, "cable_run_panel", None)
             if cable_run_panel is not None:
                 cable_run_panel.refresh()
+            self._refresh_cable_waypoint_session()
         if self.current_context == "history":
             self._sync_history_panel()
         if self.geometry_panel is not None:
@@ -8717,6 +8769,40 @@ class RoomWorkspace(QWidget):
         # viewport only ever draws bound endpoints + recorded waypoints.
         self._cable_route_items = () if item is None else (item,)
         self._render()
+
+    # -- #1011 M3: waypoint authoring -----------------------------------------
+
+    def _cable_run_inspection(self, run_id: str):
+        """Resolve the current listing entry for one run (or None)."""
+
+        for inspection in inspect_cable_runs(
+            scene_repository=self.cable_run_panel.scene_repository,
+            document_id=self.cable_run_panel.document_id,
+            cable_run_repository=self.cable_run_panel.cable_run_repository,
+            geometry_repository=self.cable_run_panel.geometry_repository,
+            signal_path_repository=self.cable_run_panel.signal_path_repository,
+        ):
+            if inspection.run_id == run_id:
+                return inspection
+        return None
+
+    def _begin_cable_waypoint_recording(self, run_id: str) -> None:
+        if self.cable_waypoint_controller.begin(run_id):
+            # The session owns the placement page's attention — the card
+            # already lives under the cable-run listing it was started from.
+            self._render()
+
+    def _cable_waypoint_picked(self, domain_point) -> None:
+        self.cable_waypoint_controller.record_domain_point(domain_point)
+
+    def _cable_waypoint_committed(self, _geometry) -> None:
+        self.cable_run_panel.refresh()
+        self._render()
+
+    def _refresh_cable_waypoint_session(self) -> None:
+        controller = getattr(self, 'cable_waypoint_controller', None)
+        if controller is not None and controller.is_active:
+            controller.refresh_run()
 
     def _render(self, *, reset_camera: bool = False) -> None:
         overlays = replace(

@@ -1,7 +1,6 @@
 # Issue #1011 — ケーブル配線の検査一覧 + 経路ジオメトリ権威 (REV73)
 
-M1 + M2 を実装。M3 (3D ウェイポイント記録 UI) は構造的な注記とともに
-defer — 理由は末尾に記載。
+M1 + M2 + M3 を実装。M3 の構造的注記と実装形態は末尾に記載。
 
 ## M1: 配線一覧 (検査サービス + パネル + 3D オーバーレイ)
 
@@ -57,17 +56,46 @@ factory 分岐 / `_LIFECYCLE_TABLE_LABELS` `ケーブル経路ジオメトリ`�
   `unregistered_sequences` (ジオメトリ未登録の宣言区間) と
   `concealment_mismatch` も表面化。サービスループは常に独立した数値。
 
-## M3 defer — 構造的注記
+## M3: 3D ウェイポイント記録 (`cable_run_waypoint.py`)
 
-3D 上でのウェイポイント記録 (クリックして点を打つ) は、VTK picking を
-追加するだけでなく、既存の「エンティティ選択 = pickable メッシュ」
-アーキテクチャと直行しない編集モード (空間上の自由点の pick、点列の
-undo/redo、区間への所属付け、concealment/surface 編集 UI、永続化
-トランザクション) を必要とする。M1/M2 の枠内に収まる変更量を超えるため、
-正直な設計としてここで区切る。権威側はすでに arbitrary waypoint を保持
-できるため、M3 は純粋に入力面の問題に限定されている。
+defer 注記で挙げた入力面の問題を、計測ツール (`RoomMeasureController`)
+と同じ「専用編集モードがエンティティ選択と共存する」形で解決した。
 
-## テスト (`backend/tests/test_issue_1011_cable_routes.py`, 16件)
+- `CableRunWaypointController` — 記録セッション (対象 run、点列 +
+  undo/redo、確定済み区間の集合、concealment/通過面/source/record_kind/
+  note のフィールド) を所有。`begin(run_id)` は検査一覧を解決して宣言
+  区間を束縛し、`RoomViewport3D.set_waypoint_pick_armed(True)` でモード
+  に入る。コミットは `CadCableRunGeometryRepository.save_geometry` のみ
+  — run は begin 時のスナップショットではなくコミット時点の最新版に
+  再ピン留めし (stale pin は失敗しても新しい版を上書きしない)、失敗時は
+  セッションと記録点を保持する。同一 geometry_id への再記録は
+  `latest_geometry_for_run` で version を進めて append-only を守る。
+- ピックの honest な解決: armed 中は `room-floor` / `room-shell` /
+  `authoring-surface-*` も pickable になり、全 pick が `waypointPicked`
+  (ドメイン座標) に流れる。エンティティ上のクリックはその物体表面の
+  点を記録し (選択にはならない)、何も拾えないクリックは
+  `pick_waypoint_domain` が部屋境界 (床・外周壁・天井平面) とのレイ交差
+  にフォールバックする — 空間の自由点は作らない。disarm で pickable
+  状態とポップオーバー許可を完全に戻す。
+- 下書きオーバーレイ `render_cable_route_draft` — 記録中の点列と確定済み
+  区間を `cable-route-draft-` プレフィクスの stale 色で描く。登録済み経路
+  の accent/warning 系と色を分け、常に non-pickable・非永続。
+- `CableRunWaypointPanel` — 配線一覧の詳細の下にマウント (記録対象が
+  選ばれた場所 = 記録 UI の場所)。区間コンボは宣言済み区間のみを列挙
+  (宣言外への記録は選択肢自体が存在しない)、concealment は区間の宣言
+  path_kind を既定値として引き継ぐ。全コントロールに JA 文字列と
+  accessibleName。点の undo/redo は記録中の点列のみに作用し、シーンの
+  編集には触れない。
+- ワークスペース配線: Esc → `cancel_active_operation` (記録中止は選択
+  解除より先)、`before_deactivate` は計測同様にセッションを畳む、
+  `emptyClicked` は境界フォールバック記録、marquee は記録中は無効。
+  `cable_run_panel.refresh()` 後に `refresh_run` で対象 run を再解決
+  (消失 → セッション終了、区間離脱 → 警告)。
+
+## テスト
+
+`backend/tests/test_issue_1011_cable_routes.py` (16件) +
+`backend/tests/test_issue_1011_cable_waypoints.py` (M3, 24件):
 
 - M1: 一覧 (端点 bound/unbound/missing、区間宣言長、サービスループ、
   系譜、鮮度 current/stale/missing、信号エッジ解決)、オーバーレイ投影が
@@ -79,3 +107,10 @@ undo/redo、区間への所属付け、concealment/surface 編集 UI、永続化
   作成 + 既存 run 保持。
 - UI: パネル列挙 + `経路形状未登録` 表示、宣言 vs 幾何の併記 + 差分
   警告、幅220px での動作、UIA accessibleName。
+- M3: 記録トランザクション (begin→点→確定→保存で sealed レコードが
+  正しい pin/フィールドで着地)、未確定点の保存拒否、宣言外区間の
+  fail closed、undo/redo が点列のみに作用、コミットが run 最新版に
+  再ピン (stale pin は新しい版を上書きしない)、append-only な version
+  追加、対象消失でセッション終了、部屋境界レイ交差、draft オーバーレイ
+  の prefix/non-pickable/ドメイン→レンダー変換、ワークスペース配線
+  (pick・Esc・パネルマウント・a11y)。
