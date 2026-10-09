@@ -64,7 +64,7 @@ def validate_plan(p):
     return p
 
 
-def one_grid(p, ppw, directory, original, prior_roof, previous_kmk):
+def one_grid(p, ppw, directory, original, prior_roof, previous_kmk=None):
     stamp=time.perf_counter()
     if file_hash(directory/"comms_out.h5")!=original["original_native_comm_sha256"] or (
        file_hash(directory/"vox_out.h5")!=original["original_solver_geometry_sha256"]):
@@ -143,12 +143,14 @@ def one_grid(p, ppw, directory, original, prior_roof, previous_kmk):
     baserel=float(np.linalg.norm(baseline-prior)/max(np.linalg.norm(prior),1e-14))
     if baserel>p["evaluation"]["baseline_vs_archived_cg_relative_max"]:
         raise ValueError("original frozen full wave baseline drift")
-    actualfull=unpairs(transfers["full_kmk"])
-    prevfull=unpairs(previous_kmk["full_untruncated_source_receiver_q0_signed_two_bin_by_arm"][
-        "conservative_kmk_dispersion_newmark"])
-    relative=float(np.linalg.norm(actualfull-prevfull)/max(np.linalg.norm(prevfull),1e-14))
-    if relative>p["evaluation"]["full_kmk_vs_prior_modal_relative_max"]:
-        raise ValueError(f"registered full correction no longer reproduces original KmkK {relative}")
+    relative=None
+    if previous_kmk is not None:
+        actualfull=unpairs(transfers["full_kmk"])
+        prevfull=unpairs(previous_kmk["full_untruncated_source_receiver_q0_signed_two_bin_by_arm"][
+            "conservative_kmk_dispersion_newmark"])
+        relative=float(np.linalg.norm(actualfull-prevfull)/max(np.linalg.norm(prevfull),1e-14))
+        if relative>p["evaluation"]["full_kmk_vs_prior_modal_relative_max"]:
+            raise ValueError(f"registered full correction no longer reproduces original KmkK {relative}")
     return {"ppw":ppw,"unmodified_original_source_sha256":file_hash(directory/"comms_out.h5"),
         "unmodified_original_voxel_sha256":file_hash(directory/"vox_out.h5"),
         "room_physical_exact_volume_m3":full.room_fluid_volume_m3,
