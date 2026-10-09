@@ -4255,6 +4255,9 @@ class WorkflowApplicationComposition:
             self.repository,
             self.document_id,
             navigate=self._navigate_target,
+            # #985: package exports register their worker-lane jobs in the
+            # shared ActivityCenter (progress/cancel/history).
+            activity_center=self.activity_center,
         )
 
         def activate() -> None:

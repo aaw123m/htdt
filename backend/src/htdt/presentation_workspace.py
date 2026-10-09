@@ -33,6 +33,7 @@ from PySide6.QtWidgets import (
 )
 
 from . import file_dialog_memory
+from .activity_center import ActivityCenter
 from .cad_design_comparison import DesignComparisonSet
 from .cad_design_comparison_repository import CadDesignComparisonRepository
 from .cad_design_decision import (
@@ -54,18 +55,9 @@ from .cad_presentation_session import (
     build_sync_binding,
     build_viewpoint,
 )
-from .cad_proposal_package import (
-    build_proposal_package,
-    verify_proposal_package,
-)
 from .cad_repository import SceneRepository
 from .cad_review_note import ReviewNoteRepository, add_review_note
-from .cad_review_package import (
-    OffscreenSceneRenderer,
-    build_review_package,
-    derived_yaw_steps,
-    verify_review_package,
-)
+from .cad_review_package import derived_yaw_steps
 from .cad_scene_history import ENTITY_FIELD_LABELS
 from .design_ab_overlay import (
     AB_OVERLAY_CATEGORY_VOCAB,
@@ -75,6 +67,12 @@ from .design_ab_overlay import (
 from .cad_system_variant_repository import CadSystemVariantRepository
 from .clock import utc_now_iso as _utc_now
 from .output_target import OutputTargetError, validate_output_target
+from .package_progress import PackageBuildProgress
+from .presentation_export_runner import (
+    PresentationExportRunner,
+    PresentationExportJob,
+    _bytes_label,
+)
 from .room_viewport import RoomOverlayState, RoomViewport3D
 from .user_facing_error import warn_user
 
@@ -93,6 +91,7 @@ class PresentationWorkspace(QWidget):
         document_id: str,
         *,
         navigate=None,
+        activity_center: ActivityCenter | None = None,
     ) -> None:
         super().__init__()
         self.repository = repository
@@ -116,6 +115,28 @@ class PresentationWorkspace(QWidget):
         # 「出力先を開く」 will ever open (a verified build, never a
         # merely-validated one).
         self._last_output_dir: str | None = None
+
+        # #985: review/proposal package builds run on a bounded worker
+        # lane (never the Qt event loop), registered in the shared
+        # ActivityCenter with measured progress + cooperative cancel.
+        self._export_runner = PresentationExportRunner(
+            scene_repository=repository,
+            presentation_repository=self.presentation_repository,
+            comparison_repository=self.comparison_repository,
+            decision_repository=self.decision_repository,
+            activity_center=activity_center,
+            parent=self,
+        )
+        self._export_runner.export_started.connect(self._export_job_started)
+        self._export_runner.export_progress.connect(self._export_job_progress)
+        self._export_runner.export_completed.connect(
+            self._export_job_completed
+        )
+        self._export_runner.export_failed.connect(self._export_job_failed)
+        self._export_runner.export_cancelled.connect(
+            self._export_job_cancelled
+        )
+        self._export_runner.export_finished.connect(self._export_job_finished)
 
         self.pages: dict[str, QWidget] = {}
         self.stack = QStackedWidget(self)
@@ -1138,15 +1159,45 @@ class PresentationWorkspace(QWidget):
         self.yaw_check.setAccessibleName('ヨーステップレンダリング有効化')
         layout.addRow(self.yaw_check)
 
-        review_button = QPushButton('レビューパッケージを生成')
-        review_button.setAccessibleName('オフラインレビューパッケージを生成')
-        review_button.clicked.connect(self._build_review)
-        layout.addRow(review_button)
+        self.export_review_button = QPushButton(
+            'レビューパッケージを生成'
+        )
+        self.export_review_button.setAccessibleName(
+            'オフラインレビューパッケージを生成'
+        )
+        self.export_review_button.setToolTip(
+            'バックグラウンドで生成します — 実行中も画面は操作できます'
+        )
+        self.export_review_button.setWhatsThis(
+            'バックグラウンドで生成します — 実行中も画面は操作できます'
+        )
+        self.export_review_button.clicked.connect(self._build_review)
+        layout.addRow(self.export_review_button)
 
-        proposal_button = QPushButton('提案パッケージを生成')
-        proposal_button.setAccessibleName('提案書パッケージを生成')
-        proposal_button.clicked.connect(self._build_proposal)
-        layout.addRow(proposal_button)
+        self.export_proposal_button = QPushButton('提案パッケージを生成')
+        self.export_proposal_button.setAccessibleName(
+            '提案書パッケージを生成'
+        )
+        self.export_proposal_button.setToolTip(
+            'バックグラウンドで生成します — 実行中も画面は操作できます'
+        )
+        self.export_proposal_button.setWhatsThis(
+            'バックグラウンドで生成します — 実行中も画面は操作できます'
+        )
+        self.export_proposal_button.clicked.connect(self._build_proposal)
+        layout.addRow(self.export_proposal_button)
+
+        self.export_cancel_button = QPushButton('出力を中止')
+        self.export_cancel_button.setAccessibleName('パッケージ出力を中止')
+        self.export_cancel_button.setToolTip(
+            '実行中の出力ジョブを次の安全な区切りで中止します'
+        )
+        self.export_cancel_button.setWhatsThis(
+            '実行中の出力ジョブを次の安全な区切りで中止します'
+        )
+        self.export_cancel_button.setVisible(False)
+        self.export_cancel_button.clicked.connect(self._cancel_export)
+        layout.addRow(self.export_cancel_button)
 
         self.export_status = QLabel('')
         self.export_status.setWordWrap(True)
@@ -1210,62 +1261,27 @@ class PresentationWorkspace(QWidget):
             )
 
     def _build_review(self) -> None:
-        session = self._export_session()
-        if session is None:
-            QMessageBox.warning(
-                self, '出力', 'セッションを選択してください'
-            )
-            return
-        package_dir = self._validated_export_dir(
-            f'review-{session.session_id[:8]}'
-        )
-        if package_dir is None:
-            return
-        # Yaw intent is an explicit export-time override — never a
-        # rebuilt session object, whose hash would name a session that
-        # was never persisted.
-        if not self.yaw_check.isChecked():
-            yaw_steps: tuple[int, ...] | None = ()
-        elif session.render.yaw_step_deg is not None:
-            yaw_steps = None  # derive from the session's declared step
-        else:
-            yaw_steps = derived_yaw_steps(30)
-        settings = session.render
-        try:
-            renderer = OffscreenSceneRenderer(
-                settings.image_width_px, settings.image_height_px
-            )
-            result = build_review_package(
-                session,
-                package_dir,
-                self.repository,
-                presentation_repository=self.presentation_repository,
-                renderer=renderer,
-                yaw_steps_deg=yaw_steps,
-            )
-            # Success is only honest once the written entries re-hash
-            # clean — verify before declaring it.
-            verify_review_package(result.output_dir)
-        except Exception as exc:
-            self._last_output_dir = None
-            self.open_output_button.setVisible(False)
-            warn_user(self, 'レビューパッケージを生成できませんでした', exc)
-            return
-        self._last_output_dir = result.output_dir
-        self.open_output_button.setVisible(True)
-        caps = '; '.join(
-            f'{row.capability}={row.state}'
-            for row in result.manifest.capability_rows
-        )
-        self.export_status.setText(
-            f'生成完了: {result.output_dir}\n'
-            f'エントリ {len(result.manifest.entries)} 件\n'
-            f'マニフェスト SHA-256: {result.manifest.manifest_sha256}\n'
-            f'能力宣言: {caps}\n'
-            + ('\n'.join(result.warnings) if result.warnings else '')
-        )
+        self._start_export('review')
 
     def _build_proposal(self) -> None:
+        self._start_export('proposal')
+
+    def _cancel_export(self) -> None:
+        self._export_runner.request_cancel()
+        self.export_cancel_button.setEnabled(False)
+
+    def _start_export(self, kind: str) -> None:
+        """Pin the job on the UI thread, then hand it to the worker.
+
+        Everything the build needs — the sealed session, its source
+        revision, the render intent, the validated output folder and the
+        expected work items — is resolved *here* (#985): after
+        ``runner.start`` the combo can point at another session without
+        re-attributing the running job's result.
+        """
+        if self._export_runner.busy:
+            # Double-click / parallel presses never start a second job.
+            return
         session = self._export_session()
         if session is None:
             QMessageBox.warning(
@@ -1273,33 +1289,139 @@ class PresentationWorkspace(QWidget):
             )
             return
         package_dir = self._validated_export_dir(
-            f'proposal-{session.session_id[:8]}'
+            f'{kind}-{session.session_id[:8]}'
         )
         if package_dir is None:
             return
-        try:
-            result = build_proposal_package(
-                session,
-                package_dir,
-                self.repository,
-                presentation_repository=self.presentation_repository,
-                comparison_repository=self.comparison_repository,
-                decision_repository=self.decision_repository,
+        expected_frames = 0
+        expected_sheets = 0
+        if kind == 'review':
+            # Yaw intent is an explicit export-time override — never a
+            # rebuilt session object, whose hash would name a session
+            # that was never persisted.
+            if not self.yaw_check.isChecked():
+                yaw_steps: tuple[int, ...] | None = ()
+            elif session.render.yaw_step_deg is not None:
+                yaw_steps = None  # derive from the session's step
+            else:
+                yaw_steps = derived_yaw_steps(30)
+            effective_steps = (
+                yaw_steps
+                if yaw_steps is not None
+                else derived_yaw_steps(session.render.yaw_step_deg)
             )
-            verify_proposal_package(result.output_dir)
-        except Exception as exc:
-            self._last_output_dir = None
-            self.open_output_button.setVisible(False)
-            warn_user(self, '提案書パッケージを生成できませんでした', exc)
-            return
-        self._last_output_dir = result.output_dir
-        self.open_output_button.setVisible(True)
-        self.export_status.setText(
-            f'生成完了: {result.output_dir}\n'
-            f'エントリ {len(result.manifest.entries)} 件\n'
-            f'マニフェスト SHA-256: {result.manifest.manifest_sha256}\n'
-            + ('\n'.join(result.warnings) if result.warnings else '')
+            expected_frames = len(session.ordered_viewpoints()) * (
+                1 + len(effective_steps)
+            )
+            expected_sheets = 3
+        else:
+            yaw_steps = None
+            expected_sheets = 4
+        job = PresentationExportJob(
+            kind=kind,
+            session=session,
+            package_dir=package_dir,
+            output_root=package_dir.parent,
+            yaw_steps_deg=yaw_steps,
+            include_drawings=True,
+            expected_frames=expected_frames,
+            expected_sheets=expected_sheets,
         )
+        self._export_runner.start(job)
+
+    def _export_job_started(self, job: PresentationExportJob) -> None:
+        self.export_review_button.setEnabled(False)
+        self.export_proposal_button.setEnabled(False)
+        self.export_cancel_button.setVisible(True)
+        self.export_cancel_button.setEnabled(True)
+        self.open_output_button.setVisible(False)
+        expected = ''
+        if job.expected_frames:
+            expected += f'・フレーム {job.expected_frames} 件'
+        if job.expected_sheets:
+            expected += f'・図面 {job.expected_sheets} 枚'
+        self.export_status.setText(
+            '実行中 — セッション'
+            f'「{job.session.label}」'
+            f'（リビジョン {job.session.scene_revision_id[:8]}）を\n'
+            f'{job.package_dir} へ出力しています{expected}'
+        )
+
+    def _export_job_progress(self, progress: PackageBuildProgress) -> None:
+        line = (
+            f'{progress.stage_label}'
+            f'（{progress.stage_index}/{progress.stage_count}）'
+        )
+        if progress.done_units is not None and progress.total_units:
+            line += (
+                f' — {progress.done_units}/{progress.total_units}'
+                f' {progress.unit_label}'
+            )
+        if progress.bytes_written:
+            line += f'、{_bytes_label(progress.bytes_written)} 書込み'
+        self.export_status.setText(f'実行中: {line}')
+
+    def _export_job_completed(self, built) -> None:
+        result = built.result
+        job = built.job
+        # The published name is the pinned package_dir — the result's
+        # own output_dir is the staging path, which no longer exists
+        # after the atomic rename.
+        self._last_output_dir = job.package_dir
+        self.open_output_button.setVisible(True)
+        try:
+            stale = self.presentation_repository.session_stale(job.session)
+        except Exception:
+            stale = False
+        lines = [
+            f'生成完了: {job.package_dir}',
+            f'エントリ {len(result.manifest.entries)} 件',
+            f'マニフェスト SHA-256: {result.manifest.manifest_sha256}',
+        ]
+        capability_rows = getattr(result.manifest, 'capability_rows', None)
+        if capability_rows:
+            caps = '; '.join(
+                f'{row.capability}={row.state}'
+                for row in capability_rows
+            )
+            lines.append(f'能力宣言: {caps}')
+        if stale:
+            # #985: the pinned input is no longer the head — present the
+            # package as a historical result, never a fresh one.
+            lines.append(
+                '注意: ピン留めされたリビジョンは最新ではありません'
+                '（旧リビジョンの結果として保持）'
+            )
+        if result.warnings:
+            lines.extend(result.warnings)
+        self.export_status.setText('\n'.join(lines))
+
+    def _export_job_failed(self, payload) -> None:
+        _job, error_text, diagnostic_id = payload
+        # Non-blocking notification: the ActivityCenter row carries the
+        # FAILED state + diagnostic id; the status line mirrors it. No
+        # partial output folder exists at this point (#985).
+        self.export_status.setText(
+            f'生成できませんでした: {error_text} '
+            f'[diag: {diagnostic_id}]'
+        )
+
+    def _export_job_cancelled(self) -> None:
+        self.export_status.setText(
+            '出力を中止しました — 部分出力は残っていません'
+        )
+
+    def _export_job_finished(self) -> None:
+        self.export_review_button.setEnabled(True)
+        self.export_proposal_button.setEnabled(True)
+        self.export_cancel_button.setVisible(False)
+
+    def closeEvent(self, event) -> None:
+        # An in-flight export must be cancelled and the worker lane
+        # drained before the mount is disposed (project switch / close);
+        # the runner's bounded shutdown also removes any staged output.
+        self._export_runner.shutdown()
+        super().closeEvent(event)
 
     def showEvent(self, event) -> None:
         super().showEvent(event)

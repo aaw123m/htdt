@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import html
 from pathlib import Path, PurePosixPath
+from threading import Event
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -35,6 +36,11 @@ from .cad_presentation_session import PresentationSession
 from .cad_repository import SceneRepository
 from .canonical_json import canonical_sha256 as _hash
 from .clock import utc_now_iso as _utc_now
+from .package_progress import (
+    ExportCancelledError,
+    PackageBuildProgress,
+    ProgressCallback,
+)
 from .report import InstallationOutput, build_installation_output
 
 
@@ -383,6 +389,8 @@ def build_proposal_package(
     comparison_repository: CadDesignComparisonRepository | None = None,
     decision_repository: CadDesignDecisionRepository | None = None,
     generated_at_utc: str | None = None,
+    progress: ProgressCallback | None = None,
+    cancel_event: Event | None = None,
 ) -> ProposalPackageResult:
     """Assemble the client-facing proposal document for ``session``.
 
@@ -390,6 +398,14 @@ def build_proposal_package(
     scene (+variant). Comparison content is included only when the
     session pins a comparison set; decisions listed are the document's
     recorded ``DesignDecisionRecord``\\ s.
+
+    ``progress`` receives measured ``PackageBuildProgress`` observations
+    (stage index, bytes written — never estimates) and ``cancel_event``
+    is a cooperative-cancel flag polled between stages;
+    ``ExportCancelledError`` propagates on cancel. Both are used by the
+    off-UI-thread export runner (#985) and are no-ops for synchronous
+    callers. Stage indices run 1..5; stage 5 (verify/publish) is
+    reported by the caller.
     """
 
     output_dir = Path(output_dir)
@@ -407,6 +423,36 @@ def build_proposal_package(
     )
 
     warnings: list[str] = []
+    stage_count = 5
+    bytes_written = 0
+
+    def _emit(
+        stage_index: int,
+        stage_label: str,
+        *,
+        done: int | None = None,
+        total: int | None = None,
+        unit: str | None = None,
+    ) -> None:
+        if progress is not None:
+            progress(
+                PackageBuildProgress(
+                    stage_label=stage_label,
+                    stage_index=stage_index,
+                    stage_count=stage_count,
+                    done_units=done,
+                    total_units=total,
+                    unit_label=unit,
+                    bytes_written=bytes_written,
+                )
+            )
+
+    def _check_cancel(stage_label: str) -> None:
+        if cancel_event is not None and cancel_event.is_set():
+            raise ExportCancelledError(stage_label)
+
+    _emit(1, '権威の解決')
+    _check_cancel('権威の解決')
 
     revision = scene_repository.get(session.scene_revision_id)
     if revision is None:
@@ -430,6 +476,8 @@ def build_proposal_package(
     output = build_installation_output(revision, variant=variant)
 
     # -- Drawing sheets ----------------------------------------------------
+    _check_cancel('図面生成')
+    _emit(2, '図面生成')
     drawings_svg: list[tuple[str, str]] = []
     try:
         spec = build_drawing_set_spec(
@@ -456,6 +504,8 @@ def build_proposal_package(
         warnings.append(f'図面の生成に失敗: {exc}')
 
     # -- Comparison --------------------------------------------------------
+    _check_cancel('比較・決定')
+    _emit(3, '比較・決定')
     comparison_set: DesignComparisonSet | None = None
     availability_rows: list[tuple[str, str, str, str]] = []
     if session.comparison_set_id is not None:
@@ -505,6 +555,8 @@ def build_proposal_package(
 
     decisions = decision_repository.list_decisions(session.document_id)
 
+    _check_cancel('文書・マニフェスト')
+    _emit(4, '文書・マニフェスト')
     document_html = _proposal_html(
         session,
         output,
@@ -521,6 +573,7 @@ def build_proposal_package(
     rel, sha, size = _write_member(
         output_dir, 'proposal.html', document_html.encode('utf-8')
     )
+    bytes_written += size
     entries.append(
         ProposalPackageEntry(
             path=str(rel), sha256=sha, byte_length=size, kind='document'
@@ -531,6 +584,7 @@ def build_proposal_package(
     rel, sha, size = _write_member(
         output_dir, 'installation-output.json', semantic
     )
+    bytes_written += size
     entries.append(
         ProposalPackageEntry(
             path=str(rel), sha256=sha, byte_length=size, kind='semantic'
@@ -568,6 +622,7 @@ def build_proposal_package(
         'manifest.json',
         manifest.model_dump_json(indent=2).encode('utf-8'),
     )
+    bytes_written += size
     entries.append(
         ProposalPackageEntry(
             path=str(rel), sha256=sha, byte_length=size, kind='manifest'
