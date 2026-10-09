@@ -933,3 +933,17 @@ entries:
   - docs/issues/issue-1025-retention-search.md
   - backend/tests/test_issue_1025_retention_search.py
   close_when_gates_clear: true
+
+- issue: 1018
+  lifecycle: acceptance_remaining
+  landed:
+    prs: [1056]
+    commits: [c2efe93d]
+  remaining_gates:
+  - kind: manual
+    description: 'オペレータ受入 — 実環境での診断実行・カテゴリ別結果・原因別誘導の確認 (子が実GUI 8/8・非同期非ブロッキング・キャンセル正直化を検証済)'
+  evidence_refs:
+  - docs/issues/issue-1018-support-health-check.md
+  - backend/tests/test_issue_1018_support_health_check.py
+  - backend/src/htdt/support_health_runner.py
+  close_when_gates_clear: true
