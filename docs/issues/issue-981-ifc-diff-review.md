@@ -85,6 +85,12 @@ decision, apply, resume plumbing), `cad_geometry_intake.py`
 - **Successive revisions.** After apply, the diff base becomes the merged
   set + new artifact, so a third revision diffs against what the operator
   actually sees.
+- **Re-apply is idempotent and delta-authoritative.** `apply_ifc_diff`
+  resolves both sides from the delta's pinned artifacts — never from the
+  merged base — and skips re-marks on mappings already carrying the
+  target state, so a second 適用 reproduces the same merged subject sha
+  (and a changed decision re-merges honestly) instead of erroring on
+  marks whose prior-side targets live in the prior artifact.
 - **Cancel / reload.** `resume_diff_state` recomputes rows
   deterministically from stored artifacts and restores the operator's
   decisions from the latest apply on that delta — skipped rows stay

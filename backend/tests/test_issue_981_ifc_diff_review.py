@@ -541,6 +541,48 @@ def test_skipped_rows_stay_flagged_on_reopen(tmp_path):
     }
 
 
+def test_reapply_after_reopen_is_idempotent(tmp_path):
+    """A second 適用 on an already-applied delta must not fail nor corrupt:
+    marks on already-marked mappings are skipped and the merged subject
+    sha is identical."""
+    repo, controller = _controller(tmp_path)
+    _import_base(controller)
+
+    body = _space_entity() + _wall_geometry_changed()
+    artifact, delta, rows = _import_revision(controller, body)
+    changed = [r for r in rows if r.category == 'changed']
+    ambiguous = [r for r in rows if r.category == 'ambiguous']
+    for row in changed:
+        controller.submit_diff_decision(row.row_key, 'accepted')
+    for row in ambiguous:
+        controller.submit_diff_decision(row.row_key, 'skipped')
+    first_apply, _, _ = controller.apply_ifc_diff()
+
+    reopened = _reopen(repo)
+    reopened.resume_diff_state()
+    second_apply, _, _ = reopened.apply_ifc_diff()
+
+    assert (
+        second_apply.merged_subject_sha256
+        == first_apply.merged_subject_sha256
+    )
+    assert set(second_apply.applied_row_keys) == {
+        r.row_key for r in changed
+    }
+    assert set(second_apply.skipped_row_keys) == {
+        r.row_key for r in ambiguous
+    }
+    # No mapping row was re-sealed a second time — the store still pins
+    # one row per (artifact, step_entity_id) beyond the marks of apply #1.
+    mappings = reopened.ifc_repository.list_entity_mappings(DOC_ID)
+    by_key: dict[tuple[str, int], int] = {}
+    for m in mappings:
+        key = (m.import_artifact_id, m.step_entity_id)
+        by_key[key] = by_key.get(key, 0) + 1
+    # exactly the accepted rows earned a second sealed row (the mark)
+    assert sum(c - 1 for c in by_key.values()) == len(changed) * 2
+
+
 # ---------------------------------------------------------------------------
 # Panel
 # ---------------------------------------------------------------------------

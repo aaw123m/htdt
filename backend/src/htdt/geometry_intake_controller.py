@@ -381,26 +381,47 @@ class GeometryIntakeController:
             raise GeometryIntakeError(
                 'no IFC diff staged — import a revised IFC first'
             )
-        if (
-            self.diff_base_artifact is None
-            or self.diff_base_mappings is None
-            or self.diff_new_artifact is None
-            or self.diff_new_mappings is None
-        ):
-            raise GeometryIntakeError('diff base unavailable')
+        # Both sides resolve from the delta's pinned artifacts — NOT from
+        # diff_base_*, which after an apply holds the merged set (the NEXT
+        # revision's base). A re-apply (operator clicked 適用 again, or
+        # changed decisions after reload) must still see the delta's true
+        # prior/new sides.
+        delta = self.diff_delta
+        prior_artifact = self.ifc_repository.get_import_artifact(
+            delta.prior_artifact_id
+        )
+        new_artifact = self.ifc_repository.get_import_artifact(
+            delta.new_artifact_id
+        )
+        if prior_artifact is None or new_artifact is None:
+            raise GeometryIntakeError('diff artifacts unavailable')
+        prior_mappings = latest_entity_mappings(
+            self.ifc_repository.list_entity_mappings(
+                self.document_id,
+                import_artifact_id=prior_artifact.artifact_id,
+            )
+        )
+        new_mappings = latest_entity_mappings(
+            self.ifc_repository.list_entity_mappings(
+                self.document_id,
+                import_artifact_id=new_artifact.artifact_id,
+            )
+        )
         decisions = {
             k: d.decision for k, d in self.diff_decisions.items()
         }
-        prior_by_id = {m.mapping_id: m for m in self.diff_base_mappings}
-        new_by_id = {m.mapping_id: m for m in self.diff_new_mappings}
+        prior_by_id = {m.mapping_id: m for m in prior_mappings}
+        new_by_id = {m.mapping_id: m for m in new_mappings}
         # Re-seal accepted mappings with their reconciliation state BEFORE
         # the merged subject pins them — parts reference the marked rows.
+        # A mapping already carrying the target state (re-apply after a
+        # reload) is left as-is — re-sealing would only append a duplicate.
         replaced: dict[str, IfcEntityMapping] = {}
         for mapping_id, state in reconciliation_marks(
             rows=self.diff_rows,
             decisions=decisions,
-            prior_mappings=self.diff_base_mappings,
-            new_mappings=self.diff_new_mappings,
+            prior_mappings=prior_mappings,
+            new_mappings=new_mappings,
         ):
             source = new_by_id.get(mapping_id) or prior_by_id.get(
                 mapping_id
@@ -409,6 +430,8 @@ class GeometryIntakeController:
                 raise GeometryIntakeError(
                     f'reconciliation mark targets unknown {mapping_id}'
                 )
+            if source.reconciliation_state == state:
+                continue
             replaced[mapping_id] = mark_mapping_reconciliation(
                 source, state
             )
@@ -417,15 +440,15 @@ class GeometryIntakeController:
             for m in merge_ifc_diff_mappings(
                 rows=self.diff_rows,
                 decisions=decisions,
-                prior_mappings=self.diff_base_mappings,
-                new_mappings=self.diff_new_mappings,
+                prior_mappings=prior_mappings,
+                new_mappings=new_mappings,
             )
         )
         merged_subject = build_ifc_diff_subject(
             self.document_id,
-            prior_artifact=self.diff_base_artifact,
-            new_artifact=self.diff_new_artifact,
-            delta=self.diff_delta,
+            prior_artifact=prior_artifact,
+            new_artifact=new_artifact,
+            delta=delta,
             merged_mappings=merged,
         )
         # Fail-closed validation of the merged subject — the same
@@ -444,9 +467,9 @@ class GeometryIntakeController:
         )
         apply_record = build_ifc_diff_apply(
             document_id=self.document_id,
-            delta=self.diff_delta,
-            prior_artifact=self.diff_base_artifact,
-            new_artifact=self.diff_new_artifact,
+            delta=delta,
+            prior_artifact=prior_artifact,
+            new_artifact=new_artifact,
             prior_subject_sha256=(
                 self.subject.subject_sha256
                 if self.subject is not None
@@ -487,8 +510,10 @@ class GeometryIntakeController:
         self.acceptance = None
         self.revision = None
         self.pending_decisions.clear()
-        self.diff_base_artifact = self.diff_new_artifact
+        self.diff_base_artifact = new_artifact
         self.diff_base_mappings = merged
+        self.diff_new_artifact = new_artifact
+        self.diff_new_mappings = tuple(new_mappings)
         self.diff_apply = apply_record
         return apply_record, report, proposal
 
