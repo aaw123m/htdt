@@ -301,6 +301,7 @@ from .room_coverage_overlay import (
     RoomSeatCoverageOverlayController,
 )
 from .room_seat_coverage_panel import RoomSeatCoveragePanel
+from .room_directivity_panel import RoomDirectivityPanel
 from .room_viewport import (
     UnderlayRenderItem,
 )
@@ -4309,6 +4310,30 @@ class RoomWorkspace(QWidget):
             aim_repository=CadCoverageAimRepository(repository),
             priority_repository=CadSeatPriorityProfileRepository(repository),
         )
+        # #1000: per-speaker directivity balloons — measured datasets are
+        # read ONLY through CadDirectivityRepository (re-verified + replayed
+        # on every read); orientation keys to the installed aim via the
+        # same source-frame convention as the coverage evaluator. No
+        # dataset/aim → honest UNKNOWN marker, never a synthesized lobe.
+        from .cad_installation_context_repository import (
+            CadInstallationContextRepository,
+        )
+        from .room_directivity_overlay import (
+            RoomDirectivityOverlayController,
+        )
+
+        self.directivity_overlay = RoomDirectivityOverlayController(
+            repository,
+            self.system_expansion.equipment_repository,
+            CadDirectivityRepository(
+                repository, self.system_expansion.equipment_repository
+            ),
+            CadInstallationContextRepository(
+                repository, self.system_expansion.equipment_repository
+            ),
+            document_id,
+            aim_repository=CadCoverageAimRepository(repository),
+        )
         # Esc exits probe mode only — armed while 3D probing so normal Esc
         # behaviour elsewhere is untouched.
         self._field_probe_esc = QShortcut(
@@ -4528,6 +4553,13 @@ class RoomWorkspace(QWidget):
         self.seat_coverage_panel.seatSelected.connect(
             self._seat_coverage_seat_selected
         )
+        # #1000: 指向性バルーン表示 — read-only measured-balloon surface;
+        # the toggle arms the resolver, the panel binds whatever it
+        # produced (mesh / points / honest UNKNOWN — never a fake lobe).
+        self.directivity_panel = RoomDirectivityPanel()
+        self.directivity_panel.changed.connect(
+            self._directivity_changed
+        )
         # REV44-INSTALL: per-speaker installation context + scene datum
         # registration — equipment assignment already lives here, so the
         # authority writers mount on the same placement page.
@@ -4561,6 +4593,7 @@ class RoomWorkspace(QWidget):
         placement_layout.addWidget(self.feasibility_panel)
         placement_layout.addWidget(self.seat_priority_panel)
         placement_layout.addWidget(self.seat_coverage_panel)
+        placement_layout.addWidget(self.directivity_panel)
         placement_layout.addWidget(self.standards_panel)
         placement_layout.addWidget(self.installation_panel)
         placement_layout.addWidget(self.rack_workspace_panel)
@@ -6353,6 +6386,17 @@ class RoomWorkspace(QWidget):
             self.coverage_overlay.arm(panel.request())
         else:
             self.coverage_overlay.clear()
+        self._render()
+
+    def _directivity_changed(self) -> None:
+        """Panel toggle/selectors → arm or clear the balloon overlay (#1000)."""
+        panel = self.directivity_panel
+        if panel.directivity_enabled:
+            options, _notices = self.directivity_overlay.list_options()
+            panel.set_options(options)
+            self.directivity_overlay.arm(panel.request())
+        else:
+            self.directivity_overlay.clear()
         self._render()
 
     def _seat_coverage_seat_selected(self, seat_entity_id) -> None:
@@ -8462,6 +8506,27 @@ class RoomWorkspace(QWidget):
                     render_coverage(coverage_scene)
                 if coverage_panel is not None:
                     coverage_panel.show_scene(coverage_scene)
+            # #1000: speaker directivity balloons — same current_head
+            # discipline; a scene edit / authority change lapses the
+            # drawn balloons on the next render.
+            render_directivity = getattr(
+                self.viewport, 'render_directivity_overlay', None
+            )
+            directivity_panel = getattr(self, 'directivity_panel', None)
+            if callable(render_directivity):
+                directivity_scene = None
+                if (
+                    self.current_context in ('placement', 'acoustics')
+                    and overlays.acoustics
+                    and self.directivity_overlay.armed
+                ):
+                    directivity_scene = self.directivity_overlay.resolve()
+                if directivity_scene is None:
+                    self.viewport.clear_directivity_overlay()
+                else:
+                    render_directivity(directivity_scene)
+                if directivity_panel is not None:
+                    directivity_panel.show_scene(directivity_scene)
 
     def _current_lighting_scene(self):
         """Current persisted LightingScene for this document, or None.

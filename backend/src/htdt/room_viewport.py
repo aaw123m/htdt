@@ -59,6 +59,10 @@ from .design_ab_overlay import (
     AB_OVERLAY_CONTEXT_COLOR,
     DesignAbOverlayPreview,
 )
+from .room_directivity_overlay import (
+    DIRECTIVITY_BLOCKED_COLOR,
+    DIRECTIVITY_UNKNOWN_COLOR,
+)
 from .installation_feasibility_viewmodel import (
     FEASIBILITY_VERDICT_VOCAB,
     InstallationFeasibilityPreview,
@@ -1465,6 +1469,7 @@ class RoomViewport3D(QFrame):
         'survey-overlay-',
         'coverage-overlay-',
         'correspond-',
+        'directivity-',
     )
 
     def _remove_overlay_actors(self) -> None:
@@ -3458,6 +3463,170 @@ class RoomViewport3D(QFrame):
                     border=False,
                     background_opacity=0.55,
                     name='coverage-overlay-legend',
+                )
+            finally:
+                self.plotter.suppress_rendering = False
+        self._render()
+
+    def clear_directivity_overlay(self) -> None:
+        """Drop every ``directivity-*`` actor (toggle off / refresh)."""
+        renderer = getattr(self.plotter, 'renderer', None)
+        actors = getattr(renderer, 'actors', None)
+        if not actors:
+            return
+        removed = False
+        for name in tuple(actors):
+            if isinstance(name, str) and name.startswith('directivity-'):
+                self.plotter.remove_actor(name)
+                removed = True
+        if removed:
+            self._render()
+
+    def render_directivity_overlay(self, scene) -> None:
+        """Draw the resolved ``DirectivityOverlayScene`` (#1000).
+
+        ``None`` clears the overlay. The viewport only paints what the
+        resolver produced: measured-grid vertices/faces, honest UNKNOWN
+        wireframes for speakers without sealed data, aim arrows, and the
+        relative-dB legend. All text is ASCII — Mesa GL drops CJK glyphs.
+        """
+        self.clear_directivity_overlay()
+        if scene is None:
+            return
+
+        for index, balloon in enumerate(scene.balloons):
+            if balloon.origin is None:
+                continue
+            origin = domain_to_render(balloon.origin)
+            tag = f'{index}'
+            if balloon.state == 'mesh' and balloon.faces:
+                points = np.asarray(
+                    [domain_to_render(v.position) for v in balloon.vertices],
+                    dtype=float,
+                )
+                faces = np.asarray(balloon.faces, dtype=np.int64)
+                cells = np.hstack(
+                    [
+                        np.full((faces.shape[0], 1), 3, dtype=np.int64),
+                        faces,
+                    ]
+                ).ravel()
+                mesh = pv.PolyData(points, cells)
+                colors = np.asarray(
+                    [v.color_rgb for v in balloon.vertices], dtype=np.uint8
+                )
+                mesh.point_data['RGB'] = colors
+                self.plotter.add_mesh(
+                    mesh,
+                    scalars='RGB',
+                    rgb=True,
+                    opacity=0.85,
+                    smooth_shading=False,
+                    pickable=False,
+                    name=f'directivity-balloon-{tag}',
+                    render=False,
+                )
+                # measured grid stays visible on top of the surface
+                self.plotter.add_points(
+                    points,
+                    scalars=colors,
+                    rgb=True,
+                    point_size=4,
+                    render_points_as_spheres=True,
+                    pickable=False,
+                    name=f'directivity-verts-{tag}',
+                    render=False,
+                )
+            elif balloon.state in ('mesh', 'points') and balloon.vertices:
+                points = np.asarray(
+                    [domain_to_render(v.position) for v in balloon.vertices],
+                    dtype=float,
+                )
+                colors = np.asarray(
+                    [v.color_rgb for v in balloon.vertices], dtype=np.uint8
+                )
+                self.plotter.add_points(
+                    points,
+                    scalars=colors,
+                    rgb=True,
+                    point_size=7,
+                    render_points_as_spheres=True,
+                    pickable=False,
+                    name=f'directivity-points-{tag}',
+                    render=False,
+                )
+            else:
+                # UNKNOWN / blocked: honest wireframe marker — never a
+                # synthesized lobe.
+                color = (
+                    DIRECTIVITY_BLOCKED_COLOR
+                    if balloon.state == 'blocked'
+                    else DIRECTIVITY_UNKNOWN_COLOR
+                )
+                self.plotter.add_mesh(
+                    pv.Sphere(radius=0.16, center=origin),
+                    color=color,
+                    style='wireframe',
+                    opacity=0.8,
+                    lighting=False,
+                    pickable=False,
+                    name=f'directivity-unknown-{tag}',
+                    render=False,
+                )
+
+            for a_index, arrow in enumerate(balloon.arrows):
+                if arrow.direction_domain is None:
+                    continue
+                d = arrow.direction_domain
+                end = (
+                    origin[0] + d[0] * 0.75,
+                    origin[1] - d[1] * 0.75,
+                    origin[2] + d[2] * 0.75,
+                )
+                self.plotter.add_mesh(
+                    pv.Line(origin, end),
+                    color=arrow.color,
+                    line_width=3 if arrow.kind == 'aim' else 2,
+                    pickable=False,
+                    name=f'directivity-arrow-{tag}-{a_index}',
+                    render=False,
+                )
+
+            state_tag = balloon.state.upper()
+            self.plotter.add_point_labels(
+                np.asarray([origin], dtype=float),
+                [f'{balloon.speaker_entity_id} [{state_tag}]'],
+                text_color=DARK_THEME.text.primary.hex,
+                shape_color=DARK_THEME.surfaces.overlay.hex,
+                shape_opacity=0.8,
+                font_size=9,
+                point_size=0,
+                always_visible=True,
+                name=f'directivity-label-{tag}',
+                render=False,
+            )
+
+        if scene.viewport_lines:
+            self.plotter.add_text(
+                '\n'.join(scene.viewport_lines),
+                name='directivity-status',
+                position='upper_right',
+                font_size=9,
+                color=DARK_THEME.text.secondary.hex,
+                render=False,
+            )
+        if scene.legend:
+            self.plotter.suppress_rendering = True
+            try:
+                self.plotter.add_legend(
+                    labels=list(scene.legend),
+                    loc='lower left',
+                    face='rectangle',
+                    size=(0.14, 0.03 * len(scene.legend) + 0.02),
+                    bcolor=DARK_THEME.text.secondary.hex,
+                    border=False,
+                    background_opacity=0.55,
+                    name='directivity-legend',
                 )
             finally:
                 self.plotter.suppress_rendering = False
