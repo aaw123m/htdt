@@ -40,6 +40,11 @@
 `workflow_application` の analysis 出力 (`_write_analysis_export`) と
 校正設定出力を新 API に統一 — 旧 API を誤用する余地を残さない。
 
+**書込不可 dir の高速失敗** (実 GUI 検証で発見): `tempfile.mkstemp` は
+Windows で ACL 書込拒否を ~10000 回リトライ (os.access が ACL を見ない)
+して数十〜25分スタック → `_sibling_temp` の衝突のみリトライの
+`O_CREAT|O_EXCL` ループに置換。拒否は1回目で PermissionError。
+
 **命名の変更**: `analysis_export.csv` → `analysis/export.csv`
 (generation ディレクトリ内の定数メンバ名)。ユーザーには保存先
 フォルダを開いた際「`analysis-N/` フォルダが1回の出力」として
