@@ -123,7 +123,7 @@ def main():
         if abs(float(np.sum(weights))-1)>1e-9 or not np.all(np.isfinite(weights)):
             raise ValueError("spatial point stencil not normalized")
     evidence={"schema_version":"htdt.r130d.fixed-spatial-pure-time-refinement-evidence-1",
-              "plan_sha256":hashlib.sha256(raw).hexdigest(),
+              "plan_sha256":hashlib.sha256(raw.replace(b"\r\n",b"\n")).hexdigest(),
               "plan":plan,"fv":[],"mfem":[],
               "mfem_original_system_sha256":P2_SHA}
     for dt in DTS:

@@ -574,7 +574,7 @@
           }
         }
       ],
-      "eigensolve_wall_seconds": 2.659529499942437,
+      "eigensolve_wall_seconds": 2.333009700058028,
       "temporal_q0_was_unchanged": true,
       "same_spatial_point_functionals_as_full_state": true
     },
@@ -1065,7 +1065,7 @@
           }
         }
       ],
-      "eigensolve_wall_seconds": 1.315426800167188,
+      "eigensolve_wall_seconds": 1.2274925000965595,
       "temporal_q0_was_unchanged": true,
       "same_spatial_point_functionals_as_full_state": true
     }

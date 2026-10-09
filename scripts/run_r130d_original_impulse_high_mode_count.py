@@ -29,9 +29,16 @@ REFERENCE_SHA="fa2a4aae2c6b00f4e1eccda9d0e9bf9271c420eb0a5f971b26927d9ed76e3cf2"
 def validate_plan(p):
     if (p.get("schema_version")!="htdt.r130d.original-q0-high-mode-count-diagnostic-plan-1"
         or p["mode_counts_including_zero"]!=list(EXPECTED_COUNTS)
+        or p["methods"]!=[
+            {"kind":"FV_exact_cutcell","n":20,"dofs":7200},
+            {"kind":"independent_MFEM_P2","r":3,"dofs":4913,
+             "raw_system_sha256":HASHES[3]}]
         or p["source"]["temporal"]!="q[0]=1 m3/s, q[n>0]=0"
         or p["source"]["dt_s"]!=.00025 or p["source"]["steps"]!=1000
         or p["source"]["frequencies_hz"]!=[40,80]
+        or p["source"]["complex_convention"]!="P_T/Q_T exp(+i2*pi*f*t_mid), no taper"
+        or p["source_xyz_m"]!=[1.5,2,2] or p["receiver_xyz_m"]!=[2.5,2,2]
+        or p["eigsolve"]["algo"]!="scipy.sparse.linalg.eigsh(K,k=48,M=M,sigma=-1,which='LM',tol=1e-9,maxiter=1000)"
         or p["full_reference"]["sha256"]!=REFERENCE_SHA
         or p["eigsolve"]["true_generalized_relative_residual_max"]!=1e-7
         or p["limits"]["max_modes"]!=48
@@ -141,7 +148,7 @@ def main():
         or baseline["production_ready"] is not False):
         raise ValueError("original impulse numerical gate changed")
     result={"schema_version":"htdt.r130d.original-q0-48-mode-diagnostic-1",
-        "plan_sha256":hashlib.sha256(raw).hexdigest(),
+        "plan_sha256":hashlib.sha256(raw.replace(b"\r\n",b"\n")).hexdigest(),
         "original_full_state_evidence_sha256":REFERENCE_SHA,
         "preregistered_plan":p,"cases":[],
         "original_fullband_impulse":"SELF_CONVERGENCE_FAILED",
