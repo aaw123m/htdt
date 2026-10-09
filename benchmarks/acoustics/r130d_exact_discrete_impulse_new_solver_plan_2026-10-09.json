@@ -1,0 +1,114 @@
+{
+  "schema_version": "htdt.r130d.exact-unit-discrete-impulse-two-method-diagnostic-plan-1",
+  "date": "2026-10-09",
+  "issue": 938,
+  "purpose": "Test original discrete q[0]=1 q[n>0]=0 source, without Gaussian smoothing, by actual candidate FV and independent pinned MFEM P2 sloped room. Restore original source-shape constraint, not original PFFDTD geometry/space/time production authority.",
+  "geometry": {
+    "kind": "original analytically 56 m3 sloped prism",
+    "box_m": [
+      4,
+      4,
+      4
+    ],
+    "plane": [
+      0,
+      0.25,
+      1,
+      4
+    ],
+    "volume_m3": 56,
+    "source_xyz_m": [
+      1.5,
+      2,
+      2
+    ],
+    "receiver_xyz_m": [
+      2.5,
+      2,
+      2
+    ],
+    "sound_speed_m_s": 343.2,
+    "density_kg_m3": 1.2,
+    "rigid_neumann": true
+  },
+  "source": {
+    "waveform": "discrete unit volume-velocity impulse q[0]=1m3/s, q[n>0]=0",
+    "no_smoothing": true,
+    "no_window_taper": true,
+    "point_volume_velocity": true,
+    "dt_s": 0.00025,
+    "steps": 1000,
+    "duration_s": 0.25,
+    "frequency_bins_hz": [
+      40,
+      80
+    ],
+    "source_and_pressure_both_same_midpoint_finite_record": "P_T/Q_T exp(+i2π f t)",
+    "initial_potential": 0,
+    "initial_potential_time_derivative": 0,
+    "drive_through_timestep_rhs": true
+  },
+  "spatial_discretizations": {
+    "fv_cells_per_axis": [
+      12,
+      16,
+      20,
+      24,
+      28,
+      32
+    ],
+    "independent_mfem_P2_refinements": [
+      1,
+      2,
+      3,
+      4
+    ],
+    "independent_mfem_git_pin": "d964264cdb9a13e94a201b6c236c7721e0c8765f",
+    "MFEM_raw_r4_sha256": "e1c67d02db77a6e8775a0a59d8e75fa996434d58f8efae077f4cec2cf2c831ed"
+  },
+  "linear_solver": {
+    "method": "Jacobi-PCG",
+    "rtol": 1e-11,
+    "atol": 0,
+    "maxiter": 350,
+    "true_linear_relative_residual_max": 1e-8
+  },
+  "same_frozen_criteria": {
+    "fv_last_two_adjacent_strictly_decreasing_complex_magnitude_phase": true,
+    "mfem_last_two_adjacent_strictly_decreasing_complex_magnitude_phase": true,
+    "fv_finest_complex_l2_max": 0.2,
+    "fv_finest_max_magnitude_relative": 0.25,
+    "fv_finest_max_phase_deg": 15,
+    "mfem_finest_complex_l2_max": 0.05,
+    "mfem_finest_max_magnitude_relative": 0.08,
+    "mfem_finest_max_phase_deg": 5,
+    "cross_fv_n32_vs_mfem_r4_complex_l2_max": 0.35,
+    "cross_max_magnitude_relative": 0.4,
+    "cross_max_magnitude_db": 3,
+    "cross_max_phase_deg": 25
+  },
+  "data_integrity": {
+    "all_levels_and_both_bins_required": true,
+    "never_remove_outliers": true,
+    "phase_signed_exp_iwt": true,
+    "compare_same_injected_impulse_time_samples": true,
+    "original_canonical_PFFDTD_branch_untouched": true
+  },
+  "limits": {
+    "max_wave_steps": 1000,
+    "max_cells_per_axis": 32,
+    "max_mfem_dofs": 35937,
+    "max_fem_raw_json_bytes": 120000000
+  },
+  "authority": {
+    "experimental_candidate_numeric_only": true,
+    "may_not_claim_canonical_original_solver_self_converged": true,
+    "original_PFFDTD": "SELF_CONVERGENCE_FAILED",
+    "original_impulse_MFEM_full_validation": "SELF_CONVERGENCE_FAILED",
+    "original_issue938": "OPEN",
+    "production_ready": false,
+    "BRAS_owned_room": "NOT_VALIDATED",
+    "any_method_failed": "NOT_QUALIFIED"
+  },
+  "note": "Original canonical source has a delta-like full-band content, but current 40/80-bin, dt250µs and candidate 56m3 analytical geometry are only an exact sampled-impulse bridge. This cannot by itself clear old PFFDTD PPW8–44 or full-band requirements. A failing test is a scientifically valid outcome; no new metrics after observation."
+}
