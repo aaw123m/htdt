@@ -1400,6 +1400,7 @@ class RoomViewport3D(QFrame):
         'lighting-',
         'opclear-',
         'treatment-overlay-',
+        'quality-map-',
         'cable-route-',
         'abdiff-',
         'campaign-overlay-',
@@ -3804,6 +3805,165 @@ class RoomViewport3D(QFrame):
                 if isinstance(name, str) and name.startswith(
                     'treatment-overlay-'
                 ):
+                    self.plotter.remove_actor(name)
+
+    # -- #1003 screen quality map -------------------------------------------
+
+    _QUALITY_MARKER_UNMEASURED = 'white'
+    _QUALITY_MARKER_UNSCALED = 'gray'
+    _QUALITY_MARKER_MISALIGNED = DARK_THEME.semantic.warning.hex
+    _QUALITY_MARKER_OUTLINE = 'white'
+
+    def render_screen_quality_overlay(self, scene) -> None:
+        """Draw one resolved ScreenQualityMapScene (#1003).
+
+        Measured points draw as filled markers in the absolute-scale color;
+        unmeasured plan points draw as transparent outline markers; cells of
+        a *sha-verified* derived-map artifact draw underneath as quads.
+        Everything comes from the resolver — no colors or positions are
+        synthesized here. Must run inside ``deferred_render()``.
+        """
+
+        if scene is None:
+            return
+        document = self._document
+        # Same staleness contract as render_video_overlay: a scene resolved
+        # against a superseded head must never paint.
+        if (
+            document is not None
+            and scene.revision_content_hash != scene_content_hash(document)
+        ):
+            return
+
+        quad = scene.surface_render_quad
+        if quad is None or len(quad) != 4:
+            # Text-only scene (no surface / stale evaluation) still gets its
+            # honesty banner so the reason is visible in the viewport.
+            if scene.viewport_lines:
+                self.plotter.add_text(
+                    '\n'.join(scene.viewport_lines),
+                    position='lower_left',
+                    font_size=9,
+                    color=DARK_THEME.text.secondary.hex,
+                    name='quality-map-status',
+                    render=False,
+                )
+                self._render()
+            return
+
+        # Surface frame in render space for marker placement.
+        bl, br, tr, tl = quad
+        u_axis = np.subtract(br, bl)
+        v_axis = np.subtract(tl, bl)
+        normal = np.cross(u_axis, v_axis)
+        width_m = float(np.linalg.norm(u_axis))
+        height_m = float(np.linalg.norm(v_axis))
+        if width_m > 0.0:
+            u_axis = u_axis / width_m
+        if height_m > 0.0:
+            v_axis = v_axis / height_m
+        normal_len = float(np.linalg.norm(normal))
+        normal = normal / normal_len if normal_len > 0.0 else np.array(
+            [0.0, 0.0, 1.0]
+        )
+        marker_radius = max(0.02, 0.018 * min(width_m, height_m))
+
+        if scene.heatmap is not None:
+            for cell in scene.heatmap.cells:
+                if len(cell.render_quad) != 4:
+                    continue
+                points = np.asarray(cell.render_quad, dtype=float)
+                mesh = pv.PolyData(points, [4, 0, 1, 2, 3])
+                actor = self.plotter.add_mesh(
+                    mesh,
+                    color=cell.fill_color or self._QUALITY_MARKER_UNSCALED,
+                    opacity=0.55,
+                    pickable=False,
+                    lighting=False,
+                    name=(
+                        f'quality-map-heat-{cell.row}-{cell.column}'
+                    ),
+                    render=False,
+                )
+                mapper = actor.GetMapper()
+                mapper.SetResolveCoincidentTopologyToPolygonOffset()
+                mapper.SetResolveCoincidentTopologyPolygonOffsetParameters(
+                    -1.0, -1.0
+                )
+
+        fill_allowed = not scene.read_only
+        for marker in scene.markers:
+            if marker.render_xyz is None:
+                continue
+            center = np.asarray(marker.render_xyz, dtype=float)
+            ring = np.asarray(
+                [
+                    center - u_axis * marker_radius - v_axis * marker_radius,
+                    center + u_axis * marker_radius - v_axis * marker_radius,
+                    center + u_axis * marker_radius + v_axis * marker_radius,
+                    center - u_axis * marker_radius + v_axis * marker_radius,
+                ],
+                dtype=float,
+            )
+            key = marker.point_id
+            if marker.state == 'measured' and fill_allowed and marker.fill_color:
+                disc = pv.Disc(
+                    center=center,
+                    inner=0.0,
+                    outer=marker_radius,
+                    normal=normal,
+                    c_res=24,
+                )
+                actor = self.plotter.add_mesh(
+                    disc,
+                    color=marker.fill_color,
+                    opacity=0.9,
+                    pickable=False,
+                    lighting=False,
+                    name=f'quality-map-pt-{key}',
+                    render=False,
+                )
+                mapper = actor.GetMapper()
+                mapper.SetResolveCoincidentTopologyToPolygonOffset()
+                mapper.SetResolveCoincidentTopologyPolygonOffsetParameters(
+                    -2.0, -2.0
+                )
+                edge_color = self._QUALITY_MARKER_OUTLINE
+            else:
+                edge_color = {
+                    'unmeasured': self._QUALITY_MARKER_UNMEASURED,
+                    'unscaled': self._QUALITY_MARKER_UNSCALED,
+                    'misaligned': self._QUALITY_MARKER_MISALIGNED,
+                }.get(marker.state, self._QUALITY_MARKER_UNSCALED)
+            self.plotter.add_mesh(
+                pv.lines_from_points(ring, close=True),
+                color=edge_color,
+                line_width=2,
+                pickable=False,
+                lighting=False,
+                name=f'quality-map-edge-{key}',
+                render=False,
+            )
+
+        if scene.viewport_lines:
+            self.plotter.add_text(
+                '\n'.join(scene.viewport_lines),
+                position='lower_left',
+                font_size=9,
+                color=DARK_THEME.text.secondary.hex,
+                name='quality-map-status',
+                render=False,
+            )
+        self._render()
+
+    def clear_screen_quality_overlay(self) -> None:
+        """Remove every quality-map actor and its status text (#1003)."""
+
+        renderer = getattr(self.plotter, 'renderer', None)
+        actors = getattr(renderer, 'actors', None)
+        if actors:
+            for name in tuple(actors):
+                if isinstance(name, str) and name.startswith('quality-map-'):
                     self.plotter.remove_actor(name)
 
     def pick_actor_candidates(self, position: QPointF) -> tuple[str, ...]:

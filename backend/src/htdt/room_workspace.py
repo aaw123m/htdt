@@ -93,6 +93,7 @@ from .cad_direct_view import (
 )
 from .cad_direct_view_repository import CadDirectViewRepository
 from .cad_lighting_repository import CadLightingRepository
+from .cad_spatial_image_repository import CadSpatialImageRepository
 from .cad_video_geometry_repository import CadVideoGeometryRepository
 from .cad_video_workspace import (
     CadVideoWorkspaceRepository,
@@ -281,6 +282,7 @@ from .room_viewport import (
 from .room_field_overlay import FieldOverlay3DRequest, RoomFieldOverlayController
 from .room_campaign_overlay import RoomCampaignOverlayController
 from .room_treatment_overlay import RoomTreatmentOverlayController
+from .room_screen_quality_map import ScreenQualityMapController
 from .room_viewport import (
     UnderlayRenderItem,
 )
@@ -478,6 +480,9 @@ class RoomWorkspaceController:
         self.video_workspace_repository = CadVideoWorkspaceRepository(repository.path)
         self.video_workspace: VideoGeometryWorkspace | None = None
         self.video_geometry_repository = CadVideoGeometryRepository(repository)
+        # #1003: append-only spatial image authority store — the quality
+        # map re-reads plans/sets/maps/evaluations per render.
+        self.spatial_image_repository = CadSpatialImageRepository(repository)
         self.screen_transfer_repository = CadScreenTransferRepository(
             repository.path, repository
         )
@@ -4188,6 +4193,13 @@ class RoomWorkspace(QWidget):
             spatial_repository=CadSpatialCampaignRepository(repository),
             runner_repository=CadMeasurementRunnerRepository(repository),
         )
+        # #1003 screen quality map: per-render resolve against the current
+        # head + the workspace's live video evaluation.
+        self.quality_map = ScreenQualityMapController(
+            repository,
+            self.controller.spatial_image_repository,
+            document_id,
+        )
         # Esc exits probe mode only — armed while 3D probing so normal Esc
         # behaviour elsewhere is untouched.
         self._field_probe_esc = QShortcut(
@@ -4371,6 +4383,10 @@ class RoomWorkspace(QWidget):
         self.video_panel.createSpecRequested.connect(self._video_create_spec)
         self.video_panel.createDisplaySpecRequested.connect(
             self._video_create_display_spec
+        )
+        self.video_panel.qualityMapChanged.connect(self._quality_map_changed)
+        self.video_panel.qualityMapRemeasureRequested.connect(
+            self._quality_map_remeasure
         )
         # #1013: read-only 「照明シーン」 preview on the Room/Video surface.
         # The toggle only repaints explanation glyphs — it never sends to
@@ -6862,6 +6878,37 @@ class RoomWorkspace(QWidget):
             "未設定: " + "、".join(missing) if missing else "評価できます"
         )
 
+    # -- #1003 screen quality map -------------------------------------------
+
+    def _quality_map_sync_selection(self) -> None:
+        """Push the panel's current controls into the resolver selection."""
+
+        self.quality_map.select_set(self.video_panel.current_quality_map_set_id())
+        self.quality_map.select_quantity(
+            self.video_panel.current_quality_map_quantity()
+        )
+        self.quality_map.select_viewpoint(
+            self.video_panel.current_quality_map_viewpoint()
+        )
+        self.quality_map.set_heatmap_enabled(
+            self.video_panel.quality_map_heatmap_enabled()
+        )
+
+    def _quality_map_changed(self) -> None:
+        self._quality_map_sync_selection()
+        self.quality_map.invalidate()
+        self._render()
+
+    def _quality_map_remeasure(self) -> None:
+        """Deep link to the re-measure procedure (#1003)."""
+
+        if self._on_navigate is not None:
+            self._on_navigate(WorkspaceDeepLink(WorkspaceId.VIDEO, 'verify'))
+        else:
+            self._set_status(
+                '再測定・比較は映像調整ワークスペースで実行してください'
+            )
+
     def _sync_seat_priority_panel(self) -> None:
         # The panel rebuilds its member rows from the committed head —
         # same contract the legacy TheaterEditorWindow dock followed.
@@ -7990,6 +8037,28 @@ class RoomWorkspace(QWidget):
             render_video = getattr(self.viewport, "render_video_overlay", None)
             if callable(render_video):
                 render_video(self._video_evaluation)
+            # #1003 screen quality map — resolved against the current head
+            # and the live evaluation every render; a scene edit or source
+            # SHA change can never leave stale markers painted.
+            render_quality = getattr(
+                self.viewport, 'render_screen_quality_overlay', None
+            )
+            if callable(render_quality):
+                if (
+                    self.current_context == 'placement'
+                    and self.video_panel.quality_map_overlay_enabled()
+                ):
+                    self._quality_map_sync_selection()
+                    quality_scene = self.quality_map.resolve(
+                        self._video_evaluation
+                    )
+                    if quality_scene is None:
+                        self.viewport.clear_screen_quality_overlay()
+                    else:
+                        self.video_panel.sync_quality_map(quality_scene)
+                        render_quality(quality_scene)
+                else:
+                    self.viewport.clear_screen_quality_overlay()
             render_lighting = getattr(
                 self.viewport, 'render_lighting_scene_preview', None
             )

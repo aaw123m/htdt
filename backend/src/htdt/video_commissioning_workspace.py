@@ -71,6 +71,7 @@ from .cad_video_measure_import import (
     import_video_measurements,
 )
 from .clock import utc_now_iso as _utc_now
+from .workflow_navigation import WorkspaceDeepLink, WorkspaceId
 from .ui_theme import (
     SemanticState,
     SurfaceRole,
@@ -1183,6 +1184,19 @@ class VideoCommissioningWorkspace(QWidget):
         compare_button.setObjectName('videoRunComparison')
         compare_button.clicked.connect(self._run_comparison)
         compare_row.addWidget(compare_button)
+        quality_map_button = QPushButton(
+            'スクリーン品質マップを開く', page
+        )
+        quality_map_button.setObjectName('videoQualityMapLink')
+        quality_map_button.setAccessibleName('スクリーン品質マップを開く')
+        quality_map_button.setToolTip(
+            '部屋ワークスペースの映像パネルで9点品質マップを表示します'
+        )
+        # #1003: the quality map lives on the Room 3D viewport — this
+        # route deep-links into the Room placement context where the
+        # video panel exposes the measured-point overlay.
+        quality_map_button.clicked.connect(self._open_quality_map)
+        compare_row.addWidget(quality_map_button)
         compare_row.addStretch(1)
         layout.addLayout(compare_row)
 
@@ -1210,6 +1224,14 @@ class VideoCommissioningWorkspace(QWidget):
         self.deltas_table.verticalHeader().setVisible(False)
         layout.addWidget(self.deltas_table, 1)
         self.pages.addWidget(page)
+
+    def _open_quality_map(self) -> None:
+        """#1003 route — deep link to the Room video panel's quality map."""
+
+        if self._on_navigate is not None:
+            self._on_navigate(
+                WorkspaceDeepLink(WorkspaceId.ROOM, 'placement')
+            )
 
     def _session_comparisons(self):
         session = self._current_session
