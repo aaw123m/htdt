@@ -41,7 +41,7 @@
     "yz_solver": "scipy.linalg.eigh full symmetric normalized mass-inverted Kyz dense; no eigenvalue truncation",
     "all_original_native_3D_eigenmodes_exact_cartesian_product": true,
     "analytical_250ms_NT_Fourier": "for each Newmark eigenvalue lambda with theta=2atan(dt*sqrt(lambda)/2), u[n]=dt²c²source-receiver-coupling/(1+dt²lambda/4)*sin(n theta)/sin theta, pressure original rho*2nd-order endpoint/interior derivative; calculate full finite-record sum analytically by geometric sine/cosine progression, including exact q0 source denominator, no taper or smoothing",
-    "finite_window_formula": "H= rho*amp/dt*(2-cos(theta) + cos(theta)*(G(N-2,omega*dt+theta)+G(N-2,omega*dt-theta)) + exp(i*omega*(N-1)*dt)*(R(N-1,theta)+(cos(theta)-2)*R(N-2,theta))), R(m,t)=sin(m*t)/sin(t), G(m,b)=m exp(i*(m+1)*b/2)*sinc(m*b/(2pi))/sinc(b/(2pi)); all modes summed signed",
+    "finite_window_formula": "H= rho*amp/dt*(2-cos(theta) + 0.5*cos(theta)*(G(N-2,omega*dt+theta)+G(N-2,omega*dt-theta)) + exp(i*omega*(N-1)*dt)*(R(N-1,theta)+(cos(theta)-2)*R(N-2,theta))), R(m,t)=sin(m*t)/sin(t), G(m,b)=m exp(i*(m+1)*b/2)*sinc(m*b/(2pi))/sinc(b/(2pi)); all modes summed signed",
     "mode_amplitude_normalization": "amp=dt²*c²*(sx vx)*(rx vx)*(syz vyz)*(ryz vyz)/(1+dt²lambda/4)",
     "check_low_384_against_archived_direct_time_P_TQ_T_each_bin": true,
     "low_384_relative_max": 2e-9,
