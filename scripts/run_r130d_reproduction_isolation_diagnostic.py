@@ -103,6 +103,7 @@ from htdt.r130d_general3d_validation import (
     load_validation_plan,
     normalized_complex_difference,
     reproduction_values_match,
+    wrapped_phase_separation_deg,
     semantic_hash,
     target_window_clipped_left_rectangle_transfer,
     validate_dense_frequency_diagnostic_binding,
@@ -1497,9 +1498,7 @@ def main(argv: list[str] | None = None) -> int:
         # phase delta between mid and high level at this bin
         a = canonical_dense_transfers[ppw_levels[1]][index]
         b = canonical_dense_transfers[ppw_levels[2]][index]
-        phase_delta = abs(
-            float(np.degrees(np.angle(b) - np.angle(a)))
-        )
+        phase_delta = wrapped_phase_separation_deg(a, b)
         label = classify_dense_bin_cause(
             reference_magnitude=ref_mag,
             magnitude_floor=fixed_floor,

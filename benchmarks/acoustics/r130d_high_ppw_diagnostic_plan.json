@@ -1,0 +1,38 @@
+{
+  "schema_version": "htdt.r130d.high-ppw-independent-diagnostic-plan-1",
+  "issue": 938,
+  "claim": "Numerical diagnostic only: test whether increasing PPW from 24 to 44 yields true monotone convergence without changing physical model, frozen frequency bins, thresholds, or legacy 8–24 samples.",
+  "parent_plan_sha256": "5c753073a88d6705ee2962aa387006d4c563f90f0249b722dcf309a8155f62ec",
+  "previous_extended_evidence_path": "benchmarks/acoustics/r130d_extended_ppw_diagnostic_evidence_2026-10-09.json",
+  "previous_extended_plan_semantic_sha256": "7886ca63e83be5ef63aa08c186aab452b3fd439575073724779435824b25af8b",
+  "previous_level_ppw": 24,
+  "additional_ppw": [
+    28,
+    32,
+    36,
+    40,
+    44
+  ],
+  "frequency_hz": [
+    40,
+    80
+  ],
+  "duration_s": 0.25,
+  "solver_commit": "aa319f6c86517cb95aabfae8656277da62c3ead5",
+  "grid_ceilings": {
+    "max_grid_cells": 300000,
+    "max_time_steps": 2048
+  },
+  "frozen_acceptance": {
+    "complex_rms_relative_max": 0.2,
+    "magnitude_max_relative": 0.25,
+    "phase_max_deg": 15
+  },
+  "qualification": {
+    "diagnostic_only": true,
+    "physical_validation": "NOT_VALIDATED",
+    "cross_solver_eligible": false,
+    "original_8_10_12_status": "SELF_CONVERGENCE_FAILED"
+  },
+  "falsification": "Compare every adjacent pair 24->28,28->32,32->36,36->40,40->44. Any violation of frozen thresholds or non-monotonic trends prohibits self-convergence PASS. This series cannot replace original 8/10/12 acceptance."
+}
