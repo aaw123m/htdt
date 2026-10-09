@@ -463,6 +463,7 @@ def test_panel_shows_lapsed_notice_after_scene_edit(tmp_path: Path) -> None:
 
 
 def test_panel_narrow_layout_and_dpi200(tmp_path: Path) -> None:
+    from PySide6.QtGui import QFont
     from PySide6.QtWidgets import QApplication
 
     from htdt.room_acoustics_panel import RoomTreatmentPanel
@@ -498,11 +499,16 @@ def test_panel_narrow_layout_and_dpi200(tmp_path: Path) -> None:
     panel.resize(260, 700)
     panel.show()
     assert panel.coverage.width() <= panel.width() + 20
-    font = app.font()
+    base_font = app.font()
+    font = QFont(base_font)
     font.setPointSizeF(font.pointSizeF() * 2.0)
     app.setFont(font)
-    panel.resize(320, 900)
-    panel.refresh()
-    assert panel.coverage.topLevelItemCount() >= 1
-    panel.close()
-    panel.deleteLater()
+    try:
+        panel.resize(320, 900)
+        panel.refresh()
+        assert panel.coverage.topLevelItemCount() >= 1
+    finally:
+        # A leaked 2x app font doubles every later widget's metrics.
+        app.setFont(base_font)
+        panel.close()
+        panel.deleteLater()

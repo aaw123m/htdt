@@ -629,6 +629,7 @@ def test_unmounted_room_registration_declares_focusable_campaign() -> None:
 
 def test_measurement_button_narrow_and_dpi200(tmp_path: Path) -> None:
     """The campaign page button stays reachable at 260px and 200% text."""
+    from PySide6.QtGui import QFont
     from PySide6.QtWidgets import QApplication
 
     from htdt.measurement_page_workspace import MeasurementPageWorkspace
@@ -655,11 +656,16 @@ def test_measurement_button_narrow_and_dpi200(tmp_path: Path) -> None:
     app.processEvents()
     assert workspace.campaign_3d_button.isEnabled()
     assert workspace.campaign_3d_button.accessibleName()
-    font = app.font()
+    base_font = app.font()
+    font = QFont(base_font)
     font.setPointSizeF(font.pointSizeF() * 2.0)
     app.setFont(font)
-    workspace.resize(320, 900)
-    app.processEvents()
-    assert workspace.campaign_3d_button.accessibleName() == '測定位置を3Dで確認'
-    workspace.close()
-    workspace.deleteLater()
+    try:
+        workspace.resize(320, 900)
+        app.processEvents()
+        assert workspace.campaign_3d_button.accessibleName() == '測定位置を3Dで確認'
+    finally:
+        # A leaked 2x app font doubles every later widget's metrics.
+        app.setFont(base_font)
+        workspace.close()
+        workspace.deleteLater()
