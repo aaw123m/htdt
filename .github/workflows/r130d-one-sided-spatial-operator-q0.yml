@@ -1,0 +1,121 @@
+name: R130D preregistered one-sided physical spatial q0 operator isolation
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/r130d-one-sided-spatial-operator-q0.yml'
+      - 'benchmarks/acoustics/r130d_one_sided_spatial_operator*'
+      - 'scripts/run_r130d_one_sided_spatial_operator.py'
+      - 'backend/tests/test_r130d_one_sided_spatial_operator.py'
+      - 'backend/tests/test_r130d_one_sided_spatial_operator_evidence.py'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  exact-q0-one-sided:
+    runs-on: windows-2022
+    timeout-minutes: 55
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Checkout preregistered physical isolation contract
+        uses: actions/checkout@v4
+      - name: Pin Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Pin dependencies and execute fail-closed evidence regression
+        env:
+          PYTHONUTF8: '1'
+        run: |
+          python -m pip install --disable-pip-version-check numpy==1.26.4 scipy==1.14.1 pytest==8.4.2 pydantic==2.11.9
+          if ($LASTEXITCODE -ne 0) { throw 'runtime installation failed' }
+          New-Item -ItemType Directory -Force scratch/tests,scratch/one-sided | Out-Null
+          Copy-Item backend/tests/test_r130d_one_sided_spatial_operator.py scratch/tests/
+          Copy-Item backend/tests/test_r130d_one_sided_spatial_operator_evidence.py scratch/tests/
+          $env:PYTHONPATH = Join-Path $pwd 'backend/src'
+          python -m pytest -q scratch/tests/test_r130d_one_sided_spatial_operator.py scratch/tests/test_r130d_one_sided_spatial_operator_evidence.py --tb=short
+          if ($LASTEXITCODE -ne 0) { throw 'operator isolation integrity regression failed' }
+      - name: Fetch immutable MFEM independent reference
+        run: |
+          git clone --filter=blob:none https://github.com/mfem/mfem.git _mfem-source
+          if ($LASTEXITCODE -ne 0) { throw 'MFEM source acquisition failed' }
+          git -C _mfem-source checkout d964264cdb9a13e94a201b6c236c7721e0c8765f
+          if ((git -C _mfem-source rev-parse HEAD).Trim() -ne 'd964264cdb9a13e94a201b6c236c7721e0c8765f') { throw 'MFEM pin drift' }
+      - name: Build truly independent MFEM Gaussian P2 spatial forms
+        run: |
+          $src = (Resolve-Path '_mfem-source').Path
+          cmake -S benchmarks/acoustics/r130d_mfem_reference -B _mfem-build -G "Visual Studio 17 2022" -A x64 "-DHTDT_MFEM_SOURCE_DIR=$src"
+          if ($LASTEXITCODE -ne 0) { throw 'MFEM C++ configuration failed' }
+          cmake --build _mfem-build --config Release --target r130d_mfem_gaussian_functionals --parallel 4
+          if ($LASTEXITCODE -ne 0) { throw 'independent P2 C++ compile failed' }
+      - name: Integrate independently at MFEM P2 r3 and r4
+        run: |
+          foreach ($level in @(3,4)) {
+            & _mfem-build/Release/r130d_mfem_gaussian_functionals.exe --refinement $level --output "scratch/one-sided/mfem-gaussian-r$level.json"
+            if ($LASTEXITCODE -ne 0) { throw "MFEM P2 Gaussian source/receiver integral failed r$level" }
+          }
+      - name: Actually drive sixteen original temporal q0 mixed-operator cases
+        env:
+          PYTHONUTF8: '1'
+          PYTHONIOENCODING: utf-8
+        run: |
+          $env:PYTHONPATH = Join-Path $pwd 'backend/src'
+          python -u scripts/run_r130d_one_sided_spatial_operator.py `
+            --plan benchmarks/acoustics/r130d_one_sided_spatial_operator_plan_2026-10-09.json `
+            --systems benchmarks/acoustics/r130d_mfem_independent_sparse_systems `
+            --functionals scratch/one-sided `
+            --output scratch/one-sided/full_one_sided_replay.json
+          if ($LASTEXITCODE -ne 0) { throw 'independent mixed-operator actual wave integration failed' }
+      - name: Verify exact baseline provenance and signed q0 mixed wave results
+        env:
+          PYTHONUTF8: '1'
+        run: |
+          @'
+          import json,math
+          import numpy as np
+          from pathlib import Path
+          a=json.loads(Path('scratch/one-sided/full_one_sided_replay.json').read_text())
+          b=json.loads(Path('benchmarks/acoustics/r130d_one_sided_spatial_operator_evidence_2026-10-09.json').read_text())
+          assert a['plan_sha256_lf']==b['plan_sha256_lf']
+          assert a['preregistered_plan']==b['preregistered_plan']
+          assert a['pinned_point_baseline_sha256']==b['pinned_point_baseline_sha256']
+          assert a['pinned_double_gaussian_baseline_sha256']==b['pinned_double_gaussian_baseline_sha256']
+          assert a['production_ready'] is b['production_ready'] is False
+          assert a['canonical_original_point_q0']==b['canonical_original_point_q0']=='SELF_CONVERGENCE_FAILED'
+          assert a['physical_validation']=='NOT_VALIDATED'
+          assert len(a['actual_mixed_cases'])==len(b['actual_mixed_cases'])==4
+          cases=('gaussian_source_point_receiver','point_source_gaussian_receiver')
+          for row,ref in zip(a['actual_mixed_cases'],b['actual_mixed_cases']):
+              assert row['method']==ref['method'] and row['level']==ref['level']
+              for sigma in ('0.35','0.7'):
+                  l=row['widths'][sigma]
+                  baseline=ref['widths'][sigma]
+                  for name in ('control_point_point_complex_40_80_hz','control_gaussian_gaussian_complex_40_80_hz'):
+                      assert l[name]==baseline[name]
+                  for name in cases:
+                      wave=l['mixed_wave'][name]
+                      frozen=baseline['mixed_wave'][name]
+                      assert wave['sampled_time_impulse_q0_only'] is True
+                      assert wave['worst_true_relative_linear_residual']<=1e-8
+                      assert len(wave['complex_40_80_hz'])==len(wave['phase_deg_40_80_hz'])==2
+                      np.testing.assert_allclose(wave['complex_40_80_hz'],frozen['complex_40_80_hz'],rtol=2e-6,atol=2e-4)
+                      np.testing.assert_allclose(wave['magnitude_40_80_hz'],frozen['magnitude_40_80_hz'],rtol=2e-6,atol=2e-4)
+                      np.testing.assert_allclose(wave['phase_deg_40_80_hz'],frozen['phase_deg_40_80_hz'],rtol=2e-6,atol=1e-3)
+          for method in ('fv','mfem'):
+              for sigma in ('0.35','0.7'):
+                  for name,check in a['adjacent_metrics'][method][sigma].items():
+                      frozen=b['adjacent_metrics'][method][sigma][name]
+                      for metric in ('normalized_complex_l2','magnitude_relative_by_hz','phase_difference_deg_by_hz'):
+                          np.testing.assert_allclose(check[metric],frozen[metric],rtol=2e-6,atol=2e-4)
+          print('PASS independent actual unchanged q0 and complete mixed spatial operator evidence; original FAIL, NO_GO')
+          '@ | python -
+          if ($LASTEXITCODE -ne 0) { throw 'one-sided spatial operator evidence drift' }
+      - name: Archive full raw numerical evidence even for a nonconvergent method
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: r130d-original-q0-one-sided-operator-evidence
+          path: scratch/one-sided/*.json
+          retention-days: 30
+          if-no-files-found: warn
