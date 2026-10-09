@@ -1301,3 +1301,16 @@ entries:
   - docs/issues/issue-988-inbox-mass.md
   - backend/tests/test_issue_988_inbox_mass.py
   close_when_gates_clear: true
+
+- issue: 980
+  lifecycle: acceptance_remaining
+  landed:
+    prs: [1083]
+    commits: [fbd259f87ef0b1ec3fbf0fb06e0b61e56d9ad098]
+  remaining_gates:
+  - kind: manual
+    description: 'オペレータ受入 — 取込ダイアログ 3D プレビュー (単位/軸/原点反映・修復差分・欠陥フォーカス) の実画面確認'
+  evidence_refs:
+  - docs/issues/issue-980-import-3d-preview.md
+  - backend/tests/test_issue_980_import_preview.py
+  close_when_gates_clear: true
