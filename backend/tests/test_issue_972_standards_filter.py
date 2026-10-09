@@ -281,6 +281,9 @@ def test_result_count_line_tracks_filters_and_zero_state(tmp_path) -> None:
         zero = panel.tree.topLevelItem(0)
         assert "一致する基準はありません" in zero.text(0)
         assert "存在しない基準名" in zero.toolTip(0)
+        # The zero-state message must span the tree — spanning only takes
+        # effect after the item is inserted (a pre-insert call no-ops).
+        assert zero.isFirstColumnSpanned()
 
         panel.reset_filter_button.click()
         assert len(_visible_ids(panel)) == 4
@@ -301,8 +304,11 @@ def test_hidden_selected_constraints_reported_and_still_block(tmp_path) -> None:
         _set_status_filter(panel, "PASS")
         assert _visible_ids(panel) == ["c-pass"]
         # A filtered-out selection stays opted in AND is reported —
-        # constraints must never silently disappear.
-        assert "フィルタ外の制約選択 1 件" in panel.result_label.text()
+        # constraints must never silently disappear. The warning leads
+        # the line so a clipped tail can never hide it.
+        assert panel.result_label.text().startswith(
+            "フィルタ外の制約選択 1 件"
+        )
         gate = panel.model.hard_constraint_gate(
             panel.evaluation, panel.selected_criterion_ids
         )

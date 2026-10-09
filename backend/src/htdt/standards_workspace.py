@@ -490,9 +490,11 @@ class StandardsCriterionPanel(QFrame):
         set_typography_role(constraint_note, TypographyRole.SECONDARY)
         layout.addWidget(constraint_note)
 
-        # #972: search + status/domain narrowing — two compact rows like
-        # the #986 project picker so the narrow dock's minimum width stays
-        # under its ~280px budget.
+        # #972: search + status/domain narrowing — compact rows like the
+        # #986 project picker so the narrow dock's minimum width stays
+        # under its ~280px budget. The reset control sits left of the
+        # result line (never at a row's clipped right edge) and the
+        # label wraps, so the フィルタ外の制約選択 tail can never hide.
         search_row = QHBoxLayout()
         search_row.setSpacing(4)
         self.search_edit = QLineEdit(self)
@@ -505,15 +507,6 @@ class StandardsCriterionPanel(QFrame):
         )
         self.search_edit.textChanged.connect(self._refilter)
         search_row.addWidget(self.search_edit, 1)
-        self.reset_filter_button = QPushButton("リセット", self)
-        self.reset_filter_button.setObjectName("standardsFilterReset")
-        self.reset_filter_button.setAccessibleName("絞り込み条件をリセット")
-        self.reset_filter_button.setToolTip(
-            "検索とフィルタを解除して全項目を表示します"
-        )
-        set_control_size(self.reset_filter_button, ControlSize.COMPACT)
-        self.reset_filter_button.clicked.connect(self.reset_filters)
-        search_row.addWidget(self.reset_filter_button)
         layout.addLayout(search_row)
 
         filter_row = QHBoxLayout()
@@ -546,11 +539,24 @@ class StandardsCriterionPanel(QFrame):
         filter_row.addWidget(self.domain_filter_combo, 1)
         layout.addLayout(filter_row)
 
+        result_row = QHBoxLayout()
+        result_row.setSpacing(4)
+        self.reset_filter_button = QPushButton("リセット", self)
+        self.reset_filter_button.setObjectName("standardsFilterReset")
+        self.reset_filter_button.setAccessibleName("絞り込み条件をリセット")
+        self.reset_filter_button.setToolTip(
+            "検索とフィルタを解除して全項目を表示します"
+        )
+        set_control_size(self.reset_filter_button, ControlSize.COMPACT)
+        self.reset_filter_button.clicked.connect(self.reset_filters)
+        result_row.addWidget(self.reset_filter_button)
         self.result_label = QLabel()
         self.result_label.setObjectName("standardsResultStatus")
         self.result_label.setAccessibleName("基準の表示状況")
+        self.result_label.setWordWrap(True)
         set_typography_role(self.result_label, TypographyRole.SECONDARY)
-        layout.addWidget(self.result_label)
+        result_row.addWidget(self.result_label, 1)
+        layout.addLayout(result_row)
 
         self.tree = QTreeWidget()
         self.tree.setMinimumWidth(0)
@@ -862,11 +868,16 @@ class StandardsCriterionPanel(QFrame):
             )
             return
         shown, hidden_selected = self._result_counts
-        parts = [f"基準 {total} 件", f"制約選択 {len(self._selected_constraints)} 件"]
-        if self._filter_active():
-            parts.append(f"表示 {shown}/{total}")
+        # The hidden-selection warning leads the line: the dock can h-scroll
+        # and clip a label's tail, so the must-not-miss count sits in the
+        # always-visible head position.
+        parts = []
         if hidden_selected:
             parts.append(f"フィルタ外の制約選択 {hidden_selected} 件")
+        parts.append(f"基準 {total} 件")
+        parts.append(f"制約選択 {len(self._selected_constraints)} 件")
+        if self._filter_active():
+            parts.append(f"表示 {shown}/{total}")
         self.result_label.setText(" · ".join(parts))
 
     def _active_filter_description(self) -> str:
@@ -951,19 +962,26 @@ class StandardsCriterionPanel(QFrame):
             if shown == 0:
                 if profile.criteria:
                     zero_item = QTreeWidgetItem(
-                        [
-                            "条件に一致する基準はありません —"
-                            " リセットで全表示に戻せます"
-                        ]
+                        ["条件に一致する基準はありません"]
                     )
                     zero_item.setFlags(Qt.ItemFlag.ItemIsEnabled)
-                    zero_item.setToolTip(0, self._active_filter_description())
+                    zero_item.setToolTip(
+                        0,
+                        self._active_filter_description()
+                        + " — リセットで全表示に戻せます",
+                    )
                 else:
                     zero_item = QTreeWidgetItem(
                         ["このプロファイルに基準項目がありません"]
                     )
                     zero_item.setFlags(Qt.ItemFlag.ItemIsEnabled)
                 self.tree.addTopLevelItem(zero_item)
+                # Span the message across all columns — at dock width a
+                # column-0-only message collapses to a few pixels. This
+                # MUST run after addTopLevelItem: spanning applies through
+                # the item's view index, which does not exist before the
+                # item is in the tree (a pre-insert call is a silent no-op).
+                zero_item.setFirstColumnSpanned(True)
         self.tree.blockSignals(False)
         restore_focus(self, token, fallback=self.evaluate_button)
         self._result_counts = (shown, hidden_selected)
