@@ -1168,3 +1168,31 @@ entries:
   - backend/tests/test_issue_971_brief_next_step.py
   - backend/src/htdt/decision_brief_panel.py
   close_when_gates_clear: true
+
+- issue: 995
+  lifecycle: acceptance_remaining
+  landed:
+    prs: [1073]
+    commits: [bbaf1357]
+  remaining_gates:
+  - kind: manual
+    description: 'オペレータ受入 — 高密度スライスでの実機応答性・間引き表示・失敗時クリアの実機確認 (子が実GUI Mesa GL で検証済)'
+  evidence_refs:
+  - docs/issues/issue-995-field-slice-bounds.md
+  - backend/tests/test_issue_995_field_slice_bounds.py
+  - backend/src/htdt/field_explorer_panel.py
+  close_when_gates_clear: true
+
+- issue: 994
+  lifecycle: acceptance_remaining
+  landed:
+    prs: [1073]
+    commits: [bbaf1357]
+  remaining_gates:
+  - kind: manual
+    description: 'オペレータ受入 — スライス計算失敗/非対応選択時のヒートマップ・凡例・プローブクリアの実機確認 (#995 同一 PR で修正済、実GUI検証済)'
+  evidence_refs:
+  - docs/issues/issue-995-field-slice-bounds.md
+  - backend/tests/test_issue_995_field_slice_bounds.py
+  - backend/src/htdt/field_explorer_panel.py
+  close_when_gates_clear: true
