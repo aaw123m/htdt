@@ -59,6 +59,7 @@ from .workflow_navigation import (
     normalize_workspace_id,
     workspace_context_label,
 )
+from .window_state import WorkspaceViewState, view_state_key
 from .workspace_dirty_state import (
     DeactivationContext,
     DirtyResolutionAction,
@@ -98,6 +99,13 @@ class WorkspaceMount:
     on_context_changed: Callable[[str], None] | None = None
     on_entity_requested: Callable[[str], None] | None = None
     on_close: Callable[[], None] | None = None
+    #: #973: UX-convenience view-state ports. ``capture_view_state``
+    #: snapshots the workspace's current context view (scroll, selection,
+    #: filters, expanded panels, splitter) for the shell's per-project
+    #: map; ``restore_view_state`` re-applies a snapshot after activate/
+    #: context-select has run, and must degrade silently on stale data.
+    capture_view_state: Callable[[], WorkspaceViewState | None] | None = None
+    restore_view_state: Callable[[WorkspaceViewState], None] | None = None
     focus_kinds: frozenset[NavigationTargetKind] = field(
         default_factory=frozenset
     )
@@ -115,6 +123,8 @@ class WorkspaceMount:
         resolve_dirty_state: DirtyStateResolver | None = None,
         on_context_changed: Callable[[str], None] | None = None,
         on_entity_requested: Callable[[str], None] | None = None,
+        capture_view_state: Callable[[], WorkspaceViewState | None] | None = None,
+        restore_view_state: Callable[[WorkspaceViewState], None] | None = None,
         focus_kinds: Iterable[NavigationTargetKind] = (),
         focus_target: Callable[[NavigationTarget], TargetFocusResult] | None = None,
     ) -> "WorkspaceMount":
@@ -128,6 +138,8 @@ class WorkspaceMount:
             on_context_changed=on_context_changed,
             on_entity_requested=on_entity_requested,
             on_close=widget.close,
+            capture_view_state=capture_view_state,
+            restore_view_state=restore_view_state,
             focus_kinds=frozenset(focus_kinds),
             focus_target=focus_target,
         )
@@ -826,6 +838,9 @@ class WorkflowShellWindow(QMainWindow):
         self._navigation_history = NavigationHistory()
         self._navigation_resolver = NavigationResolver()
         self._selected_context: dict[DestinationId, str] = {}
+        # #973: in-memory view-state map keyed "workspace[:context]";
+        # saved into the per-project window-state record on close/switch.
+        self._view_states: dict[str, WorkspaceViewState] = {}
         self._close_guards: list[CloseGuard] = []
         # Hooks fire once a close has passed every guard and the exit-time
         # dirty-state resolution — the point where the close is committed.
@@ -940,6 +955,11 @@ class WorkflowShellWindow(QMainWindow):
             return False
         previous = self.router.current_workspace_id
         registration = self._registrations[destination]
+        switched = previous != destination
+        if switched and previous is not None:
+            # #973: snapshot the outgoing workspace before the swap so its
+            # context view state survives the round-trip.
+            self.capture_view_state(previous)
         mount = self.router.navigate(destination)
         if mount is None:
             if previous is not None:
@@ -952,6 +972,10 @@ class WorkflowShellWindow(QMainWindow):
         self.context_bar.set_workspace(registration, selected_context)
         if selected_context is not None:
             self.router.select_context(destination, selected_context)
+        if switched:
+            # Restore only on a real switch — re-clicking the current
+            # workspace must not snap the live UI back to a snapshot.
+            self._restore_view_state(destination)
         self.statusBar().clearMessage()
         return True
 
@@ -1101,8 +1125,13 @@ class WorkflowShellWindow(QMainWindow):
         if self._data_mutations_frozen:
             return
         workspace_id = self.current_workspace_id
+        previous_context = self._selected_context.get(workspace_id)
+        # #973: capture under the OLD context key before the page swaps.
+        self.capture_view_state(workspace_id)
         normalized_context = self.router.select_context(workspace_id, context_id)
         self._selected_context[workspace_id] = normalized_context
+        if normalized_context != previous_context:
+            self._restore_view_state(workspace_id)
         self.context_bar.set_active_context(normalized_context)
 
     def register_close_guard(self, guard: CloseGuard) -> None:
@@ -1137,6 +1166,76 @@ class WorkflowShellWindow(QMainWindow):
             for registration in self._registrations.values()
             if registration.contexts
         }
+
+    # -- #973: per-(workspace, context) view-state persistence ----------
+
+    def _view_state_key(self, workspace_id: DestinationId) -> str:
+        context = self._selected_context.get(workspace_id)
+        return view_state_key(str(workspace_id), context)
+
+    def capture_view_state(self, workspace_id: DestinationId | str) -> None:
+        """Snapshot a mounted workspace's view state under its current
+        context key. Capture failures are logged, never raised — a UX
+        convenience snapshot must not break navigation."""
+        destination = normalize_destination_id(workspace_id)
+        mount = self.router.mount(destination)
+        if mount is None or mount.capture_view_state is None:
+            return
+        try:
+            state = mount.capture_view_state()
+        except Exception:  # error-boundary: non-authoritative UX snapshot
+            _LOGGER.exception('view-state capture failed for %s', destination)
+            return
+        key = self._view_state_key(destination)
+        if state is None:
+            self._view_states.pop(key, None)
+        else:
+            self._view_states[key] = state
+
+    def _restore_view_state(self, workspace_id: DestinationId | str) -> None:
+        destination = normalize_destination_id(workspace_id)
+        mount = self.router.mount(destination)
+        if mount is None or mount.restore_view_state is None:
+            return
+        state = self._view_states.get(self._view_state_key(destination))
+        if state is None:
+            return
+        try:
+            mount.restore_view_state(state)
+        except Exception:  # error-boundary: broken restore → default view
+            _LOGGER.exception('view-state restore failed for %s', destination)
+
+    def collect_view_states(self) -> None:
+        """Snapshot every mounted workspace — the save path, which must
+        cover the still-active mount too (deactivate never fires for it)."""
+        for workspace_id, _mount in self.router.mounts():
+            self.capture_view_state(workspace_id)
+
+    def view_states(self) -> dict[str, WorkspaceViewState]:
+        """The in-memory map, for the persistence writer."""
+        return dict(self._view_states)
+
+    def seed_view_states(
+        self, view_states: Mapping[str, WorkspaceViewState]
+    ) -> None:
+        """Pre-seed the map from a persisted (project-scoped) record.
+
+        Keys for workspaces this build does not register are dropped.
+        """
+        for key, state in view_states.items():
+            workspace = key.split(':', 1)[0]
+            try:
+                destination = normalize_destination_id(workspace)
+            except ValueError:
+                continue
+            if destination not in self._registrations:
+                continue
+            self._view_states[key] = state
+
+    def reset_view_states(self) -> None:
+        """Drop all in-memory view states — a project switch must never
+        replay the outgoing project's snapshots into the target's mounts."""
+        self._view_states = {}
 
     def seed_selected_contexts(self, contexts: Mapping[str, str]) -> None:
         """Pre-seed context selections for persistence restore.

@@ -1092,6 +1092,10 @@ class WorkflowApplicationComposition:
                 _LOGGER.warning('saved window geometry could not be applied')
         if state.contexts:
             self.shell.seed_selected_contexts(state.contexts)
+        # #973: seed before navigate() so the restore fires inside the
+        # same switch that lands the saved workspace.
+        if state.view_states:
+            self.shell.seed_view_states(state.view_states)
         if state.workspace is not None:
             try:
                 if state.workspace != str(self.shell.current_workspace_id):
@@ -1120,12 +1124,16 @@ class WorkflowApplicationComposition:
         except RuntimeError:
             workspace = None
         geometry = bytes(self.shell.saveGeometry().toBase64()).decode('ascii')
+        # #973: capture live view states from every mount — including the
+        # still-active one — before serializing.
+        self.shell.collect_view_states()
         save_window_state(
             self.data_dir,
             PersistedWindowState(
                 geometry_b64=geometry,
                 workspace=None if workspace is None else str(workspace),
                 contexts=self.shell.selected_contexts(),
+                view_states=self.shell.view_states(),
             ),
             project_ref=self._window_state_project_ref(),
         )
@@ -3114,6 +3122,10 @@ class WorkflowApplicationComposition:
         # live context map leaks into the target project.
         self._save_window_state()
         self.shell.dispose_data_workspaces()
+        # #973: the outgoing project's view states are already persisted
+        # under ITS ref — drop the map so the rebuild navigation below
+        # can never replay them into the target project's mounts.
+        self.shell.reset_view_states()
         self._unbind_workspace_commands()
         self._bind_project_entry(opened)
         # #775: legacy entries recorded without project identity must never

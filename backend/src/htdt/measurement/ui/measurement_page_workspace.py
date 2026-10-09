@@ -77,6 +77,7 @@ from ...cad_scene import Direction3
 from ...export_io import write_text_atomic
 from ...ingress import read_file_bounded
 from ...limits import MAX_ATTACHMENT_BYTES, MAX_NATIVE_REW_TEXT_FILE_BYTES
+from ...window_state import WorkspaceViewState
 from ..domain.measurement_analysis import (
     DISPLAY_SMOOTHING_FRACTIONS,
     phase_trace,
@@ -528,6 +529,23 @@ def _card(title: str, parent: QWidget | None = None) -> tuple[QFrame, QVBoxLayou
     return frame, layout
 
 
+def _splitter_ratio(splitter: QSplitter) -> float | None:
+    sizes = splitter.sizes()
+    total = sum(sizes)
+    if total <= 0 or not sizes:
+        return None
+    return sizes[0] / total
+
+
+def _apply_splitter_ratio(splitter: QSplitter, ratio: float) -> None:
+    sizes = splitter.sizes()
+    total = sum(sizes)
+    if total <= 0 or len(sizes) != 2:
+        return
+    first = int(round(total * max(0.0, min(1.0, ratio))))
+    splitter.setSizes([first, total - first])
+
+
 def _page(title: str, subtitle: str) -> tuple[QScrollArea, QWidget, QVBoxLayout]:
     scroll = QScrollArea()
     scroll.setFrameShape(QFrame.Shape.NoFrame)
@@ -930,6 +948,295 @@ class MeasurementPageWorkspace(QWidget):
             self._show_quality_row(row_index)
             return True
         return False
+
+    # ------------------------------------------------------------------
+    # #973: per-context view-state capture/restore — UX convenience only.
+    # Snapshots re-show where the user was; they never promote stale
+    # results to current/accepted and never guess a vanished selection's
+    # nearest row (deselect + parent focus instead).
+
+    def capture_view_state(self) -> WorkspaceViewState | None:
+        """Mount port: snapshot the current context page's view state."""
+        context = self.current_context_id
+        scroll = self._context_scroll_offset(context)
+        if context == "quality":
+            selected = self._selected_quality_view()
+            return WorkspaceViewState(
+                scroll_offset=scroll,
+                selected_entity=(
+                    None if selected is None else selected.measurement_id
+                ),
+                filters={
+                    "verdict": self._combo_data_text(self.quality_verdict_combo),
+                    "state": self._combo_data_text(self.quality_state_combo),
+                    "channel": self._combo_data_text(self.quality_channel_filter),
+                    "position": self._combo_data_text(self.quality_position_filter),
+                    "search": self.quality_search_edit.text(),
+                },
+                splitter_ratio=_splitter_ratio(self.quality_split),
+            )
+        if context == "comparison":
+            return self._capture_comparison_view_state(scroll)
+        if context == "campaign":
+            return self._capture_campaign_view_state(scroll)
+        return WorkspaceViewState(scroll_offset=scroll)
+
+    def restore_view_state(self, state: WorkspaceViewState) -> None:
+        """Mount port: re-apply a captured view state for the current
+        context. Runs after activate/context-select refresh, so the
+        listing it resolves against is the store's own current view."""
+        context = self.current_context_id
+        if context == "quality":
+            self._restore_quality_view_state(state)
+        elif context == "comparison":
+            self._restore_comparison_view_state(state)
+        elif context == "campaign":
+            self._restore_campaign_view_state(state)
+        self._restore_context_scroll(context, state.scroll_offset)
+
+    @staticmethod
+    def _combo_data_text(combo: QComboBox) -> str:
+        data = combo.currentData()
+        return "" if data is None else str(data)
+
+    def _context_scroll_area(self, context_id: str) -> QScrollArea | None:
+        try:
+            index = _CONTEXT_IDS.index(context_id)
+        except ValueError:
+            return None
+        widget = self.pages.widget(index)
+        if widget is None:
+            return None
+        if isinstance(widget, QScrollArea):
+            return widget
+        return widget.findChild(QScrollArea)
+
+    def _context_scroll_offset(self, context_id: str) -> int | None:
+        area = self._context_scroll_area(context_id)
+        if area is None:
+            return None
+        return area.verticalScrollBar().value()
+
+    def _restore_context_scroll(
+        self, context_id: str, offset: int | None
+    ) -> None:
+        if offset is None:
+            return
+        area = self._context_scroll_area(context_id)
+        if area is None:
+            return
+        bar = area.verticalScrollBar()
+        bar.setValue(min(offset, bar.maximum()))
+        # Layout can still be settling right after the mount/refresh —
+        # re-apply once idle. The bar is the timer receiver, so a dead
+        # widget simply drops the call.
+        QTimer.singleShot(
+            0, bar,
+            lambda: bar.setValue(min(offset, bar.maximum())),
+        )
+
+    def _restore_quality_view_state(self, state: WorkspaceViewState) -> None:
+        filters = state.filters
+        dirty = False
+        for combo, key in (
+            (self.quality_verdict_combo, "verdict"),
+            (self.quality_state_combo, "state"),
+            (self.quality_channel_filter, "channel"),
+            (self.quality_position_filter, "position"),
+        ):
+            value = filters.get(key, "")
+            if not value:
+                continue
+            index = combo.findData(value)
+            if index >= 0:
+                combo.blockSignals(True)
+                combo.setCurrentIndex(index)
+                combo.blockSignals(False)
+                dirty = True
+        search = filters.get("search", "")
+        if search and search != self.quality_search_edit.text():
+            self.quality_search_edit.blockSignals(True)
+            self.quality_search_edit.setText(search)
+            self.quality_search_edit.blockSignals(False)
+            dirty = True
+        if dirty:
+            self._apply_quality_filters()
+        if state.splitter_ratio is not None:
+            _apply_splitter_ratio(self.quality_split, state.splitter_ratio)
+        selected_id = state.selected_entity
+        if not selected_id:
+            return
+        row_index = self._quality_row_index_for_id(selected_id)
+        if row_index is not None:
+            self.quality_table.selectRow(row_index)
+            self._show_quality_row(row_index)
+            return
+        # The saved selection vanished (deleted, another revision, or
+        # hidden by the restored filters) — deselect + parent focus,
+        # never guess the nearest row.
+        self.quality_table.clearSelection()
+        self.quality_detail.setText("測定を選択してください")
+        self._update_quality_selection_note(selected_id)
+        self.quality_table.setFocus(Qt.FocusReason.OtherFocusReason)
+
+    def _capture_comparison_view_state(
+        self, scroll: int | None
+    ) -> WorkspaceViewState:
+        filters = {
+            "preset": self._combo_data_text(self.preset_combo),
+            "dataset_a": self._combo_data_text(self.measured_combo),
+            "dataset_b": self._combo_data_text(self.predicted_combo),
+            "band_low": str(self.compare_low.value()),
+            "band_high": str(self.compare_high.value()),
+            "ref_enabled": "1" if self.ref_band_check.isChecked() else "",
+            "ref_low": str(self.ref_low.value()),
+            "ref_high": str(self.ref_high.value()),
+            "excluded_low": str(self.excluded_low.value()),
+            "excluded_high": str(self.excluded_high.value()),
+            "smooth_a": str(self.smooth_a_combo.currentData()),
+            "smooth_b": str(self.smooth_b_combo.currentData()),
+        }
+        selected: str | None = None
+        row = self.comparison_history.currentRow()
+        item = self.comparison_history.item(row, 0) if row >= 0 else None
+        if item is not None:
+            data = item.data(Qt.ItemDataRole.UserRole)
+            if isinstance(data, str):
+                selected = data
+        return WorkspaceViewState(
+            scroll_offset=scroll,
+            selected_entity=selected,
+            filters=filters,
+        )
+
+    def _restore_comparison_view_state(
+        self, state: WorkspaceViewState
+    ) -> None:
+        filters = state.filters
+        preset = filters.get("preset", "")
+        if preset:
+            index = self.preset_combo.findData(preset)
+            if index >= 0 and index != self.preset_combo.currentIndex():
+                # Drives _refresh_comparison_choices → dataset options
+                # refill before the saved A/B seats below.
+                self.preset_combo.setCurrentIndex(index)
+        for combo, key in (
+            (self.measured_combo, "dataset_a"),
+            (self.predicted_combo, "dataset_b"),
+        ):
+            value = filters.get(key, "")
+            if not value:
+                continue
+            index = combo.findData(value)
+            if index >= 0:
+                combo.blockSignals(True)
+                combo.setCurrentIndex(index)
+                combo.blockSignals(False)
+        for spin, key in (
+            (self.compare_low, "band_low"),
+            (self.compare_high, "band_high"),
+            (self.ref_low, "ref_low"),
+            (self.ref_high, "ref_high"),
+            (self.excluded_low, "excluded_low"),
+            (self.excluded_high, "excluded_high"),
+        ):
+            text = filters.get(key)
+            if text is None:
+                continue
+            try:
+                spin.setValue(float(text))
+            except (TypeError, ValueError):
+                continue
+        self.ref_band_check.setChecked(bool(filters.get("ref_enabled")))
+        for combo, key in (
+            (self.smooth_a_combo, "smooth_a"),
+            (self.smooth_b_combo, "smooth_b"),
+        ):
+            text = filters.get(key)
+            if not text:
+                continue
+            try:
+                fraction = float(text)
+            except ValueError:
+                continue
+            index = combo.findData(fraction)
+            if index >= 0:
+                combo.blockSignals(True)
+                combo.setCurrentIndex(index)
+                combo.blockSignals(False)
+        self._preview_comparison_pair()
+        self._restore_comparison_history_selection(state.selected_entity)
+
+    def _restore_comparison_history_selection(
+        self, comparison_id: str | None
+    ) -> None:
+        if not comparison_id:
+            return
+        for row_index in range(self.comparison_history.rowCount()):
+            item = self.comparison_history.item(row_index, 0)
+            if (
+                item is not None
+                and item.data(Qt.ItemDataRole.UserRole) == comparison_id
+            ):
+                # Re-selecting replays the sealed record via
+                # _history_selection_changed — still labelled 保存済み比較,
+                # never promoted to a fresh/accepted result.
+                self.comparison_history.selectRow(row_index)
+                return
+        self.comparison_history.clearSelection()
+        self.comparison_history.setFocus(Qt.FocusReason.OtherFocusReason)
+
+    def _capture_campaign_view_state(
+        self, scroll: int | None
+    ) -> WorkspaceViewState:
+        filters = {
+            "plan_id": self._combo_data_text(self.campaign_plan_combo),
+        }
+        if self._campaign_run_id:
+            filters["run_id"] = self._campaign_run_id
+        selected = self._selected_campaign_cell()
+        return WorkspaceViewState(
+            scroll_offset=scroll,
+            selected_entity=None if selected is None else str(selected),
+            filters=filters,
+        )
+
+    def _restore_campaign_view_state(self, state: WorkspaceViewState) -> None:
+        filters = state.filters
+        plan_id = filters.get("plan_id", "")
+        if plan_id:
+            index = self.campaign_plan_combo.findData(plan_id)
+            if index >= 0:
+                self.campaign_plan_combo.blockSignals(True)
+                self.campaign_plan_combo.setCurrentIndex(index)
+                self.campaign_plan_combo.blockSignals(False)
+        run_id = filters.get("run_id", "")
+        if run_id and run_id != self._campaign_run_id:
+            # Re-point at a run that still exists in the store — the
+            # matrix never fabricates progress for a vanished run.
+            try:
+                run = self.controller.runner_repository.get_run(run_id)
+            except EXPECTED_OPERATION_ERRORS:
+                run = None
+            if run is not None:
+                self._campaign_run_id = run_id
+                self._refresh_campaign()
+        if not state.selected_entity:
+            return
+        try:
+            cell_index = int(state.selected_entity)
+        except ValueError:
+            return
+        for row_index in range(self.campaign_table.rowCount()):
+            item = self.campaign_table.item(row_index, 0)
+            if (
+                item is not None
+                and item.data(Qt.ItemDataRole.UserRole) == cell_index
+            ):
+                self.campaign_table.selectRow(row_index)
+                return
+        self.campaign_table.clearSelection()
+        self.campaign_table.setFocus(Qt.FocusReason.OtherFocusReason)
 
     # ------------------------------------------------------------------
     # REV32-TERMS — explanations, glossary and help plumbing
@@ -7879,6 +8186,11 @@ class MeasurementPageWorkspace(QWidget):
             )
             for column, value in enumerate(values):
                 self.comparison_history.setItem(row_index, column, QTableWidgetItem(value))
+            # #973: bind the sealed comparison_id so view-state restore
+            # resolves rows by identity, not visual index.
+            self.comparison_history.item(row_index, 0).setData(
+                Qt.ItemDataRole.UserRole, comparison.comparison_id
+            )
         self._refresh_registration_panel(views)
 
     @staticmethod
@@ -10270,6 +10582,8 @@ def build_measurement_workspace_mount(
         resolve_dirty_state=workspace.resolve_dirty_state,
         on_context_changed=workspace.set_context,
         on_entity_requested=workspace.focus_entity,
+        capture_view_state=getattr(workspace, "capture_view_state", None),
+        restore_view_state=getattr(workspace, "restore_view_state", None),
     )
 
 

@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Protocol, cast
 from uuid import uuid4
 
-from PySide6.QtCore import QSignalBlocker, QSize, Qt, Signal
+from PySide6.QtCore import QSignalBlocker, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import (
     QAction,
     QActionGroup,
@@ -330,6 +330,7 @@ from .user_facing_error import (
     to_user_facing_error,
     warn_user,
 )
+from .window_state import WorkspaceViewState
 from .workflow_shell import WorkspaceMount
 from .workflow_navigation import WorkspaceDeepLink, WorkspaceId
 from .workspace_dirty_state import DirtyResolutionAction, WorkspaceDirtyState
@@ -3170,6 +3171,21 @@ class SelectionInspector(QFrame):
         layout.addStretch(1)
         self.form_host = form_host
         self.set_entity(None, editable=False)
+
+    def expanded_sections(self) -> dict[str, bool]:
+        """#973: collapsible-section expansion states for view-state capture."""
+        states: dict[str, bool] = {}
+        for key, section in self._sections.items():
+            if isinstance(section.header, QToolButton):
+                states[key] = section.header.isChecked()
+        return states
+
+    def set_expanded_sections(self, states: dict[str, bool]) -> None:
+        for key, expanded in states.items():
+            section = self._sections.get(key)
+            if section is None or not isinstance(section.header, QToolButton):
+                continue
+            section.header.setChecked(bool(expanded))
 
     @staticmethod
     def _hint(form: QFormLayout, field: QWidget, text: str) -> None:
@@ -6484,6 +6500,85 @@ class RoomWorkspace(QWidget):
             return
         self._after_selection_changed()
 
+    # ------------------------------------------------------------------
+    # #973: view-state capture/restore — UX convenience only. Snapshots
+    # re-show where the user was; a vanished entity deselects + focuses
+    # the inspector rather than guessing a nearest row.
+
+    def capture_view_state(self) -> WorkspaceViewState | None:
+        """Mount port: snapshot the current context's view state."""
+        area = self._context_scroll_area()
+        scroll = (
+            None if area is None else area.verticalScrollBar().value()
+        )
+        sizes = self._content_splitter.sizes()
+        total = sum(sizes)
+        return WorkspaceViewState(
+            scroll_offset=scroll,
+            selected_entity=self.controller.view_state.selected_id,
+            expanded_panels=tuple(
+                key
+                for key, expanded in self.inspector.expanded_sections().items()
+                if expanded
+            ),
+            splitter_ratio=(sizes[-1] / total) if total > 0 else None,
+        )
+
+    def restore_view_state(self, state: WorkspaceViewState) -> None:
+        """Mount port: re-apply a captured view state for the current
+        context — selection resolves against the live document, never a
+        nearest-row guess."""
+        selected_id = state.selected_entity
+        if selected_id:
+            if self._entity_present(selected_id):
+                self.select_entity(selected_id)
+            else:
+                # The saved entity vanished (deleted/other head) —
+                # deselect + parent focus.
+                self.select_entity(None)
+                self.inspector.setFocus(Qt.FocusReason.OtherFocusReason)
+        current = self.inspector.expanded_sections()
+        wanted = set(state.expanded_panels or ())
+        self.inspector.set_expanded_sections(
+            {key: key in wanted for key in current}
+        )
+        if state.splitter_ratio is not None:
+            sizes = self._content_splitter.sizes()
+            total = sum(sizes)
+            if total > 0 and len(sizes) == 2:
+                last = int(
+                    round(total * max(0.0, min(1.0, state.splitter_ratio)))
+                )
+                self._content_splitter.setSizes([total - last, last])
+        area = self._context_scroll_area()
+        if area is not None and state.scroll_offset is not None:
+            bar = area.verticalScrollBar()
+            offset = state.scroll_offset
+            bar.setValue(min(offset, bar.maximum()))
+            # Layout can still settle after mount/refresh — re-apply once
+            # idle; the bar as receiver drops the call when dead.
+            QTimer.singleShot(
+                0, bar,
+                lambda: bar.setValue(min(offset, bar.maximum())),
+            )
+
+    def _context_scroll_area(self) -> QScrollArea | None:
+        widget = self.right_stack.currentWidget()
+        if widget is None:
+            return None
+        if isinstance(widget, QScrollArea):
+            return widget
+        return widget.findChild(QScrollArea)
+
+    def _entity_present(self, entity_id: str) -> bool:
+        try:
+            entities = self.controller.document.entities
+        except (AttributeError, RuntimeError):
+            return False
+        return any(
+            entity.entity_id == entity_id for entity in entities
+        )
+
     def _pick_candidate_uneditable_reason(self, entity_id: object) -> str | None:
         """#983: edit-blocking reason for a pick-chooser candidate.
 
@@ -9224,6 +9319,8 @@ def build_room_workspace_mount(
         # here — the overlay is armed by the workspace, never auto-shown.
         focus_kinds={NavigationTargetKind.MEASUREMENT_CAMPAIGN},
         focus_target=workspace.focus_campaign_overlay,
+        capture_view_state=getattr(workspace, "capture_view_state", None),
+        restore_view_state=getattr(workspace, "restore_view_state", None),
     )
 
 
