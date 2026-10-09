@@ -1196,3 +1196,17 @@ entries:
   - backend/tests/test_issue_995_field_slice_bounds.py
   - backend/src/htdt/field_explorer_panel.py
   close_when_gates_clear: true
+
+- issue: 993
+  lifecycle: acceptance_remaining
+  landed:
+    prs: [1074]
+    commits: [d85abd6d]
+  remaining_gates:
+  - kind: manual
+    description: 'オペレータ受入 — 実運用での generation ディレクトリ出力・再出力時の番号繰上げ・書込不可時の即時エラーの実機確認 (実GUI検証済)'
+  evidence_refs:
+  - docs/issues/issue-993-export-generation.md
+  - backend/tests/test_issue_993_export_generation.py
+  - backend/src/htdt/export_io.py
+  close_when_gates_clear: true
