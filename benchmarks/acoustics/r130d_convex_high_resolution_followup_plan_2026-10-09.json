@@ -1,0 +1,96 @@
+{
+  "schema_version": "htdt.r130d.convex-high-resolution-preregistered-followup-1",
+  "issue": 938,
+  "reference_first_study": "benchmarks/acoustics/r130d_convex_multiplane_cutcell_evidence_2026-10-09.json",
+  "purpose": "Refine independent cut-cell FV convex multi-plane Gaussian source wave solution n20->24->28->32 to compare with pinned independent MFEM r4; report all bins and all shapes",
+  "cases": [
+    {
+      "name": "planar_wedge",
+      "planes": [
+        [
+          0,
+          0.25,
+          1,
+          4
+        ],
+        [
+          1,
+          1,
+          0,
+          6
+        ]
+      ],
+      "volume_m3": 49.666666666666664
+    },
+    {
+      "name": "three_axis_diagonal",
+      "planes": [
+        [
+          1,
+          1,
+          1,
+          8
+        ]
+      ],
+      "volume_m3": 53.333333333333336
+    }
+  ],
+  "fv_refinement": [
+    20,
+    24,
+    28,
+    32
+  ],
+  "new_grid_levels": [
+    24,
+    28,
+    32
+  ],
+  "source_xyz_m": [
+    1.5,
+    2,
+    2
+  ],
+  "receiver_xyz_m": [
+    2.5,
+    2,
+    2
+  ],
+  "c_m_s": 343.2,
+  "rho_kg_m3": 1.2,
+  "Gaussian_q": {
+    "center_s": 0.012,
+    "sigma_s": 0.003,
+    "dt_s": 0.00025,
+    "steps": 1000,
+    "duration_s": 0.25,
+    "frequencies_hz": [
+      40,
+      80
+    ],
+    "time_integrated_actual": true
+  },
+  "metrics": [
+    "complex_l2_relative",
+    "magnitude_max_relative",
+    "phase_max_deg"
+  ],
+  "limits_unchanged": {
+    "fv_complex_rms_relative_max": 0.2,
+    "fv_magnitude_max_relative": 0.25,
+    "fv_phase_max_deg": 15,
+    "cross_complex_relative_max": 0.35,
+    "cross_magnitude_relative_max": 0.4,
+    "cross_magnitude_max_db": 3,
+    "cross_phase_max_deg": 25
+  },
+  "max_total_voxels": 40000,
+  "empty_or_tiny_cut_cell": "reject if resolvable air volume below 1e-12 fraction, never delete",
+  "fail_closed": {
+    "production_enabled": false,
+    "original_r130d_impulse": "SELF_CONVERGENCE_FAILED",
+    "wedge_diagonal_independent_cross_solver": "PENDING_MFEM_R4",
+    "general_cad": "NOT_VALIDATED",
+    "external_measurement": "NOT_VALIDATED"
+  }
+}
