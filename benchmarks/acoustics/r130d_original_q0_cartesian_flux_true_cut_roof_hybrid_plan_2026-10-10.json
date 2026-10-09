@@ -1,0 +1,87 @@
+{
+  "schema_version": "htdt.r130d.original-q0-cartesian-interior-fivepoint-true-cut-Q1-boundary-flux-plan-1",
+  "date_jst": "2026-10-10",
+  "issue": 938,
+  "pr": 1055,
+  "hypothesis": "Preserving original Cartesian 5-point interior flux with a symmetric exact inclined-Neumann cut-Q1 roof closure may improve original point-q0 grid behavior, but previous exact-roof Q1 did not converge; failure is an admissible outcome.",
+  "preregistration": "This file is committed and pushed before evaluating any new hybrid-operator numerical results. Fixed geometry, operator coefficient, nodes, all-five q0 gates and diagnostics; no post-hoc exclusions.",
+  "original": {
+    "upstream_PFFDTD_sha": "aa319f6c86517cb95aabfae8656277da62c3ead5",
+    "original_native_evidence": "benchmarks/acoustics/r130d_original_point_quadratic_pffdtd_evidence_2026-10-09.json",
+    "preexisting_true_Q1_evidence": "benchmarks/acoustics/r130d_original_q0_exact_roof_cut_Q1_variational_evidence_2026-10-09.json",
+    "original_roof_echo_evidence": "benchmarks/acoustics/r130d_original_q0_first_roof_echo_causal_weak_evidence_2026-10-09.json",
+    "original_SHA_native_eight_source_receiver": true,
+    "original_source_xyz": [
+      1.5,
+      2,
+      2
+    ],
+    "original_receiver_xyz": [
+      2.5,
+      2,
+      2
+    ],
+    "ppw": [
+      28,
+      32,
+      36,
+      40,
+      44
+    ],
+    "q0": "original real comms_out.h5 in_sigs[:,0] eight nodes, in_sigs[:,1:]=0; no smoothing or fitting",
+    "c_m_s": 343.2,
+    "rho_kg_m3": 1.2,
+    "record_s": 0.25,
+    "frequency_signed_hz": [
+      40,
+      80
+    ],
+    "original_native_dt_h_Nt_per_grid": true,
+    "original_mass_and_pressure_observer_unchanged": true,
+    "acceptance": {
+      "complex_rms_relative_max": 0.2,
+      "magnitude_max_relative": 0.25,
+      "phase_max_deg": 15
+    },
+    "require_all_four_adjacent_pairs": true,
+    "require_strict_monotonicity_all_three_metrics": true
+  },
+  "new_operator": {
+    "geometry": "0<=x,y<=4, 0<=z<=4-0.25y, exactly clipped polygons in original native y/z Cartesian Q1 basis",
+    "yz_mass": "full previously exact positive consistent physical cut-Q1 mass M, no positive mass floors/drops",
+    "yz_stiffness": "K=K_cutQ1 + (c^2/3) sum over every FULL wet original native y-z rectangle (e00-e10-e01+e11)(same)^T; partial roof/physical-wall-cut rectangles receive NO penalty and retain exact Q1 flux; scalar coefficient is algebraically UNIQUE for converting an uncut full Q1 element stiffness to four half-weight Cartesian axis fluxes; no fitted parameter",
+    "derivation": "On an uncut h×h element Q1 local K has diagonal 2c²/3, edge -c²/6, opposite -c²/3; + c²/3 ssT yields diagonal c², edge -c²/2, opposite 0. Affine and constants annihilated by sT, symmetric rank-one PSD increment.",
+    "full_3D": "M=Mx(P1 physically exact) tensor Myz(Q1); K=Kx tensor Myz + Mx tensor Kyz_hybrid; all eigenmodes retained",
+    "source_receiver": "original 8 native indices and HDF5 weights mapped identically to existing cut-Q1, x original P1 nodes, no interpolation changes",
+    "time_scheme": "native dt beta=1/4 Newmark full linear spectrum and original full 250ms forward/center/backward pressure derivative, 40/80Hz signed finite rectangular record",
+    "no_high_mode_cut_sliver_drop_source_smoothing_damping_or_time_window": true
+  },
+  "independent": {
+    "analytic_roof_tangent_affine": "u(y,z)=y-0.25z: n=(.25,1)/sqrt(1+.25²) yields roof normal derivative=0; test roof-only weak Ku small on each grid",
+    "Neumann_constant_mode": true,
+    "positive_definite_full_consistent_mass": true,
+    "symmetric_semidefinite_stiffness": true,
+    "discrete_undriven_energy_conservation": true,
+    "full_rectangles_agree_native_cartesian_halfedge_stencil": true,
+    "tiny_positive_sliver_basis_retained": true,
+    "full_m_nodal_provenance": true,
+    "compare_full_allmode_signed_40_80": true,
+    "first_roof_echo_independent_fixed_causal_diagnostic": true,
+    "no_changing_thresholds_after_results": true
+  },
+  "caps": {
+    "max_active_yz_nodes": 3300,
+    "max_3d_modes": 180000,
+    "only_ppw": 5,
+    "run_original_PFFDTD": 0,
+    "new_github_actions_runs": 0,
+    "preserve_scratch": true
+  },
+  "release": {
+    "original_PFFDTD": "SELF_CONVERGENCE_FAILED",
+    "independent_physics": "NOT_VALIDATED",
+    "product": "NO_GO",
+    "draft_pr": true,
+    "issue_open": true
+  }
+}
