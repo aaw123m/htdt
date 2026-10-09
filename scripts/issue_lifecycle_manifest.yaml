@@ -1405,3 +1405,15 @@ entries:
       - docs/issues/issue-975-dynamic-a11y.md
       - backend/tests/test_dynamic_a11y.py
     close_when_gates_clear: true
+  - issue: 992
+    lifecycle: acceptance_remaining
+    landed:
+      prs: [1092]
+      commits: [760655c3d5649c9ea1f02d0e03f26cb1f7f53ee5]
+    remaining_gates:
+      - kind: manual
+        description: Operator runs the drill on real production backups and accepts the verdict; other-PC migration and physical-disaster recovery remain distinct states the drill deliberately does not claim.
+    evidence_refs:
+      - docs/issues/issue-992-restore-drill.md
+      - backend/tests/test_issue_992_restore_drill.py
+    close_when_gates_clear: true
