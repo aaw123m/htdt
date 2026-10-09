@@ -1439,9 +1439,16 @@ class RoomViewport3D(QFrame):
         # Cursor-side snap/transform HUD (#979): same ToolTip window shape as
         # the pick chooser, anchored in interactor DIP space and clamped
         # inside it. ``_snap_hud_anchor`` is the last clamped widget-space
-        # origin (kept for diagnostics/tests).
+        # origin (kept for diagnostics/tests). ``_snap_hud_active`` is true
+        # while a feedback call owns the HUD — interactor Hide/Resize events
+        # must not kill a live readout: at 200 % DPI the VTK render surface
+        # re-parents mid-gesture and fires exactly those events every frame,
+        # which hid the HUD immediately after each show. A live gesture
+        # re-pushes the HUD every update anyway; the controller's clear call
+        # (``render_snap_feedback(None)``) is what actually hides it.
         self._snap_hud: _SnapHud | None = None
         self._snap_hud_anchor: QPointF | None = None
+        self._snap_hud_active = False
         #: Input controllers suppress the chooser while an edit gesture is
         #: armed (active gizmo) so a mid-gesture click cannot reopen it.
         self.pick_popover_enabled = True
@@ -4212,17 +4219,17 @@ class RoomViewport3D(QFrame):
         if obj is self.interactor and event.type() in (
             QEvent.Type.Resize,
             QEvent.Type.ScreenChangeInternal,
+            QEvent.Type.Hide,
         ):
             # Widget/DPI changes reproject the whole scene — the armed
-            # candidate stack belongs to the old frame (#983). The cursor
-            # HUD's clamped anchor is equally stale (#979); the next gesture
-            # update re-pushes it at the re-projected position.
+            # candidate stack belongs to the old frame (#983). An idle
+            # cursor HUD is dropped here too; a LIVE one stays (#979):
+            # firing a hide between the controller's pushes made the HUD
+            # permanently invisible at 200 % DPI, and the owning gesture
+            # re-anchors it on the next update regardless.
             self.dismiss_pick_candidates()
-            self._hide_snap_hud()
-        if obj is self.interactor and event.type() == QEvent.Type.Hide:
-            # The HUD is a separate top-level window — without an explicit
-            # hide it would linger over whatever replaces the viewport.
-            self._hide_snap_hud()
+            if not self._snap_hud_active:
+                self._hide_snap_hud()
         if obj is self.interactor and isinstance(event, QMouseEvent):
             if event.type() == QEvent.Type.MouseButtonPress and event.button() == Qt.MouseButton.LeftButton:
                 self._press_position = QPointF(event.position())
@@ -5914,10 +5921,12 @@ class RoomViewport3D(QFrame):
         # A ToolTip window positions in global screen coordinates — correct
         # across monitors as long as the interactor maps it.
         hud.move(self.interactor.mapToGlobal(origin.toPoint()))
+        self._snap_hud_active = True
         hud.show()
         hud.raise_()
 
     def _hide_snap_hud(self) -> None:
+        self._snap_hud_active = False
         self._snap_hud_anchor = None
         if self._snap_hud is not None:
             self._snap_hud.hide()
@@ -6710,6 +6719,7 @@ class RoomViewport3D(QFrame):
         self._render()
 
     def closeEvent(self, event) -> None:  # noqa: N802
+        self._hide_snap_hud()
         self.plotter.close()
         super().closeEvent(event)
 

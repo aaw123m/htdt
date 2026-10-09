@@ -6736,6 +6736,10 @@ class RoomWorkspace(QWidget):
             render(label, screen_position=screen_position, hud_lines=hud_lines)
         if label:
             self._set_status(f"吸着: {label}")
+        elif self.status.text().startswith("吸着:"):
+            # Only this path prefixes status with 吸着: — when feedback
+            # clears, the stale snap label must clear with it (#979).
+            self._set_status("")
 
     def _open_equipment_in_library(self, definition_id: str) -> None:
         """#990: open one equipment definition in the reference Library.

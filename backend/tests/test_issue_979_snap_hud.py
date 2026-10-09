@@ -268,6 +268,41 @@ def test_lower_left_label_remains_fallback_without_position() -> None:
     app.processEvents()
 
 
+def test_live_hud_survives_interactor_resize_and_hide_events() -> None:
+    """200 % DPI regression: the VTK surface re-parents mid-gesture and the
+    interactor gets Hide/Resize/ScreenChangeInternal every frame — those
+    events must not kill a HUD that a feedback call still owns."""
+    from PySide6.QtCore import QSize
+    from PySide6.QtGui import QResizeEvent
+
+    app = _app()
+    viewport = RoomViewport3D()
+    viewport.plotter = _RecordingPlotter()
+    viewport.interactor.resize(800, 600)
+
+    viewport.render_snap_feedback('x', screen_position=(50.0, 50.0), hud_lines=('a',))
+    assert viewport.snap_hud is not None
+
+    for event in (
+        QResizeEvent(QSize(400, 300), QSize(800, 600)),
+        QEvent(QEvent.Type.Hide),
+        QEvent(QEvent.Type.ScreenChangeInternal),
+    ):
+        viewport.eventFilter(viewport.interactor, event)
+        assert viewport.snap_hud is not None, (
+            f'live HUD hidden by {event.type()}'
+        )
+
+    # Once feedback clears, the same events drop the (now idle) HUD.
+    viewport.render_snap_feedback('x', screen_position=(50.0, 50.0), hud_lines=('a',))
+    viewport.render_snap_feedback(None)
+    assert viewport.snap_hud is None
+
+    viewport.close()
+    viewport.deleteLater()
+    app.processEvents()
+
+
 # -- controller: HUD content during gestures -------------------------------------
 
 def test_move_hud_reports_delta_and_disabled_snap_reason(tmp_path) -> None:
@@ -549,6 +584,75 @@ def test_numeric_entry_swallows_edit_shortcut_keys(tmp_path) -> None:
     assert transform._key_press(_key(Qt.Key.Key_Return)) is True
     assert _entity(workspace, 'speaker-fl').position.x_m == pytest.approx(before.x_m + 1.0)
 
+    _teardown(app, workspace, transform)
+
+
+def test_numeric_entry_denies_shortcut_override(tmp_path) -> None:
+    """Real-GUI finding: L fired the lock QShortcut mid-entry — QShortcuts
+    activate through ShortcutOverride, never reaching KeyPress, so the
+    filter must deny them explicitly while entry owns the gesture."""
+    app, workspace, _repository = _workspace(tmp_path)
+    workspace.select_entity('speaker-fl')
+    transform = _transform(workspace)
+
+    transform.arm_move()
+    _type(transform, '1')
+    override = QEvent(QEvent.Type.ShortcutOverride)
+    assert transform.eventFilter(workspace.viewport.interactor, override) is True
+    assert override.isAccepted()
+    assert not workspace.controller.view_state.is_locked('speaker-fl')
+
+    # Outside entry the same event passes through for normal shortcuts.
+    transform.cancel()
+    transform.arm_move()
+    override2 = QEvent(QEvent.Type.ShortcutOverride)
+    assert transform.eventFilter(workspace.viewport.interactor, override2) is False
+
+    _teardown(app, workspace, transform)
+
+
+def test_digits_mid_drag_take_over_preview_without_error(tmp_path) -> None:
+    """Real-GUI finding: typing while a drag was held threw
+    ``EditStateError: another preview is already active`` once per key.
+    Entry must take over the live preview instead of re-beginning it."""
+    app, workspace, _repository = _workspace(tmp_path)
+    workspace.select_entity('speaker-fl')
+    transform = _transform(workspace)
+    workspace.controller.view_state.object_snap_enabled = False
+    before = _entity(workspace, 'speaker-fl').position
+
+    transform.arm_move()
+    assert transform.begin_at(QPointF(200.0, 200.0))
+    assert transform.drag_to(QPointF(206.0, 200.0))
+    assert workspace.controller.working.has_preview
+
+    # Typing mid-drag must not raise or re-open a preview.
+    _type(transform, '0.25')
+    assert transform._numeric_entry
+    assert 'ΔX +0.250 m' in _hud_text(workspace.viewport)
+
+    assert transform.finish_at(QPointF(400.0, 400.0)) is True
+    assert _entity(workspace, 'speaker-fl').position.x_m == pytest.approx(before.x_m + 0.25)
+
+    _teardown(app, workspace, transform)
+
+
+def test_snap_status_label_clears_with_feedback(tmp_path) -> None:
+    app, workspace, _repository = _workspace(tmp_path)
+    workspace.select_entity('speaker-fl')
+    transform = _transform(workspace)
+    workspace.controller.view_state.object_snap_enabled = False
+
+    transform.arm_move()
+    transform.begin_at(QPointF(200.0, 200.0))
+    transform.drag_to(QPointF(207.0, 200.0))
+    # A snap-label path writes 吸着: into the status strip.
+    workspace.set_snap_feedback('スナップ: vertex · x')
+    assert workspace.status.text().startswith('吸着:')
+    workspace.set_snap_feedback(None)
+    assert workspace.status.text() == ''
+
+    transform.cancel()
     _teardown(app, workspace, transform)
 
 

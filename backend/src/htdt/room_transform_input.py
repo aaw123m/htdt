@@ -850,7 +850,10 @@ class RoomEntityTransformController(QObject):
             return bool(self.cancel())
         text = event.text()
         if text and all(char in _NUMERIC_ENTRY_CHARS for char in text):
-            if self._begin_gesture():
+            # Starting entry mid-drag takes over the live preview — only
+            # open one when the gesture hasn't begun yet, otherwise
+            # working.begin_* fires on an open preview (EditStateError).
+            if self._dragging or self._begin_gesture():
                 self._numeric_entry = True
                 self._numeric_buffer = text
                 self._apply_numeric_preview()
@@ -891,6 +894,13 @@ class RoomEntityTransformController(QObject):
         event_type = event.type()
         if event_type == QEvent.Type.KeyPress:
             return self._key_press(event)
+        if event_type == QEvent.Type.ShortcutOverride and self._numeric_entry:
+            # Numeric entry is a modal text context: every QShortcut on the
+            # workspace (L/Delete/Enter/Esc/…) must be denied here, or edit
+            # verbs fire mid-input (#979 誤キーバインド — verified on real
+            # GUI where L locked the entity during entry).
+            event.accept()
+            return True
         if self.mode is None:
             return False
         if event_type == QEvent.Type.MouseButtonPress:
