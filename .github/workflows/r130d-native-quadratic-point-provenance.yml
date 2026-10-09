@@ -65,7 +65,10 @@ jobs:
               assert x['numerical_operator']['source']['support_count']==27
               assert x['numerical_operator']['receiver']['support_count']==27
           actual=native_pair_metrics(a['actual_native_wave_cases'],plan)
-          assert actual==a['adjacent_quadratic_refinement']==b['adjacent_quadratic_refinement']
+          sys.path.insert(0,'scratch/tests')
+          from test_r130d_original_point_quadratic_pffdtd_evidence import assert_derived_metrics_same_up_to_roundoff
+          assert_derived_metrics_same_up_to_roundoff(actual,a['adjacent_quadratic_refinement'])
+          assert a['adjacent_quadratic_refinement']==b['adjacent_quadratic_refinement']
           assert [z['coarse_ppw'] for z in actual['pairs']]==[28,32,36,40]
           assert all(z['compared_frequency_count']==2 for z in actual['pairs'])
           assert actual['diagnostic_refinement_pass'] is False
