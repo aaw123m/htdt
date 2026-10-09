@@ -1,0 +1,102 @@
+{
+  "schema_version": "htdt.r130d.original-q0-true-roof-sevenpoint-CFL-eigenvector-localization-plan-1",
+  "date_jst": "2026-10-10",
+  "repo": "aaw123m/htdt",
+  "issue": 53,
+  "draft_pr": 118,
+  "question": "Separate physically short-supported cut-roof nodes, y-z eigenvector mass localization, and x-Neumann modes for the already observed native explicit leapfrog CFL failures without modifying any q0 acceptance.",
+  "prospective_gate": "This complete plan must exist on the live GitHub working branch before any new real native HDF5 five-grid localization is computed; check plan bytes and live remote SHA, fail closed.",
+  "original": {
+    "pffdtd_sha": "aa319f6c86517cb95aabfae8656277da62c3ead5",
+    "ppw": [
+      28,
+      32,
+      36,
+      40,
+      44
+    ],
+    "source_xyz_m": [
+      1.5,
+      2,
+      2
+    ],
+    "receiver_xyz_m": [
+      2.5,
+      2,
+      2
+    ],
+    "full_record_seconds": 0.25,
+    "signed_frequency_hz": [
+      40,
+      80
+    ],
+    "native_h_dt_Nt_and_8node_q0_and_8node_receiver_from_sha": true,
+    "original_acceptance": {
+      "complex_rms_relative": 0.2,
+      "magnitude_max_relative": 0.25,
+      "phase_max_deg": 15,
+      "strict_monotonicity": true
+    },
+    "unchanged_native_original_graph_and_raw_hdf5": true
+  },
+  "operator": {
+    "same_previous_7point_experiment_commit": "902f7b4a7a21d2500abb8db91b49b7bf426be0c9",
+    "same_previous_full_CFL_evidence_commit": "63d74e7d85f4495b8e948ee97344eaf627d6e83d",
+    "Mx": "physical positive row-sum x-P1",
+    "Myz": "physical positive row-sum true roof cut-Q1",
+    "Kx": "true x-Neumann P1",
+    "Kyz": "full wet Cartesian 5point flux + exact inclined natural-Neumann cut-Q1",
+    "physical_volume_m3": 56,
+    "full_generalized_eigenspectra_no_cut": true
+  },
+  "predeclared_analysis": {
+    "cut_yz_node_area_ratio_bins_to_native_h2": [
+      0,
+      0.01,
+      0.05,
+      0.1,
+      0.5,
+      1,
+      2
+    ],
+    "diagnostic_cumulative_cut_mass_thresholds": [
+      0.01,
+      0.05,
+      0.1,
+      0.5
+    ],
+    "geometric_roof_distance_abs_le_h_multiplier": [
+      1,
+      2
+    ],
+    "highest_yz_eigenvector_count": 3,
+    "highest_diagonal_Rayleigh_yz_nodes_count": 5,
+    "roof_band_defined_by_absolute_signed_distance": "abs(4-0.25*y-z) <= multiplier*h; include above-roof positive-support exterior Q1 nodes",
+    "mass_norm_mode_fraction": "sum_i Myz_ii v_i^2 / (vT Myz v)",
+    "baseline_support_area_fraction": "sum_i Myz_ii / sum_i Myz_ii",
+    "mass_localization_enrichment": "mode_mass_fraction / physical_support_area_fraction, null if support area zero",
+    "node_diagonal_Rayleigh_yz": "Kyz_ii / Myz_ii; exact basis-node Rayleigh, provable <= complete yz lambda_max",
+    "global_diagonal_Rayleigh_bound": "max_i Kx_ii/Mx_ii + max_j Kyz_jj/Myz_jj; provable <= lambda_3d_max",
+    "high_eigenvalue_split": "lambda3d_max=lambda_x_max+lambda_yz_max; report x and yz fractional contributions",
+    "native_leapfrog_limit": "native dt² lambda <4, report all unstable 3D modes, never suppress or rescore",
+    "all_five_vs_published_CFL": "verify five max dt²lambda and unstable mode counts against previous pinned full evidence to 2e-9 absolute for CFL and exact counts",
+    "full_3d_true_mass_symmetric_constant_and_affine": "preserve volume and Neumann constant and previously established affine check"
+  },
+  "interpretation": "Eigenmode mass concentration and local Rayleigh lower bound are physical diagnostics. Do not claim specific roof sliver causes full original q0 nonconvergence without independent causal validation. Exact node diagonal Rayleigh explains CFL bound but not q0 transfer directly.",
+  "caps": {
+    "five_grids_only": true,
+    "all_native_original_modes": true,
+    "max_yz_modes": 3300,
+    "max_3d_modes": 180000,
+    "new_original_pffdtd_wave_runs": 0,
+    "new_github_actions": 0,
+    "keep_scratch": true
+  },
+  "release": {
+    "original_PFFDTD": "SELF_CONVERGENCE_FAILED",
+    "independent_physics": "NOT_VALIDATED",
+    "product": "NO_GO",
+    "issue_open": true,
+    "PR_draft": true
+  }
+}
