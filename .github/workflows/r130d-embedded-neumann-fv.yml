@@ -5,6 +5,11 @@ on:
       - '.github/workflows/r130d-embedded-neumann-fv.yml'
       - 'backend/src/htdt/r130d_embedded_neumann_fv.py'
       - 'backend/tests/test_r130d_embedded_neumann_fv.py'
+      - 'backend/src/htdt/r130d_embedded_neumann_convex.py'
+      - 'backend/tests/test_r130d_embedded_convex_cutcell.py'
+      - 'backend/tests/test_r130d_convex_multiplane_evidence.py'
+      - 'scripts/run_r130d_convex_multiplane_cutcell_diagnostic.py'
+      - 'benchmarks/acoustics/r130d_convex_multiplane_cutcell*'
       - 'backend/tests/test_r130d_embedded_neumann_fv_evidence.py'
       - 'backend/tests/test_r130d_fv_mfem_same_drive.py'
       - 'backend/tests/test_r130d_candidate_same_source_qualification.py'
@@ -52,13 +57,15 @@ jobs:
         run: |
           New-Item -ItemType Directory scratch/tests -Force | Out-Null
           Copy-Item backend/tests/test_r130d_embedded_neumann_fv.py scratch/tests/
+          Copy-Item backend/tests/test_r130d_embedded_convex_cutcell.py scratch/tests/
+          Copy-Item backend/tests/test_r130d_convex_multiplane_evidence.py scratch/tests/
           Copy-Item backend/tests/test_r130d_embedded_neumann_fv_evidence.py scratch/tests/
           Copy-Item backend/tests/test_r130d_fv_mfem_same_drive.py scratch/tests/
           Copy-Item backend/tests/test_r130d_candidate_same_source_qualification.py scratch/tests/
           Copy-Item backend/tests/test_r130d_mfem_ref4_same_drive.py scratch/tests/
           Copy-Item backend/tests/test_r130d_mfem_ref4_same_source_result.py scratch/tests/
           $env:PYTHONPATH = Join-Path $pwd 'backend/src'
-          python -m pytest -q scratch/tests/test_r130d_embedded_neumann_fv.py scratch/tests/test_r130d_embedded_neumann_fv_evidence.py scratch/tests/test_r130d_fv_mfem_same_drive.py scratch/tests/test_r130d_candidate_same_source_qualification.py scratch/tests/test_r130d_mfem_ref4_same_drive.py scratch/tests/test_r130d_mfem_ref4_same_source_result.py --tb=short
+          python -m pytest -q scratch/tests/test_r130d_embedded_convex_cutcell.py scratch/tests/test_r130d_convex_multiplane_evidence.py scratch/tests/test_r130d_embedded_neumann_fv.py scratch/tests/test_r130d_embedded_neumann_fv_evidence.py scratch/tests/test_r130d_fv_mfem_same_drive.py scratch/tests/test_r130d_candidate_same_source_qualification.py scratch/tests/test_r130d_mfem_ref4_same_drive.py scratch/tests/test_r130d_mfem_ref4_same_source_result.py --tb=short
       - name: Recompute modal benchmark and compare frozen evidence
         shell: pwsh
         env:
@@ -171,4 +178,40 @@ jobs:
           assert gate['immutable_production_gate']['production_enabled'] is False
           assert gate['immutable_production_gate']['physical_validation']=='NOT_VALIDATED'
           print('PASS: experimental candidate numerical convergence; production remains forbidden')
+          '@ | python -
+      - name: Re-execute all 15 preregistered convex planar CAD wave grids
+        shell: pwsh
+        env:
+          PYTHONUTF8: '1'
+          PYTHONIOENCODING: utf-8
+        run: |
+          python scripts/run_r130d_convex_multiplane_cutcell_diagnostic.py `
+            --plan benchmarks/acoustics/r130d_convex_multiplane_cutcell_plan_2026-10-09.json `
+            --output scratch/ci_convex_multiplane_evidence.json
+          @'
+          import json
+          from pathlib import Path
+          import numpy as np
+          a=json.loads(Path('scratch/ci_convex_multiplane_evidence.json').read_text())
+          b=json.loads(Path('benchmarks/acoustics/r130d_convex_multiplane_cutcell_evidence_2026-10-09.json').read_text())
+          assert a['schema_version']==b['schema_version']
+          assert a['plan']==b['plan']
+          assert a['original_solver_modified'] is False
+          assert a['general_cad_qualified'] is False
+          assert a['new_geometries_cross_solver_qualified'] is False
+          assert a['production_enabled'] is False
+          for x,y in zip(a['cases'],b['cases']):
+              assert x['name']==y['name']
+              assert len(x['levels'])==len(y['levels'])==5
+              for p,q in zip(x['levels'],y['levels']):
+                  assert p['n']==q['n']
+                  assert abs(p['exact_cut_cell_volume_m3']-q['exact_cut_cell_volume_m3'])<1e-8
+                  assert p['relative_energy_drift_60_steps']<1e-9
+                  assert p['null_max_normalized_by_diagonal']<1e-11
+                  aa=np.array([complex(*v) for v in p['actual_driven_transfer_40_80_hz']])
+                  bb=np.array([complex(*v) for v in q['actual_driven_transfer_40_80_hz']])
+                  assert max(abs(aa-bb))<1e-5
+              for p,q in zip(x['adjacent_transfer'],y['adjacent_transfer']):
+                  assert abs(p['complex_l2_relative']-q['complex_l2_relative'])<1e-6
+          print('PASS: 15 actual bounded convex-room wave solves, immutable plan and no production authority')
           '@ | python -
