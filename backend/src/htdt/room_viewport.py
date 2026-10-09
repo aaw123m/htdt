@@ -1463,6 +1463,7 @@ class RoomViewport3D(QFrame):
         'abdiff-',
         'campaign-overlay-',
         'survey-overlay-',
+        'coverage-overlay-',
     )
 
     def _remove_overlay_actors(self) -> None:
@@ -3143,6 +3144,193 @@ class RoomViewport3D(QFrame):
                     border=False,
                     background_opacity=0.55,
                     name='campaign-overlay-legend',
+                )
+            finally:
+                self.plotter.suppress_rendering = False
+        self._render()
+
+    # -- Per-seat coverage marker overlay (issue #1001) ---------------------
+    #
+    # Read-only ear-position evidence points from a sealed
+    # CoverageEvaluation resolved through CadCoverageRepository. The
+    # viewport draws exactly the resolved scene — discrete markers + fixed
+    # colour bands + geometric direction lines — and never recomputes
+    # coverage, interpolates between seats, or draws a heatmap. All actors
+    # are non-pickable under the ``coverage-overlay-`` prefix so the
+    # signature-skipped render_document sweep drops them with the rest of
+    # the overlay layers.
+
+    _COVERAGE_MARKER_RADIUS_M = 0.055
+    _COVERAGE_FOCUS_RADIUS_M = 0.082
+
+    def clear_coverage_overlay(self) -> None:
+        """Drop every ``coverage-overlay-*`` actor (toggle off / refresh)."""
+        renderer = getattr(self.plotter, 'renderer', None)
+        actors = getattr(renderer, 'actors', None)
+        if not actors:
+            return
+        removed = False
+        for name in tuple(actors):
+            if isinstance(name, str) and name.startswith('coverage-overlay-'):
+                self.plotter.remove_actor(name)
+                removed = True
+        if removed:
+            self._render()
+
+    def _coverage_marker_mesh(self, marker, radius: float):
+        center = domain_to_render(marker.position)
+        if marker.glyph == 'cube':
+            return pv.Cube(
+                center=center,
+                x_length=radius * 2,
+                y_length=radius * 2,
+                z_length=radius * 2,
+            )
+        return pv.Sphere(radius=radius, center=center)
+
+    def render_coverage_overlay(self, scene) -> None:
+        """Draw the resolved ``CoverageOverlayScene`` (#1001).
+
+        ``None`` clears the overlay. A historical-resolution scene keeps
+        its markers as a dimmed wireframe stale cluster — value labels,
+        pass/fail claims and direction lines are withheld by the resolver,
+        and the viewport only paints what it is given.
+        """
+        self.clear_coverage_overlay()
+        if scene is None:
+            return
+
+        for index, marker in enumerate(scene.markers):
+            center = domain_to_render(marker.position)
+            radius = (
+                self._COVERAGE_FOCUS_RADIUS_M
+                if marker.focused
+                else self._COVERAGE_MARKER_RADIUS_M
+            )
+            mesh = self._coverage_marker_mesh(marker, radius)
+            self.plotter.add_mesh(
+                mesh,
+                color=marker.color,
+                opacity=0.5 if marker.wireframe else 0.92,
+                lighting=not marker.wireframe,
+                style='wireframe' if marker.wireframe else 'surface',
+                line_width=2,
+                pickable=False,
+                name=f'coverage-overlay-marker-{index}',
+                render=False,
+            )
+            # Required seats carry a hard-floor ring so the priority
+            # channel stays in the 3D view — a diagnostic/weighted seat
+            # can never stand in for the required subset.
+            if marker.priority_role == 'required':
+                self.plotter.add_mesh(
+                    pv.Disc(
+                        center=center,
+                        inner=radius * 1.1,
+                        outer=radius * 1.4,
+                        normal=(0.0, 0.0, 1.0),
+                    ),
+                    color=marker.color,
+                    opacity=0.4 if marker.wireframe else 0.8,
+                    lighting=False,
+                    pickable=False,
+                    name=f'coverage-overlay-required-{index}',
+                    render=False,
+                )
+            if marker.focused:
+                self.plotter.add_mesh(
+                    pv.Disc(
+                        center=center,
+                        inner=radius * 1.55,
+                        outer=radius * 1.85,
+                        normal=(0.0, 0.0, 1.0),
+                    ),
+                    color=DARK_THEME.text.primary.hex,
+                    opacity=0.9,
+                    lighting=False,
+                    pickable=False,
+                    name=f'coverage-overlay-focus-{index}',
+                    render=False,
+                )
+            if marker.label:
+                texts = [marker.label]
+                if marker.delta_label:
+                    texts.append(marker.delta_label)
+                self.plotter.add_point_labels(
+                    np.asarray([center], dtype=float),
+                    ['\n'.join(texts)],
+                    text_color=marker.color,
+                    shape_color=DARK_THEME.surfaces.overlay.hex,
+                    shape_opacity=0.8,
+                    font_size=9,
+                    point_size=0,
+                    always_visible=True,
+                    name=f'coverage-overlay-label-{index}',
+                    render=False,
+                )
+
+        # Speaker→seat geometric direction lines — drawn only when the
+        # resolver produced them (evidence-determined acoustic axis), and
+        # always paired with the status text that disclaims any measured
+        # energy-path claim.
+        for index, ray in enumerate(scene.rays):
+            self.plotter.add_mesh(
+                pv.Line(domain_to_render(ray.start), domain_to_render(ray.end)),
+                color=ray.color,
+                opacity=0.35,
+                line_width=1,
+                pickable=False,
+                name=f'coverage-overlay-ray-{index}',
+                render=False,
+            )
+        if scene.axis_determined and scene.source_position is not None:
+            source = domain_to_render(scene.source_position)
+            if scene.source_axis is not None:
+                axis = scene.source_axis
+                axis_end = (
+                    source[0] + axis[0] * 0.55,
+                    source[1] - axis[1] * 0.55,
+                    source[2] + axis[2] * 0.55,
+                )
+                self.plotter.add_mesh(
+                    pv.Line(source, axis_end),
+                    color='#E58383',
+                    opacity=0.9,
+                    line_width=3,
+                    pickable=False,
+                    name='coverage-overlay-axis',
+                    render=False,
+                )
+            self.plotter.add_mesh(
+                pv.Sphere(radius=0.05, center=source),
+                color='#E58383',
+                opacity=0.95,
+                pickable=False,
+                name='coverage-overlay-source',
+                render=False,
+            )
+
+        if scene.viewport_lines:
+            self.plotter.add_text(
+                '\n'.join(scene.viewport_lines),
+                name='coverage-overlay-status',
+                position='lower_left',
+                font_size=9,
+                color=DARK_THEME.text.secondary.hex,
+                render=False,
+            )
+        if scene.legend:
+            self.plotter.suppress_rendering = True
+            try:
+                self.plotter.add_legend(
+                    labels=list(scene.legend),
+                    loc='lower right',
+                    face='rectangle',
+                    size=(0.16, 0.032 * len(scene.legend) + 0.02),
+                    bcolor=DARK_THEME.text.secondary.hex,
+                    border=False,
+                    background_opacity=0.55,
+                    name='coverage-overlay-legend',
                 )
             finally:
                 self.plotter.suppress_rendering = False

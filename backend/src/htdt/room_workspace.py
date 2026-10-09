@@ -296,6 +296,11 @@ from .room_survey_overlay import (
 )
 from .room_treatment_overlay import RoomTreatmentOverlayController
 from .room_screen_quality_map import ScreenQualityMapController
+from .room_coverage_overlay import (
+    CoverageOverlayRequest,
+    RoomSeatCoverageOverlayController,
+)
+from .room_seat_coverage_panel import RoomSeatCoveragePanel
 from .room_viewport import (
     UnderlayRenderItem,
 )
@@ -4272,6 +4277,33 @@ class RoomWorkspace(QWidget):
             document_id,
         )
         self.survey_panel = None
+        # #1001: per-seat coverage markers — sealed CoverageEvaluation rows
+        # are read ONLY through CadCoverageRepository (which re-resolves the
+        # scenario, scene/variant/equipment/directivity authorities and
+        # replays the pinned evaluator on every read); the overlay resolves
+        # against the CURRENT head per render so a scene edit can never
+        # leave a superseded marker painted.
+        from .cad_coverage_aim_repository import CadCoverageAimRepository
+        from .cad_coverage_repository import CadCoverageRepository
+        from .cad_directivity_repository import CadDirectivityRepository
+        from .cad_seat_priority import CadSeatPriorityProfileRepository
+
+        self.coverage_repository = CadCoverageRepository(
+            repository,
+            self.system_expansion.variant_repository,
+            self.system_expansion.equipment_repository,
+            CadDirectivityRepository(
+                repository, self.system_expansion.equipment_repository
+            ),
+        )
+        self.coverage_overlay = RoomSeatCoverageOverlayController(
+            repository,
+            self.system_expansion.variant_repository,
+            self.coverage_repository,
+            document_id,
+            aim_repository=CadCoverageAimRepository(repository),
+            priority_repository=CadSeatPriorityProfileRepository(repository),
+        )
         # Esc exits probe mode only — armed while 3D probing so normal Esc
         # behaviour elsewhere is untouched.
         self._field_probe_esc = QShortcut(
@@ -4480,6 +4512,17 @@ class RoomWorkspace(QWidget):
         # same seats the placement context owns.
         self.seat_priority_panel = SeatPriorityPanel(repository, document_id)
         self.seat_priority_panel.refresh(self.controller.committed_document)
+        # #1001: 座席カバレッジ表示 — read-only per-seat marker surface. The
+        # toggle arms the overlay with the selectors' request; the table and
+        # detail bind whatever the resolver produced this render (including
+        # honest blocked/unknown states — never a substitute marker).
+        self.seat_coverage_panel = RoomSeatCoveragePanel()
+        self.seat_coverage_panel.changed.connect(
+            self._seat_coverage_changed
+        )
+        self.seat_coverage_panel.seatSelected.connect(
+            self._seat_coverage_seat_selected
+        )
         # REV44-INSTALL: per-speaker installation context + scene datum
         # registration — equipment assignment already lives here, so the
         # authority writers mount on the same placement page.
@@ -4512,6 +4555,7 @@ class RoomWorkspace(QWidget):
         placement_layout.addWidget(self.clearance_panel)
         placement_layout.addWidget(self.feasibility_panel)
         placement_layout.addWidget(self.seat_priority_panel)
+        placement_layout.addWidget(self.seat_coverage_panel)
         placement_layout.addWidget(self.standards_panel)
         placement_layout.addWidget(self.installation_panel)
         placement_layout.addWidget(self.rack_workspace_panel)
@@ -6293,6 +6337,24 @@ class RoomWorkspace(QWidget):
         self.field3DProbeDisarmed.emit()
         self._render()
 
+    # -- seat coverage overlay (#1001) ----------------------------------------
+
+    def _seat_coverage_changed(self) -> None:
+        """Panel toggle/selectors → arm or clear the coverage overlay."""
+        panel = self.seat_coverage_panel
+        if panel.coverage_enabled:
+            options, _notices = self.coverage_overlay.list_options()
+            panel.set_options(options)
+            self.coverage_overlay.arm(panel.request())
+        else:
+            self.coverage_overlay.clear()
+        self._render()
+
+    def _seat_coverage_seat_selected(self, seat_entity_id) -> None:
+        """Table row → scene selection via the stable seat entity id."""
+        if seat_entity_id is not None:
+            self.select_entity(seat_entity_id)
+
     def focus_campaign_overlay(self, target) -> 'TargetFocusResult':
         """#1006 deep link: arm the read-only campaign overlay.
 
@@ -6349,6 +6411,11 @@ class RoomWorkspace(QWidget):
             refresh = getattr(self.acoustics_panel, "refresh", None)
             if callable(refresh):
                 refresh()
+        seat_coverage_panel = getattr(self, 'seat_coverage_panel', None)
+        if seat_coverage_panel is not None:
+            seat_coverage_panel.select_seat(
+                self.controller.view_state.selected_id
+            )
         self._render()
 
     # -- snap preferences (#481) --------------------------------------------------
@@ -8353,6 +8420,33 @@ class RoomWorkspace(QWidget):
                     self.viewport.clear_survey_overlay()
             if self.survey_panel is not None:
                 self.survey_panel.show_scene(survey_scene)
+            # #1001: per-seat coverage markers — placement/acoustics context
+            # + acoustics overlay ON + panel toggle; the resolver re-reads
+            # the sealed evaluation through CadCoverageRepository against
+            # the CURRENT head each render, so a scene/variant/frequency
+            # change can never leave a stale marker or number painted.
+            render_coverage = getattr(
+                self.viewport, 'render_coverage_overlay', None
+            )
+            coverage_panel = getattr(self, 'seat_coverage_panel', None)
+            if callable(render_coverage):
+                coverage_scene = None
+                if (
+                    self.current_context in ('placement', 'acoustics')
+                    and overlays.acoustics
+                    and self.coverage_overlay.armed
+                ):
+                    coverage_scene = self.coverage_overlay.resolve(
+                        focus_seat_entity_id=(
+                            self.controller.view_state.selected_id
+                        )
+                    )
+                if coverage_scene is None:
+                    self.viewport.clear_coverage_overlay()
+                else:
+                    render_coverage(coverage_scene)
+                if coverage_panel is not None:
+                    coverage_panel.show_scene(coverage_scene)
 
     def _current_lighting_scene(self):
         """Current persisted LightingScene for this document, or None.
