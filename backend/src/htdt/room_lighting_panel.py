@@ -85,6 +85,10 @@ class RoomLightingPreviewPanel(QWidget):
             'シーン参照だが部屋物体にピンできない照明器具と'
             'シーン内ゾーンの一覧（制御専用・バインド未解決）'
         )
+        # Long reason/state text wraps inside the narrow panel instead of
+        # clipping behind a horizontal scrollbar.
+        self.unplaced_list.setWordWrap(True)
+        self.unplaced_list.setResizeMode(QListWidget.ResizeMode.Adjust)
         self.unplaced_list.setMaximumHeight(140)
         layout.addWidget(self.unplaced_list)
 

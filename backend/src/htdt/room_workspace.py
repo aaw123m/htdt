@@ -5966,6 +5966,9 @@ class RoomWorkspace(QWidget):
             self._sync_constraints_panel()
             self._sync_video_panel()
             self._sync_seat_priority_panel()
+            # Lighting-scene identity line must be current on entry, not
+            # only after the first _refresh (#1013).
+            self._current_lighting_scene()
             self.right_stack.setCurrentWidget(self.placement_panel)
         elif context_id == "acoustics":
             self.overlay_controls.acoustics.setChecked(True)
