@@ -1288,3 +1288,16 @@ entries:
   - docs/issues/issue-990-ref-library-search.md
   - backend/tests/test_issue_990_reference_library.py
   close_when_gates_clear: true
+
+- issue: 988
+  lifecycle: acceptance_remaining
+  landed:
+    prs: [1082]
+    commits: [8d0c06b2aff03420c05b118bb127d9d9f5e8cee1]
+  remaining_gates:
+  - kind: manual
+    description: 'オペレータ受入 — 検索/状態キュー/次の未処理送り・狭幅操作折りたたみの実画面確認'
+  evidence_refs:
+  - docs/issues/issue-988-inbox-mass.md
+  - backend/tests/test_issue_988_inbox_mass.py
+  close_when_gates_clear: true
