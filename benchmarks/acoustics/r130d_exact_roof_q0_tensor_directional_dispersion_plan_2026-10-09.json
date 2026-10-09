@@ -1,0 +1,104 @@
+{
+  "schema_version": "htdt.r130d.exact-roof-q0-tensor-directional-kmk-plan-1",
+  "date_jst": "2026-10-09",
+  "issue": 938,
+  "pr": 1055,
+  "objective": "Pre-observation x, roof-yz, additive and full KM^-1K dispersion correction comparison. Original point q0, geometry, full 250ms, both bins fixed.",
+  "original_provenance": {
+    "upstream_pffdtd_sha": "aa319f6c86517cb95aabfae8656277da62c3ead5",
+    "original_native_wave": "benchmarks/acoustics/r130d_original_point_quadratic_pffdtd_evidence_2026-10-09.json",
+    "prior_full_roof": "benchmarks/acoustics/r130d_native_exact_roof_full_xy_z_modal_q0_evidence_2026-10-09.json",
+    "prior_full_kmk": "benchmarks/acoustics/r130d_exact_roof_q0_kmk_dispersion_evidence_2026-10-09.json",
+    "prior_direct_kmk": "benchmarks/acoustics/r130d_exact_roof_q0_kmk_direct_wave_replay_evidence_2026-10-09.json",
+    "ppw": [
+      40,
+      44
+    ],
+    "physical_source_m": [
+      1.5,
+      2,
+      2
+    ],
+    "physical_receiver_m": [
+      2.5,
+      2,
+      2
+    ],
+    "original_native_eight_source_receiver": true,
+    "original_q0": "q0=1; q[n>0]=0, unmodified native HDF5 source weights",
+    "original_native_dt_nt": true,
+    "full_record_s": 0.25,
+    "target_frequency_hz": [
+      40,
+      80
+    ],
+    "physical_roof_volume_m3": 56,
+    "sound_speed_m_s": 343.2,
+    "density_kg_m3": 1.2
+  },
+  "operator": {
+    "mass": "Mx tensor Myz exact native physical cutcell",
+    "stiffness": "Kx tensor Myz + Mx tensor Kyz exact symmetric Neumann",
+    "alpha": "h^2/(12c^2)",
+    "alpha_fraction": 0.08333333333333333,
+    "component_x": "(Kx Mx^-1 Kx) tensor Myz",
+    "component_yz": "Mx tensor (Kyz Myz^-1 Kyz)",
+    "component_mixed": "2 Kx tensor Kyz",
+    "arms": [
+      "baseline",
+      "x_only",
+      "yz_only",
+      "x_plus_yz",
+      "full_kmk"
+    ],
+    "eigenvalue_rules": [
+      "lx+ly",
+      "lx+ly+alpha*lx^2",
+      "lx+ly+alpha*ly^2",
+      "lx+ly+alpha*(lx^2+ly^2)",
+      "lx+ly+alpha*(lx+ly)^2"
+    ],
+    "all_true_modes": true,
+    "original_mass_faces_fixed": true,
+    "original_point_weights_fixed": true,
+    "true_sparse_operator_and_null_eigenresidual_check": true,
+    "full_operator_matches_previous_3d_kmk": true
+  },
+  "temporal": {
+    "method": "native beta1/4 Newmark full-mode exact signed DTFT",
+    "kick": "dt^2*c^2*original point coupling/(1+dt^2*lambda_arm/4)",
+    "original_q0_unchanged": true,
+    "original_dt_nt_unchanged": true,
+    "original_full_250ms_pressure_endpoint_derivative": true,
+    "frequency_hz": [
+      40,
+      80
+    ],
+    "no_mode_filter_or_damping_or_taper_or_smoothing": true
+  },
+  "evaluation": {
+    "complex_limit": 0.2,
+    "magnitude_limit": 0.25,
+    "phase_deg_limit": 15,
+    "baseline_vs_archived_cg_relative_max": 0.00002,
+    "full_kmk_vs_prior_modal_relative_max": 2e-8,
+    "true_3d_sparse_generalized_mode_residual_max": 0.00002,
+    "constant_neumann_null_relative_max": 1e-8,
+    "report_every_signed_transfer_and_adverse_bin": true,
+    "no_continuum_or_canonical_promotion_from_two_grids": true
+  },
+  "limits": {
+    "max_cases": 2,
+    "max_arms": 5,
+    "new_original_pffdtd_wave_runs": 0,
+    "new_github_actions_runs": 0,
+    "clean_scratch": false
+  },
+  "authority": {
+    "original_q0": "SELF_CONVERGENCE_FAILED",
+    "external_physics": "NOT_VALIDATED",
+    "product": "NO_GO",
+    "pr_draft": true,
+    "issue_open": true
+  }
+}
