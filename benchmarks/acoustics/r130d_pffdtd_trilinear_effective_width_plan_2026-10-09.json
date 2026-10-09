@@ -1,0 +1,62 @@
+{
+  "schema_version": "htdt.r130d.pffdtd-trilinear-original-operator-effective-width-plan-1",
+  "date_jst": "2026-10-09",
+  "issue": 938,
+  "purpose": "Compute physical effective second moment of canonical PFFDTD eight-node trilinear source and receiver operators across original PPW8/10/12; no new solver, source waveform alteration or canonical numerical acceptance claims.",
+  "immutable_source": {
+    "path": "benchmarks/acoustics/r130d_spatial_representation_diagnostic_run76_summary.json",
+    "raw_sha256": "c95ad31aeedae3138a3141763c26cb2a03a44a9069aeabd2793e61cdb9de26d4",
+    "expected_canonical_state": "SELF_CONVERGENCE_FAILED"
+  },
+  "grid": {
+    "ppw": [
+      8,
+      10,
+      12
+    ],
+    "source_xyz_m": [
+      1.5,
+      2,
+      2
+    ],
+    "receiver_xyz_m": [
+      2.5,
+      2,
+      2
+    ],
+    "fixed_reference_gaussian_sigma_m": [
+      0.35,
+      0.7
+    ]
+  },
+  "formula": {
+    "axis_variance_m2": "h*h*f*(1-f), with physical grid spacing h and fractional coordinate f",
+    "axis_sigma_m": "sqrt(axis_variance_m2)",
+    "rms_radius_m": "sqrt(sum over all three axes of axis_variance_m2)",
+    "stencil": "native exact canonical eight-node trilinear interpolation; do not smooth or recompute the waveform",
+    "gaussian_comparison": "compare 3D RMS radius to sqrt(3)*fixed sigma only as dimensional context, not a physical model equivalence",
+    "source_receiver_independent": true,
+    "calculate_both_each_ppw": true,
+    "do_not_assume_monotonicity": true
+  },
+  "validation": {
+    "require_each_original_stencil_weight_sum_one": true,
+    "require_exact_source_receiver_coordinates": true,
+    "require_finite_fractional_coordinates_within_0_to_1": true,
+    "require_grid_width_positive": true,
+    "require_all_original_ppw_without_frequency_mask": true,
+    "check_trilinear_second_moment_formula_against_8_corner_weight_aggregation": true,
+    "no_acceptance_gate_changes": true
+  },
+  "limits": {
+    "max_levels": 3
+  },
+  "authority": {
+    "original_fullband_pffdtd": "SELF_CONVERGENCE_FAILED",
+    "original_point_impulse": "NOT_QUALIFIED",
+    "physical_validation": "NOT_VALIDATED",
+    "production_ready": false,
+    "issue938": "OPEN",
+    "pr1055": "DRAFT"
+  }
+}
