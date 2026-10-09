@@ -1028,3 +1028,17 @@ entries:
   - docs/issues/issue-1007-design-ab-ghost.md
   - backend/tests/test_issue_1007_ab_overlay.py
   close_when_gates_clear: true
+
+- issue: 1005
+  lifecycle: acceptance_remaining
+  landed:
+    prs: [1064]
+    commits: [edea30da]
+  remaining_gates:
+  - kind: manual
+    description: 'オペレータ受入 — 実設備/壁面アセンブリ証拠での設置可能性グリフ・確認項目の実機確認 (子が実GUI Mesa GL で4状態+stale失効を検証済)'
+  evidence_refs:
+  - docs/issues/issue-1005-mounting-inspection.md
+  - backend/tests/test_issue_1005_installation_inspection.py
+  - backend/src/htdt/installation_feasibility_viewmodel.py
+  close_when_gates_clear: true
