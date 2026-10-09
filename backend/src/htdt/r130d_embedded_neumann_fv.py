@@ -395,3 +395,60 @@ def smooth_source_complex_transfer(
     if not np.all(np.isfinite(transfer)):
         raise ValueError("nonfinite transfer")
     return np.asarray(transfer, dtype=np.complex128)
+
+def discrete_source_complex_transfer(
+    system: EmbeddedNeumannSystem,
+    source_samples_m3_s: np.ndarray,
+    *,
+    source_xyz_m: tuple[float,float,float] = (1.5,2.0,2.0),
+    receiver_xyz_m: tuple[float,float,float] = (2.5,2.0,2.0),
+    frequency_hz: tuple[float,...] = (40.0,80.0),
+    time_step_s: float = 0.00025,
+    density_kg_m3: float = 1.2,
+) -> np.ndarray:
+    """Actually integrate an *arbitrary discrete q[n]* into the candidate wave.
+
+    The discrete array q[n] is sampled at midpoint times (n+0.5)dt and
+    injected at EACH step as c^2 b q[n], not applied as a postprocessing
+    filter or an approximate initial-velocity jump.
+
+    This permits a literal discrete unit impulse q[0]=1, others 0,
+    alongside Gaussian cross-checks. This is a non-production candidate
+    method; it does not change the original PFFDTD source authority.
+    """
+    q=np.asarray(source_samples_m3_s,dtype=np.float64)
+    f=np.asarray(frequency_hz,dtype=np.float64)
+    if (q.ndim!=1 or not 2<=len(q)<=10000 or
+            not np.all(np.isfinite(q)) or not np.any(q!=0)):
+        raise ValueError("invalid finite nonzero discrete q(t) source record")
+    if (not math.isfinite(time_step_s) or time_step_s<=0 or
+            not math.isfinite(density_kg_m3) or density_kg_m3<=0
+            or f.ndim!=1 or len(f)==0 or not np.all(np.isfinite(f))
+            or np.any(f<=0) or np.any(f>=.5/time_step_s)):
+        raise ValueError("invalid discrete source sample rate/receiver parameters")
+    b=interior_point_stencil(system,source_xyz_m)
+    r=interior_point_stencil(system,receiver_xyz_m)
+    phi=np.zeros(system.degrees_of_freedom,dtype=np.float64)
+    vel=np.zeros_like(phi)
+    solver=system.midpoint_integrator(time_step_s)
+    p=np.empty(len(q),dtype=np.float64)
+    for i,volume_velocity in enumerate(q):
+        p1,v1=solver.step(
+            phi,vel,
+            midpoint_force=(system.geometry.sound_speed_m_s**2*volume_velocity)*b,
+        )
+        p[i]=density_kg_m3*float(r@(vel+v1))/2
+        phi,vel=p1,v1
+    time_mid=(np.arange(len(q))+.5)*time_step_s
+    fft=np.exp(2j*math.pi*f[:,None]*time_mid[None,:])
+    Q=time_step_s*(fft@q)
+    P=time_step_s*(fft@p)
+    # Also bound |Q(f)| by total injected time-integrated strength. This
+    # rejects a source whose ALL requested frequency bins cancel to zero.
+    total_injected=time_step_s*float(np.sum(np.abs(q)))
+    if np.any(abs(Q)<=1e-12*max(float(np.max(abs(Q))),total_injected,1e-30)):
+        raise ValueError("source energy absent from one or more observation bins")
+    ans=P/Q
+    if not np.all(np.isfinite(ans)):
+        raise ValueError("nonfinite discrete source transfer")
+    return np.asarray(ans,dtype=np.complex128)

@@ -1,0 +1,438 @@
+{
+  "schema_version": "htdt.r130d.experimental-original-discrete-impulse-candidate-1",
+  "preregistered_plan": {
+    "schema_version": "htdt.r130d.exact-unit-discrete-impulse-two-method-diagnostic-plan-1",
+    "date": "2026-10-09",
+    "issue": 938,
+    "purpose": "Test original discrete q[0]=1 q[n>0]=0 source, without Gaussian smoothing, by actual candidate FV and independent pinned MFEM P2 sloped room. Restore original source-shape constraint, not original PFFDTD geometry/space/time production authority.",
+    "geometry": {
+      "kind": "original analytically 56 m3 sloped prism",
+      "box_m": [
+        4,
+        4,
+        4
+      ],
+      "plane": [
+        0,
+        0.25,
+        1,
+        4
+      ],
+      "volume_m3": 56,
+      "source_xyz_m": [
+        1.5,
+        2,
+        2
+      ],
+      "receiver_xyz_m": [
+        2.5,
+        2,
+        2
+      ],
+      "sound_speed_m_s": 343.2,
+      "density_kg_m3": 1.2,
+      "rigid_neumann": true
+    },
+    "source": {
+      "waveform": "discrete unit volume-velocity impulse q[0]=1m3/s, q[n>0]=0",
+      "no_smoothing": true,
+      "no_window_taper": true,
+      "point_volume_velocity": true,
+      "dt_s": 0.00025,
+      "steps": 1000,
+      "duration_s": 0.25,
+      "frequency_bins_hz": [
+        40,
+        80
+      ],
+      "source_and_pressure_both_same_midpoint_finite_record": "P_T/Q_T exp(+i2\u03c0 f t)",
+      "initial_potential": 0,
+      "initial_potential_time_derivative": 0,
+      "drive_through_timestep_rhs": true
+    },
+    "spatial_discretizations": {
+      "fv_cells_per_axis": [
+        12,
+        16,
+        20,
+        24,
+        28,
+        32
+      ],
+      "independent_mfem_P2_refinements": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "independent_mfem_git_pin": "d964264cdb9a13e94a201b6c236c7721e0c8765f",
+      "MFEM_raw_r4_sha256": "e1c67d02db77a6e8775a0a59d8e75fa996434d58f8efae077f4cec2cf2c831ed"
+    },
+    "linear_solver": {
+      "method": "Jacobi-PCG",
+      "rtol": 1e-11,
+      "atol": 0,
+      "maxiter": 350,
+      "true_linear_relative_residual_max": 1e-08
+    },
+    "same_frozen_criteria": {
+      "fv_last_two_adjacent_strictly_decreasing_complex_magnitude_phase": true,
+      "mfem_last_two_adjacent_strictly_decreasing_complex_magnitude_phase": true,
+      "fv_finest_complex_l2_max": 0.2,
+      "fv_finest_max_magnitude_relative": 0.25,
+      "fv_finest_max_phase_deg": 15,
+      "mfem_finest_complex_l2_max": 0.05,
+      "mfem_finest_max_magnitude_relative": 0.08,
+      "mfem_finest_max_phase_deg": 5,
+      "cross_fv_n32_vs_mfem_r4_complex_l2_max": 0.35,
+      "cross_max_magnitude_relative": 0.4,
+      "cross_max_magnitude_db": 3,
+      "cross_max_phase_deg": 25
+    },
+    "data_integrity": {
+      "all_levels_and_both_bins_required": true,
+      "never_remove_outliers": true,
+      "phase_signed_exp_iwt": true,
+      "compare_same_injected_impulse_time_samples": true,
+      "original_canonical_PFFDTD_branch_untouched": true
+    },
+    "limits": {
+      "max_wave_steps": 1000,
+      "max_cells_per_axis": 32,
+      "max_mfem_dofs": 35937,
+      "max_fem_raw_json_bytes": 120000000
+    },
+    "authority": {
+      "experimental_candidate_numeric_only": true,
+      "may_not_claim_canonical_original_solver_self_converged": true,
+      "original_PFFDTD": "SELF_CONVERGENCE_FAILED",
+      "original_impulse_MFEM_full_validation": "SELF_CONVERGENCE_FAILED",
+      "original_issue938": "OPEN",
+      "production_ready": false,
+      "BRAS_owned_room": "NOT_VALIDATED",
+      "any_method_failed": "NOT_QUALIFIED"
+    },
+    "note": "Original canonical source has a delta-like full-band content, but current 40/80-bin, dt250\u00b5s and candidate 56m3 analytical geometry are only an exact sampled-impulse bridge. This cannot by itself clear old PFFDTD PPW8\u201344 or full-band requirements. A failing test is a scientifically valid outcome; no new metrics after observation."
+  },
+  "fv_levels": [
+    {
+      "n": 12,
+      "dofs": 1584,
+      "air_volume_m3": 56.000000000000014,
+      "complex_40_80_hz": [
+        [
+          32.98807557207648,
+          29.400336316924708
+        ],
+        [
+          90.20092908766735,
+          -42.60106495834684
+        ]
+      ]
+    },
+    {
+      "n": 16,
+      "dofs": 3712,
+      "air_volume_m3": 56.0,
+      "complex_40_80_hz": [
+        [
+          63.443218704370686,
+          9.022246544319083
+        ],
+        [
+          143.83314614202422,
+          -138.3385736662361
+        ]
+      ]
+    },
+    {
+      "n": 20,
+      "dofs": 7200,
+      "air_volume_m3": 56.00000000000003,
+      "complex_40_80_hz": [
+        [
+          52.030562791782515,
+          16.3371569040829
+        ],
+        [
+          124.2371212808564,
+          -148.15183831200267
+        ]
+      ]
+    },
+    {
+      "n": 24,
+      "dofs": 12384,
+      "air_volume_m3": 55.99999999999997,
+      "complex_40_80_hz": [
+        [
+          44.71766658948616,
+          6.97905346114246
+        ],
+        [
+          109.04071010727566,
+          -178.08641080271892
+        ]
+      ]
+    },
+    {
+      "n": 28,
+      "dofs": 19600,
+      "air_volume_m3": 55.99999999999996,
+      "complex_40_80_hz": [
+        [
+          55.23269316057336,
+          4.107297073344543
+        ],
+        [
+          115.0355809664172,
+          -191.72666726734283
+        ]
+      ]
+    },
+    {
+      "n": 32,
+      "dofs": 29184,
+      "air_volume_m3": 56.0,
+      "complex_40_80_hz": [
+        [
+          101.11318810769707,
+          3.0063944731411776
+        ],
+        [
+          158.12097801167783,
+          -197.6113044166866
+        ]
+      ]
+    }
+  ],
+  "mfem_levels": [
+    {
+      "r": 1,
+      "dofs": 125,
+      "export_sha256": "758dff6aeafeaa5c902e905aa797c2e5f8250e4b81822723e968bb842187161b",
+      "actual_time_domain_discrete_unit_impulse": true,
+      "complex_40_80_hz": [
+        [
+          8.036984293259756,
+          14.383789307596919
+        ],
+        [
+          -49.99414992622237,
+          4.878034112095692
+        ]
+      ],
+      "worst_true_relative_linear_residual": 9.996159353529771e-12,
+      "maximum_cg_iterations": 39
+    },
+    {
+      "r": 2,
+      "dofs": 729,
+      "export_sha256": "e61410d4a69000c39975762b9986008974353953f7d8d9f100f9953a33c5ecb4",
+      "actual_time_domain_discrete_unit_impulse": true,
+      "complex_40_80_hz": [
+        [
+          57.22101400268961,
+          3.4208363969077182
+        ],
+        [
+          44.93168243071341,
+          -211.10966675609453
+        ]
+      ],
+      "worst_true_relative_linear_residual": 9.980551257896318e-12,
+      "maximum_cg_iterations": 43
+    },
+    {
+      "r": 3,
+      "dofs": 4913,
+      "export_sha256": "6a43a624223fa512152059d103c4d841723fa1266ea8a22842322fb50db42511",
+      "actual_time_domain_discrete_unit_impulse": true,
+      "complex_40_80_hz": [
+        [
+          118.28063818572429,
+          1.9755548256506732
+        ],
+        [
+          156.787712798592,
+          -213.0454315894987
+        ]
+      ],
+      "worst_true_relative_linear_residual": 9.99517834821601e-12,
+      "maximum_cg_iterations": 37
+    },
+    {
+      "r": 4,
+      "dofs": 35937,
+      "export_sha256": "e1c67d02db77a6e8775a0a59d8e75fa996434d58f8efae077f4cec2cf2c831ed",
+      "actual_time_domain_discrete_unit_impulse": true,
+      "complex_40_80_hz": [
+        [
+          73.36501973071158,
+          -1.694541960075574
+        ],
+        [
+          107.1926801821992,
+          -218.9261820829705
+        ]
+      ],
+      "worst_true_relative_linear_residual": 9.99949597358597e-12,
+      "maximum_cg_iterations": 34
+    }
+  ],
+  "source_samples_sha256": "54ddad6daf320b3e443bfbf77b7b38536a643142addba4e6888a2004fd4324a6",
+  "actual_time_domain_impulse_injection": true,
+  "no_smoothing_no_taper": true,
+  "production_ready": false,
+  "original_fullband_r130d": "SELF_CONVERGENCE_FAILED",
+  "numerical_diagnostic": {
+    "fv_adjacent": [
+      {
+        "normalized_complex_l2": 0.5519715089591412,
+        "complex_relative_by_hz": [
+          0.5718339102327001,
+          0.5498826798027483
+        ],
+        "magnitude_relative_by_hz": [
+          0.3104385763415471,
+          0.5001337355975017
+        ],
+        "phase_difference_deg_by_hz": [
+          33.61499502043263,
+          18.60351937474748
+        ]
+      },
+      {
+        "normalized_complex_l2": 0.12827429574031465,
+        "complex_relative_by_hz": [
+          0.24856789019059888,
+          0.11334865414442502
+        ],
+        "magnitude_relative_by_hz": [
+          0.1750501842574258,
+          0.0321407269632778
+        ],
+        "phase_difference_deg_by_hz": [
+          9.33809769117032,
+          6.133034297855882
+        ]
+      },
+      {
+        "normalized_complex_l2": 0.16666157803677878,
+        "complex_relative_by_hz": [
+          0.2624131160711101,
+          0.1607671871725913
+        ],
+        "magnitude_relative_by_hz": [
+          0.20495699441481105,
+          0.07407563954331108
+        ],
+        "phase_difference_deg_by_hz": [
+          8.561297306221562,
+          8.50375205367806
+        ]
+      },
+      {
+        "normalized_complex_l2": 0.08014416394796169,
+        "complex_relative_by_hz": [
+          0.1968057742353361,
+          0.06663771699295179
+        ],
+        "magnitude_relative_by_hz": [
+          0.1828322615962375,
+          0.06606892682988523
+        ],
+        "phase_difference_deg_by_hz": [
+          4.617662885115453,
+          0.5150970394304206
+        ]
+      },
+      {
+        "normalized_complex_l2": 0.2319673751208479,
+        "complex_relative_by_hz": [
+          0.45368392873833663,
+          0.17182073304591614
+        ],
+        "magnitude_relative_by_hz": [
+          0.4524875065711973,
+          0.1165466684319997
+        ],
+        "phase_difference_deg_by_hz": [
+          2.549816128560483,
+          7.701789250383792
+        ]
+      }
+    ],
+    "mfem_adjacent": [
+      {
+        "normalized_complex_l2": 1.0802788736934352,
+        "complex_relative_by_hz": [
+          0.8790689078093517,
+          1.0930737039870149
+        ],
+        "magnitude_relative_by_hz": [
+          0.7125622001239639,
+          0.7672721695447774
+        ],
+        "phase_difference_deg_by_hz": [
+          57.38436273083406,
+          107.58813257189422
+        ]
+      },
+      {
+        "normalized_complex_l2": 0.4398682961945524,
+        "complex_relative_by_hz": [
+          0.5162992883729729,
+          0.4229277528233899
+        ],
+        "magnitude_relative_by_hz": [
+          0.5154305602309198,
+          0.18403758167910073
+        ],
+        "phase_difference_deg_by_hz": [
+          2.4643537028274656,
+          24.335370531828204
+        ]
+      },
+      {
+        "normalized_complex_l2": 0.2642493650607944,
+        "complex_relative_by_hz": [
+          0.6140977884008558,
+          0.20488377555439094
+        ],
+        "magnitude_relative_by_hz": [
+          0.612016094607282,
+          0.0851650001469662
+        ],
+        "phase_difference_deg_by_hz": [
+          2.2800293113469277,
+          10.26294835247978
+        ]
+      }
+    ],
+    "cross_n32_r4": {
+      "normalized_complex_l2": 0.24342666417944464,
+      "complex_relative_by_hz": [
+        0.38350770300768877,
+        0.22648848331393495
+      ],
+      "magnitude_relative_by_hz": [
+        0.3784621135067279,
+        0.038258466245208136
+      ],
+      "phase_difference_deg_by_hz": [
+        3.026220290527814,
+        12.577727954315241
+      ]
+    },
+    "cross_magnitude_db_max": 2.787896683829263,
+    "fv_self_pass": false,
+    "mfem_self_pass": false,
+    "cross_method_pass": true,
+    "exact_unit_impulse_candidate_numerical_pass": false,
+    "original_PFFDTD_impulse": "SELF_CONVERGENCE_FAILED",
+    "canonical_original_fullband_impulse": "SELF_CONVERGENCE_FAILED",
+    "production_ready": false,
+    "physical_validation": "NOT_VALIDATED"
+  }
+}
