@@ -38,6 +38,15 @@ from .cad_scene import (
     room_vertices,
     scene_content_hash,
 )
+from .room_lighting_preview import (
+    LIGHTING_NEUTRAL_ANCHOR_COLOR,
+    LIGHTING_PREVIEW_DISCLAIMER,
+    LIGHTING_STAGE_VOCAB,
+    LIGHTING_UNKNOWN_STAGE_COLOR,
+    LIGHTING_ZONE_VOCAB,
+    LightingScenePreview,
+    stage_bead_label,
+)
 from .ui_theme import DARK_THEME, SurfaceRole, set_surface_role
 
 if TYPE_CHECKING:
@@ -102,6 +111,10 @@ class RoomOverlayState:
     focus_selection: bool = False
     hidden_ids: frozenset[str] = frozenset()
     guides_visible: bool = True
+    # #1013: read-only lighting-scene preview (desired/commanded/read-back/
+    # measured state glyphs on exact-bound fixtures). Explanation symbols
+    # only — never a photometric render.
+    lighting_scene: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -1205,6 +1218,7 @@ class RoomViewport3D(QFrame):
         'snap-feedback-',
         'guidance-',
         'acoustic-field-',
+        'lighting-',
     )
 
     def _remove_overlay_actors(self) -> None:
@@ -1574,6 +1588,217 @@ class RoomViewport3D(QFrame):
             color=DARK_THEME.text.secondary.hex,
             render=False,
         )
+        self._render()
+
+    # -- Lighting-scene preview (issue #1013) ---------------------------------
+    #
+    # Read-only state glyphs. A pin exists ONLY for a scene-referenced
+    # fixture whose entity_id resolves exactly to a document entity; the
+    # four stage beads (desired/commanded/read_back/measured) are drawn as
+    # separate colored beads — never merged — and an absent stage draws a
+    # dim unknown bead, never a 0% or a desired echo. Colors and glow are
+    # explanation symbols: the legend states that nothing here is a
+    # photometric (lux / beam spread / room illumination) render.
+
+    _LIGHTING_BEAD_RADIUS_M = 0.045
+    _LIGHTING_BEAD_SPACING_M = 0.10
+    _LIGHTING_BEAD_LIFT_M = 0.18
+
+    def clear_lighting_scene_preview(self) -> None:
+        """Drop every ``lighting-*`` actor (toggled off / scene changed)."""
+        renderer = getattr(self.plotter, 'renderer', None)
+        actors = getattr(renderer, 'actors', None)
+        if not actors:
+            return
+        removed = False
+        for name in tuple(actors):
+            if isinstance(name, str) and name.startswith('lighting-'):
+                self.plotter.remove_actor(name)
+                removed = True
+        if removed:
+            self._render()
+
+    def render_lighting_scene_preview(
+        self,
+        preview: LightingScenePreview | None,
+    ) -> None:
+        """Draw the read-only lighting-scene preview (#1013).
+
+        ``None`` clears the overlay (toggle off / no current scene). Every
+        actor is non-pickable — the preview is an explanation surface, not
+        an input device; applying a scene stays on the approved
+        device-action path, never on this overlay.
+        """
+        self.clear_lighting_scene_preview()
+        if preview is None:
+            return
+
+        stage_count = len(LIGHTING_STAGE_VOCAB)
+        for pin in preview.pins:
+            x, y_neg, _z = domain_to_render(
+                Position3(
+                    x_m=pin.position[0],
+                    y_m=pin.position[1],
+                    z_m=pin.position[2],
+                )
+            )
+            top_z = pin.top_z_m
+            anchor_color = (
+                LIGHTING_ZONE_VOCAB[pin.zone_roles[0]][1]
+                if pin.zone_roles
+                else LIGHTING_NEUTRAL_ANCHOR_COLOR
+            )
+            self.plotter.add_mesh(
+                pv.Disc(
+                    center=(x, y_neg, top_z + 0.02),
+                    inner=0.0,
+                    outer=0.085,
+                    normal=(0.0, 0.0, 1.0),
+                ),
+                color=anchor_color,
+                opacity=0.75,
+                lighting=False,
+                pickable=False,
+                name=f'lighting-anchor-{pin.fixture_id}',
+                render=False,
+            )
+            bead_z = top_z + self._LIGHTING_BEAD_LIFT_M
+            row_x0 = x - (stage_count - 1) * self._LIGHTING_BEAD_SPACING_M / 2.0
+            for index, state in enumerate(pin.states):
+                bead_x = row_x0 + index * self._LIGHTING_BEAD_SPACING_M
+                if state.known:
+                    bead_color = LIGHTING_STAGE_VOCAB[state.stage][1]
+                    opacity = 0.95
+                else:
+                    bead_color = LIGHTING_UNKNOWN_STAGE_COLOR
+                    opacity = 0.35
+                self.plotter.add_mesh(
+                    pv.Sphere(
+                        radius=self._LIGHTING_BEAD_RADIUS_M,
+                        center=(bead_x, y_neg, bead_z),
+                    ),
+                    color=bead_color,
+                    opacity=opacity,
+                    lighting=False,
+                    pickable=False,
+                    name=f'lighting-bead-{pin.fixture_id}-{state.stage}',
+                    render=False,
+                )
+            if pin.multi_assigned:
+                # Zone multi-assignment is information, never an error —
+                # flag the pin so the several assigning refs stay visible.
+                self.plotter.add_mesh(
+                    pv.Sphere(
+                        radius=self._LIGHTING_BEAD_RADIUS_M * 2.6,
+                        center=(x, y_neg, bead_z),
+                    ),
+                    color='#e8ecf4',
+                    style='wireframe',
+                    line_width=1,
+                    opacity=0.5,
+                    pickable=False,
+                    name=f'lighting-multi-{pin.fixture_id}',
+                    render=False,
+                )
+            if pin.bias_target_position is not None:
+                target = domain_to_render(
+                    Position3(
+                        x_m=pin.bias_target_position[0],
+                        y_m=pin.bias_target_position[1],
+                        z_m=pin.bias_target_position[2],
+                    )
+                )
+                self.plotter.add_mesh(
+                    pv.Line((x, y_neg, bead_z), target),
+                    color=LIGHTING_ZONE_VOCAB['bias'][1],
+                    line_width=2,
+                    opacity=0.55,
+                    pickable=False,
+                    name=f'lighting-bias-{pin.fixture_id}',
+                    render=False,
+                )
+            unsupported = sorted(
+                {dim for state in pin.states for dim in state.unsupported}
+            )
+            label_text = (
+                f'{pin.fixture_label or pin.fixture_id} '
+                f'{stage_bead_label(pin)}'
+            )
+            if pin.multi_assigned:
+                label_text += ' ※複合割当'
+            if unsupported:
+                label_text += ' / 非対応:' + ','.join(unsupported)
+            self.plotter.add_point_labels(
+                np.asarray([(x, y_neg, bead_z + 0.12)], dtype=float),
+                [label_text],
+                text_color=DARK_THEME.text.primary.hex,
+                shape_color=DARK_THEME.surfaces.overlay.hex,
+                shape_opacity=0.88,
+                font_size=9,
+                point_size=0,
+                always_visible=True,
+                name=f'lighting-label-{pin.fixture_id}',
+                render=False,
+            )
+
+        summary = (
+            f'照明シーン {preview.scene_label} '
+            f'({preview.scene_id} v{preview.scene_version}) · '
+            f'ピン{len(preview.pins)}件 · '
+            f'3D未配置{len(preview.unplaced)}件'
+        )
+        if preview.missing_refs:
+            summary += f' · 未解決参照{len(preview.missing_refs)}件'
+        self.plotter.add_text(
+            summary,
+            name='lighting-scene-summary',
+            position='upper_left',
+            font_size=9,
+            color=DARK_THEME.text.secondary.hex,
+            render=False,
+        )
+        if preview.unplaced or preview.missing_refs:
+            lines = [
+                '3D未配置: '
+                + ', '.join(item.fixture_id for item in preview.unplaced)
+                if preview.unplaced
+                else None,
+                '未解決参照: ' + ', '.join(preview.missing_refs)
+                if preview.missing_refs
+                else None,
+            ]
+            self.plotter.add_text(
+                '\n'.join(line for line in lines if line),
+                name='lighting-scene-unplaced',
+                position='upper_edge',
+                font_size=8,
+                color=DARK_THEME.text.secondary.hex,
+                render=False,
+            )
+        self.plotter.add_text(
+            preview.disclaimer,
+            name='lighting-scene-disclaimer',
+            position='lower_edge',
+            font_size=8,
+            color=DARK_THEME.text.secondary.hex,
+            render=False,
+        )
+        # add_legend has no render kwarg and renders internally; suppress so
+        # the compositing render still ends in a single draw.
+        self.plotter.suppress_rendering = True
+        try:
+            self.plotter.add_legend(
+                labels=list(preview.stage_legend) + list(preview.zone_legend),
+                loc='lower left',
+                face='rectangle',
+                size=(0.2, 0.035 * (len(preview.stage_legend) + len(preview.zone_legend)) + 0.02),
+                bcolor=DARK_THEME.text.secondary.hex,
+                border=False,
+                background_opacity=0.55,
+                name='lighting-scene-legend',
+            )
+        finally:
+            self.plotter.suppress_rendering = False
         self._render()
 
     def _render_labels(self, document: SceneDocument, selected_id: str | None) -> None:

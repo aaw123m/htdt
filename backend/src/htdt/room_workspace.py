@@ -92,6 +92,7 @@ from .cad_direct_view import (
     evaluate_direct_view_geometry,
 )
 from .cad_direct_view_repository import CadDirectViewRepository
+from .cad_lighting_repository import CadLightingRepository
 from .cad_video_geometry_repository import CadVideoGeometryRepository
 from .cad_video_workspace import (
     CadVideoWorkspaceRepository,
@@ -313,6 +314,8 @@ from .system_expansion_widgets import SystemExpansionRoomPanel
 from .standards_workspace import StandardsCriterionPanel
 from .installation_panel import InstallationPanel
 from .length_spinbox import MetricSpinBox, PendingTextSpinBox
+from .room_lighting_panel import RoomLightingPreviewPanel
+from .room_lighting_preview import build_lighting_scene_preview
 from .room_objects_panel import RoomObjectsPanel
 from .room_constraints_panel import RoomConstraintsPanel
 from .room_measure_input import RoomMeasureController, RoomMeasurePanel
@@ -4107,6 +4110,14 @@ class RoomWorkspace(QWidget):
             repository.path, repository
         )
         self.prediction_repository = CadPredictionRepository(repository)
+        self.lighting_repository = CadLightingRepository(repository)
+        # #1013 seam: fixture/zone/commissioning inventory is not yet
+        # persisted — a provider callable returns (fixtures, zones,
+        # records) for the current document. None = empty inventory; the
+        # preview then honestly reports every scene ref as unresolved
+        # instead of inventing placements.
+        self.lighting_inventory_provider = None
+        self._lighting_scene_cache: tuple[str, object] | None = None
         self._on_navigate = on_navigate
         self.current_context = "geometry"
         self.active_axis_constraint: str | None = None
@@ -4323,6 +4334,13 @@ class RoomWorkspace(QWidget):
         self.video_panel.createDisplaySpecRequested.connect(
             self._video_create_display_spec
         )
+        # #1013: read-only 「照明シーン」 preview on the Room/Video surface.
+        # The toggle only repaints explanation glyphs — it never sends to
+        # a device; apply/read-back stay on the approved action path.
+        self.lighting_panel = RoomLightingPreviewPanel()
+        self.lighting_panel.previewToggled.connect(
+            lambda _checked=False: self._render()
+        )
         # UX140B: リスニング集団 (seat-priority profile authoring) — the
         # legacy TheaterEditorWindow dock's workflow mount; it edits the
         # same seats the placement context owns.
@@ -4343,6 +4361,7 @@ class RoomWorkspace(QWidget):
         placement_layout.addWidget(self.system_expansion_panel)
         placement_layout.addWidget(self.constraints_panel)
         placement_layout.addWidget(self.video_panel)
+        placement_layout.addWidget(self.lighting_panel)
         placement_layout.addWidget(self.seat_priority_panel)
         placement_layout.addWidget(self.standards_panel)
         placement_layout.addWidget(self.installation_panel)
@@ -7571,6 +7590,9 @@ class RoomWorkspace(QWidget):
             self._sync_constraints_panel()
             self._sync_video_panel()
             self._sync_seat_priority_panel()
+            # Keep the lighting-scene summary honest while browsing the
+            # placement/video page even when the preview toggle is off.
+            self._current_lighting_scene()
             installation_panel = getattr(self, "installation_panel", None)
             if installation_panel is not None:
                 installation_panel.refresh()
@@ -7807,6 +7829,10 @@ class RoomWorkspace(QWidget):
             self.overlay_controls.state(),
             hidden_ids=frozenset(self.controller.view_state.hidden_ids),
             guides_visible=self._guides_visible,
+            lighting_scene=(
+                getattr(self, 'lighting_panel', None) is not None
+                and self.lighting_panel.preview_enabled
+            ),
         )
         self._sync_aux_render_state()
         # The document rebuild plus each overlay renderer used to trigger a
@@ -7843,6 +7869,21 @@ class RoomWorkspace(QWidget):
             render_video = getattr(self.viewport, "render_video_overlay", None)
             if callable(render_video):
                 render_video(self._video_evaluation)
+            render_lighting = getattr(
+                self.viewport, 'render_lighting_scene_preview', None
+            )
+            lighting_preview = (
+                self._lighting_scene_preview()
+                if overlays.lighting_scene
+                else None
+            )
+            if callable(render_lighting):
+                render_lighting(lighting_preview)
+            lighting_panel = getattr(self, 'lighting_panel', None)
+            if lighting_panel is not None:
+                lighting_panel.show_preview(
+                    lighting_preview if overlays.lighting_scene else None
+                )
             if self.current_context == "placement" and self._proposed_variant_id is not None:
                 try:
                     proposal_entities = self.system_expansion.ghost_preview(
@@ -7890,6 +7931,50 @@ class RoomWorkspace(QWidget):
                             self.field3DProbeDisarmed.emit()
                 else:
                     self.viewport.clear_field_overlay()
+
+    def _current_lighting_scene(self):
+        """Current persisted LightingScene for this document, or None.
+
+        Cached per document id — the indexed read would otherwise run on
+        every viewport refresh. A selection changed mid-session after the
+        first read is NOT observed; anything that re-selects the scene
+        must reset ``self._lighting_scene_cache``.
+        """
+        document_id = self.controller.document_id
+        if (
+            self._lighting_scene_cache is not None
+            and self._lighting_scene_cache[0] == document_id
+        ):
+            return self._lighting_scene_cache[1]
+        scene = self.lighting_repository.current_scene(document_id)
+        self._lighting_scene_cache = (document_id, scene)
+        self.lighting_panel.show_scene(scene)
+        return scene
+
+    def _lighting_inventory(self) -> tuple:
+        """(fixtures, zones, commissioning_records) for the preview.
+
+        ``lighting_inventory_provider`` is the seam a future lighting
+        inventory store plugs into; with none installed the inventory is
+        empty and every scene ref surfaces as unresolved.
+        """
+        provider = self.lighting_inventory_provider
+        if provider is None:
+            return (), (), ()
+        return provider()
+
+    def _lighting_scene_preview(self):
+        scene = self._current_lighting_scene()
+        if scene is None:
+            return None
+        fixtures, zones, records = self._lighting_inventory()
+        return build_lighting_scene_preview(
+            document=self.controller.document,
+            scene=scene,
+            fixtures=fixtures,
+            zones=zones,
+            commissioning_records=records,
+        )
 
     def _set_status(self, text: str, *, error: bool = False) -> None:
         self.status.setText(text)
