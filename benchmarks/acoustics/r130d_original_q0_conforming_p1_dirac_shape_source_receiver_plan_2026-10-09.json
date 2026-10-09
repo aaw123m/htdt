@@ -1,0 +1,97 @@
+{
+  "schema_version": "htdt.r130d.original-q0-conforming-p1-exact-dirac-shape-source-receiver-plan-1",
+  "date_jst": "2026-10-09",
+  "issue": 938,
+  "pr": 1055,
+  "scientific_question": "Prospective test whether a geometrically consistent variational Dirac source and point receiver (evaluation of conforming P1 FE shape functions at SAME physical source and receiver coordinates) improves original full one-sample q0 point excitation self-refinement vs preobserved original 8node PFFDTD Cartesian interpolation in the fully consistent-mass physical 56m3 Neumann FEM. The original eight raw HDF5 weights remain unchanged in control, and point coordinates / causal q0 time / actual native PPW/h/Ts/Nt/full250ms/40/80Hz gates remain fixed. New arm changes numerical coupling to weak physical delta, not the original PFFDTD observable.",
+  "preobserved_control": {
+    "existing_true_consistent_mass_p1_evidence": "benchmarks/acoustics/r130d_original_q0_conforming_p1_consistent_mass_evidence_2026-10-09.json",
+    "preobserved_full_5grid_all_signed_baseline": true,
+    "preobserved_baseline_complex_errors": [
+      0.08734577514010763,
+      0.01594774802765642,
+      0.3774688964998303,
+      0.4982317979175555
+    ],
+    "preobserved_isolated_32_36_three_gate_PASS": true,
+    "preobserved_full_5grid_FAIL": true
+  },
+  "frozen_original": {
+    "upstream_PFFDTD_SHA": "aa319f6c86517cb95aabfae8656277da62c3ead5",
+    "native_real_HDF5_source_evidence": "benchmarks/acoustics/r130d_original_point_quadratic_pffdtd_evidence_2026-10-09.json",
+    "ppw": [
+      28,
+      32,
+      36,
+      40,
+      44
+    ],
+    "original_source_xyz_m": [
+      1.5,
+      2,
+      2
+    ],
+    "original_receiver_xyz_m": [
+      2.5,
+      2,
+      2
+    ],
+    "true_original_native_8point_in_sigs_and_out_alpha_preserved_and_SHA_verified": true,
+    "original_native_record_h_dt_Nt_preserved": true,
+    "original_q0": "q[0]=1 and q[n>0]=0 original native in_sigs sum(in_sigs[:,0])=l2/h",
+    "record_s": 0.25,
+    "pressure_sample_operator": "identical native original forward n0, centered n1..N-2, backward nN-1; unchanged full rectangular 250ms signed transform",
+    "signed_hz": [
+      40,
+      80
+    ],
+    "rho": 1.2,
+    "c": 343.2,
+    "roof": "x∈[0,4], y∈[0,4], z∈[0,4-.25*y], exact volume 56m3"
+  },
+  "physical_numerical_operator": {
+    "mass": "same prior full non-diagonal x1D and yzP1 exact P1 consistent Galerkin mass",
+    "stiffness": "same prior physical full Neumann variational K, exact triangulation and x native node positions",
+    "original_arm": "eight EXACT original SHA-pinned Cartesian node source and receiver interpolation weights per grid; complete original prior signed P_T/Q_T retained",
+    "experimental_arm": "x physical 1D P1 basis values at unchanged x_s,x_r; yz physical true conforming triangular P1 barycentric basis at unchanged physical y=2,z=2. Build weak point Dirac source F_j=c²*N_j(x_s,y_s,z_s), receiver observable p(x_r)=sum N_j(x_r)*p_j; no distribution width, no source moving, no fit, zero source outside point-support P1 simplex. These are NOT the original 8point Cartesian node weights.",
+    "point_conservation": "P1 basis weights nonnegative and sum=1, exact reproduction affine physical coordinate x,y,z, physical delta acts on arbitrary affine P1 exactly",
+    "shape_support": "<=2 x line nodes and <=3 yz triangle nodes at every point; 6 3D Cartesian triangle-prism support maximum; original 8point coefficients retained separately",
+    "source_q0_total": "identical original native q0 native in_sigs total strength, no modal normalization",
+    "time": "identical native beta=1/4 Newmark causal q0 impulse as prior fully consistent Galerkin FE, full Nt and original 40/80 signed P/Q no taper",
+    "no_raising_or_clamping_high_modes": true,
+    "all_401630_physical_true_mass_generalized_eigenmodes_in_full_5grid": true,
+    "no_smoothing_damping_fitting_point_change_or_modal_cut": true
+  },
+  "verification": {
+    "same_original_phys_point": true,
+    "same_native_hdf5_sha": true,
+    "all_five_ppw_28_32_36_40_44": true,
+    "original_8node_preobserved_signed_reconstructed_relative_max": 2e-10,
+    "exact_shape_partition_and_affine_moment_error_max": 2e-10,
+    "full_sparse_true_3D_FEM_mass_and_stiffness_unchanged": true,
+    "full_galerkin_all_mode_M_orthogonal": true,
+    "canonical_original_three_gates_complex": 0.2,
+    "magnitude": 0.25,
+    "phase_deg": 15,
+    "all_four_adjacent_grid_comparisons_and_all_three_gates": true,
+    "strict_all_three_metric_monotonicity_required": true,
+    "retain_original_canonical_8point_arm_and_original_PFFDTD_FAIL": true,
+    "report_all_unfavorable_signed_complex_40_80_and_per_bin_scores": true,
+    "independent_manufactured_weak_dirac_shape_function_tests": true
+  },
+  "limits": {
+    "max_3d_dofs": 180000,
+    "max_yz_nodes": 3000,
+    "max_grid_cases": 5,
+    "new_native_pffdtd_wave_runs": 0,
+    "new_github_actions": 0,
+    "keep_scratch": true
+  },
+  "authority": {
+    "original_PFFDTD_q0": "SELF_CONVERGENCE_FAILED",
+    "physical_validation": "NOT_VALIDATED",
+    "product": "NO_GO",
+    "pr_Draft": true,
+    "issue_open": true
+  }
+}
