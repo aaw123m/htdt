@@ -1,0 +1,1288 @@
+{
+  "schema_version": "htdt.r130d.original-q0-conforming-P1-exact-dirac-point-evidence-1",
+  "preregistered_plan_sha256_lf": "d8231668f0563b57f2f397650859c8471b433e3c5eedfa53b0b365c35c01bb51",
+  "preregistered_plan": {
+    "schema_version": "htdt.r130d.original-q0-conforming-p1-exact-dirac-shape-source-receiver-plan-1",
+    "date_jst": "2026-10-09",
+    "issue": 938,
+    "pr": 1055,
+    "scientific_question": "Prospective test whether a geometrically consistent variational Dirac source and point receiver (evaluation of conforming P1 FE shape functions at SAME physical source and receiver coordinates) improves original full one-sample q0 point excitation self-refinement vs preobserved original 8node PFFDTD Cartesian interpolation in the fully consistent-mass physical 56m3 Neumann FEM. The original eight raw HDF5 weights remain unchanged in control, and point coordinates / causal q0 time / actual native PPW/h/Ts/Nt/full250ms/40/80Hz gates remain fixed. New arm changes numerical coupling to weak physical delta, not the original PFFDTD observable.",
+    "preobserved_control": {
+      "existing_true_consistent_mass_p1_evidence": "benchmarks/acoustics/r130d_original_q0_conforming_p1_consistent_mass_evidence_2026-10-09.json",
+      "preobserved_full_5grid_all_signed_baseline": true,
+      "preobserved_baseline_complex_errors": [
+        0.08734577514010763,
+        0.01594774802765642,
+        0.3774688964998303,
+        0.4982317979175555
+      ],
+      "preobserved_isolated_32_36_three_gate_PASS": true,
+      "preobserved_full_5grid_FAIL": true
+    },
+    "frozen_original": {
+      "upstream_PFFDTD_SHA": "aa319f6c86517cb95aabfae8656277da62c3ead5",
+      "native_real_HDF5_source_evidence": "benchmarks/acoustics/r130d_original_point_quadratic_pffdtd_evidence_2026-10-09.json",
+      "ppw": [
+        28,
+        32,
+        36,
+        40,
+        44
+      ],
+      "original_source_xyz_m": [
+        1.5,
+        2,
+        2
+      ],
+      "original_receiver_xyz_m": [
+        2.5,
+        2,
+        2
+      ],
+      "true_original_native_8point_in_sigs_and_out_alpha_preserved_and_SHA_verified": true,
+      "original_native_record_h_dt_Nt_preserved": true,
+      "original_q0": "q[0]=1 and q[n>0]=0 original native in_sigs sum(in_sigs[:,0])=l2/h",
+      "record_s": 0.25,
+      "pressure_sample_operator": "identical native original forward n0, centered n1..N-2, backward nN-1; unchanged full rectangular 250ms signed transform",
+      "signed_hz": [
+        40,
+        80
+      ],
+      "rho": 1.2,
+      "c": 343.2,
+      "roof": "x\u2208[0,4], y\u2208[0,4], z\u2208[0,4-.25*y], exact volume 56m3"
+    },
+    "physical_numerical_operator": {
+      "mass": "same prior full non-diagonal x1D and yzP1 exact P1 consistent Galerkin mass",
+      "stiffness": "same prior physical full Neumann variational K, exact triangulation and x native node positions",
+      "original_arm": "eight EXACT original SHA-pinned Cartesian node source and receiver interpolation weights per grid; complete original prior signed P_T/Q_T retained",
+      "experimental_arm": "x physical 1D P1 basis values at unchanged x_s,x_r; yz physical true conforming triangular P1 barycentric basis at unchanged physical y=2,z=2. Build weak point Dirac source F_j=c\u00b2*N_j(x_s,y_s,z_s), receiver observable p(x_r)=sum N_j(x_r)*p_j; no distribution width, no source moving, no fit, zero source outside point-support P1 simplex. These are NOT the original 8point Cartesian node weights.",
+      "point_conservation": "P1 basis weights nonnegative and sum=1, exact reproduction affine physical coordinate x,y,z, physical delta acts on arbitrary affine P1 exactly",
+      "shape_support": "<=2 x line nodes and <=3 yz triangle nodes at every point; 6 3D Cartesian triangle-prism support maximum; original 8point coefficients retained separately",
+      "source_q0_total": "identical original native q0 native in_sigs total strength, no modal normalization",
+      "time": "identical native beta=1/4 Newmark causal q0 impulse as prior fully consistent Galerkin FE, full Nt and original 40/80 signed P/Q no taper",
+      "no_raising_or_clamping_high_modes": true,
+      "all_401630_physical_true_mass_generalized_eigenmodes_in_full_5grid": true,
+      "no_smoothing_damping_fitting_point_change_or_modal_cut": true
+    },
+    "verification": {
+      "same_original_phys_point": true,
+      "same_native_hdf5_sha": true,
+      "all_five_ppw_28_32_36_40_44": true,
+      "original_8node_preobserved_signed_reconstructed_relative_max": 2e-10,
+      "exact_shape_partition_and_affine_moment_error_max": 2e-10,
+      "full_sparse_true_3D_FEM_mass_and_stiffness_unchanged": true,
+      "full_galerkin_all_mode_M_orthogonal": true,
+      "canonical_original_three_gates_complex": 0.2,
+      "magnitude": 0.25,
+      "phase_deg": 15,
+      "all_four_adjacent_grid_comparisons_and_all_three_gates": true,
+      "strict_all_three_metric_monotonicity_required": true,
+      "retain_original_canonical_8point_arm_and_original_PFFDTD_FAIL": true,
+      "report_all_unfavorable_signed_complex_40_80_and_per_bin_scores": true,
+      "independent_manufactured_weak_dirac_shape_function_tests": true
+    },
+    "limits": {
+      "max_3d_dofs": 180000,
+      "max_yz_nodes": 3000,
+      "max_grid_cases": 5,
+      "new_native_pffdtd_wave_runs": 0,
+      "new_github_actions": 0,
+      "keep_scratch": true
+    },
+    "authority": {
+      "original_PFFDTD_q0": "SELF_CONVERGENCE_FAILED",
+      "physical_validation": "NOT_VALIDATED",
+      "product": "NO_GO",
+      "pr_Draft": true,
+      "issue_open": true
+    }
+  },
+  "canonical_original_PFFDTD_q0": "SELF_CONVERGENCE_FAILED",
+  "external_independent_physical": "NOT_VALIDATED",
+  "product": "NO_GO",
+  "new_original_upstream_PFFDTD_waves": 0,
+  "new_GitHub_Actions_runs": 0,
+  "point_shape_is_experimental_not_original_eightnode_observation": true,
+  "actual_original_input_full_5grid_P1_exact_weak_dirac_cases": [
+    {
+      "ppw": 28,
+      "native_original_q0_source_hdf5_SHA256": "4404a9818a8f0c673c97e8ede8665367100aecb3d2f2f8481bc532bc45fd6b6c",
+      "native_original_voxel_hdf5_SHA256": "9d8b598fc1e2077840ba5a51e8f2db72c30ad4b6991ae88d3174bac72acf9fc8",
+      "native_Ts_s": 0.00020599032818587005,
+      "native_Nt": 1214,
+      "original_native_eight_source_coefficients_sum": 2.7140664335664337,
+      "true_physical_P1_all_mass_modes_count": 37835,
+      "true_physical_3D_exact_roof_volume_m3": 56.0,
+      "true_physical_P1_yz_triangles": 2024,
+      "native_rigid_Neumann_physical_zero_x_yz": true,
+      "true_consistent_x_all_eigenmodes_proof": {
+        "all_physical_consistent_mass_generalized_modes_retained": true,
+        "exact_rigid_neumann_constant_mode": true,
+        "first_unmodified_numeric_zero_eigenvalue": -1.8101538278430703e-07,
+        "strict_max_all_eigenpair_residual": 1.1641532182693481e-10,
+        "strict_max_M_orthogonality_residual": 1.0399103453351266e-12,
+        "first_nonzero_physical_frequency_hz": 42.91605237240026
+      },
+      "true_consistent_yz_all_eigenmodes_proof": {
+        "all_physical_consistent_mass_generalized_modes_retained": true,
+        "exact_rigid_neumann_constant_mode": true,
+        "first_unmodified_numeric_zero_eigenvalue": -1.469753376327808e-07,
+        "strict_max_all_eigenpair_residual": 1.0113789212448053e-09,
+        "strict_max_M_orthogonality_residual": 2.5084379018380787e-12,
+        "first_nonzero_physical_frequency_hz": 41.97375869879737
+      },
+      "new_P1_weak_dirac_shape_source": {
+        "point_xyz_m": [
+          1.5,
+          2.0,
+          2.0
+        ],
+        "original_physical_point_unchanged": true,
+        "true_P1_x_nonzero_support": 2,
+        "true_P1_yz_nonzero_support": 2,
+        "true_P1_support_3d_vertices": 4,
+        "global_P1_yz_triangle": 1035,
+        "true_P1_x_full_basis_weights": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.2622377622377613,
+          0.7377622377622387,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "true_P1_yz_nonzero_indices": [
+          548,
+          580
+        ],
+        "true_P1_yz_nonzero_weights": [
+          0.1829836829836844,
+          0.8170163170163156
+        ],
+        "exact_dirac_affine_coordinate_error_m": 0.0,
+        "P1_partition_error": 0.0
+      },
+      "new_P1_weak_dirac_point_receiver": {
+        "point_xyz_m": [
+          2.5,
+          2.0,
+          2.0
+        ],
+        "original_physical_point_unchanged": true,
+        "true_P1_x_nonzero_support": 2,
+        "true_P1_yz_nonzero_support": 2,
+        "true_P1_support_3d_vertices": 4,
+        "global_P1_yz_triangle": 1035,
+        "true_P1_x_nonzero_indices": [
+          20,
+          21
+        ],
+        "true_P1_x_nonzero_weights": [
+          0.10372960372960505,
+          0.896270396270395
+        ],
+        "true_P1_yz_nonzero_indices": [
+          548,
+          580
+        ],
+        "true_P1_yz_nonzero_weights": [
+          0.1829836829836844,
+          0.8170163170163156
+        ],
+        "exact_dirac_affine_coordinate_error_m": 0.0,
+        "P1_partition_error": 0.0
+      },
+      "original_PFFDTD_eightnode_vs_preobserved_signed_relative": 0.0,
+      "all_actual_physical_FEM_modes_retained_including_high_freq": true,
+      "same_real_native_q0_250ms_40_80_unchanged": true,
+      "original_8node_consistent_mass_250ms_signed_40_80": [
+        [
+          9.058933769956468,
+          0.4783147742207645
+        ],
+        [
+          22.816068033988188,
+          -218.1132161829818
+        ]
+      ],
+      "true_P1_dirac_weak_source_point_receiver_250ms_signed_40_80": [
+        [
+          59.560970070815756,
+          -0.8084451668584087
+        ],
+        [
+          73.26272385741152,
+          -220.88345999582785
+        ]
+      ],
+      "physical_point_dirac_minus_original_8node_signed_40_80": [
+        [
+          50.50203630085929,
+          -1.2867599410791732
+        ],
+        [
+          50.44665582342333,
+          -2.770243812846047
+        ]
+      ],
+      "wall_seconds": 0.3912684000097215
+    },
+    {
+      "ppw": 32,
+      "native_original_q0_source_hdf5_SHA256": "716199c1cb8f9d982cdafe7deaccdf630073a2b0d8cdec17fcaf3dff52f4b60b",
+      "native_original_voxel_hdf5_SHA256": "8f3ebd62703c40793d68fdf703e098bbecc568cc9beb227cfa126b8042954e3b",
+      "native_Ts_s": 0.0001802415371626363,
+      "native_Nt": 1388,
+      "original_native_eight_source_coefficients_sum": 3.10179020979021,
+      "true_physical_P1_all_mass_modes_count": 53001,
+      "true_physical_3D_exact_roof_volume_m3": 55.99999999999999,
+      "true_physical_P1_yz_triangles": 2564,
+      "native_rigid_Neumann_physical_zero_x_yz": true,
+      "true_consistent_x_all_eigenmodes_proof": {
+        "all_physical_consistent_mass_generalized_modes_retained": true,
+        "exact_rigid_neumann_constant_mode": true,
+        "first_unmodified_numeric_zero_eigenvalue": -2.497093408468965e-08,
+        "strict_max_all_eigenpair_residual": 5.206251464550825e-10,
+        "strict_max_M_orthogonality_residual": 5.2301912800700734e-14,
+        "first_nonzero_physical_frequency_hz": 42.91223052920925
+      },
+      "true_consistent_yz_all_eigenmodes_proof": {
+        "all_physical_consistent_mass_generalized_modes_retained": true,
+        "exact_rigid_neumann_constant_mode": true,
+        "first_unmodified_numeric_zero_eigenvalue": 2.7541654556863062e-08,
+        "strict_max_all_eigenpair_residual": 3.189089059420581e-10,
+        "strict_max_M_orthogonality_residual": 2.7698676685616874e-13,
+        "first_nonzero_physical_frequency_hz": 41.970394313361304
+      },
+      "new_P1_weak_dirac_shape_source": {
+        "point_xyz_m": [
+          1.5,
+          2.0,
+          2.0
+        ],
+        "original_physical_point_unchanged": true,
+        "true_P1_x_nonzero_support": 2,
+        "true_P1_yz_nonzero_support": 3,
+        "true_P1_support_3d_vertices": 6,
+        "global_P1_yz_triangle": 95,
+        "true_P1_x_full_basis_weights": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.5139860139860135,
+          0.4860139860139865,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "true_P1_yz_nonzero_indices": [
+          728,
+          729,
+          764
+        ],
+        "true_P1_yz_nonzero_weights": [
+          0.7039627039627054,
+          0.14801864801864725,
+          0.14801864801864728
+        ],
+        "exact_dirac_affine_coordinate_error_m": 0.0,
+        "P1_partition_error": 0.0
+      },
+      "new_P1_weak_dirac_point_receiver": {
+        "point_xyz_m": [
+          2.5,
+          2.0,
+          2.0
+        ],
+        "original_physical_point_unchanged": true,
+        "true_P1_x_nonzero_support": 2,
+        "true_P1_yz_nonzero_support": 3,
+        "true_P1_support_3d_vertices": 6,
+        "global_P1_yz_triangle": 95,
+        "true_P1_x_nonzero_indices": [
+          23,
+          24
+        ],
+        "true_P1_x_nonzero_weights": [
+          0.18997668997669015,
+          0.8100233100233099
+        ],
+        "true_P1_yz_nonzero_indices": [
+          728,
+          729,
+          764
+        ],
+        "true_P1_yz_nonzero_weights": [
+          0.7039627039627054,
+          0.14801864801864725,
+          0.14801864801864728
+        ],
+        "exact_dirac_affine_coordinate_error_m": 0.0,
+        "P1_partition_error": 0.0
+      },
+      "original_PFFDTD_eightnode_vs_preobserved_signed_relative": 0.0,
+      "all_actual_physical_FEM_modes_retained_including_high_freq": true,
+      "same_real_native_q0_250ms_40_80_unchanged": true,
+      "original_8node_consistent_mass_250ms_signed_40_80": [
+        [
+          20.605554226786843,
+          -3.022130276470674
+        ],
+        [
+          36.853968557560314,
+          -225.87732594223448
+        ]
+      ],
+      "true_P1_dirac_weak_source_point_receiver_250ms_signed_40_80": [
+        [
+          46.04247675489137,
+          -2.9550852318266503
+        ],
+        [
+          62.30930619777625,
+          -225.74469717554976
+        ]
+      ],
+      "physical_point_dirac_minus_original_8node_signed_40_80": [
+        [
+          25.436922528104525,
+          0.06704504464402383
+        ],
+        [
+          25.455337640215937,
+          0.1326287666847179
+        ]
+      ],
+      "wall_seconds": 0.7249915001448244
+    },
+    {
+      "ppw": 36,
+      "native_original_q0_source_hdf5_SHA256": "3cd05bcee5f8fed08da3dc94ff2ac90b92969b293daf2db77b4bac8d0c51a2f9",
+      "native_original_voxel_hdf5_SHA256": "433c1d334419006b1185a4ef275545d329244d0808b2a3c12a3200e7af4e3d50",
+      "native_Ts_s": 0.00016021469970012116,
+      "native_Nt": 1561,
+      "original_native_eight_source_coefficients_sum": 3.4895139860139857,
+      "true_physical_P1_all_mass_modes_count": 75504,
+      "true_physical_3D_exact_roof_volume_m3": 56.0,
+      "true_physical_P1_yz_triangles": 3258,
+      "native_rigid_Neumann_physical_zero_x_yz": true,
+      "true_consistent_x_all_eigenmodes_proof": {
+        "all_physical_consistent_mass_generalized_modes_retained": true,
+        "exact_rigid_neumann_constant_mode": true,
+        "first_unmodified_numeric_zero_eigenvalue": 2.0792276956545427e-08,
+        "strict_max_all_eigenpair_residual": 1.1641532182693481e-10,
+        "strict_max_M_orthogonality_residual": 9.742727458128542e-14,
+        "first_nonzero_physical_frequency_hz": 42.90966952926961
+      },
+      "true_consistent_yz_all_eigenmodes_proof": {
+        "all_physical_consistent_mass_generalized_modes_retained": true,
+        "exact_rigid_neumann_constant_mode": true,
+        "first_unmodified_numeric_zero_eigenvalue": 5.01657806413764e-08,
+        "strict_max_all_eigenpair_residual": 4.788504719869758e-10,
+        "strict_max_M_orthogonality_residual": 7.697453785482367e-13,
+        "first_nonzero_physical_frequency_hz": 41.96826682342911
+      },
+      "new_P1_weak_dirac_shape_source": {
+        "point_xyz_m": [
+          1.5,
+          2.0,
+          2.0
+        ],
+        "original_physical_point_unchanged": true,
+        "true_P1_x_nonzero_support": 2,
+        "true_P1_yz_nonzero_support": 3,
+        "true_P1_support_3d_vertices": 6,
+        "global_P1_yz_triangle": 121,
+        "true_P1_x_full_basis_weights": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.765734265734264,
+          0.23426573426573602,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "true_P1_yz_nonzero_indices": [
+          900,
+          901,
+          939
+        ],
+        "true_P1_yz_nonzero_weights": [
+          0.041958041958037234,
+          0.47902097902098134,
+          0.4790209790209814
+        ],
+        "exact_dirac_affine_coordinate_error_m": 2.220446049250313e-16,
+        "P1_partition_error": 0.0
+      },
+      "new_P1_weak_dirac_point_receiver": {
+        "point_xyz_m": [
+          2.5,
+          2.0,
+          2.0
+        ],
+        "original_physical_point_unchanged": true,
+        "true_P1_x_nonzero_support": 2,
+        "true_P1_yz_nonzero_support": 3,
+        "true_P1_support_3d_vertices": 6,
+        "global_P1_yz_triangle": 121,
+        "true_P1_x_nonzero_indices": [
+          26,
+          27
+        ],
+        "true_P1_x_nonzero_weights": [
+          0.27622377622377325,
+          0.7237762237762267
+        ],
+        "true_P1_yz_nonzero_indices": [
+          900,
+          901,
+          939
+        ],
+        "true_P1_yz_nonzero_weights": [
+          0.041958041958037234,
+          0.47902097902098134,
+          0.4790209790209814
+        ],
+        "exact_dirac_affine_coordinate_error_m": 2.220446049250313e-16,
+        "P1_partition_error": 0.0
+      },
+      "original_PFFDTD_eightnode_vs_preobserved_signed_relative": 0.0,
+      "all_actual_physical_FEM_modes_retained_including_high_freq": true,
+      "same_real_native_q0_250ms_40_80_unchanged": true,
+      "original_8node_consistent_mass_250ms_signed_40_80": [
+        [
+          18.009478812337267,
+          -2.699816899486668
+        ],
+        [
+          34.65475641315191,
+          -224.63494938481028
+        ]
+      ],
+      "true_P1_dirac_weak_source_point_receiver_250ms_signed_40_80": [
+        [
+          -82.90890618883658,
+          -2.228026407065707
+        ],
+        [
+          -66.09716158747041,
+          -223.83969470418464
+        ]
+      ],
+      "physical_point_dirac_minus_original_8node_signed_40_80": [
+        [
+          -100.91838500117385,
+          0.4717904924209608
+        ],
+        [
+          -100.75191800062231,
+          0.7952546806256464
+        ]
+      ],
+      "wall_seconds": 1.300792400026694
+    },
+    {
+      "ppw": 40,
+      "native_original_q0_source_hdf5_SHA256": "64a4f45cf19b92bb7a8a1ffd24af05e10877c99000e29bf985637b18e287763a",
+      "native_original_voxel_hdf5_SHA256": "c7c1894826c4774393987855e533081f615b22d510ec6042aacda12acbe0daaf",
+      "native_Ts_s": 0.00014419322973010905,
+      "native_Nt": 1734,
+      "original_native_eight_source_coefficients_sum": 3.877237762237762,
+      "true_physical_P1_all_mass_modes_count": 102949,
+      "true_physical_3D_exact_roof_volume_m3": 55.99999999999999,
+      "true_physical_P1_yz_triangles": 4008,
+      "native_rigid_Neumann_physical_zero_x_yz": true,
+      "true_consistent_x_all_eigenmodes_proof": {
+        "all_physical_consistent_mass_generalized_modes_retained": true,
+        "exact_rigid_neumann_constant_mode": true,
+        "first_unmodified_numeric_zero_eigenvalue": -8.101874616275488e-08,
+        "strict_max_all_eigenpair_residual": 1.0347220135521596e-09,
+        "strict_max_M_orthogonality_residual": 5.378598753872796e-13,
+        "first_nonzero_physical_frequency_hz": 42.90794565328166
+      },
+      "true_consistent_yz_all_eigenmodes_proof": {
+        "all_physical_consistent_mass_generalized_modes_retained": true,
+        "exact_rigid_neumann_constant_mode": true,
+        "first_unmodified_numeric_zero_eigenvalue": 1.308957754484198e-07,
+        "strict_max_all_eigenpair_residual": 6.064910966138782e-10,
+        "strict_max_M_orthogonality_residual": 1.480274236520529e-12,
+        "first_nonzero_physical_frequency_hz": 41.96678971165382
+      },
+      "new_P1_weak_dirac_shape_source": {
+        "point_xyz_m": [
+          1.5,
+          2.0,
+          2.0
+        ],
+        "original_physical_point_unchanged": true,
+        "true_P1_x_nonzero_support": 2,
+        "true_P1_yz_nonzero_support": 2,
+        "true_P1_support_3d_vertices": 4,
+        "global_P1_yz_triangle": 1084,
+        "true_P1_x_full_basis_weights": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.017482517482518167,
+          0.9825174825174818,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "true_P1_yz_nonzero_indices": [
+          1084,
+          1128
+        ],
+        "true_P1_yz_nonzero_weights": [
+          0.1899766899766917,
+          0.8100233100233083
+        ],
+        "exact_dirac_affine_coordinate_error_m": 0.0,
+        "P1_partition_error": 0.0
+      },
+      "new_P1_weak_dirac_point_receiver": {
+        "point_xyz_m": [
+          2.5,
+          2.0,
+          2.0
+        ],
+        "original_physical_point_unchanged": true,
+        "true_P1_x_nonzero_support": 2,
+        "true_P1_yz_nonzero_support": 2,
+        "true_P1_support_3d_vertices": 4,
+        "global_P1_yz_triangle": 1084,
+        "true_P1_x_nonzero_indices": [
+          29,
+          30
+        ],
+        "true_P1_x_nonzero_weights": [
+          0.3624708624708619,
+          0.6375291375291381
+        ],
+        "true_P1_yz_nonzero_indices": [
+          1084,
+          1128
+        ],
+        "true_P1_yz_nonzero_weights": [
+          0.1899766899766917,
+          0.8100233100233083
+        ],
+        "exact_dirac_affine_coordinate_error_m": 0.0,
+        "P1_partition_error": 0.0
+      },
+      "original_PFFDTD_eightnode_vs_preobserved_signed_relative": 0.0,
+      "all_actual_physical_FEM_modes_retained_including_high_freq": true,
+      "same_real_native_q0_250ms_40_80_unchanged": true,
+      "original_8node_consistent_mass_250ms_signed_40_80": [
+        [
+          85.82346861763827,
+          0.722877819482652
+        ],
+        [
+          103.32183860961177,
+          -218.3686340045767
+        ]
+      ],
+      "true_P1_dirac_weak_source_point_receiver_250ms_signed_40_80": [
+        [
+          61.787175108631885,
+          1.433798056141889
+        ],
+        [
+          79.2883811687935,
+          -217.02659121115846
+        ]
+      ],
+      "physical_point_dirac_minus_original_8node_signed_40_80": [
+        [
+          -24.036293509006384,
+          0.7109202366592371
+        ],
+        [
+          -24.033457440818268,
+          1.3420427934182442
+        ]
+      ],
+      "wall_seconds": 2.39001279999502
+    },
+    {
+      "ppw": 44,
+      "native_original_q0_source_hdf5_SHA256": "41c537b663ef11aa7404a248862f89398dec80fd3b6c794f4ecce4a0a8577ee4",
+      "native_original_voxel_hdf5_SHA256": "4a7cb6c30c013adc31d5b1910d50cef003cacbdd37a271ac3efa7a39956e505b",
+      "native_Ts_s": 0.00013108475430009911,
+      "native_Nt": 1908,
+      "original_native_eight_source_coefficients_sum": 4.264961538461538,
+      "true_physical_P1_all_mass_modes_count": 132341,
+      "true_physical_3D_exact_roof_volume_m3": 56.0,
+      "true_physical_P1_yz_triangles": 4784,
+      "native_rigid_Neumann_physical_zero_x_yz": true,
+      "true_consistent_x_all_eigenmodes_proof": {
+        "all_physical_consistent_mass_generalized_modes_retained": true,
+        "exact_rigid_neumann_constant_mode": true,
+        "first_unmodified_numeric_zero_eigenvalue": -2.037756108476756e-09,
+        "strict_max_all_eigenpair_residual": 6.68755109251713e-10,
+        "strict_max_M_orthogonality_residual": 8.334323909500601e-14,
+        "first_nonzero_physical_frequency_hz": 42.90653103875185
+      },
+      "true_consistent_yz_all_eigenmodes_proof": {
+        "all_physical_consistent_mass_generalized_modes_retained": true,
+        "exact_rigid_neumann_constant_mode": true,
+        "first_unmodified_numeric_zero_eigenvalue": -2.056029366736907e-08,
+        "strict_max_all_eigenpair_residual": 6.178445262154066e-10,
+        "strict_max_M_orthogonality_residual": 5.452374662873183e-13,
+        "first_nonzero_physical_frequency_hz": 41.96557918342547
+      },
+      "new_P1_weak_dirac_shape_source": {
+        "point_xyz_m": [
+          1.5,
+          2.0,
+          2.0
+        ],
+        "original_physical_point_unchanged": true,
+        "true_P1_x_nonzero_support": 2,
+        "true_P1_yz_nonzero_support": 3,
+        "true_P1_support_3d_vertices": 6,
+        "global_P1_yz_triangle": 130,
+        "true_P1_x_full_basis_weights": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.2692307692307686,
+          0.7307692307692314,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "true_P1_yz_nonzero_indices": [
+          1338,
+          1339,
+          1385
+        ],
+        "true_P1_yz_nonzero_weights": [
+          0.7179487179487142,
+          0.14102564102564283,
+          0.14102564102564297
+        ],
+        "exact_dirac_affine_coordinate_error_m": 0.0,
+        "P1_partition_error": 0.0
+      },
+      "new_P1_weak_dirac_point_receiver": {
+        "point_xyz_m": [
+          2.5,
+          2.0,
+          2.0
+        ],
+        "original_physical_point_unchanged": true,
+        "true_P1_x_nonzero_support": 2,
+        "true_P1_yz_nonzero_support": 3,
+        "true_P1_support_3d_vertices": 6,
+        "global_P1_yz_triangle": 130,
+        "true_P1_x_nonzero_indices": [
+          32,
+          33
+        ],
+        "true_P1_x_nonzero_weights": [
+          0.4487179487179457,
+          0.5512820512820543
+        ],
+        "true_P1_yz_nonzero_indices": [
+          1338,
+          1339,
+          1385
+        ],
+        "true_P1_yz_nonzero_weights": [
+          0.7179487179487142,
+          0.14102564102564283,
+          0.14102564102564297
+        ],
+        "exact_dirac_affine_coordinate_error_m": 0.0,
+        "P1_partition_error": 0.0
+      },
+      "original_PFFDTD_eightnode_vs_preobserved_signed_relative": 0.0,
+      "all_actual_physical_FEM_modes_retained_including_high_freq": true,
+      "same_real_native_q0_250ms_40_80_unchanged": true,
+      "original_8node_consistent_mass_250ms_signed_40_80": [
+        [
+          7.269687038565877,
+          -0.9321965432842703
+        ],
+        [
+          24.685744238620366,
+          -221.72511316015408
+        ]
+      ],
+      "true_P1_dirac_weak_source_point_receiver_250ms_signed_40_80": [
+        [
+          13.953118615152427,
+          -0.9541893649342363
+        ],
+        [
+          31.37388254571377,
+          -221.77159211896537
+        ]
+      ],
+      "physical_point_dirac_minus_original_8node_signed_40_80": [
+        [
+          6.68343157658655,
+          -0.021992821649966077
+        ],
+        [
+          6.6881383070934035,
+          -0.04647895881129216
+        ]
+      ],
+      "wall_seconds": 3.5503024000208825
+    }
+  ],
+  "all_four_complete_native_refinement_pairs": [
+    {
+      "coarse_ppw": 28,
+      "fine_ppw": 32,
+      "arms": {
+        "preobserved_original_eightnode_consistent_mass_P1": {
+          "signed_original_40_80_coarse_minus_fine": [
+            [
+              -11.546620456830375,
+              3.5004450506914386
+            ],
+            [
+              -14.037900523572127,
+              7.764109759252676
+            ]
+          ],
+          "unchanged_original_three_metrics_and_per_bin": {
+            "complex_rms_relative": 0.08734577514010763,
+            "magnitude_max_relative": 0.5644120795073351,
+            "magnitude_max_db": 7.218483447752235,
+            "phase_max_deg": 11.36627341504709,
+            "mask_floor": 0.7237318659093026,
+            "compared_frequency_count": 2,
+            "frequency_metrics": [
+              {
+                "frequency_hz": 40.0,
+                "masked_in": true,
+                "magnitude_absolute": 11.754444076161247,
+                "magnitude_relative": 0.5644120795073351,
+                "magnitude_db": 7.218483447752235,
+                "phase_deg": 11.36627341504709,
+                "complex_relative": 0.579350549363658
+              },
+              {
+                "frequency_hz": 80.0,
+                "masked_in": true,
+                "magnitude_absolute": 9.560786885474442,
+                "magnitude_relative": 0.04177495037278825,
+                "magnitude_db": 0.37064960270975567,
+                "phase_deg": 3.294887206939933,
+                "complex_relative": 0.07009376237510696
+              }
+            ]
+          },
+          "all_three_original_frozen_gates_pass": false
+        },
+        "true_physical_P1_weak_dirac_source_point_receiver": {
+          "signed_original_40_80_coarse_minus_fine": [
+            [
+              13.518493315924388,
+              2.1466400649682416
+            ],
+            [
+              10.953417659635264,
+              4.861237179721911
+            ]
+          ],
+          "unchanged_original_three_metrics_and_per_bin": {
+            "complex_rms_relative": 0.07621884058366084,
+            "magnitude_max_relative": 0.2910719097490928,
+            "magnitude_max_db": 2.219008642965741,
+            "phase_max_deg": 2.9192792054568315,
+            "mask_floor": 0.7405613947656798,
+            "compared_frequency_count": 2,
+            "frequency_metrics": [
+              {
+                "frequency_hz": 40.0,
+                "masked_in": true,
+                "magnitude_absolute": 13.429245976190437,
+                "magnitude_relative": 0.2910719097490928,
+                "magnitude_db": 2.219008642965741,
+                "phase_deg": 2.8946535607184956,
+                "complex_relative": 0.29667740318652763
+              },
+              {
+                "frequency_hz": 80.0,
+                "masked_in": true,
+                "magnitude_absolute": 1.4696609027569139,
+                "magnitude_relative": 0.006275611817817731,
+                "magnitude_db": 0.05468103014572506,
+                "phase_deg": 2.9192792054568315,
+                "complex_relative": 0.051171687402397956
+              }
+            ]
+          },
+          "all_three_original_frozen_gates_pass": false
+        }
+      }
+    },
+    {
+      "coarse_ppw": 32,
+      "fine_ppw": 36,
+      "arms": {
+        "preobserved_original_eightnode_consistent_mass_P1": {
+          "signed_original_40_80_coarse_minus_fine": [
+            [
+              2.596075414449576,
+              -0.3223133769840061
+            ],
+            [
+              2.1992121444084063,
+              -1.242376557424194
+            ]
+          ],
+          "unchanged_original_three_metrics_and_per_bin": {
+            "complex_rms_relative": 0.01594774802765642,
+            "magnitude_max_relative": 0.1436119034761875,
+            "magnitude_max_db": 1.1655733427277557,
+            "phase_max_deg": 0.4967169981047732,
+            "mask_floor": 0.7187615225314385,
+            "compared_frequency_count": 2,
+            "frequency_metrics": [
+              {
+                "frequency_hz": 40.0,
+                "masked_in": true,
+                "magnitude_absolute": 2.6152762238488414,
+                "magnitude_relative": 0.1436119034761875,
+                "magnitude_db": 1.1655733427277557,
+                "phase_deg": 0.1819284955044509,
+                "complex_relative": 0.14365204125853046
+              },
+              {
+                "frequency_hz": 80.0,
+                "masked_in": true,
+                "magnitude_absolute": 1.5717605827185537,
+                "magnitude_relative": 0.006915149492642345,
+                "magnitude_db": 0.05985750124660127,
+                "phase_deg": 0.4967169981047732,
+                "complex_relative": 0.01111288094955073
+              }
+            ]
+          },
+          "all_three_original_frozen_gates_pass": true
+        },
+        "true_physical_P1_weak_dirac_source_point_receiver": {
+          "signed_original_40_80_coarse_minus_fine": [
+            [
+              128.95138294372794,
+              -0.7270588247609431
+            ],
+            [
+              128.40646778524666,
+              -1.9050024713651226
+            ]
+          ],
+          "unchanged_original_three_metrics_and_per_bin": {
+            "complex_rms_relative": 0.7347450480399396,
+            "magnitude_max_relative": 0.44372007488823895,
+            "magnitude_max_db": 5.094132249700394,
+            "phase_max_deg": 174.78834575603423,
+            "mask_floor": 0.7380585592971791,
+            "compared_frequency_count": 2,
+            "frequency_metrics": [
+              {
+                "frequency_hz": 40.0,
+                "masked_in": true,
+                "magnitude_absolute": 36.801627350482164,
+                "magnitude_relative": 0.44372007488823895,
+                "magnitude_db": 5.094132249700394,
+                "phase_deg": 174.78834575603423,
+                "complex_relative": 1.5548015369682682
+              },
+              {
+                "frequency_hz": 80.0,
+                "masked_in": true,
+                "magnitude_absolute": 0.7914660689116886,
+                "magnitude_relative": 0.003391106893854142,
+                "magnitude_db": 0.029404950696490996,
+                "phase_deg": 31.881628949979444,
+                "complex_relative": 0.5502294949406757
+              }
+            ]
+          },
+          "all_three_original_frozen_gates_pass": false
+        }
+      }
+    },
+    {
+      "coarse_ppw": 36,
+      "fine_ppw": 40,
+      "arms": {
+        "preobserved_original_eightnode_consistent_mass_P1": {
+          "signed_original_40_80_coarse_minus_fine": [
+            [
+              -67.813989805301,
+              -3.42269471896932
+            ],
+            [
+              -68.66708219645986,
+              -6.2663153802335785
+            ]
+          ],
+          "unchanged_original_three_metrics_and_per_bin": {
+            "complex_rms_relative": 0.3774688964998303,
+            "magnitude_max_relative": 0.7878194067587417,
+            "magnitude_max_db": 13.46588681337401,
+            "phase_max_deg": 16.551361897698683,
+            "mask_floor": 0.7639388892489728,
+            "compared_frequency_count": 2,
+            "frequency_metrics": [
+              {
+                "frequency_hz": 40.0,
+                "masked_in": true,
+                "magnitude_absolute": 67.61579248315721,
+                "magnitude_relative": 0.7878194067587417,
+                "magnitude_db": 13.46588681337401,
+                "phase_deg": 9.008354051250791,
+                "complex_relative": 0.7911344334456912
+              },
+              {
+                "frequency_hz": 80.0,
+                "masked_in": true,
+                "magnitude_absolute": 14.286337751609295,
+                "magnitude_relative": 0.05913740922647375,
+                "magnitude_db": 0.5294759783482484,
+                "phase_deg": 16.551361897698683,
+                "complex_relative": 0.28542422668463574
+              }
+            ]
+          },
+          "all_three_original_frozen_gates_pass": false
+        },
+        "true_physical_P1_weak_dirac_source_point_receiver": {
+          "signed_original_40_80_coarse_minus_fine": [
+            [
+              -144.69608129746848,
+              -3.661824463207596
+            ],
+            [
+              -145.38554275626393,
+              -6.813103493026176
+            ]
+          ],
+          "unchanged_original_three_metrics_and_per_bin": {
+            "complex_rms_relative": 0.8582045186637973,
+            "magnitude_max_relative": 0.34196968522738885,
+            "magnitude_max_db": 2.5548541067165855,
+            "phase_max_deg": 179.78998508550194,
+            "mask_floor": 0.7306653726645541,
+            "compared_frequency_count": 2,
+            "frequency_metrics": [
+              {
+                "frequency_hz": 40.0,
+                "masked_in": true,
+                "magnitude_absolute": 21.135029048337387,
+                "magnitude_relative": 0.34196968522738885,
+                "magnitude_db": 2.5548541067165855,
+                "phase_deg": 179.78998508550194,
+                "complex_relative": 2.3419658358869517
+              },
+              {
+                "frequency_hz": 80.0,
+                "masked_in": true,
+                "magnitude_absolute": 2.3379308925805447,
+                "magnitude_relative": 0.010118430281790788,
+                "magnitude_db": 0.08744590342737961,
+                "phase_deg": 36.520478998373704,
+                "complex_relative": 0.6299107866535183
+              }
+            ]
+          },
+          "all_three_original_frozen_gates_pass": false
+        }
+      }
+    },
+    {
+      "coarse_ppw": 40,
+      "fine_ppw": 44,
+      "arms": {
+        "preobserved_original_eightnode_consistent_mass_P1": {
+          "signed_original_40_80_coarse_minus_fine": [
+            [
+              78.55378157907239,
+              1.6550743627669222
+            ],
+            [
+              78.6360943709914,
+              3.356479155577375
+            ]
+          ],
+          "unchanged_original_three_metrics_and_per_bin": {
+            "complex_rms_relative": 0.4982317979175555,
+            "magnitude_max_relative": 10.710197454201781,
+            "magnitude_max_db": 21.37128436181837,
+            "phase_max_deg": 18.96846869803622,
+            "mask_floor": 0.7054885667003947,
+            "compared_frequency_count": 2,
+            "frequency_metrics": [
+              {
+                "frequency_hz": 40.0,
+                "masked_in": true,
+                "magnitude_absolute": 78.49730148809752,
+                "magnitude_relative": 10.710197454201781,
+                "magnitude_db": 21.37128436181837,
+                "phase_deg": 7.789779091583654,
+                "complex_relative": 10.720282276929627
+              },
+              {
+                "frequency_hz": 80.0,
+                "masked_in": true,
+                "magnitude_absolute": 18.483614922500465,
+                "magnitude_relative": 0.08285084310005644,
+                "magnitude_db": 0.691372780155699,
+                "phase_deg": 18.96846869803622,
+                "complex_relative": 0.35279889440301504
+              }
+            ]
+          },
+          "all_three_original_frozen_gates_pass": false
+        },
+        "true_physical_P1_weak_dirac_source_point_receiver": {
+          "signed_original_40_80_coarse_minus_fine": [
+            [
+              47.83405649347946,
+              2.3879874210761254
+            ],
+            [
+              47.91449862307974,
+              4.7450009078069115
+            ]
+          ],
+          "unchanged_original_three_metrics_and_per_bin": {
+            "complex_rms_relative": 0.3026189384487574,
+            "magnitude_max_relative": 3.419069370628111,
+            "magnitude_max_db": 12.906616383563243,
+            "phase_max_deg": 12.01708139833579,
+            "mask_floor": 0.708286379771438,
+            "compared_frequency_count": 2,
+            "frequency_metrics": [
+              {
+                "frequency_hz": 40.0,
+                "masked_in": true,
+                "magnitude_absolute": 47.81810195879875,
+                "magnitude_relative": 3.419069370628111,
+                "magnitude_db": 12.906616383563243,
+                "phase_deg": 5.241437741005001,
+                "complex_relative": 3.4244694828768507
+              },
+              {
+                "frequency_hz": 80.0,
+                "masked_in": true,
+                "magnitude_absolute": 7.076858928296787,
+                "magnitude_relative": 0.03159596673359398,
+                "magnitude_db": 0.27019270986145627,
+                "phase_deg": 12.01708139833579,
+                "complex_relative": 0.21496970392832945
+              }
+            ]
+          },
+          "all_three_original_frozen_gates_pass": false
+        }
+      }
+    }
+  ],
+  "entire_original_native_5grid_three_gate_convergence_verdicts": {
+    "preobserved_original_eightnode_consistent_mass_P1": {
+      "all_four_original_three_gate_pass": false,
+      "three_metric_strict_monotone": false,
+      "no_original_native_PFFDTD_requalification": true
+    },
+    "true_physical_P1_weak_dirac_source_point_receiver": {
+      "all_four_original_three_gate_pass": false,
+      "three_metric_strict_monotone": false,
+      "no_original_native_PFFDTD_requalification": true
+    }
+  },
+  "no_qualified_original_or_product_PFFDTD": true
+}
