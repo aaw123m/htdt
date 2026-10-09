@@ -20,7 +20,7 @@ def _arrays(theta,amplitude,dt,nt,rho):
     amplitude=np.asarray(amplitude,dtype=float).ravel()
     if (theta.shape!=amplitude.shape or theta.size==0 or
         not np.isfinite(theta).all() or not np.isfinite(amplitude).all()
-        or np.min(theta)<-1e-8 or np.max(theta)>np.pi+1e-8 or
+        or np.min(theta)<-1e-8 or
         nt<5 or nt>2000 or not np.isfinite(dt) or dt<=0 or
         not np.isfinite(rho) or rho<=0):
         raise ValueError("invalid original native all-mode q0 or sample clock")
@@ -30,7 +30,12 @@ def _arrays(theta,amplitude,dt,nt,rho):
 def _qprog(m,beta):
     """Stable sum_{k=1..m} exp(i*k*beta), including exact beta=0."""
     if m<0:raise ValueError("invalid exact finite observation interval")
+    # Actual physical sliver cutcells have omega*dt >> pi. Do not discard
+    # or clamp them: geometric phases are EXACTLY periodic modulo 2*pi.
+    # Reduce only the phase (never theta in the source's sinc envelope),
+    # preventing sinc(beta/(2*pi)) singularities at aliased frequencies.
     beta=np.asarray(beta,dtype=float)
+    beta=(beta+np.pi)%(2*np.pi)-np.pi
     return (m*np.exp(.5j*(m+1)*beta)*np.sinc(m*beta/(2*np.pi))/
             np.sinc(beta/(2*np.pi)))
 
