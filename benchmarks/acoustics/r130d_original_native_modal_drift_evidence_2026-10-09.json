@@ -1,0 +1,2412 @@
+{
+  "schema_version": "htdt.r130d.original-native-neumann-q0-modal-drift-evidence-1",
+  "plan_sha256_lf": "4aa7120e7d940b63ab93160c5949cce088483495ec58d5c80a09c348e9be3a95",
+  "preregistered_plan": {
+    "schema_version": "htdt.r130d.original-native-neumann-q0-modal-drift-plan-1",
+    "date_jst": "2026-10-09",
+    "issue": 938,
+    "pr": 1055,
+    "goal": "Compute lowest physical modes of the unchanged native pinned PFFDTD rigid Neumann graph on ALL five frozen original PPW28-44 meshes and couple the original unaltered eight-node q0 source/receiver; compare native leapfrog discrete frequencies and signed 0.25-second modal impulse transfer with frozen full native 40/80Hz data. Diagnostic, not qualification.",
+    "source_authority": {
+      "pffdtd_upstream_git_sha": "aa319f6c86517cb95aabfae8656277da62c3ead5",
+      "previous_original_graph_evidence": "benchmarks/acoustics/r130d_original_pffdtd_neumann_graph_evidence_2026-10-09.json",
+      "previous_original_wave_evidence": "benchmarks/acoustics/r130d_original_point_quadratic_pffdtd_evidence_2026-10-09.json",
+      "original_ppw": [
+        28,
+        32,
+        36,
+        40,
+        44
+      ],
+      "physical_source_xyz_m": [
+        1.5,
+        2,
+        2
+      ],
+      "physical_receiver_xyz_m": [
+        2.5,
+        2,
+        2
+      ],
+      "sound_speed_m_s": 343.2,
+      "density_kg_m3": 1.2,
+      "raw_source": "unchanged original native 8-node sim comms impulse, q[0]=1 and n>0=0, source scale l2/h and out_alpha trilinear receiver",
+      "wave_record_duration_s": 0.25,
+      "original_full_transfer_frequencies_hz": [
+        40,
+        80
+      ],
+      "no_correction_or_taper": true
+    },
+    "spectral_problem": {
+      "matrix": "exact pinned original native seven-point rigid graph of -L on source-connected interior room only; degree minus full reciprocal one-step adjacency; graph indices C ordered",
+      "solve": "scipy.sparse.linalg.eigsh(A,k=20,which=SM,tol=1e-9,maxiter=6000,ncv=60) CPU sparse symmetric Krylov; zero constant mode included",
+      "number_eigenpairs": 20,
+      "reference_eigenfrequencies_hz": "f_cont=(c/(2*pi*h))*sqrt(lambda_graph)",
+      "leapfrog_native_eigenfrequencies_hz": "f_native=asin(sqrt(l2*lambda_graph)/2)/(pi*Ts), with native Ts and l2, real stable 0<= l2*lambda <=4",
+      "eigen_relative_residual_max": 5e-07,
+      "zero_mode_max_abs_hz": 0.005,
+      "original_receiver_source_eigen_overlap": "normalized original 8-node alpha and source pulse distribution (native source signals first step divided by original total scaling), projected onto Euclidean unit eigenvector; signed product is invariant under eigenvector sign",
+      "modal_impulse": "u[n]=source_scale*sum_k (dot(vk,receiver)*dot(vk,source)) sin(n*theta_k)/sin(theta_k) for n>=1; zero theta uses n; source_scale native total in_sigs[0] sum; u[0]=0; phi native output emitted before n-step source update",
+      "pressure_derivative": "existing unchanged htdt acoustic_pffdtd_adapter.pffdtd_velocity_potential_to_pressure_trace; exact native second order derivative on 0.25s Nt samples; no taper; finite P_T/Q_T q0 unit, signed 40/80Hz",
+      "numerical_provenance": "each eigenvector true residual and modal signed individual finite-window transfer at 40/80 preserved; retain small/large and negative/error findings",
+      "modal_count_not_sufficient_to_qualify": true
+    },
+    "comparisons": {
+      "per_grid_signed_finite_window_modal_transfer": true,
+      "per_grid_original_full_native_transfer": true,
+      "per_grid_all_mode_couplings": true,
+      "compare_adjacent_original_PPW28_32_36_40_44": true,
+      "frequency_bin_modes": [
+        40,
+        80
+      ],
+      "cross_grid_index_modes_only_diagnostic_due_degeneracy": true,
+      "do_not_infer_unique_cause_from_eigenvalues": true,
+      "no_canonical_8_10_12_qualification": true,
+      "original_acceptance_unchanged": {
+        "complex_rms_relative_max": 0.2,
+        "magnitude_max_relative": 0.25,
+        "phase_max_deg": 15
+      },
+      "original_state": "SELF_CONVERGENCE_FAILED"
+    },
+    "limits": {
+      "max_graph_nodes": 150000,
+      "max_grid_cells": 240000,
+      "max_krylov_modes": 20,
+      "max_cases": 5,
+      "max_time_steps": 2000,
+      "max_eigen_relative_residual": 5e-07,
+      "max_requested_modes": 20,
+      "run_locally_only_no_github_actions": true,
+      "if_memory_or_convergence_fails": "store complete explicit failure for level, do not forge or silently omit mode; diagnostic incomplete"
+    },
+    "release": {
+      "original_canonical_point_impulse": "SELF_CONVERGENCE_FAILED",
+      "physical_validation": "NOT_VALIDATED",
+      "production": "NO_GO",
+      "pull_request_draft": true,
+      "issue_open": true
+    }
+  },
+  "pinned_exact_upstream_sha": "aa319f6c86517cb95aabfae8656277da62c3ead5",
+  "original_q0_fullband_state": "SELF_CONVERGENCE_FAILED",
+  "physical_validation": "NOT_VALIDATED",
+  "product": "NO_GO",
+  "actual_original_native_modal_levels": [
+    {
+      "ppw": 28,
+      "exact_original_native_voxel_sha256": "9d8b598fc1e2077840ba5a51e8f2db72c30ad4b6991ae88d3174bac72acf9fc8",
+      "exact_original_native_comms_sha256": "4404a9818a8f0c673c97e8ede8665367100aecb3d2f2f8481bc532bc45fd6b6c",
+      "exact_original_full_wave_sim_outs_sha256": "6e8a94d695fe77e992d8bd66bbb9b63ed9eaf27abd86f5be94f7554d2ba97d6b",
+      "grid_h_m": 0.12257142857142857,
+      "native_dt_s": 0.00020599032818587005,
+      "native_cfl_squared": 0.332667,
+      "original_q0_native_source_total_injection": 2.7140664335664337,
+      "native_room_reachable_vertices": 31185,
+      "native_neumann_laplacian_nnz": 212049,
+      "eigensolver_wall_seconds": 1.2465659999288619,
+      "max_true_relative_eigen_residual": 5.6377873755557683e-11,
+      "eigenpair_count": 20,
+      "eigenmodes": [
+        {
+          "mode_index": 0,
+          "dimensionless_laplacian_lambda": 0.0,
+          "frequency_continuous_time_hz": 0.0,
+          "frequency_native_leapfrog_hz": 0.0,
+          "leapfrog_minus_continuous_hz": 0.0,
+          "true_original_neumann_eigen_relative_residual": 8.509996230154904e-15,
+          "unit_eigenvector_source_receiver_signed_coupling": 3.206669873336496e-05,
+          "finite_250ms_signed_original_q0_pressure_transfer_40_80": [
+            [
+              0.1778410296721733,
+              -0.002988943901536034
+            ],
+            [
+              0.177817932611406,
+              -0.005978800255297511
+            ]
+          ]
+        },
+        {
+          "mode_index": 1,
+          "dimensionless_laplacian_lambda": 0.008596053874768545,
+          "frequency_continuous_time_hz": 41.316899839652926,
+          "frequency_native_leapfrog_hz": 41.32182437307095,
+          "leapfrog_minus_continuous_hz": 0.004924533418027011,
+          "true_original_neumann_eigen_relative_residual": 9.421696813419158e-15,
+          "unit_eigenvector_source_receiver_signed_coupling": 1.8922677494908267e-09,
+          "finite_250ms_signed_original_q0_pressure_transfer_40_80": [
+            [
+              0.0077918054295120324,
+              -0.012767455888556253
+            ],
+            [
+              -0.0001609069452789654,
+              0.000584720959868611
+            ]
+          ]
+        },
+        {
+          "mode_index": 2,
+          "dimensionless_laplacian_lambda": 0.009056154853830623,
+          "frequency_continuous_time_hz": 42.408223788733544,
+          "frequency_native_leapfrog_hz": 42.413549034284635,
+          "leapfrog_minus_continuous_hz": 0.005325245551091484,
+          "true_original_neumann_eigen_relative_residual": 9.095498535941525e-15,
+          "unit_eigenvector_source_receiver_signed_coupling": -9.164090670475702e-06,
+          "finite_250ms_signed_original_q0_pressure_transfer_40_80": [
+            [
+              14.349165748363754,
+              40.4401163369556
+            ],
+            [
+              -0.7137597121025899,
+              -3.495617195325011
+            ]
+          ]
+        },
+        {
+          "mode_index": 3,
+          "dimensionless_laplacian_lambda": 0.012029323238618864,
+          "frequency_continuous_time_hz": 48.876349363962944,
+          "frequency_native_leapfrog_hz": 48.88450267529945,
+          "leapfrog_minus_continuous_hz": 0.008153311336506874,
+          "true_original_neumann_eigen_relative_residual": 8.970310752504044e-15,
+          "unit_eigenvector_source_receiver_signed_coupling": 2.1935399514952555e-06,
+          "finite_250ms_signed_original_q0_pressure_transfer_40_80": [
+            [
+              1.648104385201038,
+              -1.1125615933175401
+            ],
+            [
+              -0.3047184147140029,
+              0.4377766465352161
+            ]
+          ]
+        },
+        {
+          "mode_index": 4,
+          "dimensionless_laplacian_lambda": 0.0176522087285997,
+          "frequency_continuous_time_hz": 59.20763174857886,
+          "frequency_native_leapfrog_hz": 59.222128219549894,
+          "leapfrog_minus_continuous_hz": 0.014496470971032238,
+          "true_original_neumann_eigen_relative_residual": 1.0083558770387146e-14,
+          "unit_eigenvector_source_receiver_signed_coupling": -5.407763790451785e-10,
+          "finite_250ms_signed_original_q0_pressure_transfer_40_80": [
+            [
+              0.00018891387282301067,
+              9.122147950516581e-05
+            ],
+            [
+              -0.00013094673313793345,
+              -0.00012015218269950651
+            ]
+          ]
+        },
+        {
+          "mode_index": 5,
+          "dimensionless_laplacian_lambda": 0.021085478092449293,
+          "frequency_continuous_time_hz": 64.70977493442106,
+          "frequency_native_leapfrog_hz": 64.7287024998997,
+          "leapfrog_minus_continuous_hz": 0.01892756547863428,
+          "true_original_neumann_eigen_relative_residual": 9.143170016383402e-15,
+          "unit_eigenvector_source_receiver_signed_coupling": -6.268746019652765e-07,
+          "finite_250ms_signed_original_q0_pressure_transfer_40_80": [
+            [
+              -0.17869974797979735,
+              0.06943523860244007
+            ],
+            [
+              0.1997946206083688,
+              -0.1625036115869561
+            ]
+          ]
+        },
+        {
+          "mode_index": 6,
+          "dimensionless_laplacian_lambda": 0.021497669608858287,
+          "frequency_continuous_time_hz": 65.33920635751564,
+          "frequency_native_leapfrog_hz": 65.35869193865344,
+          "leapfrog_minus_continuous_hz": 0.019485581137800523,
+          "true_original_neumann_eigen_relative_residual": 9.403091283420395e-15,
+          "unit_eigenvector_source_receiver_signed_coupling": 6.510751346658356e-06,
+          "finite_250ms_signed_original_q0_pressure_transfer_40_80": [
+            [
+              1.7050124447986592,
+              -1.8270809784929447
+            ],
+            [
+              -2.0048825153638417,
+              4.58576746189548
+            ]
+          ]
+        },
+        {
+          "mode_index": 7,
+          "dimensionless_laplacian_lambda": 0.030553824462689404,
+          "frequency_continuous_time_hz": 77.8952458905254,
+          "frequency_native_leapfrog_hz": 77.92827311558246,
+          "leapfrog_minus_continuous_hz": 0.033027225057054466,
+          "true_original_neumann_eigen_relative_residual": 9.30944937959165e-15,
+          "unit_eigenvector_source_receiver_signed_coupling": -1.8606566322847526e-06,
+          "finite_250ms_signed_original_q0_pressure_transfer_40_80": [
+            [
+              -0.06361090145213008,
+              0.40532734625988137
+            ],
+            [
+              0.5895781353303952,
+              -11.079931640418703
+            ]
+          ]
+        },
+        {
+          "mode_index": 8,
+          "dimensionless_laplacian_lambda": 0.035664523743095734,
+          "frequency_continuous_time_hz": 84.15818824685932,
+          "frequency_native_leapfrog_hz": 84.19984751123745,
+          "leapfrog_minus_continuous_hz": 0.04165926437812573,
+          "true_original_neumann_eigen_relative_residual": 9.090981831201418e-15,
+          "unit_eigenvector_source_receiver_signed_coupling": 6.125806134371247e-05,
+          "finite_250ms_signed_original_q0_pressure_transfer_40_80": [
+            [
+              3.903365846990861,
+              -0.2723173566123098
+            ],
+            [
+              28.57267878423226,
+              -4.254110726412714
+            ]
+          ]
+        },
+        {
+          "mode_index": 9,
+          "dimensionless_laplacian_lambda": 0.03614260547458687,
+          "frequency_continuous_time_hz": 84.72037931066073,
+          "frequency_native_leapfrog_hz": 84.7628797996513,
+          "leapfrog_minus_continuous_hz": 0.04250048899056935,
+          "true_original_neumann_eigen_relative_residual": 7.804242335979604e-15,
+          "unit_eigenvector_source_receiver_signed_coupling": 3.2380030097449704e-05,
+          "finite_250ms_signed_original_q0_pressure_transfer_40_80": [
+            [
+              5.826205893048887,
+              -1.8046783996529199
+            ],
+            [
+              40.02974929045553,
+              -25.65483415944555
+            ]
+          ]
+        },
+        {
+          "mode_index": 10,
+          "dimensionless_laplacian_lambda": 0.0432253819000496,
+          "frequency_continuous_time_hz": 92.65046055314573,
+          "frequency_native_leapfrog_hz": 92.70606229558415,
+          "leapfrog_minus_continuous_hz": 0.055601742438412316,
+          "true_original_neumann_eigen_relative_residual": 8.519442555549983e-15,
+          "unit_eigenvector_source_receiver_signed_coupling": 1.5459247014909492e-05,
+          "finite_250ms_signed_original_q0_pressure_transfer_40_80": [
+            [
+              2.3504796103476684,
+              -0.6001542677854587
+            ],
+            [
+              7.252316162513279,
+              -3.8202462217325155
+            ]
+          ]
+        },
+        {
+          "mode_index": 11,
+          "dimensionless_laplacian_lambda": 0.044720678596926466,
+          "frequency_continuous_time_hz": 94.2393659460267,
+          "frequency_native_leapfrog_hz": 94.29788092999807,
+          "leapfrog_minus_continuous_hz": 0.05851498397137789,
+          "true_original_neumann_eigen_relative_residual": 8.238629854776e-15,
+          "unit_eigenvector_source_receiver_signed_coupling": -1.7506461551298203e-05,
+          "finite_250ms_signed_original_q0_pressure_transfer_40_80": [
+            [
+              1.0723858041916734,
+              2.2208335958627927
+            ],
+            [
+              3.474807323603439,
+              12.993925172188058
+            ]
+          ]
+        },
+        {
+          "mode_index": 12,
+          "dimensionless_laplacian_lambda": 0.044738659349356585,
+          "frequency_continuous_time_hz": 94.25830935733133,
+          "frequency_native_leapfrog_hz": 94.31685967486007,
+          "leapfrog_minus_continuous_hz": 0.0585503175287414,
+          "true_original_neumann_eigen_relative_residual": 8.926477871996468e-15,
+          "unit_eigenvector_source_receiver_signed_coupling": 1.9107575481092374e-09,
+          "finite_250ms_signed_original_q0_pressure_transfer_40_80": [
+            [
+              -0.0001250375089262471,
+              -0.00024050531246325808
+            ],
+            [
+              -0.00040212371661525357,
+              -0.0014058444921963814
+            ]
+          ]
+        },
+        {
+          "mode_index": 13,
+          "dimensionless_laplacian_lambda": 0.04763253889660253,
+          "frequency_continuous_time_hz": 97.25905116209589,
+          "frequency_native_leapfrog_hz": 97.3233802764044,
+          "leapfrog_minus_continuous_hz": 0.06432911430850652,
+          "true_original_neumann_eigen_relative_residual": 7.864480853822538e-15,
+          "unit_eigenvector_source_receiver_signed_coupling": 4.1244674906435795e-06,
+          "finite_250ms_signed_original_q0_pressure_transfer_40_80": [
+            [
+              0.5821677558920316,
+              -0.3807826494339371
+            ],
+            [
+              1.4326415915214736,
+              -1.9508560700730049
+            ]
+          ]
+        },
+        {
+          "mode_index": 14,
+          "dimensionless_laplacian_lambda": 0.0481719287132056,
+          "frequency_continuous_time_hz": 97.80818062764672,
+          "frequency_native_leapfrog_hz": 97.87360684638196,
+          "leapfrog_minus_continuous_hz": 0.06542621873524013,
+          "true_original_neumann_eigen_relative_residual": 9.707548597673304e-15,
+          "unit_eigenvector_source_receiver_signed_coupling": 2.214973553702553e-06,
+          "finite_250ms_signed_original_q0_pressure_transfer_40_80": [
+            [
+              0.08814135692470193,
+              -0.2687084720198812
+            ],
+            [
+              0.18697701354289512,
+              -1.3485383221409235
+            ]
+          ]
+        },
+        {
+          "mode_index": 15,
+          "dimensionless_laplacian_lambda": 0.05228153675387914,
+          "frequency_continuous_time_hz": 101.89487369649714,
+          "frequency_native_leapfrog_hz": 101.96885982263507,
+          "leapfrog_minus_continuous_hz": 0.07398612613792466,
+          "true_original_neumann_eigen_relative_residual": 9.528567997987697e-15,
+          "unit_eigenvector_source_receiver_signed_coupling": -4.417977120749078e-06,
+          "finite_250ms_signed_original_q0_pressure_transfer_40_80": [
+            [
+              -0.07595518916603515,
+              0.49064455809378515
+            ],
+            [
+              -0.11268399129133604,
+              2.1591171826716926
+            ]
+          ]
+        },
+        {
+          "mode_index": 16,
+          "dimensionless_laplacian_lambda": 0.05668869375043068,
+          "frequency_continuous_time_hz": 106.10268836304762,
+          "frequency_native_leapfrog_hz": 106.18623795232779,
+          "leapfrog_minus_continuous_hz": 0.08354958928016742,
+          "true_original_neumann_eigen_relative_residual": 8.84385373556126e-15,
+          "unit_eigenvector_source_receiver_signed_coupling": -1.178699259501646e-06,
+          "finite_250ms_signed_original_q0_pressure_transfer_40_80": [
+            [
+              0.033610655984654084,
+              0.11657167060939393
+            ],
+            [
+              0.078475993103816,
+              0.4625850904238225
+            ]
+          ]
+        },
+        {
+          "mode_index": 17,
+          "dimensionless_laplacian_lambda": 0.0576402750834453,
+          "frequency_continuous_time_hz": 106.98950676572105,
+          "frequency_native_leapfrog_hz": 107.07517192620756,
+          "leapfrog_minus_continuous_hz": 0.08566516048651351,
+          "true_original_neumann_eigen_relative_residual": 9.54004409483181e-15,
+          "unit_eigenvector_source_receiver_signed_coupling": 6.574369451432774e-06,
+          "finite_250ms_signed_original_q0_pressure_transfer_40_80": [
+            [
+              -0.8149729891611879,
+              -0.2877385362608733
+            ],
+            [
+              -1.6353046459681335,
+              -1.1199664239547487
+            ]
+          ]
+        },
+        {
+          "mode_index": 18,
+          "dimensionless_laplacian_lambda": 0.06307033299537745,
+          "frequency_continuous_time_hz": 111.91562514655293,
+          "frequency_native_leapfrog_hz": 112.01369633504453,
+          "leapfrog_minus_continuous_hz": 0.0980711884916019,
+          "true_original_neumann_eigen_relative_residual": 2.8128616452123144e-14,
+          "unit_eigenvector_source_receiver_signed_coupling": 5.128976956504355e-05,
+          "finite_250ms_signed_original_q0_pressure_transfer_40_80": [
+            [
+              0.43932153334325164,
+              -0.005601079139850557
+            ],
+            [
+              0.5469653836946482,
+              -0.012030726125875135
+            ]
+          ]
+        },
+        {
+          "mode_index": 19,
+          "dimensionless_laplacian_lambda": 0.07180712921768134,
+          "frequency_continuous_time_hz": 119.41584199567404,
+          "frequency_native_leapfrog_hz": 119.53502043528188,
+          "leapfrog_minus_continuous_hz": 0.11917843960783614,
+          "true_original_neumann_eigen_relative_residual": 5.6377873755557683e-11,
+          "unit_eigenvector_source_receiver_signed_coupling": 6.185662846242016e-05,
+          "finite_250ms_signed_original_q0_pressure_transfer_40_80": [
+            [
+              -4.353258212574374,
+              -0.6131982139992199
+            ],
+            [
+              -7.243084178817689,
+              -1.9658569693189547
+            ]
+          ]
+        }
+      ],
+      "nearest_to_40_80_hz": [
+        {
+          "target_frequency_hz": 40.0,
+          "nearest_native_mode_index": 1,
+          "nearest_native_eigenfrequency_hz": 41.32182437307095,
+          "native_mode_frequency_offset_from_target_hz": 1.3218243730709531,
+          "mode_signed_source_receiver_coupling": 1.8922677494908267e-09
+        },
+        {
+          "target_frequency_hz": 80.0,
+          "nearest_native_mode_index": 7,
+          "nearest_native_eigenfrequency_hz": 77.92827311558246,
+          "native_mode_frequency_offset_from_target_hz": -2.0717268844175436,
+          "mode_signed_source_receiver_coupling": -1.8606566322847526e-06
+        }
+      ],
+      "original_full_native_signed_40_80": [
+        [
+          101.0987693066617,
+          42.7956809667478
+        ],
+        [
+          150.77953891006572,
+          -21.729992606786517
+        ]
+      ],
+      "first_20_modal_signed_40_80": [
+        [
+          26.697160706219233,
+          36.55420151604591
+        ],
+        [
+          70.5266747955649,
+          -34.232240588791015
+        ]
+      ],
+      "lowmode_vs_original_full_native_complex_relative_norm": 0.5875359003299785,
+      "q0_and_spatial_trilinear_source_receiver_unchanged": true,
+      "all_original_rigid_boundary_neumann_edges_unchanged": true,
+      "low_modes_diagnostic_not_full_band_qualification": true
+    },
+    {
+      "ppw": 32,
+      "exact_original_native_voxel_sha256": "8f3ebd62703c40793d68fdf703e098bbecc568cc9beb227cfa126b8042954e3b",
+      "exact_original_native_comms_sha256": "716199c1cb8f9d982cdafe7deaccdf630073a2b0d8cdec17fcaf3dff52f4b60b",
+      "exact_original_full_wave_sim_outs_sha256": "773601d4be74cef568739d8957082c9561912ccfd4fa860c415585409a1d84b7",
+      "grid_h_m": 0.10725,
+      "native_dt_s": 0.0001802415371626363,
+      "native_cfl_squared": 0.332667,
+      "original_q0_native_source_total_injection": 3.10179020979021,
+      "native_room_reachable_vertices": 44659,
+      "native_neumann_laplacian_nnz": 304723,
+      "eigensolver_wall_seconds": 2.6713549999985844,
+      "max_true_relative_eigen_residual": 1.0109104397370861e-11,
+      "eigenpair_count": 20,
+      "eigenmodes": [
+        {
+          "mode_index": 0,
+          "dimensionless_laplacian_lambda": 0.0,
+          "frequency_continuous_time_hz": 0.0,
+          "frequency_native_leapfrog_hz": 0.0,
+          "leapfrog_minus_continuous_hz": 0.0,
+          "true_original_neumann_eigen_relative_residual": 9.557164393554262e-15,
+          "unit_eigenvector_source_receiver_signed_coupling": 2.2391903087840552e-05,
+          "finite_250ms_signed_original_q0_pressure_transfer_40_80": [
+            [
+              0.44961806457255804,
+              -0.0002818228719512206
+            ],
+            [
+              0.449624095600643,
+              -0.0005636535259059272
+            ]
+          ]
+        },
+        {
+          "mode_index": 1,
+          "dimensionless_laplacian_lambda": 0.006826066462711803,
+          "frequency_continuous_time_hz": 42.07802683201124,
+          "frequency_native_leapfrog_hz": 42.08200914444234,
+          "leapfrog_minus_continuous_hz": 0.003982312431098478,
+          "true_original_neumann_eigen_relative_residual": 9.788750068358304e-15,
+          "unit_eigenvector_source_receiver_signed_coupling": 7.970041543390142e-09,
+          "finite_250ms_signed_original_q0_pressure_transfer_40_80": [
+            [
+              -0.004592115599182139,
+              -0.06775296687557407
+            ],
+            [
+              0.00017499114904117615,
+              0.005000195184243835
+            ]
+          ]
+        },
+        {
+          "mode_index": 2,
+          "dimensionless_laplacian_lambda": 0.007205022914944702,
+          "frequency_continuous_time_hz": 43.23025458837424,
+          "frequency_native_leapfrog_hz": 43.23457314652912,
+          "leapfrog_minus_continuous_hz": 0.004318558154885466,
+          "true_original_neumann_eigen_relative_residual": 1.117730801838894e-14,
+          "unit_eigenvector_source_receiver_signed_coupling": -6.641660303410593e-06,
+          "finite_250ms_signed_original_q0_pressure_transfer_40_80": [
+            [
+              18.050771151282287,
+              11.512980560321525
+            ],
+            [
+              -1.1706873430168936,
+              -1.3674841485941631
+            ]
+          ]
+        },
+        {
+          "mode_index": 3,
+          "dimensionless_laplacian_lambda": 0.009324390691405202,
+          "frequency_continuous_time_hz": 49.179073314650154,
+          "frequency_native_leapfrog_hz": 49.185431759087386,
+          "leapfrog_minus_continuous_hz": 0.006358444437232436,
+          "true_original_neumann_eigen_relative_residual": 9.77619337439524e-15,
+          "unit_eigenvector_source_receiver_signed_coupling": 1.8927258448841906e-06,
+          "finite_250ms_signed_original_q0_pressure_transfer_40_80": [
+            [
+              1.9990701523829004,
+              -2.1693626826767676
+            ],
+            [
+              -0.3943378876919419,
+              0.8924248396431479
+            ]
+          ]
+        },
+        {
+          "mode_index": 4,
+          "dimensionless_laplacian_lambda": 0.014031089377659808,
+          "frequency_continuous_time_hz": 60.32756628484168,
+          "frequency_native_leapfrog_hz": 60.33930535854495,
+          "leapfrog_minus_continuous_hz": 0.011739073703267877,
+          "true_original_neumann_eigen_relative_residual": 8.822733581363663e-15,
+          "unit_eigenvector_source_receiver_signed_coupling": -2.363993284890138e-09,
+          "finite_250ms_signed_original_q0_pressure_transfer_40_80": [
+            [
+              -0.0006919467619190793,
+              0.000117240594343616
+            ],
+            [
+              0.00043462035763613044,
+              -0.00017325768019916393
+            ]
+          ]
+        },
+        {
+          "mode_index": 5,
+          "dimensionless_laplacian_lambda": 0.01652941360635224,
+          "frequency_continuous_time_hz": 65.47851681172989,
+          "frequency_native_leapfrog_hz": 65.49352829331424,
+          "leapfrog_minus_continuous_hz": 0.015011481584352282,
+          "true_original_neumann_eigen_relative_residual": 9.841804886851766e-15,
+          "unit_eigenvector_source_receiver_signed_coupling": -5.61401237755051e-07,
+          "finite_250ms_signed_original_q0_pressure_transfer_40_80": [
+            [
+              -0.17999533457164268,
+              0.2588908758968333
+            ],
+            [
+              0.22496385960619275,
+              -0.6594614371770898
+            ]
+          ]
+        },
+        {
+          "mode_index": 6,
+          "dimensionless_laplacian_lambda": 0.01679928844084142,
+          "frequency_continuous_time_hz": 66.01088471069181,
+          "frequency_native_leapfrog_hz": 66.0262654817843,
+          "leapfrog_minus_continuous_hz": 0.015380771092495138,
+          "true_original_neumann_eigen_relative_residual": 9.259007668869425e-15,
+          "unit_eigenvector_source_receiver_signed_coupling": 4.805057563901207e-06,
+          "finite_250ms_signed_original_q0_pressure_transfer_40_80": [
+            [
+              -0.08366660929059777,
+              -2.539803937487119
+            ],
+            [
+              0.1197428288103155,
+              6.866054306515981
+            ]
+          ]
+        },
+        {
+          "mode_index": 7,
+          "dimensionless_laplacian_lambda": 0.024004311355787174,
+          "frequency_continuous_time_hz": 78.9068552919464,
+          "frequency_native_leapfrog_hz": 78.9331333283161,
+          "leapfrog_minus_continuous_hz": 0.026278036369703273,
+          "true_original_neumann_eigen_relative_residual": 8.756722764548643e-15,
+          "unit_eigenvector_source_receiver_signed_coupling": -1.4252276795121005e-06,
+          "finite_250ms_signed_original_q0_pressure_transfer_40_80": [
+            [
+              0.42703946884647326,
+              0.24816373537751257
+            ],
+            [
+              -12.045131003730212,
+              -13.54707810548253
+            ]
+          ]
+        },
+        {
+          "mode_index": 8,
+          "dimensionless_laplacian_lambda": 0.028444256239495966,
+          "frequency_continuous_time_hz": 85.89490449165136,
+          "frequency_native_leapfrog_hz": 85.92880632520156,
+          "leapfrog_minus_continuous_hz": 0.033901833550203264,
+          "true_original_neumann_eigen_relative_residual": 9.775579365581668e-15,
+          "unit_eigenvector_source_receiver_signed_coupling": 4.261078532988033e-05,
+          "finite_250ms_signed_original_q0_pressure_transfer_40_80": [
+            [
+              1.3145815008519497,
+              -10.719916711623139
+            ],
+            [
+              7.600361439012282,
+              -125.99053636167211
+            ]
+          ]
+        },
+        {
+          "mode_index": 9,
+          "dimensionless_laplacian_lambda": 0.028768179304583072,
+          "frequency_continuous_time_hz": 86.38260533603354,
+          "frequency_native_leapfrog_hz": 86.41708834486022,
+          "leapfrog_minus_continuous_hz": 0.034483008826683204,
+          "true_original_neumann_eigen_relative_residual": 9.425324637974543e-15,
+          "unit_eigenvector_source_receiver_signed_coupling": 2.1952011037985243e-05,
+          "finite_250ms_signed_original_q0_pressure_transfer_40_80": [
+            [
+              -3.5326919906062835,
+              -4.895263461693334
+            ],
+            [
+              -19.677075546607664,
+              -53.77082061232302
+            ]
+          ]
+        },
+        {
+          "mode_index": 10,
+          "dimensionless_laplacian_lambda": 0.03362772899173171,
+          "frequency_continuous_time_hz": 93.39397914155815,
+          "frequency_native_leapfrog_hz": 93.43756664882514,
+          "leapfrog_minus_continuous_hz": 0.043587507266991565,
+          "true_original_neumann_eigen_relative_residual": 1.083199189857112e-14,
+          "unit_eigenvector_source_receiver_signed_coupling": 1.0541069187791482e-05,
+          "finite_250ms_signed_original_q0_pressure_transfer_40_80": [
+            [
+              1.989710151425283,
+              -1.7636452273797678
+            ],
+            [
+              5.999398971295027,
+              -10.786835754565587
+            ]
+          ]
+        },
+        {
+          "mode_index": 11,
+          "dimensionless_laplacian_lambda": 0.03559424576729723,
+          "frequency_continuous_time_hz": 96.08597632702183,
+          "frequency_native_leapfrog_hz": 96.1334461320431,
+          "leapfrog_minus_continuous_hz": 0.0474698050212794,
+          "true_original_neumann_eigen_relative_residual": 1.1074256480698206e-14,
+          "unit_eigenvector_source_receiver_signed_coupling": 7.81346896912487e-09,
+          "finite_250ms_signed_original_q0_pressure_transfer_40_80": [
+            [
+              0.000529844037679615,
+              -1.6434987044542087e-05
+            ],
+            [
+              0.0011598581585833406,
+              -8.802112949106357e-05
+            ]
+          ]
+        },
+        {
+          "mode_index": 12,
+          "dimensionless_laplacian_lambda": 0.035649279154441826,
+          "frequency_continuous_time_hz": 96.16022841802041,
+          "frequency_native_leapfrog_hz": 96.20780845564374,
+          "leapfrog_minus_continuous_hz": 0.04758003762333374,
+          "true_original_neumann_eigen_relative_residual": 8.931375703202888e-15,
+          "unit_eigenvector_source_receiver_signed_coupling": -1.263878109477711e-05,
+          "finite_250ms_signed_original_q0_pressure_transfer_40_80": [
+            [
+              -1.178356379435237,
+              0.06378674647073757
+            ],
+            [
+              -2.7391894369675174,
+              0.3413051472549367
+            ]
+          ]
+        },
+        {
+          "mode_index": 13,
+          "dimensionless_laplacian_lambda": 0.03744919224638651,
+          "frequency_continuous_time_hz": 98.557876403789,
+          "frequency_native_leapfrog_hz": 98.60910844446994,
+          "leapfrog_minus_continuous_hz": 0.05123204068094367,
+          "true_original_neumann_eigen_relative_residual": 1.0834643025731374e-14,
+          "unit_eigenvector_source_receiver_signed_coupling": 2.0343498006671074e-06,
+          "finite_250ms_signed_original_q0_pressure_transfer_40_80": [
+            [
+              -0.35810088530538403,
+              -0.2881284684546547
+            ],
+            [
+              -0.8896051461916654,
+              -1.407776623968564
+            ]
+          ]
+        },
+        {
+          "mode_index": 14,
+          "dimensionless_laplacian_lambda": 0.038092569995989534,
+          "frequency_continuous_time_hz": 99.40088408424238,
+          "frequency_native_leapfrog_hz": 99.4534432987284,
+          "leapfrog_minus_continuous_hz": 0.052559214486024075,
+          "true_original_neumann_eigen_relative_residual": 1.1391047869582817e-14,
+          "unit_eigenvector_source_receiver_signed_coupling": 1.8555429824651743e-06,
+          "finite_250ms_signed_original_q0_pressure_transfer_40_80": [
+            [
+              -0.27558945446127564,
+              -0.05662078858870356
+            ],
+            [
+              -0.6979753798745647,
+              -0.26876315161730546
+            ]
+          ]
+        },
+        {
+          "mode_index": 15,
+          "dimensionless_laplacian_lambda": 0.04083275190668034,
+          "frequency_continuous_time_hz": 102.9139944403601,
+          "frequency_native_leapfrog_hz": 102.9723317068633,
+          "leapfrog_minus_continuous_hz": 0.05833726650320159,
+          "true_original_neumann_eigen_relative_residual": 1.0557045299920224e-14,
+          "unit_eigenvector_source_receiver_signed_coupling": -3.1265855566376112e-06,
+          "finite_250ms_signed_original_q0_pressure_transfer_40_80": [
+            [
+              0.6195759677013746,
+              0.26455786031705364
+            ],
+            [
+              1.363508371929755,
+              1.1327640049183918
+            ]
+          ]
+        },
+        {
+          "mode_index": 16,
+          "dimensionless_laplacian_lambda": 0.044654215161332944,
+          "frequency_continuous_time_hz": 107.62206982306489,
+          "frequency_native_leapfrog_hz": 107.68879489761109,
+          "leapfrog_minus_continuous_hz": 0.06672507454619847,
+          "true_original_neumann_eigen_relative_residual": 8.943514191493799e-15,
+          "unit_eigenvector_source_receiver_signed_coupling": -6.034083061770499e-07,
+          "finite_250ms_signed_original_q0_pressure_transfer_40_80": [
+            [
+              0.04401256805606496,
+              0.005168877315589515
+            ],
+            [
+              0.09542271438646122,
+              0.019863025947285336
+            ]
+          ]
+        },
+        {
+          "mode_index": 17,
+          "dimensionless_laplacian_lambda": 0.04556746774542548,
+          "frequency_continuous_time_hz": 108.71702444847095,
+          "frequency_native_leapfrog_hz": 108.78580926826825,
+          "leapfrog_minus_continuous_hz": 0.06878481979730111,
+          "true_original_neumann_eigen_relative_residual": 1.0515534539806251e-14,
+          "unit_eigenvector_source_receiver_signed_coupling": 4.710661539886801e-06,
+          "finite_250ms_signed_original_q0_pressure_transfer_40_80": [
+            [
+              0.9259091569333618,
+              -0.22515426700908692
+            ],
+            [
+              1.6871679596888562,
+              -0.8475862936405237
+            ]
+          ]
+        },
+        {
+          "mode_index": 18,
+          "dimensionless_laplacian_lambda": 0.04895528217237339,
+          "frequency_continuous_time_hz": 112.68598078837822,
+          "frequency_native_leapfrog_hz": 112.76258714773037,
+          "leapfrog_minus_continuous_hz": 0.0766063593521551,
+          "true_original_neumann_eigen_relative_residual": 9.890345790477282e-15,
+          "unit_eigenvector_source_receiver_signed_coupling": 3.6298478719000405e-05,
+          "finite_250ms_signed_original_q0_pressure_transfer_40_80": [
+            [
+              6.759530763790087,
+              -1.5160374271073118
+            ],
+            [
+              11.512291708809121,
+              -5.333625296526204
+            ]
+          ]
+        },
+        {
+          "mode_index": 19,
+          "dimensionless_laplacian_lambda": 0.05616030508732261,
+          "frequency_continuous_time_hz": 120.69376611082932,
+          "frequency_native_leapfrog_hz": 120.78791759293672,
+          "leapfrog_minus_continuous_hz": 0.09415148210740654,
+          "true_original_neumann_eigen_relative_residual": 1.0109104397370861e-11,
+          "unit_eigenvector_source_receiver_signed_coupling": -1.0766488413520585e-05,
+          "finite_250ms_signed_original_q0_pressure_transfer_40_80": [
+            [
+              -1.8716162574412183,
+              0.40746678361440103
+            ],
+            [
+              -2.8827657121655137,
+              1.2918572462640743
+            ]
+          ]
+        }
+      ],
+      "nearest_to_40_80_hz": [
+        {
+          "target_frequency_hz": 40.0,
+          "nearest_native_mode_index": 1,
+          "nearest_native_eigenfrequency_hz": 42.08200914444234,
+          "native_mode_frequency_offset_from_target_hz": 2.0820091444423383,
+          "mode_signed_source_receiver_coupling": 7.970041543390142e-09
+        },
+        {
+          "target_frequency_hz": 80.0,
+          "nearest_native_mode_index": 7,
+          "nearest_native_eigenfrequency_hz": 78.9331333283161,
+          "native_mode_frequency_offset_from_target_hz": -1.066866671683897,
+          "mode_signed_source_receiver_coupling": -1.4252276795121005e-06
+        }
+      ],
+      "original_full_native_signed_40_80": [
+        [
+          16.56628166594011,
+          -21.00233450877161
+        ],
+        [
+          -21.520688403756687,
+          -230.6577420888628
+        ]
+      ],
+      "first_20_modal_signed_40_80": [
+        [
+          25.09504781640728,
+          -11.480851516846458
+        ],
+        [
+          -11.442516037442058,
+          -203.43152395217464
+        ]
+      ],
+      "lowmode_vs_original_full_native_complex_relative_norm": 0.13602646914876673,
+      "q0_and_spatial_trilinear_source_receiver_unchanged": true,
+      "all_original_rigid_boundary_neumann_edges_unchanged": true,
+      "low_modes_diagnostic_not_full_band_qualification": true
+    },
+    {
+      "ppw": 36,
+      "exact_original_native_voxel_sha256": "433c1d334419006b1185a4ef275545d329244d0808b2a3c12a3200e7af4e3d50",
+      "exact_original_native_comms_sha256": "3cd05bcee5f8fed08da3dc94ff2ac90b92969b293daf2db77b4bac8d0c51a2f9",
+      "exact_original_full_wave_sim_outs_sha256": "8fad2511eee77d463b43a1aa5d6f7ae13047ed8bf5d27e0cb0b76ffb7b3bd486",
+      "grid_h_m": 0.09533333333333333,
+      "native_dt_s": 0.00016021469970012116,
+      "native_cfl_squared": 0.332667,
+      "original_q0_native_source_total_injection": 3.4895139860139857,
+      "native_room_reachable_vertices": 64848,
+      "native_neumann_laplacian_nnz": 443792,
+      "eigensolver_wall_seconds": 4.453290399862453,
+      "max_true_relative_eigen_residual": 1.762172129759497e-11,
+      "eigenpair_count": 20,
+      "eigenmodes": [
+        {
+          "mode_index": 0,
+          "dimensionless_laplacian_lambda": 1.1928171747818326e-16,
+          "frequency_continuous_time_hz": 6.257625584658184e-06,
+          "frequency_native_leapfrog_hz": 6.257625584658185e-06,
+          "leapfrog_minus_continuous_hz": 8.470329472543003e-22,
+          "true_original_neumann_eigen_relative_residual": 9.309900844999323e-15,
+          "unit_eigenvector_source_receiver_signed_coupling": 1.542067604243812e-05,
+          "finite_250ms_signed_original_q0_pressure_transfer_40_80": [
+            [
+              0.2393541437224102,
+              -0.001957181373114376
+            ],
+            [
+              0.23936154273004745,
+              -0.00391474549670112
+            ]
+          ]
+        },
+        {
+          "mode_index": 1,
+          "dimensionless_laplacian_lambda": 0.005309137685132134,
+          "frequency_continuous_time_hz": 41.74789923557642,
+          "frequency_native_leapfrog_hz": 41.75097210001158,
+          "leapfrog_minus_continuous_hz": 0.0030728644351611933,
+          "true_original_neumann_eigen_relative_residual": 1.0576006271650824e-14,
+          "unit_eigenvector_source_receiver_signed_coupling": 6.227031710360727e-10,
+          "finite_250ms_signed_original_q0_pressure_transfer_40_80": [
+            [
+              0.0018046641796576905,
+              -0.008694440195552107
+            ],
+            [
+              -4.852935066254314e-05,
+              0.0005344385191488274
+            ]
+          ]
+        },
+        {
+          "mode_index": 2,
+          "dimensionless_laplacian_lambda": 0.0055924056376392955,
+          "frequency_continuous_time_hz": 42.847152459742006,
+          "frequency_native_leapfrog_hz": 42.850474539243535,
+          "leapfrog_minus_continuous_hz": 0.003322079501529629,
+          "true_original_neumann_eigen_relative_residual": 1.1767751448549773e-14,
+          "unit_eigenvector_source_receiver_signed_coupling": -4.503342419491392e-06,
+          "finite_250ms_signed_original_q0_pressure_transfer_40_80": [
+            [
+              20.57619681973726,
+              24.41267248805478
+            ],
+            [
+              -1.1238297461919717,
+              -2.5258003823985944
+            ]
+          ]
+        },
+        {
+          "mode_index": 3,
+          "dimensionless_laplacian_lambda": 0.007323875483780877,
+          "frequency_continuous_time_hz": 49.03352418993682,
+          "frequency_native_leapfrog_hz": 49.03850329861797,
+          "leapfrog_minus_continuous_hz": 0.004979108681148148,
+          "true_original_neumann_eigen_relative_residual": 1.0558485329956255e-14,
+          "unit_eigenvector_source_receiver_signed_coupling": 1.1770179831032665e-06,
+          "finite_250ms_signed_original_q0_pressure_transfer_40_80": [
+            [
+              1.87401497223096,
+              -1.6108125473790234
+            ],
+            [
+              -0.3591083899565614,
+              0.6487050695058186
+            ]
+          ]
+        },
+        {
+          "mode_index": 4,
+          "dimensionless_laplacian_lambda": 0.010901543322770777,
+          "frequency_continuous_time_hz": 59.82278466012764,
+          "frequency_native_leapfrog_hz": 59.8318280309116,
+          "leapfrog_minus_continuous_hz": 0.009043370783963667,
+          "true_original_neumann_eigen_relative_residual": 1.029312101464338e-14,
+          "unit_eigenvector_source_receiver_signed_coupling": -1.8184971898815012e-10,
+          "finite_250ms_signed_original_q0_pressure_transfer_40_80": [
+            [
+              3.443385980355445e-05,
+              3.331961526504172e-06
+            ],
+            [
+              -2.8975680216201687e-05,
+              -4.600032741556385e-06
+            ]
+          ]
+        },
+        {
+          "mode_index": 5,
+          "dimensionless_laplacian_lambda": 0.01291628112142229,
+          "frequency_continuous_time_hz": 65.11654911306488,
+          "frequency_native_leapfrog_hz": 65.12821284054218,
+          "leapfrog_minus_continuous_hz": 0.01166372747729838,
+          "true_original_neumann_eigen_relative_residual": 9.792340832430073e-15,
+          "unit_eigenvector_source_receiver_signed_coupling": -3.437277974859052e-07,
+          "finite_250ms_signed_original_q0_pressure_transfer_40_80": [
+            [
+              -0.21993541672477865,
+              0.16218965042349984
+            ],
+            [
+              0.25949214875290133,
+              -0.39690491156465596
+            ]
+          ]
+        },
+        {
+          "mode_index": 6,
+          "dimensionless_laplacian_lambda": 0.013155414580431199,
+          "frequency_continuous_time_hz": 65.71657212733834,
+          "frequency_native_leapfrog_hz": 65.72856137216986,
+          "leapfrog_minus_continuous_hz": 0.011989244831525525,
+          "true_original_neumann_eigen_relative_residual": 9.534112084599841e-15,
+          "unit_eigenvector_source_receiver_signed_coupling": 3.191263939320062e-06,
+          "finite_250ms_signed_original_q0_pressure_transfer_40_80": [
+            [
+              0.8626654476189234,
+              -2.32780869383891
+            ],
+            [
+              -1.0482953879598425,
+              6.088623690877337
+            ]
+          ]
+        },
+        {
+          "mode_index": 7,
+          "dimensionless_laplacian_lambda": 0.01874782021807112,
+          "frequency_continuous_time_hz": 78.45091666817056,
+          "frequency_native_leapfrog_hz": 78.47131770201175,
+          "leapfrog_minus_continuous_hz": 0.02040103384118197,
+          "true_original_neumann_eigen_relative_residual": 9.694692292862712e-15,
+          "unit_eigenvector_source_receiver_signed_coupling": -9.319535816833256e-07,
+          "finite_250ms_signed_original_q0_pressure_transfer_40_80": [
+            [
+              0.2705540190751994,
+              0.3691800304041853
+            ],
+            [
+              -5.297441062102048,
+              -13.88939841928274
+            ]
+          ]
+        },
+        {
+          "mode_index": 8,
+          "dimensionless_laplacian_lambda": 0.022088330879292843,
+          "frequency_continuous_time_hz": 85.15380958694863,
+          "frequency_native_leapfrog_hz": 85.17990262924548,
+          "leapfrog_minus_continuous_hz": 0.026093042296849944,
+          "true_original_neumann_eigen_relative_residual": 9.679595474153597e-15,
+          "unit_eigenvector_source_receiver_signed_coupling": 2.9558303544474577e-05,
+          "finite_250ms_signed_original_q0_pressure_transfer_40_80": [
+            [
+              11.4706432103054,
+              -6.94350960188877
+            ],
+            [
+              73.74139760333625,
+              -91.76797575286506
+            ]
+          ]
+        },
+        {
+          "mode_index": 9,
+          "dimensionless_laplacian_lambda": 0.022338347549743703,
+          "frequency_continuous_time_hz": 85.63437930239695,
+          "frequency_native_leapfrog_hz": 85.6609168632997,
+          "leapfrog_minus_continuous_hz": 0.026537560902752944,
+          "true_original_neumann_eigen_relative_residual": 1.1206464353817463e-14,
+          "unit_eigenvector_source_receiver_signed_coupling": 1.5377552188981784e-05,
+          "finite_250ms_signed_original_q0_pressure_transfer_40_80": [
+            [
+              3.1961460312743712,
+              -5.181892151962142
+            ],
+            [
+              18.688402542913085,
+              -63.4015696001908
+            ]
+          ]
+        },
+        {
+          "mode_index": 10,
+          "dimensionless_laplacian_lambda": 0.026399182945100606,
+          "frequency_continuous_time_hz": 93.09318203139154,
+          "frequency_native_leapfrog_hz": 93.1272806094513,
+          "leapfrog_minus_continuous_hz": 0.034098578059769125,
+          "true_original_neumann_eigen_relative_residual": 1.0482973063790468e-14,
+          "unit_eigenvector_source_receiver_signed_coupling": 7.465183540317455e-06,
+          "finite_250ms_signed_original_q0_pressure_transfer_40_80": [
+            [
+              2.596587107301958,
+              -1.3144605348720335
+            ],
+            [
+              7.879298258945142,
+              -8.178801342948937
+            ]
+          ]
+        },
+        {
+          "mode_index": 11,
+          "dimensionless_laplacian_lambda": 0.027647485234874623,
+          "frequency_continuous_time_hz": 95.26874623448256,
+          "frequency_native_leapfrog_hz": 95.30529345180636,
+          "leapfrog_minus_continuous_hz": 0.036547217323800396,
+          "true_original_neumann_eigen_relative_residual": 8.542597390411236e-15,
+          "unit_eigenvector_source_receiver_signed_coupling": 6.20961784354621e-10,
+          "finite_250ms_signed_original_q0_pressure_transfer_40_80": [
+            [
+              -0.00017330324760708238,
+              -4.648443562113339e-05
+            ],
+            [
+              -0.0004992062574057645,
+              -0.0002590496220475802
+            ]
+          ]
+        },
+        {
+          "mode_index": 12,
+          "dimensionless_laplacian_lambda": 0.027680736516933143,
+          "frequency_continuous_time_hz": 95.3260182797908,
+          "frequency_native_leapfrog_hz": 95.36263149489149,
+          "leapfrog_minus_continuous_hz": 0.0366132151006866,
+          "true_original_neumann_eigen_relative_residual": 1.1855675895822276e-14,
+          "unit_eigenvector_source_receiver_signed_coupling": -8.631992646373369e-06,
+          "finite_250ms_signed_original_q0_pressure_transfer_40_80": [
+            [
+              2.276535983635361,
+              0.552045135642181
+            ],
+            [
+              6.555517929108791,
+              3.067868258146127
+            ]
+          ]
+        },
+        {
+          "mode_index": 13,
+          "dimensionless_laplacian_lambda": 0.02927958586477988,
+          "frequency_continuous_time_hz": 98.04040514125464,
+          "frequency_native_leapfrog_hz": 98.08023830778852,
+          "leapfrog_minus_continuous_hz": 0.03983316653388158,
+          "true_original_neumann_eigen_relative_residual": 1.0262258914802652e-14,
+          "unit_eigenvector_source_receiver_signed_coupling": 1.5091916295629863e-06,
+          "finite_250ms_signed_original_q0_pressure_transfer_40_80": [
+            [
+              -0.04421000445152986,
+              -0.3893937571070242
+            ],
+            [
+              -0.13401557501919853,
+              -1.939598518289673
+            ]
+          ]
+        },
+        {
+          "mode_index": 14,
+          "dimensionless_laplacian_lambda": 0.02966222303352412,
+          "frequency_continuous_time_hz": 98.67894108162977,
+          "frequency_native_leapfrog_hz": 98.719558209674,
+          "leapfrog_minus_continuous_hz": 0.04061712804423223,
+          "true_original_neumann_eigen_relative_residual": 1.1185829091428932e-14,
+          "unit_eigenvector_source_receiver_signed_coupling": 1.1737264574302477e-06,
+          "finite_250ms_signed_original_q0_pressure_transfer_40_80": [
+            [
+              -0.3199860914003191,
+              -0.21354047374197138
+            ],
+            [
+              -0.7992874258748822,
+              -1.0395936053225916
+            ]
+          ]
+        },
+        {
+          "mode_index": 15,
+          "dimensionless_laplacian_lambda": 0.03199158858274013,
+          "frequency_continuous_time_hz": 102.48033477032679,
+          "frequency_native_leapfrog_hz": 102.52583308493064,
+          "leapfrog_minus_continuous_hz": 0.045498314603847234,
+          "true_original_neumann_eigen_relative_residual": 1.026809443447552e-14,
+          "unit_eigenvector_source_receiver_signed_coupling": -2.1800780727035974e-06,
+          "finite_250ms_signed_original_q0_pressure_transfer_40_80": [
+            [
+              0.4539895930569654,
+              0.4264069477724912
+            ],
+            [
+              1.0129254227761237,
+              1.8481206391253109
+            ]
+          ]
+        },
+        {
+          "mode_index": 16,
+          "dimensionless_laplacian_lambda": 0.034871991502421165,
+          "frequency_continuous_time_hz": 106.99439010607229,
+          "frequency_native_leapfrog_hz": 107.04617506531214,
+          "leapfrog_minus_continuous_hz": 0.05178495923985338,
+          "true_original_neumann_eigen_relative_residual": 1.024613495295134e-14,
+          "unit_eigenvector_source_receiver_signed_coupling": -4.407333806817145e-07,
+          "finite_250ms_signed_original_q0_pressure_transfer_40_80": [
+            [
+              0.11806195976381513,
+              0.043102723510221264
+            ],
+            [
+              0.23563943822855235,
+              0.16792298287863355
+            ]
+          ]
+        },
+        {
+          "mode_index": 17,
+          "dimensionless_laplacian_lambda": 0.03549376213017592,
+          "frequency_continuous_time_hz": 107.94403536404774,
+          "frequency_native_leapfrog_hz": 107.99721271426947,
+          "leapfrog_minus_continuous_hz": 0.053177350221730535,
+          "true_original_neumann_eigen_relative_residual": 9.803423373937443e-15,
+          "unit_eigenvector_source_receiver_signed_coupling": 3.1823395835745112e-06,
+          "finite_250ms_signed_original_q0_pressure_transfer_40_80": [
+            [
+              0.046495251483123404,
+              -0.00041534618448105546
+            ],
+            [
+              0.042956195286693935,
+              -0.0008365106264078461
+            ]
+          ]
+        },
+        {
+          "mode_index": 18,
+          "dimensionless_laplacian_lambda": 0.038454938425211145,
+          "frequency_continuous_time_hz": 112.35662688582003,
+          "frequency_native_leapfrog_hz": 112.4166025493099,
+          "leapfrog_minus_continuous_hz": 0.05997566348986538,
+          "true_original_neumann_eigen_relative_residual": 1.1450651820930197e-14,
+          "unit_eigenvector_source_receiver_signed_coupling": 2.4759233949232536e-05,
+          "finite_250ms_signed_original_q0_pressure_transfer_40_80": [
+            [
+              4.3662993812659305,
+              -0.48425723902939033
+            ],
+            [
+              7.433070664196681,
+              -1.7092265256662107
+            ]
+          ]
+        },
+        {
+          "mode_index": 19,
+          "dimensionless_laplacian_lambda": 0.044047344062849214,
+          "frequency_continuous_time_hz": 120.24928307090795,
+          "frequency_native_leapfrog_hz": 120.32282205033695,
+          "leapfrog_minus_continuous_hz": 0.0735389794290029,
+          "true_original_neumann_eigen_relative_residual": 1.762172129759497e-11,
+          "unit_eigenvector_source_receiver_signed_coupling": -7.2305071591889365e-06,
+          "finite_250ms_signed_original_q0_pressure_transfer_40_80": [
+            [
+              -0.9649134696019444,
+              0.07427834042869255
+            ],
+            [
+              -1.4711050098229497,
+              0.23576476131605792
+            ]
+          ]
+        }
+      ],
+      "nearest_to_40_80_hz": [
+        {
+          "target_frequency_hz": 40.0,
+          "nearest_native_mode_index": 1,
+          "nearest_native_eigenfrequency_hz": 41.75097210001158,
+          "native_mode_frequency_offset_from_target_hz": 1.7509721000115803,
+          "mode_signed_source_receiver_coupling": 6.227031710360727e-10
+        },
+        {
+          "target_frequency_hz": 80.0,
+          "nearest_native_mode_index": 7,
+          "nearest_native_eigenfrequency_hz": 78.47131770201175,
+          "native_mode_frequency_offset_from_target_hz": -1.5286822979882544,
+          "mode_signed_source_receiver_coupling": -9.319535816833256e-07
+        }
+      ],
+      "original_full_native_signed_40_80": [
+        [
+          57.86557590696418,
+          12.212530552108216
+        ],
+        [
+          119.43681400077243,
+          -167.8458584505424
+        ]
+      ],
+      "first_20_modal_signed_40_80": [
+        [
+          46.80016473308497,
+          7.563090196189544
+        ],
+        [
+          105.85440243805851,
+          -172.79634412393872
+        ]
+      ],
+      "lowmode_vs_original_full_native_complex_relative_norm": 0.0876690609513332,
+      "q0_and_spatial_trilinear_source_receiver_unchanged": true,
+      "all_original_rigid_boundary_neumann_edges_unchanged": true,
+      "low_modes_diagnostic_not_full_band_qualification": true
+    },
+    {
+      "ppw": 40,
+      "exact_original_native_voxel_sha256": "c7c1894826c4774393987855e533081f615b22d510ec6042aacda12acbe0daaf",
+      "exact_original_native_comms_sha256": "64a4f45cf19b92bb7a8a1ffd24af05e10877c99000e29bf985637b18e287763a",
+      "exact_original_full_wave_sim_outs_sha256": "79763a63cedf667e98cbcf5867b848675d634a861e63fc3e1cf94ed9982596fa",
+      "grid_h_m": 0.0858,
+      "native_dt_s": 0.00014419322973010905,
+      "native_cfl_squared": 0.332667,
+      "original_q0_native_source_total_injection": 3.877237762237762,
+      "native_room_reachable_vertices": 89723,
+      "native_neumann_laplacian_nnz": 615501,
+      "eigensolver_wall_seconds": 7.193160600028932,
+      "max_true_relative_eigen_residual": 2.5741035867373098e-11,
+      "eigenpair_count": 20,
+      "eigenmodes": [
+        {
+          "mode_index": 0,
+          "dimensionless_laplacian_lambda": 0.0,
+          "frequency_continuous_time_hz": 0.0,
+          "frequency_native_leapfrog_hz": 0.0,
+          "leapfrog_minus_continuous_hz": 0.0,
+          "true_original_neumann_eigen_relative_residual": 1.0388534739522308e-14,
+          "unit_eigenvector_source_receiver_signed_coupling": 1.1145414219319217e-05,
+          "finite_250ms_signed_original_q0_pressure_transfer_40_80": [
+            [
+              0.07746317625149546,
+              -0.0011013446825091436
+            ],
+            [
+              0.07745181582794693,
+              -0.00220281160795148
+            ]
+          ]
+        },
+        {
+          "mode_index": 1,
+          "dimensionless_laplacian_lambda": 0.0042595159741845015,
+          "frequency_continuous_time_hz": 41.54896871152493,
+          "frequency_native_leapfrog_hz": 41.55142222372017,
+          "leapfrog_minus_continuous_hz": 0.002453512195238261,
+          "true_original_neumann_eigen_relative_residual": 1.0031186002704954e-14,
+          "unit_eigenvector_source_receiver_signed_coupling": 3.952668726042065e-10,
+          "finite_250ms_signed_original_q0_pressure_transfer_40_80": [
+            [
+              0.003003854814154811,
+              -0.007841428643449479
+            ],
+            [
+              -7.192724810727994e-05,
+              0.0004244889014691555
+            ]
+          ]
+        },
+        {
+          "mode_index": 2,
+          "dimensionless_laplacian_lambda": 0.004466242753693031,
+          "frequency_continuous_time_hz": 42.545270112584404,
+          "frequency_native_leapfrog_hz": 42.54790440930892,
+          "leapfrog_minus_continuous_hz": 0.00263429672451565,
+          "true_original_neumann_eigen_relative_residual": 1.1317334488450126e-14,
+          "unit_eigenvector_source_receiver_signed_coupling": -3.2091817031189433e-06,
+          "finite_250ms_signed_original_q0_pressure_transfer_40_80": [
+            [
+              17.461246959761066,
+              35.90865687563959
+            ],
+            [
+              -0.8744365797172093,
+              -3.290422598035756
+            ]
+          ]
+        },
+        {
+          "mode_index": 3,
+          "dimensionless_laplacian_lambda": 0.005974740009182702,
+          "frequency_continuous_time_hz": 49.20844357163204,
+          "frequency_native_leapfrog_hz": 49.212519760032436,
+          "leapfrog_minus_continuous_hz": 0.0040761884003970295,
+          "true_original_neumann_eigen_relative_residual": 1.2586392021805462e-14,
+          "unit_eigenvector_source_receiver_signed_coupling": 8.740573318044149e-07,
+          "finite_250ms_signed_original_q0_pressure_transfer_40_80": [
+            [
+              1.777850830492729,
+              -2.0115686732565807
+            ],
+            [
+              -0.3470848074850067,
+              0.8309651772049755
+            ]
+          ]
+        },
+        {
+          "mode_index": 4,
+          "dimensionless_laplacian_lambda": 0.008725758727877835,
+          "frequency_continuous_time_hz": 59.4677795948711,
+          "frequency_native_leapfrog_hz": 59.47497450321159,
+          "leapfrog_minus_continuous_hz": 0.007194908340494521,
+          "true_original_neumann_eigen_relative_residual": 1.023837030205637e-14,
+          "unit_eigenvector_source_receiver_signed_coupling": -1.1381211953295736e-10,
+          "finite_250ms_signed_original_q0_pressure_transfer_40_80": [
+            [
+              9.024856321063111e-05,
+              2.689596649945841e-05
+            ],
+            [
+              -6.297658161678504e-05,
+              -3.6364633692064696e-05
+            ]
+          ]
+        },
+        {
+          "mode_index": 5,
+          "dimensionless_laplacian_lambda": 0.010440982762875825,
+          "frequency_continuous_time_hz": 65.05052596017421,
+          "frequency_native_leapfrog_hz": 65.05994399795132,
+          "leapfrog_minus_continuous_hz": 0.009418037777109589,
+          "true_original_neumann_eigen_relative_residual": 1.1178218895846232e-14,
+          "unit_eigenvector_source_receiver_signed_coupling": -2.51673804266614e-07,
+          "finite_250ms_signed_original_q0_pressure_transfer_40_80": [
+            [
+              -0.224808260094738,
+              0.14900902034934616
+            ],
+            [
+              0.26359876476733685,
+              -0.3619332309776573
+            ]
+          ]
+        },
+        {
+          "mode_index": 6,
+          "dimensionless_laplacian_lambda": 0.010699595074129103,
+          "frequency_continuous_time_hz": 65.85121524784452,
+          "frequency_native_leapfrog_hz": 65.86098545066223,
+          "leapfrog_minus_continuous_hz": 0.009770202817705353,
+          "true_original_neumann_eigen_relative_residual": 9.600035948600843e-15,
+          "unit_eigenvector_source_receiver_signed_coupling": 2.386444367216873e-06,
+          "finite_250ms_signed_original_q0_pressure_transfer_40_80": [
+            [
+              0.5028570843721556,
+              -2.454409449332759
+            ],
+            [
+              -0.5280932441283106,
+              6.515226581229194
+            ]
+          ]
+        },
+        {
+          "mode_index": 7,
+          "dimensionless_laplacian_lambda": 0.015165837827822505,
+          "frequency_continuous_time_hz": 78.39950611177898,
+          "frequency_native_leapfrog_hz": 78.41599627018022,
+          "leapfrog_minus_continuous_hz": 0.016490158401239796,
+          "true_original_neumann_eigen_relative_residual": 1.0863484403149803e-14,
+          "unit_eigenvector_source_receiver_signed_coupling": -6.871466100836794e-07,
+          "finite_250ms_signed_original_q0_pressure_transfer_40_80": [
+            [
+              0.24035334794419028,
+              0.3861129244023571
+            ],
+            [
+              -4.665360313639842,
+              -13.997008271621354
+            ]
+          ]
+        },
+        {
+          "mode_index": 8,
+          "dimensionless_laplacian_lambda": 0.017699005038749004,
+          "frequency_continuous_time_hz": 84.69437147338067,
+          "frequency_native_leapfrog_hz": 84.71516315947865,
+          "leapfrog_minus_continuous_hz": 0.020791686097979323,
+          "true_original_neumann_eigen_relative_residual": 1.025137326357561e-14,
+          "unit_eigenvector_source_receiver_signed_coupling": 2.119947801789973e-05,
+          "finite_250ms_signed_original_q0_pressure_transfer_40_80": [
+            [
+              10.601451228888276,
+              -3.0747126414803874
+            ],
+            [
+              74.50937522931231,
+              -44.128433782877714
+            ]
+          ]
+        },
+        {
+          "mode_index": 9,
+          "dimensionless_laplacian_lambda": 0.017845023690437552,
+          "frequency_continuous_time_hz": 85.04302258129569,
+          "frequency_native_leapfrog_hz": 85.06407221290499,
+          "leapfrog_minus_continuous_hz": 0.0210496316093014,
+          "true_original_neumann_eigen_relative_residual": 1.3472628657501709e-14,
+          "unit_eigenvector_source_receiver_signed_coupling": 1.1247384526491812e-05,
+          "finite_250ms_signed_original_q0_pressure_transfer_40_80": [
+            [
+              6.208361160920135,
+              -3.1298015567141926
+            ],
+            [
+              40.75090516129338,
+              -42.191604628485806
+            ]
+          ]
+        },
+        {
+          "mode_index": 10,
+          "dimensionless_laplacian_lambda": 0.021529444233759347,
+          "frequency_continuous_time_hz": 93.41067975186137,
+          "frequency_native_leapfrog_hz": 93.43857806805865,
+          "leapfrog_minus_continuous_hz": 0.027898316197280337,
+          "true_original_neumann_eigen_relative_residual": 1.0538752447210967e-14,
+          "unit_eigenvector_source_receiver_signed_coupling": 5.930386119312081e-06,
+          "finite_250ms_signed_original_q0_pressure_transfer_40_80": [
+            [
+              2.2670548774703,
+              -1.9385293471729794
+            ],
+            [
+              6.66682879263978,
+              -11.859155279799031
+            ]
+          ]
+        },
+        {
+          "mode_index": 11,
+          "dimensionless_laplacian_lambda": 0.022104539664623783,
+          "frequency_continuous_time_hz": 94.65005277734791,
+          "frequency_native_leapfrog_hz": 94.67907698256639,
+          "leapfrog_minus_continuous_hz": 0.029024205218476595,
+          "true_original_neumann_eigen_relative_residual": 1.2364258776549365e-14,
+          "unit_eigenvector_source_receiver_signed_coupling": 3.9888320168423683e-10,
+          "finite_250ms_signed_original_q0_pressure_transfer_40_80": [
+            [
+              -0.00015170303877768502,
+              -0.00011447431872348421
+            ],
+            [
+              -0.00045108329512385837,
+              -0.0006573967153481979
+            ]
+          ]
+        },
+        {
+          "mode_index": 12,
+          "dimensionless_laplacian_lambda": 0.02216524779244312,
+          "frequency_continuous_time_hz": 94.77993758293053,
+          "frequency_native_leapfrog_hz": 94.80908150506224,
+          "leapfrog_minus_continuous_hz": 0.029143922131709132,
+          "true_original_neumann_eigen_relative_residual": 1.183264936768395e-14,
+          "unit_eigenvector_source_receiver_signed_coupling": -6.1041227926858945e-06,
+          "finite_250ms_signed_original_q0_pressure_transfer_40_80": [
+            [
+              2.549593258195,
+              1.5251749608954035
+            ],
+            [
+              7.4910513964761645,
+              8.704079622685597
+            ]
+          ]
+        },
+        {
+          "mode_index": 13,
+          "dimensionless_laplacian_lambda": 0.023675468752628014,
+          "frequency_continuous_time_hz": 97.95563316733659,
+          "frequency_native_leapfrog_hz": 97.98780764998327,
+          "leapfrog_minus_continuous_hz": 0.03217448264668121,
+          "true_original_neumann_eigen_relative_residual": 1.0220123172163296e-14,
+          "unit_eigenvector_source_receiver_signed_coupling": 9.755055689048403e-07,
+          "finite_250ms_signed_original_q0_pressure_transfer_40_80": [
+            [
+              0.03284588120904848,
+              -0.3474157357573907
+            ],
+            [
+              0.045062545534918626,
+              -1.7362836572502622
+            ]
+          ]
+        },
+        {
+          "mode_index": 14,
+          "dimensionless_laplacian_lambda": 0.02381976369962114,
+          "frequency_continuous_time_hz": 98.25368496145892,
+          "frequency_native_leapfrog_hz": 98.28615420829175,
+          "leapfrog_minus_continuous_hz": 0.032469246832832255,
+          "true_original_neumann_eigen_relative_residual": 1.1824032875324003e-14,
+          "unit_eigenvector_source_receiver_signed_coupling": 8.82054153911178e-07,
+          "finite_250ms_signed_original_q0_pressure_transfer_40_80": [
+            [
+              -0.14491334641515513,
+              -0.29639488994890356
+            ],
+            [
+              -0.389973750396926,
+              -1.4653248886296513
+            ]
+          ]
+        },
+        {
+          "mode_index": 15,
+          "dimensionless_laplacian_lambda": 0.025995686987453206,
+          "frequency_continuous_time_hz": 102.64333929027205,
+          "frequency_native_leapfrog_hz": 102.68036073909126,
+          "leapfrog_minus_continuous_hz": 0.03702144881920333,
+          "true_original_neumann_eigen_relative_residual": 1.1737862397162985e-14,
+          "unit_eigenvector_source_receiver_signed_coupling": -1.7075800191924984e-06,
+          "finite_250ms_signed_original_q0_pressure_transfer_40_80": [
+            [
+              0.5768739200481033,
+              0.40307048347179075
+            ],
+            [
+              1.2859567251429775,
+              1.7396946487854292
+            ]
+          ]
+        },
+        {
+          "mode_index": 16,
+          "dimensionless_laplacian_lambda": 0.02814171150632199,
+          "frequency_continuous_time_hz": 106.79609580020687,
+          "frequency_native_leapfrog_hz": 106.83779830689292,
+          "leapfrog_minus_continuous_hz": 0.041702506686050356,
+          "true_original_neumann_eigen_relative_residual": 9.075324194458879e-15,
+          "unit_eigenvector_source_receiver_signed_coupling": -2.808845469020634e-07,
+          "finite_250ms_signed_original_q0_pressure_transfer_40_80": [
+            [
+              0.10017650191854142,
+              0.05107443482934634
+            ],
+            [
+              0.20105638349432284,
+              0.19988139005527877
+            ]
+          ]
+        },
+        {
+          "mode_index": 17,
+          "dimensionless_laplacian_lambda": 0.028544618764568125,
+          "frequency_continuous_time_hz": 107.55788320426035,
+          "frequency_native_leapfrog_hz": 107.60048513985461,
+          "leapfrog_minus_continuous_hz": 0.04260193559426284,
+          "true_original_neumann_eigen_relative_residual": 1.192271461253892e-14,
+          "unit_eigenvector_source_receiver_signed_coupling": 2.408278142154527e-06,
+          "finite_250ms_signed_original_q0_pressure_transfer_40_80": [
+            [
+              -0.5215200553919703,
+              -0.06575720060439667
+            ],
+            [
+              -1.024989014017026,
+              -0.2529816584691573
+            ]
+          ]
+        },
+        {
+          "mode_index": 18,
+          "dimensionless_laplacian_lambda": 0.031445078326303895,
+          "frequency_continuous_time_hz": 112.89025743166914,
+          "frequency_native_leapfrog_hz": 112.93952024521008,
+          "leapfrog_minus_continuous_hz": 0.04926281354093476,
+          "true_original_neumann_eigen_relative_residual": 1.037326445134045e-14,
+          "unit_eigenvector_source_receiver_signed_coupling": 1.8070272594563792e-05,
+          "finite_250ms_signed_original_q0_pressure_transfer_40_80": [
+            [
+              6.765929584328271,
+              -2.09059770161791
+            ],
+            [
+              11.664866599052596,
+              -7.33638456174184
+            ]
+          ]
+        },
+        {
+          "mode_index": 19,
+          "dimensionless_laplacian_lambda": 0.035544028729188715,
+          "frequency_continuous_time_hz": 120.02271555432597,
+          "frequency_native_leapfrog_hz": 120.0819271721847,
+          "leapfrog_minus_continuous_hz": 0.059211617858736076,
+          "true_original_neumann_eigen_relative_residual": 2.5741035867373098e-11,
+          "unit_eigenvector_source_receiver_signed_coupling": 2.1393433777007095e-05,
+          "finite_250ms_signed_original_q0_pressure_transfer_40_80": [
+            [
+              1.074359867877579,
+              -0.021895739523669897
+            ],
+            [
+              1.622545316177465,
+              -0.06732470166908916
+            ]
+          ]
+        }
+      ],
+      "nearest_to_40_80_hz": [
+        {
+          "target_frequency_hz": 40.0,
+          "nearest_native_mode_index": 1,
+          "nearest_native_eigenfrequency_hz": 41.55142222372017,
+          "native_mode_frequency_offset_from_target_hz": 1.5514222237201665,
+          "mode_signed_source_receiver_coupling": 3.952668726042065e-10
+        },
+        {
+          "target_frequency_hz": 80.0,
+          "nearest_native_mode_index": 7,
+          "nearest_native_eigenfrequency_hz": 78.41599627018022,
+          "native_mode_frequency_offset_from_target_hz": -1.5840037298197842,
+          "mode_signed_source_receiver_coupling": -6.871466100836794e-07
+        }
+      ],
+      "original_full_native_signed_40_80": [
+        [
+          23.081760574920366,
+          18.909536564347828
+        ],
+        [
+          109.07263342140902,
+          -119.86161783862582
+        ]
+      ],
+      "first_20_modal_signed_40_80": [
+        [
+          49.348118418113614,
+          22.982985412500483
+        ],
+        [
+          136.74817503321003,
+          -108.69948192365237
+        ]
+      ],
+      "lowmode_vs_original_full_native_complex_relative_norm": 0.24251665806697809,
+      "q0_and_spatial_trilinear_source_receiver_unchanged": true,
+      "all_original_rigid_boundary_neumann_edges_unchanged": true,
+      "low_modes_diagnostic_not_full_band_qualification": true
+    },
+    {
+      "ppw": 44,
+      "exact_original_native_voxel_sha256": "4a7cb6c30c013adc31d5b1910d50cef003cacbdd37a271ac3efa7a39956e505b",
+      "exact_original_native_comms_sha256": "41c537b663ef11aa7404a248862f89398dec80fd3b6c794f4ecce4a0a8577ee4",
+      "exact_original_full_wave_sim_outs_sha256": "a5603179fa00ef7a82e5e5e486d864b1b2f08e3f432692d80631fcf406c0ce89",
+      "grid_h_m": 0.078,
+      "native_dt_s": 0.00013108475430009911,
+      "native_cfl_squared": 0.332667,
+      "original_q0_native_source_total_injection": 4.264961538461538,
+      "native_room_reachable_vertices": 116739,
+      "native_neumann_laplacian_nnz": 802191,
+      "eigensolver_wall_seconds": 9.839771999977529,
+      "max_true_relative_eigen_residual": 2.7126869491816922e-11,
+      "eigenpair_count": 20,
+      "eigenmodes": [
+        {
+          "mode_index": 0,
+          "dimensionless_laplacian_lambda": 0.0,
+          "frequency_continuous_time_hz": 0.0,
+          "frequency_native_leapfrog_hz": 0.0,
+          "leapfrog_minus_continuous_hz": 0.0,
+          "true_original_neumann_eigen_relative_residual": 1.1165290608495644e-14,
+          "unit_eigenvector_source_receiver_signed_coupling": 8.566117578529455e-06,
+          "finite_250ms_signed_original_q0_pressure_transfer_40_80": [
+            [
+              0.2799183228401301,
+              -0.000751828684506961
+            ],
+            [
+              0.2799266697288614,
+              -0.001503713054365363
+            ]
+          ]
+        },
+        {
+          "mode_index": 1,
+          "dimensionless_laplacian_lambda": 0.003602694717366942,
+          "frequency_continuous_time_hz": 42.032627546200125,
+          "frequency_native_leapfrog_hz": 42.03472682947196,
+          "leapfrog_minus_continuous_hz": 0.002099283271832064,
+          "true_original_neumann_eigen_relative_residual": 1.3862890288060537e-14,
+          "unit_eigenvector_source_receiver_signed_coupling": 1.8607109786673625e-09,
+          "finite_250ms_signed_original_q0_pressure_transfer_40_80": [
+            [
+              -0.0011991757050086593,
+              -0.04224316979649874
+            ],
+            [
+              5.55121377640523e-05,
+              0.0030433421239719227
+            ]
+          ]
+        },
+        {
+          "mode_index": 2,
+          "dimensionless_laplacian_lambda": 0.0037933425259118543,
+          "frequency_continuous_time_hz": 43.13043496976618,
+          "frequency_native_leapfrog_hz": 43.132703089828425,
+          "leapfrog_minus_continuous_hz": 0.002268120062247192,
+          "true_original_neumann_eigen_relative_residual": 1.1837137685756448e-14,
+          "unit_eigenvector_source_receiver_signed_coupling": -2.531880978480253e-06,
+          "finite_250ms_signed_original_q0_pressure_transfer_40_80": [
+            [
+              19.39117707887396,
+              14.619629074198329
+            ],
+            [
+              -1.1721342197947877,
+              -1.6768674365085408
+            ]
+          ]
+        },
+        {
+          "mode_index": 3,
+          "dimensionless_laplacian_lambda": 0.00492401216986219,
+          "frequency_continuous_time_hz": 49.139684858446245,
+          "frequency_native_leapfrog_hz": 49.14303937553872,
+          "leapfrog_minus_continuous_hz": 0.003354517092475362,
+          "true_original_neumann_eigen_relative_residual": 1.0006438822165094e-14,
+          "unit_eigenvector_source_receiver_signed_coupling": 7.038945525464386e-07,
+          "finite_250ms_signed_original_q0_pressure_transfer_40_80": [
+            [
+              1.9729967003042883,
+              -2.002506929460502
+            ],
+            [
+              -0.3894659205033439,
+              0.81895180606624
+            ]
+          ]
+        },
+        {
+          "mode_index": 4,
+          "dimensionless_laplacian_lambda": 0.007396037243279077,
+          "frequency_continuous_time_hz": 60.22438209827435,
+          "frequency_native_leapfrog_hz": 60.23055785473041,
+          "leapfrog_minus_continuous_hz": 0.006175756456059389,
+          "true_original_neumann_eigen_relative_residual": 1.1553434470969192e-14,
+          "unit_eigenvector_source_receiver_signed_coupling": -5.499689550429143e-10,
+          "finite_250ms_signed_original_q0_pressure_transfer_40_80": [
+            [
+              -0.0002919100222110364,
+              3.3408436634692774e-05
+            ],
+            [
+              0.0001831267123420848,
+              -4.870228517666318e-05
+            ]
+          ]
+        },
+        {
+          "mode_index": 5,
+          "dimensionless_laplacian_lambda": 0.008717354695774763,
+          "frequency_continuous_time_hz": 65.38304863394634,
+          "frequency_native_leapfrog_hz": 65.39095159950526,
+          "leapfrog_minus_continuous_hz": 0.007902965558912456,
+          "true_original_neumann_eigen_relative_residual": 1.5626601017106533e-14,
+          "unit_eigenvector_source_receiver_signed_coupling": -2.0804958747191742e-07,
+          "finite_250ms_signed_original_q0_pressure_transfer_40_80": [
+            [
+              -0.19944960519050578,
+              0.23239202819538204
+            ],
+            [
+              0.24566536651443954,
+              -0.5854534279452686
+            ]
+          ]
+        },
+        {
+          "mode_index": 6,
+          "dimensionless_laplacian_lambda": 0.008875545069072361,
+          "frequency_continuous_time_hz": 65.97362156383063,
+          "frequency_native_leapfrog_hz": 65.98174066843187,
+          "leapfrog_minus_continuous_hz": 0.008119104601234994,
+          "true_original_neumann_eigen_relative_residual": 1.2507035063724308e-14,
+          "unit_eigenvector_source_receiver_signed_coupling": 1.7905855999179817e-06,
+          "finite_250ms_signed_original_q0_pressure_transfer_40_80": [
+            [
+              0.06973295469592454,
+              -2.465746481163629
+            ],
+            [
+              -0.06708120076880197,
+              6.634613746504852
+            ]
+          ]
+        },
+        {
+          "mode_index": 7,
+          "dimensionless_laplacian_lambda": 0.01266888759498464,
+          "frequency_continuous_time_hz": 78.82101980391383,
+          "frequency_native_leapfrog_hz": 78.83486773859724,
+          "leapfrog_minus_continuous_hz": 0.013847934683411722,
+          "true_original_neumann_eigen_relative_residual": 1.3583747872347711e-14,
+          "unit_eigenvector_source_receiver_signed_coupling": -5.292420491793652e-07,
+          "finite_250ms_signed_original_q0_pressure_transfer_40_80": [
+            [
+              0.40563466811754306,
+              0.2732845945619797
+            ],
+            [
+              -10.338270303580629,
+              -13.626698960150392
+            ]
+          ]
+        },
+        {
+          "mode_index": 8,
+          "dimensionless_laplacian_lambda": 0.015012141676351749,
+          "frequency_continuous_time_hz": 85.80135281035743,
+          "frequency_native_leapfrog_hz": 85.8192168380071,
+          "leapfrog_minus_continuous_hz": 0.017864027649665104,
+          "true_original_neumann_eigen_relative_residual": 1.643467164056885e-14,
+          "unit_eigenvector_source_receiver_signed_coupling": 1.6487848721737e-05,
+          "finite_250ms_signed_original_q0_pressure_transfer_40_80": [
+            [
+              3.3733154283720905,
+              -10.630914062127303
+            ],
+            [
+              19.588897780677215,
+              -127.00643927303098
+            ]
+          ]
+        },
+        {
+          "mode_index": 9,
+          "dimensionless_laplacian_lambda": 0.015158980656128097,
+          "frequency_continuous_time_hz": 86.2199581094109,
+          "frequency_native_leapfrog_hz": 86.2380849780563,
+          "leapfrog_minus_continuous_hz": 0.018126868645410354,
+          "true_original_neumann_eigen_relative_residual": 1.158954608337687e-14,
+          "unit_eigenvector_source_receiver_signed_coupling": 8.458127896565557e-06,
+          "finite_250ms_signed_original_q0_pressure_transfer_40_80": [
+            [
+              -2.102398268269554,
+              -5.30637692617036
+            ],
+            [
+              -12.119350523342518,
+              -59.72623902546768
+            ]
+          ]
+        },
+        {
+          "mode_index": 10,
+          "dimensionless_laplacian_lambda": 0.017789982846977744,
+          "frequency_continuous_time_hz": 93.40294565011388,
+          "frequency_native_leapfrog_hz": 93.42599315363177,
+          "leapfrog_minus_continuous_hz": 0.02304750351788698,
+          "true_original_neumann_eigen_relative_residual": 1.254515935928626e-14,
+          "unit_eigenvector_source_receiver_signed_coupling": 4.24088201308544e-06,
+          "finite_250ms_signed_original_q0_pressure_transfer_40_80": [
+            [
+              2.1148133599353045,
+              -1.8283284569717075
+            ],
+            [
+              6.375046274748948,
+              -11.192749563048
+            ]
+          ]
+        },
+        {
+          "mode_index": 11,
+          "dimensionless_laplacian_lambda": 0.018761675373495306,
+          "frequency_continuous_time_hz": 95.91987778779894,
+          "frequency_native_leapfrog_hz": 95.94484004381147,
+          "leapfrog_minus_continuous_hz": 0.024962256012528883,
+          "true_original_neumann_eigen_relative_residual": 1.1852028532366752e-14,
+          "unit_eigenvector_source_receiver_signed_coupling": 1.8372537257736163e-09,
+          "finite_250ms_signed_original_q0_pressure_transfer_40_80": [
+            [
+              -3.4675550017731246e-05,
+              -1.8811807577510159e-06
+            ],
+            [
+              -0.00019735030586986218,
+              -9.642394711061064e-06
+            ]
+          ]
+        },
+        {
+          "mode_index": 12,
+          "dimensionless_laplacian_lambda": 0.018805484202263176,
+          "frequency_continuous_time_hz": 96.03179975804082,
+          "frequency_native_leapfrog_hz": 96.05684953712338,
+          "leapfrog_minus_continuous_hz": 0.025049779082564783,
+          "true_original_neumann_eigen_relative_residual": 1.0479711786228774e-14,
+          "unit_eigenvector_source_receiver_signed_coupling": -4.873301139296895e-06,
+          "finite_250ms_signed_original_q0_pressure_transfer_40_80": [
+            [
+              -0.41963862450548417,
+              0.00525819545657491
+            ],
+            [
+              -0.8602104101759034,
+              0.026910207828903188
+            ]
+          ]
+        },
+        {
+          "mode_index": 13,
+          "dimensionless_laplacian_lambda": 0.019807036668859662,
+          "frequency_continuous_time_hz": 98.55588472903315,
+          "frequency_native_leapfrog_hz": 98.5829631089042,
+          "leapfrog_minus_continuous_hz": 0.027078379871042557,
+          "true_original_neumann_eigen_relative_residual": 1.2052314756290304e-14,
+          "unit_eigenvector_source_receiver_signed_coupling": 6.824133852036459e-07,
+          "finite_250ms_signed_original_q0_pressure_transfer_40_80": [
+            [
+              -0.3035884302162642,
+              -0.256562478290148
+            ],
+            [
+              -0.7541350349048748,
+              -1.2550685312949934
+            ]
+          ]
+        },
+        {
+          "mode_index": 14,
+          "dimensionless_laplacian_lambda": 0.020082992825990912,
+          "frequency_continuous_time_hz": 99.2400614891803,
+          "frequency_native_leapfrog_hz": 99.26770801466684,
+          "leapfrog_minus_continuous_hz": 0.02764652548653146,
+          "true_original_neumann_eigen_relative_residual": 1.3310332042076996e-14,
+          "unit_eigenvector_source_receiver_signed_coupling": 6.95020830208888e-07,
+          "finite_250ms_signed_original_q0_pressure_transfer_40_80": [
+            [
+              -0.34425683066472823,
+              -0.0945532807896855
+            ],
+            [
+              -0.8469134741388558,
+              -0.45170560112335645
+            ]
+          ]
+        },
+        {
+          "mode_index": 15,
+          "dimensionless_laplacian_lambda": 0.02158332537288942,
+          "frequency_continuous_time_hz": 102.8802443465181,
+          "frequency_native_leapfrog_hz": 102.91104783213851,
+          "leapfrog_minus_continuous_hz": 0.030803485620410243,
+          "true_original_neumann_eigen_relative_residual": 9.945508764022882e-15,
+          "unit_eigenvector_source_receiver_signed_coupling": -1.2534743309827984e-06,
+          "finite_250ms_signed_original_q0_pressure_transfer_40_80": [
+            [
+              0.6511330005517426,
+              0.30131689285470753
+            ],
+            [
+              1.4225691497275936,
+              1.2925692042677122
+            ]
+          ]
+        },
+        {
+          "mode_index": 16,
+          "dimensionless_laplacian_lambda": 0.0236003791947733,
+          "frequency_continuous_time_hz": 107.58018793162883,
+          "frequency_native_leapfrog_hz": 107.61541152242361,
+          "leapfrog_minus_continuous_hz": 0.035223590794785764,
+          "true_original_neumann_eigen_relative_residual": 1.7663162558911213e-14,
+          "unit_eigenvector_source_receiver_signed_coupling": -2.0170041487537584e-07,
+          "finite_250ms_signed_original_q0_pressure_transfer_40_80": [
+            [
+              0.052375064172666,
+              0.006800696604123101
+            ],
+            [
+              0.10662598802696778,
+              0.026167672704209693
+            ]
+          ]
+        },
+        {
+          "mode_index": 17,
+          "dimensionless_laplacian_lambda": 0.02403452572520022,
+          "frequency_continuous_time_hz": 108.56518741583783,
+          "frequency_native_leapfrog_hz": 108.60138799821542,
+          "leapfrog_minus_continuous_hz": 0.03620058237758883,
+          "true_original_neumann_eigen_relative_residual": 1.432104108522064e-14,
+          "unit_eigenvector_source_receiver_signed_coupling": 1.7680123900841808e-06,
+          "finite_250ms_signed_original_q0_pressure_transfer_40_80": [
+            [
+              0.7719935693842949,
+              -0.13630638070796625
+            ],
+            [
+              1.4157638946145128,
+              -0.5148942834244179
+            ]
+          ]
+        },
+        {
+          "mode_index": 18,
+          "dimensionless_laplacian_lambda": 0.025869373757463135,
+          "frequency_continuous_time_hz": 112.63302959119153,
+          "frequency_native_leapfrog_hz": 112.67345653997346,
+          "leapfrog_minus_continuous_hz": 0.04042694878192776,
+          "true_original_neumann_eigen_relative_residual": 1.473463007565947e-14,
+          "unit_eigenvector_source_receiver_signed_coupling": 1.3797505544160484e-05,
+          "finite_250ms_signed_original_q0_pressure_transfer_40_80": [
+            [
+              6.1485450806407655,
+              -1.2021503588302753
+            ],
+            [
+              10.56111860737829,
+              -4.235482025512134
+            ]
+          ]
+        },
+        {
+          "mode_index": 19,
+          "dimensionless_laplacian_lambda": 0.029662716283373632,
+          "frequency_continuous_time_hz": 120.6085974363801,
+          "frequency_native_leapfrog_hz": 120.65824183206776,
+          "leapfrog_minus_continuous_hz": 0.049644395687664655,
+          "true_original_neumann_eigen_relative_residual": 2.7126869491816922e-11,
+          "unit_eigenvector_source_receiver_signed_coupling": -4.078118416939568e-06,
+          "finite_250ms_signed_original_q0_pressure_transfer_40_80": [
+            [
+              -1.6548973626046966,
+              0.2919462498647332
+            ],
+            [
+              -2.564968207854341,
+              0.9269639470548845
+            ]
+          ]
+        }
+      ],
+      "nearest_to_40_80_hz": [
+        {
+          "target_frequency_hz": 40.0,
+          "nearest_native_mode_index": 1,
+          "nearest_native_eigenfrequency_hz": 42.03472682947196,
+          "native_mode_frequency_offset_from_target_hz": 2.034726829471957,
+          "mode_signed_source_receiver_coupling": 1.8607109786673625e-09
+        },
+        {
+          "target_frequency_hz": 80.0,
+          "nearest_native_mode_index": 7,
+          "nearest_native_eigenfrequency_hz": 78.83486773859724,
+          "native_mode_frequency_offset_from_target_hz": -1.1651322614027606,
+          "mode_signed_source_receiver_coupling": -5.292420491793652e-07
+        }
+      ],
+      "original_full_native_signed_40_80": [
+        [
+          -64.44884936510273,
+          -11.312555997628882
+        ],
+        [
+          -83.61305811577175,
+          -224.3177326070579
+        ]
+      ],
+      "first_20_modal_signed_40_80": [
+        [
+          30.20588034516024,
+          -8.235781094000876
+        ],
+        [
+          10.88312572489701,
+          -210.54394025868922
+        ]
+      ],
+      "lowmode_vs_original_full_native_complex_relative_norm": 0.5419243309395186,
+      "q0_and_spatial_trilinear_source_receiver_unchanged": true,
+      "all_original_rigid_boundary_neumann_edges_unchanged": true,
+      "low_modes_diagnostic_not_full_band_qualification": true
+    }
+  ],
+  "same_mode_index_native_frequency_hz_drift_from_ppw44": [
+    {
+      "ppw": 28,
+      "frequencies_k1_to_k19_delta_hz": [
+        -0.7129024564010038,
+        -0.7191540555437896,
+        -0.25853670023926867,
+        -1.0084296351805122,
+        -0.6622490996055603,
+        -0.6230487297784322,
+        -0.906594623014783,
+        -1.6193693267696432,
+        -1.4752051784050053,
+        -0.7199308580476185,
+        -1.646959113813395,
+        -1.7399898622633145,
+        -1.2595828324998024,
+        -1.3941011682848767,
+        -0.9421880095034396,
+        -1.429173570095827,
+        -1.5262160720078555,
+        -0.6597602049289293,
+        -1.1232213967858797
+      ],
+      "warning": "index matching not mode-shape tracking: near degeneracies may reorder"
+    },
+    {
+      "ppw": 32,
+      "frequencies_k1_to_k19_delta_hz": [
+        0.04728231497038138,
+        0.10187005670069738,
+        0.042392383548666146,
+        0.10874750381454135,
+        0.10257669380898449,
+        0.04452481335243874,
+        0.09826558971886357,
+        0.10958948719446937,
+        0.1790033668039115,
+        0.011573495193374583,
+        0.18860608823163716,
+        0.15095891852035948,
+        0.02614533556574372,
+        0.1857352840615647,
+        0.06128387472479346,
+        0.07338337518747551,
+        0.18442127005283737,
+        0.08913060775691406,
+        0.12967576086896315
+      ],
+      "warning": "index matching not mode-shape tracking: near degeneracies may reorder"
+    },
+    {
+      "ppw": 36,
+      "frequencies_k1_to_k19_delta_hz": [
+        -0.2837547294603766,
+        -0.2822285505848896,
+        -0.10453607692075195,
+        -0.3987298238188046,
+        -0.2627387589630814,
+        -0.2531792962620045,
+        -0.3635500365854938,
+        -0.6393142087616184,
+        -0.5771681147566028,
+        -0.2987125441804608,
+        -0.6395465920051038,
+        -0.6942180422318955,
+        -0.5027248011156757,
+        -0.548149804992832,
+        -0.3852147472078684,
+        -0.5692364571114723,
+        -0.6041752839459491,
+        -0.25685399066355785,
+        -0.3354197817308062
+      ],
+      "warning": "index matching not mode-shape tracking: near degeneracies may reorder"
+    },
+    {
+      "ppw": 40,
+      "frequencies_k1_to_k19_delta_hz": [
+        -0.48330460575179046,
+        -0.5847986805195049,
+        0.06948038449371552,
+        -0.7555833515188155,
+        -0.33100760155393516,
+        -0.12075521776964138,
+        -0.4188714684170236,
+        -1.1040536785284445,
+        -1.1740127651513177,
+        0.012584914426881255,
+        -1.2657630612450816,
+        -1.2477680320611455,
+        -0.595155458920928,
+        -0.9815538063750893,
+        -0.23068709304725132,
+        -0.7776132155306925,
+        -1.0009028583608028,
+        0.2660637052366184,
+        -0.5763146598830531
+      ],
+      "warning": "index matching not mode-shape tracking: near degeneracies may reorder"
+    },
+    {
+      "ppw": 44,
+      "frequencies_k1_to_k19_delta_hz": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "warning": "index matching not mode-shape tracking: near degeneracies may reorder"
+    }
+  ],
+  "diagnostic_only_did_not_rerun_or_change_original_native_wave": true
+}
