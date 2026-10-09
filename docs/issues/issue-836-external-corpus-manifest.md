@@ -70,10 +70,40 @@ python scripts/fetch_external_corpus.py --target-dir <dir> \
 Writes `<dir>/corpus_fetch_receipt.jsonl` — one verdict line per file,
 manifest order. Exit status is non-zero if any file fails verification.
 
+## Action 2 — GeneralFIR importer (landed)
+
+`backend/src/htdt/cad_bras_v3_importer.py` imports the v3 scenes'
+`GeneralFIR` SOFA payloads (the #948 harness reads only
+`SingleRoomSRIR` — RS8):
+
+- `read_sofa_generalfir` — verbatim-semantics reader (units,
+  conventions, per-measurement `ReceiverPosition`/`EmitterPosition`,
+  declared delays). Fails closed on non-GeneralFIR conventions,
+  ambiguous `Data.IR.Units`, non-metre positions, malformed or
+  M-axis-incompatible position axes, and non-finite samples.
+- `BrasMaterialTable` / `read_bras_material_csv` — sealed third-octave
+  absorption/scattering tables from the `mat_*.csv` files; the
+  `initial_estimates`/`fitted_estimates` distinction is carried in the
+  record (fitted = calibrated-inference, never unfitted truth).
+  Structured-geometry MDF tables ship 2 rows (no scattering row) —
+  recorded as `scattering=None`, never synthesized.
+- `import_bras_v3_scene` — verifies the scene zip against the sealed
+  admission, imports every `GeneralFIR` member, honestly records
+  other conventions (`MultiSpeakerBRIR` BRIRs) as `skipped`, and emits
+  a `BenchmarkCase` whose sources/receivers are the *measured*
+  positions. Room geometry stays `None` — the corpus publishes it only
+  descriptively (skp/png/pdf) — and `limitations` says so.
+- Observables are `()` by design: reference extraction is Action 3's
+  metric manifests. Payloads are never vendored.
+
+Verified against a manifest-verified local copy of the corpus (13
+files): all 7 scenes import — RS1 (3 GeneralFIR imported, 3 BRIR
+skipped), RS2 (4), RS3 (1 + 1 BRIR), RS4 (2), RS5 (1 + 1), RS6 (1),
+RS7 (1) — plus all 61 material CSVs.
+
 ## Deliberately not done (later actions)
 
-- Importer for scene geometry/SOFA RIRs/material payloads (Action 2)
-- Per-scene metric manifests (Action 3)
+- Per-scene metric manifests / observable extraction (Action 3)
 - Solver qualification runs that consume this manifest (Actions 4–6)
 
 Refs #836. Does not close the issue.
