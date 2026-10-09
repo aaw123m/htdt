@@ -1429,3 +1429,15 @@ entries:
       - docs/issues/issue-973-view-state.md
       - backend/tests/test_view_state.py
     close_when_gates_clear: true
+  - issue: 974
+    lifecycle: acceptance_remaining
+    landed:
+      prs: [1093]
+      commits: [4e2a58f72371d9d4bf00b71a541d18f5df60110d]
+    remaining_gates:
+      - kind: manual
+        description: Operator acceptance of the ActivityCenter strip integration (progress units, cancel/retry affordances, navigation-block reasons) across long-running workspace operations.
+    evidence_refs:
+      - docs/issues/issue-974-activity-center.md
+      - backend/tests/test_issue_974_activity_integration.py
+    close_when_gates_clear: true
