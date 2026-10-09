@@ -1417,3 +1417,15 @@ entries:
       - docs/issues/issue-992-restore-drill.md
       - backend/tests/test_issue_992_restore_drill.py
     close_when_gates_clear: true
+  - issue: 973
+    lifecycle: acceptance_remaining
+    landed:
+      prs: [1091]
+      commits: [68b6a1a2a2f30b9c5b7b3f0a4c9d4a2715e91302]
+    remaining_gates:
+      - kind: manual
+        description: Operator acceptance of per-workspace view-state restore (scroll/selection/filters/panels/splitters) across navigation and project switches.
+    evidence_refs:
+      - docs/issues/issue-973-view-state.md
+      - backend/tests/test_view_state.py
+    close_when_gates_clear: true
