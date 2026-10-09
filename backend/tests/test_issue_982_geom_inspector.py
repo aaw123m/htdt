@@ -485,13 +485,22 @@ def test_esc_shortcut_override_consumed_by_panel(tmp_path) -> None:
     assert panel._pending_preview is None
     assert geometry.mode == "edit"  # preview dropped, mode preserved
 
-    # Without an armed preview the filter passes Esc through untouched.
+    # Without an armed preview, ShortcutOverride passes through (widgets
+    # keep their own Esc semantics) but a KeyPress that nothing consumed
+    # forwards to the workspace chain — edit-mode exit, same as canvas.
     override2 = QKeyEvent(
         QEvent.Type.ShortcutOverride,
         Qt.Key.Key_Escape,
         Qt.KeyboardModifier.NoModifier,
     )
     assert panel.eventFilter(panel, override2) is False
+    press2 = QKeyEvent(
+        QEvent.Type.KeyPress,
+        Qt.Key.Key_Escape,
+        Qt.KeyboardModifier.NoModifier,
+    )
+    assert panel.eventFilter(panel, press2) is True
+    assert geometry.mode == "idle"  # unarmed Esc exits via workspace chain
 
     _teardown(app, workspace, geometry)
 

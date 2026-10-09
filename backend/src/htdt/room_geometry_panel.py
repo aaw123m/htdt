@@ -694,6 +694,19 @@ class RoomGeometryPanel(QFrame):
                 self.cancel_pending_preview()
             event.accept()
             return True
+        # Unarmed: an Esc the focus widget ignored (e.g. a numeric field
+        # claims Escape's ShortcutOverride but ignores the press, which
+        # would otherwise strand the window-scope room.edit.cancel
+        # shortcut) bubbles up here — forward it to the workspace chain so
+        # Esc inside the panel exits edit mode exactly like Esc on canvas.
+        if (
+            event.type() == QEvent.Type.KeyPress
+            and event.key() == Qt.Key.Key_Escape
+            and event.modifiers() == Qt.KeyboardModifier.NoModifier
+        ):
+            if self.geometry.workspace.cancel_active_operation():
+                event.accept()
+                return True
         return super().eventFilter(watched, event)
 
     def _apply_pending_preview(self) -> None:
