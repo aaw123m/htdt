@@ -1,0 +1,265 @@
+{
+  "schema_version": "htdt.r130d.exact-roof-physical-point-q0-grid-phase-ensemble-evidence-1",
+  "plan_sha256_lf": "8eafed5e5cd72a7176f373870fb059150960a78824059fa9971204472a65818f",
+  "preregistered_plan": {
+    "schema_version": "htdt.r130d.exact-roof-physical-point-q0-grid-phase-ensemble-plan-1",
+    "date_jst": "2026-10-09",
+    "issue": 938,
+    "pr": 1055,
+    "purpose": "Prospective deterministic three-phase Cartesian x-grid quadrature as a numerical discretization remedy candidate without changing mathematical source, point receiver, source temporal q0, physical room, frequency, or original time window. Evaluate previously run actual full waves, not a fake new PFFDTD solver run.",
+    "frozen_inputs": {
+      "exact_roof_native_grid_unshifted_original": "benchmarks/acoustics/r130d_native_grid_exact_roof_mass_fv_q0_evidence_2026-10-09.json",
+      "actual_x_grid_shifted_full_native_wave": "benchmarks/acoustics/r130d_exact_roof_original_point_q0_x_grid_phase_evidence_2026-10-09.json",
+      "original_PFFDTD_SHA": "aa319f6c86517cb95aabfae8656277da62c3ead5",
+      "PPW": [
+        40,
+        44
+      ],
+      "x_shift_fraction_of_own_native_h": [
+        -0.25,
+        0,
+        0.25
+      ],
+      "physical_source_xyz_m": [
+        1.5,
+        2,
+        2
+      ],
+      "physical_receiver_xyz_m": [
+        2.5,
+        2,
+        2
+      ],
+      "continuous_physical_sloped_roof_m3": 56,
+      "discrete_temporal_q0": "native original q[0]=1 and all n>0 zero",
+      "native_original_Ts_Nt_per_grid": true,
+      "record_s": 0.25,
+      "frequencies_hz": [
+        40,
+        80
+      ],
+      "source_receiver_trilinear_weights_shifted_with_physical_point_fixed": true
+    },
+    "estimator": {
+      "rule": "equal arithmetic mean of three SIGNED complex full-wave P_T/Q_T at EACH original 40,80 Hz; original q0 denominator same in all phase runs; do not average magnitude or phase",
+      "weights": [
+        0.3333333333333333,
+        0.3333333333333333,
+        0.3333333333333333
+      ],
+      "constituent_full_real_waves_already_executed": true,
+      "no_frequency_selective_weights": true,
+      "no_parameter_fitting_after_data": true,
+      "interpolation_at_same_fixed_physical_point": true,
+      "no_source_smoothing_or_temporal_taper": true,
+      "no_mode_cut_or_damping": true,
+      "all_three_constituents_within_each_PPW_must_have_original_Ts_Nt": true
+    },
+    "evaluation": {
+      "compare_PP40_to_PP44_signed_complex_relative": true,
+      "report_original_unshifted_control_and_all_two_shift_controls": true,
+      "report_new_ensemble_magnitude_and_phase_max": true,
+      "report_complex_signed_residual_and_case_confidence_limits_no_inferred_continuum": true,
+      "compare_frozen_original_threshold_complex": 0.2,
+      "compare_frozen_original_threshold_magnitude": 0.25,
+      "compare_frozen_original_threshold_phase_deg": 15,
+      "do_not_call_one_pair_converged_even_if_passes": true,
+      "held_out_grid_refinement_needed_for_any_canonical_qualification": true,
+      "failures_retained": true
+    },
+    "limits": {
+      "max_ppw_cases": 2,
+      "max_phase_count": 3,
+      "max_new_wave_runs": 0,
+      "no_github_actions_runs": true
+    },
+    "authority": {
+      "original_q0_fullband": "SELF_CONVERGENCE_FAILED",
+      "physical_validation": "NOT_VALIDATED",
+      "product": "NO_GO",
+      "issue_open": true,
+      "pr_draft": true
+    }
+  },
+  "actual_unmodified_native_q0_phase_ensemble": [
+    {
+      "ppw": 40,
+      "three_actual_native_fullwave_phase_signed_transfers": [
+        {
+          "x_phase_h": -0.25,
+          "signed_native_40_80": [
+            [
+              102.97650042690641,
+              -6.425439576034166
+            ],
+            [
+              132.262617939338,
+              -229.7156714289413
+            ]
+          ]
+        },
+        {
+          "x_phase_h": 0.0,
+          "signed_native_40_80": [
+            [
+              101.30171270677356,
+              -6.578475241552964
+            ],
+            [
+              130.56902480480593,
+              -230.03603580145864
+            ]
+          ]
+        },
+        {
+          "x_phase_h": 0.25,
+          "signed_native_40_80": [
+            [
+              31.370169362320606,
+              -5.423999403448775
+            ],
+            [
+              60.59144378005896,
+              -227.62894060900882
+            ]
+          ]
+        }
+      ],
+      "original_q0_equal_weight_three_x_phase_signed_ensemble": [
+        [
+          78.5494608320002,
+          -6.142638073678635
+        ],
+        [
+          107.80769550806764,
+          -229.12688261313625
+        ]
+      ],
+      "original_physical_source_receiver_fixed": true,
+      "original_temporal_q0_and_full_250ms_bins_fixed": true,
+      "no_original_native_PFFDTD_fullwave_modification": true,
+      "no_new_wave_computation": true
+    },
+    {
+      "ppw": 44,
+      "three_actual_native_fullwave_phase_signed_transfers": [
+        {
+          "x_phase_h": -0.25,
+          "signed_native_40_80": [
+            [
+              32.26709019684209,
+              5.917166938668743
+            ],
+            [
+              58.49153566470491,
+              -205.3177520829262
+            ]
+          ]
+        },
+        {
+          "x_phase_h": 0.0,
+          "signed_native_40_80": [
+            [
+              -23.438724548586478,
+              5.7155377669852925
+            ],
+            [
+              2.762763408170244,
+              -205.60610766006334
+            ]
+          ]
+        },
+        {
+          "x_phase_h": 0.25,
+          "signed_native_40_80": [
+            [
+              -25.233822861094637,
+              5.756205248948205
+            ],
+            [
+              0.9591807321741895,
+              -205.51675010703102
+            ]
+          ]
+        }
+      ],
+      "original_q0_equal_weight_three_x_phase_signed_ensemble": [
+        [
+          -5.468485737613008,
+          5.796303318200747
+        ],
+        [
+          20.737826601683114,
+          -205.4802032833402
+        ]
+      ],
+      "original_physical_source_receiver_fixed": true,
+      "original_temporal_q0_and_full_250ms_bins_fixed": true,
+      "no_original_native_PFFDTD_fullwave_modification": true,
+      "no_new_wave_computation": true
+    }
+  ],
+  "original_unshifted_exact_roof_fullwave_PP40_44": {
+    "complex_rms_relative": 0.8726662923738087,
+    "magnitude_max_relative": 3.2077869669976202,
+    "magnitude_max_db": 12.48107488242222,
+    "phase_max_deg": 170.01140184338982,
+    "mask_floor": 0.6502422961386862,
+    "compared_frequency_count": 2,
+    "frequency_metrics": [
+      {
+        "frequency_hz": 40.0,
+        "masked_in": true,
+        "magnitude_absolute": 77.3895595524249,
+        "magnitude_relative": 3.2077869669976202,
+        "magnitude_db": 12.48107488242222,
+        "phase_deg": 170.01140184338982,
+        "complex_relative": 5.195525407484615
+      },
+      {
+        "frequency_hz": 80.0,
+        "masked_in": true,
+        "magnitude_absolute": 58.88402306187791,
+        "magnitude_relative": 0.28636653102261606,
+        "magnitude_db": 2.1872946395725372,
+        "phase_deg": 28.80950512219681,
+        "complex_relative": 0.6328043377990258
+      }
+    ]
+  },
+  "equal_weight_three_phase_fullwave_PP40_44": {
+    "complex_rms_relative": 0.5993019372661199,
+    "magnitude_max_relative": 8.887243232904469,
+    "magnitude_max_db": 19.9015043645406,
+    "phase_max_deg": 137.804582183058,
+    "mask_floor": 0.6530862989951963,
+    "compared_frequency_count": 2,
+    "frequency_metrics": [
+      {
+        "frequency_hz": 40.0,
+        "masked_in": true,
+        "magnitude_absolute": 70.82049378611723,
+        "magnitude_relative": 8.887243232904469,
+        "magnitude_db": 19.9015043645406,
+        "phase_deg": 137.804582183058,
+        "complex_relative": 10.64930380138894
+      },
+      {
+        "frequency_hz": 80.0,
+        "masked_in": true,
+        "magnitude_absolute": 46.69846491072437,
+        "magnitude_relative": 0.22611638397336326,
+        "magnitude_db": 1.7706339145525778,
+        "phase_deg": 19.434710985813638,
+        "complex_relative": 0.43686813278297776
+      }
+    ]
+  },
+  "equal_weight_three_phase_pair_below_frozen_numerical_limits": false,
+  "one_experimental_pair_not_full_grid_refinement_qualification": true,
+  "original_canonical_PFFDTD_point_q0": "SELF_CONVERGENCE_FAILED",
+  "physical_validation": "NOT_VALIDATED",
+  "product": "NO_GO",
+  "new_full_wave_runs": 0,
+  "new_github_actions_runs": 0
+}
