@@ -30,6 +30,7 @@ from PySide6.QtWidgets import (
     QInputDialog,
     QLabel,
     QLineEdit,
+    QMenu,
     QMessageBox,
     QPushButton,
     QScrollArea,
@@ -37,6 +38,7 @@ from PySide6.QtWidgets import (
     QTableWidget,
     QTableWidgetItem,
     QTabWidget,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -1601,6 +1603,188 @@ def _classification_label(classification: str) -> str:
     return _INBOX_CLASSIFICATION_LABELS.get(classification, classification)
 
 
+# -- mass-arrival triage (#988) -------------------------------------------
+#
+# Review queues are derived from each row's own facets — never a second
+# inspect() per item — so a 10/100/1000-item inbox refilters instantly.
+# ``promotable`` is the *candidate* queue: scope assigned and none of the
+# gates ``CaptureInboxRepository._check_promotable`` vets is failing. The
+# authoritative promotability verdict still comes from inspection at
+# selection/detail time.
+_INBOX_QUEUE_LABELS = {
+    "pending": "保留中",
+    "promotable": "昇格可能",
+    "blocked": "ブロック",
+    "deferred": "延期",
+    "rejected": "却下",
+    "processed": "処理済み",
+}
+# Queues still awaiting an operator decision — the 要レビュー count, the
+# default filter, and the rows 次の未処理を表示 walks.
+_INBOX_ACTIONABLE_QUEUES = frozenset({"pending", "promotable", "blocked"})
+# Display order when sorting by queue: ready-to-promote first, then items
+# needing input, then faulted, then parked/finished.
+_INBOX_QUEUE_ORDER = (
+    "promotable",
+    "pending",
+    "blocked",
+    "deferred",
+    "rejected",
+    "processed",
+)
+_INBOX_SORT_OPTIONS = (
+    ("arrival_asc", "到着が早い順"),
+    ("arrival_desc", "到着が新しい順"),
+    ("queue", "状態優先順"),
+    ("scope", "スコープ"),
+    ("series", "シリーズ"),
+    ("classification", "分類"),
+)
+_INBOX_GROUP_OPTIONS = (
+    ("none", "なし"),
+    ("queue", "状態"),
+    ("scope", "スコープ"),
+    ("series", "シリーズ"),
+    ("classification", "分類"),
+)
+# Below this width (logical px) the secondary action set folds into the
+# overflow menu — high-DPI screens shrink logical width, which is exactly
+# when a crowded action row invites mis-taps.
+_INBOX_ACTIONS_COLLAPSE_WIDTH = 1020
+
+
+def _inbox_queue_state(item) -> str:
+    """Review queue for one staged delivery (#988).
+
+    The blocked queue mirrors ``_check_promotable``'s veto facets exactly
+    (validation, identity conflict, dependencies, evidence conflict,
+    alignment) so the label names the gate that would actually fail —
+    never a guess. ``promotable`` items are promotion-review candidates;
+    the promote path still re-verifies at execution time.
+    """
+
+    disposition = getattr(item, "disposition", "pending")
+    if disposition == "deferred":
+        return "deferred"
+    if disposition == "rejected":
+        return "rejected"
+    if disposition in ("promoted", "superseded"):
+        return "processed"
+    if (
+        getattr(item, "bundle_validation", "validated") != "validated"
+        or getattr(item, "primary_classification", "")
+        == "identity_digest_conflict"
+        or getattr(item, "dependency_state", "not_evaluated") == "unresolved"
+        or getattr(item, "evidence_conflict_state", "none") == "open"
+        or getattr(item, "alignment_state", "not_required") == "blocked"
+    ):
+        return "blocked"
+    if not capture_inbox_item_project_id(item):
+        return "pending"
+    return "promotable"
+
+
+def _inbox_search_text(item) -> str:
+    """Lowercased haystack the inbox search box matches against."""
+
+    parts = [
+        _inbox_scope_label(getattr(item, "scope", "")),
+        getattr(item, "scope", ""),
+        getattr(item, "capture_series_id", ""),
+        getattr(item, "capture_revision_id", ""),
+        _classification_label(getattr(item, "primary_classification", "")),
+        getattr(item, "primary_classification", ""),
+        *(
+            _INBOX_CLASSIFICATION_LABELS.get(flag, flag)
+            for flag in getattr(item, "classification_flags", ())
+        ),
+        _INBOX_DISPOSITION_LABELS.get(
+            getattr(item, "disposition", ""), getattr(item, "disposition", "")
+        ),
+        getattr(item, "arrival_source", ""),
+        getattr(item, "source_detail", ""),
+        getattr(item, "inbox_item_id", ""),
+        getattr(item, "lineage_digest", ""),
+    ]
+    return " ".join(str(part) for part in parts if part).lower()
+
+
+def _inbox_classification_rank(item) -> int:
+    try:
+        return list(_INBOX_CLASSIFICATION_LABELS).index(
+            getattr(item, "primary_classification", "")
+        )
+    except ValueError:
+        return len(_INBOX_CLASSIFICATION_LABELS)
+
+
+def _inbox_sort_key(item, sort_key: str):
+    queue_rank = _INBOX_QUEUE_ORDER.index(_inbox_queue_state(item))
+    arrived = getattr(item, "first_arrived_at_utc", "")
+    digest = getattr(item, "lineage_digest", "")
+    if sort_key == "queue":
+        return (queue_rank, arrived, digest)
+    if sort_key == "scope":
+        return (
+            _inbox_scope_label(getattr(item, "scope", "")).lower(),
+            arrived,
+            digest,
+        )
+    if sort_key == "series":
+        return (getattr(item, "capture_series_id", ""), arrived, digest)
+    if sort_key == "classification":
+        return (_inbox_classification_rank(item), arrived, digest)
+    return (arrived, digest)
+
+
+def _inbox_group_sort(item, group_key: str):
+    """Sortable group key — groups order by the module's own
+    vocabularies (queue rank, classification priority), never by raw
+    string. 未割り当て pins first: it is the queue's landing zone."""
+    if group_key == "queue":
+        return (_INBOX_QUEUE_ORDER.index(_inbox_queue_state(item)),)
+    if group_key == "scope":
+        scope = getattr(item, "scope", "")
+        return (
+            0 if scope == _INBOX_UNASSIGNED_SCOPE else 1,
+            _inbox_scope_label(scope).lower(),
+        )
+    if group_key == "series":
+        return (getattr(item, "capture_series_id", ""),)
+    if group_key == "classification":
+        return (_inbox_classification_rank(item),)
+    return ()
+
+
+def _inbox_group_title(item, group_key: str) -> str:
+    if group_key == "queue":
+        return _INBOX_QUEUE_LABELS[_inbox_queue_state(item)]
+    if group_key == "scope":
+        return f"スコープ: {_inbox_scope_label(getattr(item, 'scope', ''))}"
+    if group_key == "series":
+        return f"シリーズ: {getattr(item, 'capture_series_id', '')}"
+    if group_key == "classification":
+        return (
+            "分類: "
+            + _classification_label(
+                getattr(item, "primary_classification", "")
+            )
+        )
+    return ""
+
+
+def _inbox_state_cell(item) -> str:
+    """状態 column: queue vocabulary, with the stored disposition kept
+    in parentheses when it carries extra information (一部昇格 etc.)."""
+    queue_label = _INBOX_QUEUE_LABELS[_inbox_queue_state(item)]
+    disposition = _INBOX_DISPOSITION_LABELS.get(
+        getattr(item, "disposition", ""), getattr(item, "disposition", "")
+    )
+    if queue_label == disposition:
+        return queue_label
+    return f"{queue_label}（{disposition}）"
+
+
 class CaptureInboxPage(QWidget):
     """Capture Inbox: staged deliveries awaiting review (#770).
 
@@ -1672,11 +1856,22 @@ class CaptureInboxPage(QWidget):
         self._selected_contribution = None
         self._contributions: tuple = ()
         self._last_inspection = None
+        # Mass-arrival triage state (#988): ``_items`` is the last
+        # ``list_items`` snapshot; ``_displayed_items`` mirrors the
+        # delivery table row-for-row (``None`` marks group header rows).
+        self._items: tuple = ()
+        self._displayed_items: list = []
+        self._collapsed_actions: bool | None = None
+        self._secondary_widgets: list[QWidget] = []
         layout = _page_layout(
             self,
             "取り込み",
             "取得済みのキャプチャ配送です。項目を選ぶと内容と判断材料を確認できます。",
         )
+        delivery_panel = QWidget()
+        delivery_layout = QVBoxLayout(delivery_panel)
+        delivery_layout.setContentsMargins(0, 0, 0, 0)
+        delivery_layout.addLayout(self._build_inbox_filter_row())
         splitter = QSplitter(Qt.Orientation.Vertical)
         self.table = QTableWidget(0, 5)
         self.table.setAccessibleName("取り込み一覧")
@@ -1703,6 +1898,7 @@ class CaptureInboxPage(QWidget):
         )
         self.table.itemSelectionChanged.connect(self._sync_detail)
         splitter.addWidget(self.table)
+        delivery_layout.addWidget(splitter, 1)
 
         detail_panel = QWidget()
         detail_layout = QVBoxLayout(detail_panel)
@@ -1715,29 +1911,75 @@ class CaptureInboxPage(QWidget):
         set_typography_role(self.detail, TypographyRole.SECONDARY)
         detail_layout.addWidget(self.detail, 1)
         actions = QHBoxLayout()
+        # Primary triage ops stay first and never collapse (#988).
+        self.next_unprocessed_button = QPushButton("次の未処理を表示")
+        self.next_unprocessed_button.setAccessibleName("次の未処理を表示")
+        self.next_unprocessed_button.setToolTip(
+            "保留中・昇格可能・ブロックのうち、次の項目を選択します"
+            "（延期・却下・処理済みとグループ見出しは飛ばします）"
+        )
+        self.next_unprocessed_button.setWhatsThis(
+            "保留中・昇格可能・ブロックのうち、次の項目を選択します"
+            "（延期・却下・処理済みとグループ見出しは飛ばします）"
+        )
+        self.next_unprocessed_button.clicked.connect(
+            self._show_next_unprocessed
+        )
+        actions.addWidget(self.next_unprocessed_button)
+        self.detail_button = QPushButton("詳細を確認")
+        self.detail_button.setAccessibleName("詳細を確認")
+        self.detail_button.setToolTip(
+            "選択項目の詳細を表示します。未選択なら次の未処理項目を選びます。"
+        )
+        self.detail_button.setWhatsThis(
+            "選択項目の詳細を表示します。未選択なら次の未処理項目を選びます。"
+        )
+        self.detail_button.clicked.connect(self._confirm_detail)
+        actions.addWidget(self.detail_button)
+        actions.addSpacing(8)
+        # Secondary actions fold into the overflow menu when the row
+        # cannot fit (high-DPI / narrow windows) so mis-taps cannot
+        # happen — the collapsed menu runs the exact same slots.
+        self.actions_menu = QMenu(self)
+        self._menu_actions = {}
+
+        def _menu_action(key: str, label: str, slot) -> None:
+            action = self.actions_menu.addAction(label)
+            action.triggered.connect(slot)
+            self._menu_actions[key] = action
+
         self.defer_button = QPushButton("延期…")
         self.defer_button.setToolTip("選択項目の判断をあとに回します（一覧から一時的に外れます）")
         self.defer_button.setWhatsThis("選択項目の判断をあとに回します（一覧から一時的に外れます）")
         self.defer_button.clicked.connect(lambda: self._dispose("defer"))
         actions.addWidget(self.defer_button)
+        self._secondary_widgets.append(self.defer_button)
+        _menu_action("defer", "延期…", lambda: self._dispose("defer"))
         self.reject_button = QPushButton("却下…")
         self.reject_button.setToolTip("選択項目を取り込まずに破棄します（理由を確認してから実行されます）")
         self.reject_button.setWhatsThis("選択項目を取り込まずに破棄します（理由を確認してから実行されます）")
         self.reject_button.clicked.connect(lambda: self._dispose("reject"))
         actions.addWidget(self.reject_button)
+        self._secondary_widgets.append(self.reject_button)
+        _menu_action("reject", "却下…", lambda: self._dispose("reject"))
         self.resume_button = QPushButton("再開")
         self.resume_button.setToolTip("延期・却下した項目を再度「保留」に戻して検討対象にします")
         self.resume_button.setWhatsThis("延期・却下した項目を再度「保留」に戻して検討対象にします")
         self.resume_button.clicked.connect(lambda: self._dispose("resume"))
         actions.addWidget(self.resume_button)
+        self._secondary_widgets.append(self.resume_button)
+        _menu_action("resume", "再開", lambda: self._dispose("resume"))
         self.promote_button = QPushButton("昇格…")
         self.promote_button.setToolTip("取り込み可能な権威レコード（注釈エンティティ）をプロジェクトのシーンに反映します")
         self.promote_button.setWhatsThis("取り込み可能な権威レコード（注釈エンティティ）をプロジェクトのシーンに反映します")
         self.promote_button.clicked.connect(self._promote)
         actions.addWidget(self.promote_button)
+        self._secondary_widgets.append(self.promote_button)
+        _menu_action("promote", "昇格…", self._promote)
         self.scope_combo = QComboBox()
         self.scope_combo.setToolTip("選択項目を取り込む先のプロジェクトを選びます")
         self.scope_combo.setWhatsThis("選択項目を取り込む先のプロジェクトを選びます")
+        self.scope_combo.setAccessibleName("割り当て先プロジェクト")
         actions.addWidget(QLabel("プロジェクト:"))
         actions.addWidget(self.scope_combo, 1)
         self.scope_button = QPushButton("割り当て")
@@ -1745,28 +1987,474 @@ class CaptureInboxPage(QWidget):
         self.scope_button.setWhatsThis("選択項目を左で選んだプロジェクトに取り込み（関連付け）ます")
         self.scope_button.clicked.connect(self._apply_scope)
         actions.addWidget(self.scope_button)
+        self._secondary_widgets.append(self.scope_button)
+        _menu_action("assign", "プロジェクト割当", self._apply_scope)
+        self.actions_menu.addSeparator()
         link = QPushButton("測定ワークスペースを開く")
         link.setToolTip("測定ワークスペースの「読み込み」ページへ移動します")
         link.setWhatsThis("測定ワークスペースの「読み込み」ページへ移動します")
-        link.clicked.connect(
-            lambda: self._on_navigate(
-                WorkspaceDeepLink(WorkspaceId.MEASUREMENT, "import")
-            )
-        )
+        link.setAccessibleName("測定ワークスペースを開く")
+        link.clicked.connect(self._open_measurement_import)
         actions.addWidget(link)
+        self._secondary_widgets.append(link)
+        _menu_action(
+            "open_measurement",
+            "測定ワークスペースを開く",
+            self._open_measurement_import,
+        )
+        self.field_return_link = None
+        if self._list_contributions is not None:
+            self.field_return_link = QPushButton("フィールドリターンを開く")
+            self.field_return_link.setToolTip(
+                "受け取ったフィールドリターンの一覧タブへ移動します"
+            )
+            self.field_return_link.setWhatsThis(
+                "受け取ったフィールドリターンの一覧タブへ移動します"
+            )
+            self.field_return_link.setAccessibleName(
+                "フィールドリターンを開く"
+            )
+            self.field_return_link.clicked.connect(
+                self._open_field_return_tab
+            )
+            actions.addWidget(self.field_return_link)
+            self._secondary_widgets.append(self.field_return_link)
+            _menu_action(
+                "open_field_return",
+                "フィールドリターンを開く",
+                self._open_field_return_tab,
+            )
+        self.actions_overflow = QToolButton()
+        self.actions_overflow.setText("操作 ▾")
+        self.actions_overflow.setToolTip(
+            "延期・却下・再開・昇格・割り当て・画面遷移の一覧です"
+        )
+        self.actions_overflow.setAccessibleName("その他の操作")
+        self.actions_overflow.setPopupMode(
+            QToolButton.ToolButtonPopupMode.InstantPopup
+        )
+        self.actions_overflow.setMenu(self.actions_menu)
+        self.actions_overflow.setVisible(False)
+        actions.addWidget(self.actions_overflow)
+        self.actions_menu.aboutToShow.connect(
+            lambda: self._sync_actions(self._last_inspection)
+        )
         detail_layout.addLayout(actions)
         splitter.addWidget(detail_panel)
         splitter.setStretchFactor(0, 1)
-        tabs = QTabWidget()
-        tabs.addTab(splitter, "キャプチャ配送")
+        self._tabs = QTabWidget()
+        self._tabs.addTab(delivery_panel, "キャプチャ配送")
         if self._list_watch_failures is not None:
-            tabs.addTab(self._build_watch_failures_tab(), "失敗キュー")
+            self._tabs.addTab(self._build_watch_failures_tab(), "失敗キュー")
+        self._contributions_tab = None
         if self._list_contributions is not None:
-            tabs.addTab(self._build_contributions_tab(), "フィールドリターン")
+            self._contributions_tab = self._build_contributions_tab()
+            self._tabs.addTab(self._contributions_tab, "フィールドリターン")
         if self._list_missions is not None:
-            tabs.addTab(self._build_missions_tab(), "ミッション")
-        layout.addWidget(tabs, 1)
+            self._tabs.addTab(self._build_missions_tab(), "ミッション")
+        layout.addWidget(self._tabs, 1)
         self.refresh()
+
+    # -- mass-arrival triage (#988) --------------------------------------
+    #
+    # The filter row re-presents the last ``list_items`` snapshot —
+    # search/queue/sort/group never re-read the store and never carry
+    # approval authority; assign/promote/reject keep their exact-identity
+    # (lineage_digest) handlers and explicit confirmations unchanged.
+
+    def _build_inbox_filter_row(self) -> QHBoxLayout:
+        row = QHBoxLayout()
+        self.inbox_search_edit = QLineEdit()
+        self.inbox_search_edit.setPlaceholderText(
+            "検索（スコープ・シリーズ・分類・由来）"
+        )
+        self.inbox_search_edit.setClearButtonEnabled(True)
+        self.inbox_search_edit.setToolTip(
+            "表示する取り込み項目を絞り込みます。"
+            "検索や並び順は見た目だけを変え、承認の根拠にはなりません。"
+        )
+        self.inbox_search_edit.setAccessibleName("取り込み検索")
+        row.addWidget(self.inbox_search_edit, 1)
+        row.addWidget(QLabel("状態:"))
+        self.inbox_state_combo = QComboBox()
+        self.inbox_state_combo.setToolTip(
+            "処理状態のキューで絞り込みます。"
+            "要レビューは保留中・昇格可能・ブロックの未処理分です。"
+        )
+        self.inbox_state_combo.setAccessibleName("取り込み状態フィルタ")
+        self._state_base_labels = {}
+        for key, label in (
+            ("review", "要レビュー"),
+            ("all", "すべて"),
+            *(
+                (queue, _INBOX_QUEUE_LABELS[queue])
+                for queue in _INBOX_QUEUE_ORDER
+            ),
+        ):
+            self._state_base_labels[key] = label
+            self.inbox_state_combo.addItem(label, key)
+        row.addWidget(self.inbox_state_combo)
+        row.addWidget(QLabel("並び:"))
+        self.inbox_sort_combo = QComboBox()
+        self.inbox_sort_combo.setToolTip(
+            "一覧の並び順です（承認の根拠にはなりません）。"
+        )
+        self.inbox_sort_combo.setAccessibleName("取り込み並び替え")
+        for key, label in _INBOX_SORT_OPTIONS:
+            self.inbox_sort_combo.addItem(label, key)
+        row.addWidget(self.inbox_sort_combo)
+        row.addWidget(QLabel("グループ:"))
+        self.inbox_group_combo = QComboBox()
+        self.inbox_group_combo.setToolTip(
+            "一覧を状態・スコープ・シリーズ・分類で区切って表示します。"
+        )
+        self.inbox_group_combo.setAccessibleName("取り込みグループ化")
+        for key, label in _INBOX_GROUP_OPTIONS:
+            self.inbox_group_combo.addItem(label, key)
+        row.addWidget(self.inbox_group_combo)
+        self.inbox_count_label = QLabel()
+        self.inbox_count_label.setAccessibleName("要レビュー件数")
+        self.inbox_count_label.setToolTip(
+            "保留中・昇格可能・ブロックの合計が要レビュー件数です。"
+        )
+        set_typography_role(
+            self.inbox_count_label, TypographyRole.SECONDARY
+        )
+        row.addWidget(self.inbox_count_label)
+        row.addStretch(1)
+        # Connect last — the first addItem in a fresh combo emits
+        # currentIndexChanged while later controls are still being built.
+        self.inbox_search_edit.textChanged.connect(self._refilter)
+        self.inbox_state_combo.currentIndexChanged.connect(self._refilter)
+        self.inbox_sort_combo.currentIndexChanged.connect(self._refilter)
+        self.inbox_group_combo.currentIndexChanged.connect(self._refilter)
+        return row
+
+    def _refilter(self, *_args: object) -> None:
+        """Re-present the cached snapshot — never re-reads the store."""
+        self._rebuild_delivery_rows()
+
+    def _rebuild_delivery_rows(self) -> None:
+        selected = self._selected_row_data()
+        state_filter = self.inbox_state_combo.currentData() or "review"
+        sort_key = self.inbox_sort_combo.currentData() or "arrival_asc"
+        group_key = self.inbox_group_combo.currentData() or "none"
+        query = self.inbox_search_edit.text().strip().lower()
+        counts = {queue: 0 for queue in _INBOX_QUEUE_LABELS}
+        visible = []
+        for item in self._items:
+            queue = _inbox_queue_state(item)
+            counts[queue] = counts.get(queue, 0) + 1
+            if state_filter == "review":
+                if queue not in _INBOX_ACTIONABLE_QUEUES:
+                    continue
+            elif state_filter != "all" and queue != state_filter:
+                continue
+            if query and query not in _inbox_search_text(item):
+                continue
+            visible.append(item)
+        visible.sort(
+            key=lambda item: _inbox_sort_key(item, sort_key),
+            reverse=sort_key == "arrival_desc",
+        )
+        if group_key != "none":
+            # Stable re-sort by group keeps the chosen order inside each
+            # group — group headers only ever precede their own members.
+            visible.sort(
+                key=lambda item: _inbox_group_sort(item, group_key)
+            )
+        self._populate_delivery_table(visible, group_key)
+        self._sync_inbox_counts(counts, len(visible))
+        actionable_rows = any(
+            entry is not None
+            and _inbox_queue_state(entry) in _INBOX_ACTIONABLE_QUEUES
+            for entry in self._displayed_items
+        )
+        self.next_unprocessed_button.setEnabled(actionable_rows)
+        self.detail_button.setEnabled(
+            any(entry is not None for entry in self._displayed_items)
+        )
+        if selected is not None and self._select_delivery_row(selected[0]):
+            return
+        self._sync_detail()
+
+    def _populate_delivery_table(
+        self, items: list, group_key: str
+    ) -> None:
+        self.table.setRowCount(0)
+        self._displayed_items = []
+        group_counts: dict = {}
+        if group_key != "none":
+            for item in items:
+                key = _inbox_group_sort(item, group_key)
+                group_counts[key] = group_counts.get(key, 0) + 1
+        previous_group = None
+        for item in items:
+            if group_key != "none":
+                key = _inbox_group_sort(item, group_key)
+                if key != previous_group:
+                    previous_group = key
+                    self._insert_group_row(
+                        item, group_key, group_counts[key]
+                    )
+            row = self.table.rowCount()
+            self.table.insertRow(row)
+            self._displayed_items.append(item)
+            for column, value in enumerate(
+                (
+                    _inbox_scope_label(item.scope),
+                    item.capture_series_id,
+                    _classification_label(item.primary_classification),
+                    _inbox_state_cell(item),
+                    str(item.arrival_count),
+                )
+            ):
+                cell = QTableWidgetItem(str(value))
+                if column == 0:
+                    cell.setData(Qt.ItemDataRole.UserRole, item.inbox_item_id)
+                    cell.setData(_INBOX_LINEAGE_ROLE, item.lineage_digest)
+                self.table.setItem(row, column, cell)
+
+    def _insert_group_row(
+        self, item, group_key: str, count: int
+    ) -> None:
+        """Non-selectable group header — spans the row, carries no item
+        identity so selection/next-unprocessed can never land on it."""
+        row = self.table.rowCount()
+        self.table.insertRow(row)
+        self._displayed_items.append(None)
+        cell = QTableWidgetItem(
+            f"{_inbox_group_title(item, group_key)}（{count} 件）"
+        )
+        cell.setFlags(Qt.ItemFlag.ItemIsEnabled)
+        font = cell.font()
+        font.setBold(True)
+        cell.setFont(font)
+        self.table.setItem(row, 0, cell)
+        self.table.setSpan(row, 0, 1, self.table.columnCount())
+
+    def _sync_inbox_counts(self, counts: dict, shown: int) -> None:
+        actionable = sum(
+            counts.get(queue, 0) for queue in _INBOX_ACTIONABLE_QUEUES
+        )
+        self.inbox_count_label.setText(
+            f"要レビュー {actionable} 件 / 表示 {shown} / "
+            f"全 {len(self._items)} 件"
+        )
+        # Live per-queue counts on the combo — mass arrivals stay legible
+        # without flipping the filter to count each state.
+        for index in range(self.inbox_state_combo.count()):
+            key = self.inbox_state_combo.itemData(index)
+            base = self._state_base_labels.get(key, "")
+            if key == "review":
+                total = actionable
+            elif key == "all":
+                total = len(self._items)
+            else:
+                total = counts.get(key, 0)
+            self.inbox_state_combo.setItemText(index, f"{base}（{total}）")
+
+    def _select_delivery_row(self, inbox_item_id: str) -> bool:
+        """Select the row whose col-0 cell carries this exact item id."""
+        for row in range(self.table.rowCount()):
+            cell = self.table.item(row, 0)
+            if (
+                cell is not None
+                and cell.data(Qt.ItemDataRole.UserRole) == inbox_item_id
+            ):
+                self.table.selectRow(row)
+                self.table.scrollToItem(cell)
+                return True
+        return False
+
+    def reveal_all_items(self) -> None:
+        """Drop queue filter + search so deep links reach hidden rows.
+
+        The default 要レビュー queue hides deferred/rejected/processed
+        items — a focus target must still be able to land on them.
+        """
+        self.inbox_search_edit.clear()
+        all_index = self.inbox_state_combo.findData("all")
+        if all_index >= 0:
+            self.inbox_state_combo.setCurrentIndex(all_index)
+        self._refilter()
+
+    def _show_next_unprocessed(self) -> None:
+        """Advance selection to the next actionable row (wraps)."""
+        selected = self._selected_row_data()
+        start = -1
+        if selected is not None:
+            for row, entry in enumerate(self._displayed_items):
+                if (
+                    entry is not None
+                    and entry.inbox_item_id == selected[0]
+                ):
+                    start = row
+                    break
+        rows = len(self._displayed_items)
+        for offset in range(1, rows + 1):
+            index = (start + offset) % rows
+            entry = self._displayed_items[index]
+            if entry is None:
+                continue
+            if _inbox_queue_state(entry) in _INBOX_ACTIONABLE_QUEUES:
+                self.table.selectRow(index)
+                cell = self.table.item(index, 0)
+                if cell is not None:
+                    self.table.scrollToItem(cell)
+                return
+        self.detail.setText("未処理の項目はありません。")
+
+    def _confirm_detail(self) -> None:
+        """詳細を確認 — focus the detail pane, selecting the next
+        unprocessed row first when nothing is selected."""
+        if self._selected_digest() is None:
+            self._show_next_unprocessed()
+            if self._selected_digest() is None:
+                return
+        else:
+            self._sync_detail()
+        self.detail.setFocus()
+
+    def _applicable_ops(self, inspection) -> tuple:
+        """Action labels currently valid for the inspected item — the
+        display mirror of ``_sync_actions``' enable rules."""
+        disposition = inspection.item.disposition
+        ops = []
+        if self._defer_item is not None and disposition == "pending":
+            ops.append("延期")
+        if self._reject_item is not None and disposition in (
+            "pending",
+            "deferred",
+        ):
+            ops.append("却下")
+        if self._resume_item is not None and disposition in (
+            "deferred",
+            "rejected",
+        ):
+            ops.append("再開")
+        if self._promote_item is not None and self._promotable(inspection):
+            ops.append("昇格")
+        if self._assign_scope is not None and disposition in (
+            "pending",
+            "deferred",
+        ):
+            ops.append("プロジェクト割当")
+        return tuple(ops)
+
+    def _blocked_reason(self, inspection) -> str:
+        """Why the item cannot promote right now, or what it is missing."""
+        item = inspection.item
+        reasons = []
+        if item.bundle_validation != "validated":
+            reasons.append(
+                "バンドル検証未通過"
+                + (
+                    f"（{item.validation_detail}）"
+                    if item.validation_detail
+                    else ""
+                )
+            )
+        if item.primary_classification == "identity_digest_conflict":
+            reasons.append("同一性ダイジェストの競合が未解決")
+        if item.dependency_state == "unresolved":
+            reasons.append(
+                "依存関係が未解決"
+                + (
+                    f"（{item.dependency_detail}）"
+                    if item.dependency_detail
+                    else ""
+                )
+            )
+        if item.alignment_state == "blocked":
+            reasons.append(
+                "整列がブロック"
+                + (
+                    f"（{item.alignment_detail}）"
+                    if item.alignment_detail
+                    else ""
+                )
+            )
+        if item.evidence_conflict_state == "open":
+            reasons.append(
+                "証拠競合が未解決"
+                + (
+                    f"（{item.evidence_conflict_detail}）"
+                    if item.evidence_conflict_detail
+                    else ""
+                )
+            )
+        if not reasons and not capture_inbox_item_project_id(item):
+            reasons.append(
+                "プロジェクト未割当 — 割り当てると昇格を検討できます"
+            )
+        if (
+            inspection.promotability == "blocked"
+            and inspection.blocked_authority_kinds
+        ):
+            kinds = "・".join(
+                _INBOX_AUTHORITY_KIND_LABELS.get(kind, kind)
+                for kind in inspection.blocked_authority_kinds
+            )
+            reasons.append(f"昇格できない権威: {kinds}")
+        return " / ".join(reasons)
+
+    def _next_action_hint(self, inspection) -> str:
+        queue = _inbox_queue_state(inspection.item)
+        promotability = inspection.promotability
+        if queue in ("promotable", "pending"):
+            if promotability == "blocked":
+                return (
+                    "ブロック理由を解消してから再評価します"
+                    "（延期もできます）。"
+                )
+            if promotability == "complete":
+                return "昇格は完了しています。"
+            if queue == "promotable":
+                return "「昇格…」で注釈・測定をプロジェクトへ反映できます。"
+            return (
+                "「プロジェクト割当」で割り当てると昇格を検討できます"
+                "（延期・却下も可）。"
+            )
+        if queue == "blocked":
+            return (
+                "ブロック理由を解消してから再評価します（延期もできます）。"
+            )
+        if queue == "deferred":
+            return "「再開」で検討対象に戻します。"
+        if queue == "rejected":
+            return "却下済みです（「再開」で保留に戻せます）。"
+        return "処理済みです — 追加の操作は不要です。"
+
+    def _open_measurement_import(self) -> None:
+        self._on_navigate(
+            WorkspaceDeepLink(WorkspaceId.MEASUREMENT, "import")
+        )
+
+    def _open_field_return_tab(self) -> None:
+        """Field-return deep link — the surface lives in this page's
+        フィールドリターン tab, so the honest route is switching to it."""
+        if self._contributions_tab is not None:
+            self._tabs.setCurrentWidget(self._contributions_tab)
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self._sync_action_layout()
+
+    def _sync_action_layout(self) -> None:
+        """Fold secondary actions into 操作 ▾ when the row cannot fit.
+
+        High-DPI screens shrink logical width — exactly when a crowded
+        action row invites a mis-tap. The primary triage ops
+        (次の未処理/詳細) never collapse.
+        """
+        collapse = self.width() < _INBOX_ACTIONS_COLLAPSE_WIDTH
+        if self._collapsed_actions == collapse:
+            return
+        self._collapsed_actions = collapse
+        for widget in self._secondary_widgets:
+            widget.setVisible(not collapse)
+        self.actions_overflow.setVisible(collapse)
 
     def _selected_row_data(self) -> tuple[str, str] | None:
         items = self.table.selectedItems()
@@ -1788,7 +2476,10 @@ class CaptureInboxPage(QWidget):
         if digest is None:
             if self.table.rowCount() == 0:
                 self.detail.setText(
-                    "取り込み待ちの配送はありません。"
+                    "条件に一致する項目はありません。"
+                    "検索や状態フィルタを見直してください。"
+                    if self._items
+                    else "取り込み待ちの配送はありません。"
                     "配送が到着するとここに表示されます。"
                 )
             else:
@@ -1883,6 +2574,16 @@ class CaptureInboxPage(QWidget):
             )
         if item.operator_notes:
             lines.append(f"メモ: {item.operator_notes}")
+        # #988 detail triage: what can be done now, what is missing or
+        # blocking, and the suggested next step — the operator never
+        # re-derives it from raw facets during a mass-triage pass.
+        ops = self._applicable_ops(inspection)
+        if ops:
+            lines.append("適用可能な操作: " + "・".join(ops))
+        blocked = self._blocked_reason(inspection)
+        if blocked:
+            lines.append(f"不足・ブロック理由: {blocked}")
+        lines.append(f"次のアクション: {self._next_action_hint(inspection)}")
         self.detail.setText("\n".join(lines))
         self._populate_scope_combo(item.scope)
 
@@ -1930,6 +2631,18 @@ class CaptureInboxPage(QWidget):
             self._assign_scope is not None
             and disposition in ("pending", "deferred")
         )
+        # The collapsed overflow menu mirrors the buttons' enable state —
+        # a folded action must be exactly as reachable as the button was.
+        for key, button in (
+            ("defer", self.defer_button),
+            ("reject", self.reject_button),
+            ("resume", self.resume_button),
+            ("promote", self.promote_button),
+            ("assign", self.scope_button),
+        ):
+            action = self._menu_actions.get(key)
+            if action is not None:
+                action.setEnabled(button.isEnabled())
 
     @staticmethod
     def _promotable(inspection) -> bool:
@@ -2007,39 +2720,16 @@ class CaptureInboxPage(QWidget):
         self.refresh()
         if selected is None:
             return
-        for row in range(self.table.rowCount()):
-            cell = self.table.item(row, 0)
-            if (
-                cell is not None
-                and cell.data(Qt.ItemDataRole.UserRole) == selected[0]
-            ):
-                self.table.selectRow(row)
-                break
-        self._sync_detail()
+        if self._select_delivery_row(selected[0]):
+            return
+        # The acted item left the visible queue (e.g. deferred under the
+        # 要レビュー filter) — advance to the next unprocessed row so a
+        # mass-triage pass never loses its place or lands on a wrong item.
+        self._show_next_unprocessed()
 
     def refresh(self) -> None:
-        items = self._list_items()
-        self.table.setRowCount(0)
-        for item in items:
-            row = self.table.rowCount()
-            self.table.insertRow(row)
-            for column, value in enumerate(
-                (
-                    _inbox_scope_label(item.scope),
-                    item.capture_series_id,
-                    _classification_label(item.primary_classification),
-                    _INBOX_DISPOSITION_LABELS.get(
-                        item.disposition, item.disposition
-                    ),
-                    str(item.arrival_count),
-                )
-            ):
-                cell = QTableWidgetItem(str(value))
-                if column == 0:
-                    cell.setData(Qt.ItemDataRole.UserRole, item.inbox_item_id)
-                    cell.setData(_INBOX_LINEAGE_ROLE, item.lineage_digest)
-                self.table.setItem(row, column, cell)
-        self._sync_detail()
+        self._items = tuple(self._list_items())
+        self._rebuild_delivery_rows()
         self._refresh_contributions()
         self._refresh_missions()
         self._refresh_watch_failures()
@@ -5946,11 +6636,14 @@ def inbox_focus(page: CaptureInboxPage, target: NavigationTarget) -> TargetFocus
     item_id = target.primary_id
     if item_id is None:
         return TargetFocusResult(focused=True)
-    for row in range(page.table.rowCount()):
-        cell = page.table.item(row, 0)
-        if cell is not None and cell.data(Qt.ItemDataRole.UserRole) == item_id:
-            page.table.selectRow(row)
-            return TargetFocusResult(focused=True)
+    if page._select_delivery_row(item_id):
+        return TargetFocusResult(focused=True)
+    # The triage filter/search may hide the row — deferred, rejected and
+    # processed items are off the default 要レビュー queue (#988). Reveal
+    # everything once, then retry the identity-pinned lookup.
+    page.reveal_all_items()
+    if page._select_delivery_row(item_id):
+        return TargetFocusResult(focused=True)
     return TargetFocusResult(
         focused=False,
         message="取り込み一覧に該当の項目がありません",
