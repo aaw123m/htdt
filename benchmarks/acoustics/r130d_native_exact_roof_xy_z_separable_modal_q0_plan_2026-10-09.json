@@ -1,0 +1,101 @@
+{
+  "schema_version": "htdt.r130d.native-exact-roof-x-yz-separable-modal-q0-plan-1",
+  "date_jst": "2026-10-09",
+  "issue": 938,
+  "pr": 1055,
+  "objective": "Test exact native-grid sloped-roof Neumann FV spatial operator Kronecker separability along x vs yz; calculate true lowest 32 yz generalized modes, all x modes and original 8/8 physical delta q0 250ms finite signed 40/80 Hz contribution of first 12x32 3D product modes on PPW40 and44. Preserve signed adverse high-order tail.",
+  "frozen_source": {
+    "native_PPW": [
+      40,
+      44
+    ],
+    "pffdtd_upstream_pin": "aa319f6c86517cb95aabfae8656277da62c3ead5",
+    "original_native_comms_evidence": "benchmarks/acoustics/r130d_original_point_quadratic_pffdtd_evidence_2026-10-09.json",
+    "unmodified_exact_roof_8_8_full_wave_evidence": "benchmarks/acoustics/r130d_native_grid_exact_roof_mass_fv_q0_evidence_2026-10-09.json",
+    "full_record_s": 0.25,
+    "source_xyz_m": [
+      1.5,
+      2,
+      2
+    ],
+    "receiver_xyz_m": [
+      2.5,
+      2,
+      2
+    ],
+    "original_time": "native Ts Nt q[0]=1 and all q[n>0]=0",
+    "frequencies_hz": [
+      40,
+      80
+    ],
+    "room": "exact analytic 0<=x,y,z<=4 and z+0.25y<=4, rigid Neumann",
+    "rho": 1.2,
+    "c": 343.2,
+    "unmodified_native_hdf5_sha_required": true,
+    "point_source_and_receiver_are_original_native_eight_node_trilinear": true
+  },
+  "exact_math": {
+    "Mx": "diagonal of true x-axis dual clipped Voronoi widths",
+    "Myz": "diagonal of exactly clipped 2D yz fluid polygons",
+    "Kx": "c^2/h*1D x adjacent rigid Neumann difference graph",
+    "Kyz": "c^2/h*2D yz positive-open-face rigid Neumann difference graph",
+    "kronecker": "M3=kron(Mx,Myz); K3=kron(Kx,Myz)+kron(Mx,Kyz)",
+    "comparison": "3D exact from existing production-isolated cutcell FV builder; bound COO/CSR max absolute M difference<=1e-10, K<=2e-8, x-major native active original C order exactly; no original geometry modification",
+    "max_mass_abs": 1e-10,
+    "max_stiffness_abs": 2e-8,
+    "require_volume_56": true,
+    "require_zero_neumann_row_sums": true
+  },
+  "modes": {
+    "x": "ALL original 1D mass-generalized symmetric Neumann eigenmodes incl zero, using scipy.linalg.eigh",
+    "yz": "lowest 32 symmetrically mass-normalized generalized Neumann eigenmodes including zero, eigsh(sigma=-1,which=LM,k=32,tol=1e-10)",
+    "yz_modes": 32,
+    "lowest_x_modes_contributing": 12,
+    "accuracy_true_eigen_residual_relative_max": 2e-7,
+    "zero_mode_f_hz_max": 0.01,
+    "all_generalized_eigenvectors_mass_orthonormal": true,
+    "separation": "physical semidiscrete 3D squared angular frequency eigenvalue lambda_ij = lambda_x_i+lambda_yz_j",
+    "modified_newmark_frequency": "omega_discrete=(2/dt)*atan(0.5*dt*sqrt(lambda_x+lambda_yz))",
+    "source_receiver_project": "original exact 8 point spatial delta and exact 8 point observation, tensor-factorized x and yz cardinal; validate reconstructed all original 8-node numerical stencils and weights before mode projection",
+    "modal_time_source": "original 250ms q0 kick: modal_phi(n) = dt^2*c^2/(1+dt^2*lambda/4)*(src_i*recv_i)*sin(n*theta)/sin(theta), at zero theta use n; physical p=rho*dphi/dt with original second order endpoints and signed finite P_T/Q_T",
+    "all_modes_stored_signed": true,
+    "sort_3D_mode_frequency_for_nearest_40_80": true,
+    "retain_first_12_x_32_yz_modes_only_as_diagnostic_no_full_qualification": true
+  },
+  "evaluation": {
+    "original_signed_two_frequency_full_wave_required": true,
+    "compared_PPW_pair": [
+      40,
+      44
+    ],
+    "original_8_8_full_wave_complex_relative_error_kept": true,
+    "save_true_full_3D_control_transfer": true,
+    "save_each_384_complex_modal_response_at_40_80": true,
+    "save_signed_modal_partial_sum_and_unsummed_tail_relative_to_original_full": true,
+    "save_top10_absolute_modal_contributions_at_each_bin": true,
+    "save_nearest_mode_frequency_and_original_spatial_source_receiver_overlap": true,
+    "save_yz_mode_family_drift_across_grids": true,
+    "do_not_assert_one_single_mode_unique_cause": true,
+    "do_not_modify_source_or_output_frequency_bins": true,
+    "do_not_promote_partial_spectrum_to_canonical": true,
+    "original_complex_limit": 0.2,
+    "original_magnitude_limit": 0.25,
+    "original_phase_limit_deg": 15
+  },
+  "limits": {
+    "max_cases": 2,
+    "max_volume_nodes": 150000,
+    "max_yz_nodes": 3500,
+    "max_x_nodes": 90,
+    "max_record_steps": 2000,
+    "max_modes_per_grid": 1080,
+    "avoid_github_actions": true
+  },
+  "release": {
+    "canonical_original_point_q0": "SELF_CONVERGENCE_FAILED",
+    "physical_validation": "NOT_VALIDATED",
+    "product": "NO_GO",
+    "PR_draft": true,
+    "issue_open": true
+  }
+}
