@@ -1,0 +1,66 @@
+name: R130D original PFFDTD trilinear point source/receiver second-moment widths
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/r130d-pffdtd-trilinear-operator-width.yml'
+      - 'benchmarks/acoustics/r130d_pffdtd_trilinear_effective_width*'
+      - 'scripts/run_r130d_pffdtd_trilinear_effective_width.py'
+      - 'backend/tests/test_r130d_pffdtd_trilinear_effective_width.py'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  original-pffdtd-effective-point-width:
+    runs-on: windows-2022
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Checkout original pinned run76 and prospective frozen plan
+        uses: actions/checkout@v4
+      - name: Pin Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Original eight-node effective width integrity regression
+        run: |
+          python -m pip install --disable-pip-version-check pytest==8.4.2
+          if ($LASTEXITCODE -ne 0) { throw 'pytest unavailable' }
+          New-Item -ItemType Directory -Force scratch/tests | Out-Null
+          Copy-Item backend/tests/test_r130d_pffdtd_trilinear_effective_width.py scratch/tests/
+          python -m pytest -q scratch/tests/test_r130d_pffdtd_trilinear_effective_width.py --tb=short
+          if ($LASTEXITCODE -ne 0) { throw 'original PFFDTD eight-node evidence validation failed' }
+      - name: Recalculate all PPW8 10 12 exact source and receiver second moments
+        env:
+          PYTHONUTF8: '1'
+        run: |
+          python -u scripts/run_r130d_pffdtd_trilinear_effective_width.py `
+            --plan benchmarks/acoustics/r130d_pffdtd_trilinear_effective_width_plan_2026-10-09.json `
+            --output scratch/ci_pffdtd_original_point_widths.json
+          if ($LASTEXITCODE -ne 0) { throw 'original operator width reanalysis failed' }
+      - name: Compare every axis and physical RMS width with persisted original evidence
+        run: |
+          @'
+          import json,math
+          a=json.load(open('scratch/ci_pffdtd_original_point_widths.json'))
+          b=json.load(open('benchmarks/acoustics/r130d_pffdtd_trilinear_effective_width_evidence_2026-10-09.json'))
+          assert a==b,'entire original point-operator second moment evidence drifted'
+          assert a['canonical_pffdtd_fullband']=='SELF_CONVERGENCE_FAILED'
+          assert a['production_ready'] is False
+          assert a['physical_validation']=='NOT_VALIDATED'
+          assert a['changed_solver_or_original_stencils'] is False
+          assert [z['ppw'] for z in a['levels']]==[8,10,12]
+          assert a['source_trend']['strictly_decreasing'] is False
+          assert a['receiver_trend']['strictly_decreasing'] is True
+          print('PASS exact original source/receiver evidence reproduction; canonical FAIL remains')
+          '@ | python -
+          if ($LASTEXITCODE -ne 0) { throw 'original point operator verification or NO_GO drifted' }
+      - name: Archive canonical source/receiver operator analysis
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: r130d-original-pffdtd-point-operator-widths
+          path: scratch/ci_pffdtd_original_point_widths.json
+          if-no-files-found: warn
+          retention-days: 30
