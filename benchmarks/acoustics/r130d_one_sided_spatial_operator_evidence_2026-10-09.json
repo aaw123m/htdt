@@ -1,0 +1,1387 @@
+{
+  "schema_version": "htdt.r130d.one-sided-q0-independent-operator-evidence-1",
+  "plan_sha256_lf": "d5f7f1a04b260e5f136420eaaab3fc276bce70c3c7c4460bdbead16af35d22cb",
+  "pinned_point_baseline_sha256": "fa2a4aae2c6b00f4e1eccda9d0e9bf9271c420eb0a5f971b26927d9ed76e3cf2",
+  "pinned_double_gaussian_baseline_sha256": "627881b9f216f229ce0c2fa9c735e6a5f6ff956e2effd43192494004a5b6650b",
+  "preregistered_plan": {
+    "schema_version": "htdt.r130d.one-sided-spatial-operator-q0-plan-1",
+    "issue": 938,
+    "pr": 1055,
+    "created_jst": "2026-10-09",
+    "purpose": "Independently isolate which spatial operator regularization contributes to finite-record original temporal q0 impulse nonconvergence while preserving source location, receiver location, q0 waveform, K and M; not canonical point-source qualification",
+    "geometry": {
+      "air_domain": "0<=x<=4, 0<=y<=4, 0<=z<=4-0.25*y",
+      "volume_m3": 56,
+      "sound_speed_m_s": 343.2,
+      "density_kg_m3": 1.2,
+      "source_xyz_m": [
+        1.5,
+        2,
+        2
+      ],
+      "receiver_xyz_m": [
+        2.5,
+        2,
+        2
+      ],
+      "boundary": "natural Neumann rigid"
+    },
+    "operator_cases": [
+      "point_source_point_receiver",
+      "gaussian_source_point_receiver",
+      "point_source_gaussian_receiver",
+      "gaussian_source_gaussian_receiver"
+    ],
+    "spatial_kernel": {
+      "formula": "exp(-|x-x0|^2/(2*sigma_m^2)) normalized on the physical domain",
+      "sigma_m": [
+        0.35,
+        0.7
+      ],
+      "source_or_receiver_gaussian_is_distinct_from_original_point": true,
+      "finite_volume": "integrate over each exactly clipped cut-cell with Gauss-Legendre 4 in x y z and roof-split y intervals",
+      "mfem": "integrate H1 P2 domain linear form with tetrahedral Gauss quadrature order 10 independently of FV; preserve source and receiver functional normalizations",
+      "point": "existing FV interior_point_stencil or pinned MFEM reference point functionals unmodified",
+      "normalization": "sum of all source weights=1 and sum receiver weights=1 individually; no posthoc amplitude fit"
+    },
+    "grid": {
+      "fv_n": [
+        20,
+        32
+      ],
+      "p2_mfem_refinement": [
+        3,
+        4
+      ],
+      "expected_mfem_dofs": [
+        4913,
+        35937
+      ],
+      "pinned_mfem_commit": "d964264cdb9a13e94a201b6c236c7721e0c8765f",
+      "archive": "benchmarks/acoustics/r130d_mfem_independent_sparse_systems",
+      "gaussian_functional_exporter": "benchmarks/acoustics/r130d_mfem_reference/sloped_spatial_gaussian_functionals.cpp"
+    },
+    "source_waveform": {
+      "q0": 1,
+      "q_after_0": 0,
+      "dt_s": 0.00025,
+      "steps": 1000,
+      "record_duration_s": 0.25,
+      "frequencies_hz": [
+        40,
+        80
+      ],
+      "phase": "P_T/Q_T exp(+i2pi f (n+0.5)dt), rectangular window",
+      "no_time_smoothing": true,
+      "no_taper": true
+    },
+    "numerical_evidence": {
+      "baseline_pointpoint": "benchmarks/acoustics/r130d_exact_discrete_impulse_candidate_evidence_2026-10-09.json",
+      "baseline_bothgaussian": "benchmarks/acoustics/r130d_fixed_spatial_kernel_independent_fv_mfem_evidence_2026-10-09.json",
+      "require_hashed_reproduction_of_both_baselines": true,
+      "run_only_the_two_new_mixed_operator_combinations_per_grid": true,
+      "save_both_40_and_80_hz_complex_magnitude_phase": true,
+      "measure_source_only_vs_point_and_receiver_only_vs_point": true,
+      "measure_same_operator_self_convergence_for_each_perturbation": true,
+      "metric": "normalized complex L2, per-frequency relative magnitude and signed wrapped phase; no omitted frequencies",
+      "no_exclusion_of_nonmonotonic_or_unfavorable_result": true
+    },
+    "solver": {
+      "FV": "sparse LU midpoint",
+      "MFEM": "Jacobi-PCG midpoint",
+      "rtol": 1e-11,
+      "atol": 0,
+      "maxiter": 350,
+      "true_relative_linear_residual_max": 1e-08
+    },
+    "analysis": {
+      "no_posthoc_threshold": true,
+      "no_physical_pass_without_bras": true,
+      "differential_is_not_unique_causality_proof": true,
+      "no_one_sided_pass_promotes_original_point_point": true,
+      "observe_which_mixed_combination_reduces_adjacent_complex_error": true
+    },
+    "resource_limits": {
+      "max_fv_n": 32,
+      "max_mfem_dofs": 35937,
+      "max_time_steps": 1000,
+      "max_mixed_time_integrations": 16,
+      "max_raw_reference_bytes": 120000000,
+      "max_wall_per_case_s": 900
+    },
+    "authority": {
+      "original_pffdtd_fullband": "SELF_CONVERGENCE_FAILED",
+      "original_pointpoint_q0": "NOT_QUALIFIED",
+      "physical_validation": "NOT_VALIDATED",
+      "production_ready": false,
+      "issue938": "OPEN",
+      "pr1055": "DRAFT"
+    }
+  },
+  "actual_mixed_cases": [
+    {
+      "method": "fv",
+      "level": 20,
+      "operator_provenance": {
+        "fv_dofs": 7200,
+        "independent_cutcell_quadrature": {
+          "total_quadrature_volume_m3": 56.00000000000537,
+          "max_cut_cell_volume_quadrature_error_m3": 3.8163916471489756e-17,
+          "quadrature_points_per_dimension": 4
+        }
+      },
+      "widths": {
+        "0.35": {
+          "control_point_point_complex_40_80_hz": [
+            [
+              52.030562791782515,
+              16.3371569040829
+            ],
+            [
+              124.2371212808564,
+              -148.15183831200267
+            ]
+          ],
+          "control_gaussian_gaussian_complex_40_80_hz": [
+            [
+              37.77624011857563,
+              10.273282446384004
+            ],
+            [
+              86.39798716031503,
+              -122.86142461487681
+            ]
+          ],
+          "mixed_wave": {
+            "gaussian_source_point_receiver": {
+              "complex_40_80_hz": [
+                [
+                  38.61876889443952,
+                  10.685793246234292
+                ],
+                [
+                  97.93475193071038,
+                  -139.74812739776866
+                ]
+              ],
+              "magnitude_40_80_hz": [
+                40.06988255814329,
+                170.64804348984714
+              ],
+              "phase_deg_40_80_hz": [
+                15.466738754437223,
+                -54.977430826867234
+              ],
+              "worst_true_relative_linear_residual": 9.131542370435888e-16,
+              "maximum_cg_iterations": 0,
+              "sampled_time_impulse_q0_only": true,
+              "actual_wave_wall_seconds": 4.783882699906826
+            },
+            "point_source_gaussian_receiver": {
+              "complex_40_80_hz": [
+                [
+                  38.61876889441798,
+                  10.685793246219621
+                ],
+                [
+                  97.9347519307315,
+                  -139.7481273977703
+                ]
+              ],
+              "magnitude_40_80_hz": [
+                40.06988255811862,
+                170.6480434898606
+              ],
+              "phase_deg_40_80_hz": [
+                15.466738754425217,
+                -54.97743082686174
+              ],
+              "worst_true_relative_linear_residual": 8.539956028109642e-16,
+              "maximum_cg_iterations": 0,
+              "sampled_time_impulse_q0_only": true,
+              "actual_wave_wall_seconds": 5.0491808000952005
+            }
+          },
+          "regularization_impact_vs_original_point": {
+            "gaussian_source_point_receiver": {
+              "normalized_complex_l2": 0.17806557563014253,
+              "complex_relative_by_hz": [
+                0.36321133319360926,
+                0.16180825184635494
+              ],
+              "magnitude_relative_by_hz": [
+                0.3610008968899358,
+                0.13302783758859926
+              ],
+              "phase_difference_deg_by_hz": [
+                1.9651089921788343,
+                4.959944296005722
+              ]
+            },
+            "point_source_gaussian_receiver": {
+              "normalized_complex_l2": 0.17806557563009884,
+              "complex_relative_by_hz": [
+                0.36321133319447035,
+                0.16180825184622133
+              ],
+              "magnitude_relative_by_hz": [
+                0.36100089689077375,
+                0.13302783758850983
+              ],
+              "phase_difference_deg_by_hz": [
+                1.965108992190841,
+                4.959944296000238
+              ]
+            },
+            "gaussian_source_gaussian_receiver": {
+              "normalized_complex_l2": 0.3097393333421451,
+              "complex_relative_by_hz": [
+                0.39568886778069795,
+                0.3030172709150467
+              ],
+              "magnitude_relative_by_hz": [
+                0.39304211140194467,
+                0.28729106819667855
+              ],
+              "phase_difference_deg_by_hz": [
+                2.2181405683597,
+                4.867054746578717
+              ]
+            }
+          }
+        },
+        "0.7": {
+          "control_point_point_complex_40_80_hz": [
+            [
+              52.030562791782515,
+              16.3371569040829
+            ],
+            [
+              124.2371212808564,
+              -148.15183831200267
+            ]
+          ],
+          "control_gaussian_gaussian_complex_40_80_hz": [
+            [
+              22.830933847329824,
+              11.323210409972754
+            ],
+            [
+              35.458048647664626,
+              -51.82096499751172
+            ]
+          ],
+          "mixed_wave": {
+            "gaussian_source_point_receiver": {
+              "complex_40_80_hz": [
+                [
+                  32.51606431168344,
+                  10.649415932564287
+                ],
+                [
+                  65.6423058363792,
+                  -92.91719801688942
+                ]
+              ],
+              "magnitude_40_80_hz": [
+                34.21555929728882,
+                113.76518800945472
+              ],
+              "phase_deg_40_80_hz": [
+                18.134265735135298,
+                -54.76031397099894
+              ],
+              "worst_true_relative_linear_residual": 9.143216624552875e-16,
+              "maximum_cg_iterations": 0,
+              "sampled_time_impulse_q0_only": true,
+              "actual_wave_wall_seconds": 5.23234900017269
+            },
+            "point_source_gaussian_receiver": {
+              "complex_40_80_hz": [
+                [
+                  32.516064311660095,
+                  10.649415932543967
+                ],
+                [
+                  65.64230583637517,
+                  -92.91719801688063
+                ]
+              ],
+              "magnitude_40_80_hz": [
+                34.21555929726031,
+                113.76518800944524
+              ],
+              "phase_deg_40_80_hz": [
+                18.13426573511513,
+                -54.76031397099805
+              ],
+              "worst_true_relative_linear_residual": 8.539956028109642e-16,
+              "maximum_cg_iterations": 0,
+              "sampled_time_impulse_q0_only": true,
+              "actual_wave_wall_seconds": 4.835141899995506
+            }
+          },
+          "regularization_impact_vs_original_point": {
+            "gaussian_source_point_receiver": {
+              "normalized_complex_l2": 0.6990835876440847,
+              "complex_relative_by_hz": [
+                0.5940714338997203,
+                0.7078144280255065
+              ],
+              "magnitude_relative_by_hz": [
+                0.5938697838041386,
+                0.6995443605117414
+              ],
+              "phase_difference_deg_by_hz": [
+                0.7024179885192386,
+                4.7428274401374315
+              ]
+            },
+            "point_source_gaussian_receiver": {
+              "normalized_complex_l2": 0.6990835876443174,
+              "complex_relative_by_hz": [
+                0.5940714339010362,
+                0.7078144280256442
+              ],
+              "magnitude_relative_by_hz": [
+                0.5938697838054665,
+                0.699544360511883
+              ],
+              "phase_difference_deg_by_hz": [
+                0.7024179884990673,
+                4.7428274401365345
+              ]
+            },
+            "gaussian_source_gaussian_receiver": {
+              "normalized_complex_l2": 1.9819811538992635,
+              "complex_relative_by_hz": [
+                1.1625428606102444,
+                2.086314552255515
+              ],
+              "magnitude_relative_by_hz": [
+                1.1399225668235535,
+                2.07925615935371
+              ],
+              "phase_difference_deg_by_hz": [
+                8.947685025630754,
+                5.600964633172229
+              ]
+            }
+          }
+        }
+      },
+      "wall_seconds": 20.800267399987206
+    },
+    {
+      "method": "fv",
+      "level": 32,
+      "operator_provenance": {
+        "fv_dofs": 29184,
+        "independent_cutcell_quadrature": {
+          "total_quadrature_volume_m3": 55.99999999999999,
+          "max_cut_cell_volume_quadrature_error_m3": 8.673617379884035e-19,
+          "quadrature_points_per_dimension": 4
+        }
+      },
+      "widths": {
+        "0.35": {
+          "control_point_point_complex_40_80_hz": [
+            [
+              101.11318810769707,
+              3.0063944731411776
+            ],
+            [
+              158.12097801167783,
+              -197.6113044166866
+            ]
+          ],
+          "control_gaussian_gaussian_complex_40_80_hz": [
+            [
+              42.16433648063383,
+              5.8903667172148895
+            ],
+            [
+              76.64530800920299,
+              -147.17239544334026
+            ]
+          ],
+          "mixed_wave": {
+            "gaussian_source_point_receiver": {
+              "complex_40_80_hz": [
+                [
+                  51.436783387753714,
+                  5.146606988269034
+                ],
+                [
+                  95.49793677291059,
+                  -169.47181275002188
+                ]
+              ],
+              "magnitude_40_80_hz": [
+                51.693619033400985,
+                194.5264795462595
+              ],
+              "phase_deg_40_80_hz": [
+                5.713823062257895,
+                -60.598594327010126
+              ],
+              "worst_true_relative_linear_residual": 1.827192967931091e-15,
+              "maximum_cg_iterations": 0,
+              "sampled_time_impulse_q0_only": true,
+              "actual_wave_wall_seconds": 38.14443450002
+            },
+            "point_source_gaussian_receiver": {
+              "complex_40_80_hz": [
+                [
+                  51.43678338778423,
+                  5.146606988264777
+                ],
+                [
+                  95.49793677291365,
+                  -169.47181275007546
+                ]
+              ],
+              "magnitude_40_80_hz": [
+                51.69361903343092,
+                194.52647954630766
+              ],
+              "phase_deg_40_80_hz": [
+                5.713823062249833,
+                -60.59859432701708
+              ],
+              "worst_true_relative_linear_residual": 1.7324073402426479e-15,
+              "maximum_cg_iterations": 0,
+              "sampled_time_impulse_q0_only": true,
+              "actual_wave_wall_seconds": 38.52142750006169
+            }
+          },
+          "regularization_impact_vs_original_point": {
+            "gaussian_source_point_receiver": {
+              "normalized_complex_l2": 0.42115464188724344,
+              "complex_relative_by_hz": [
+                0.9618689453201951,
+                0.3529327304076108
+              ],
+              "magnitude_relative_by_hz": [
+                0.9568734909698631,
+                0.3010357135416202
+              ],
+              "phase_difference_deg_by_hz": [
+                4.010751635539333,
+                9.264047953423919
+              ]
+            },
+            "point_source_gaussian_receiver": {
+              "normalized_complex_l2": 0.421154641886941,
+              "complex_relative_by_hz": [
+                0.9618689453190448,
+                0.3529327304073963
+              ],
+              "magnitude_relative_by_hz": [
+                0.9568734909687299,
+                0.30103571354129816
+              ],
+              "phase_difference_deg_by_hz": [
+                4.010751635531271,
+                9.264047953430888
+              ]
+            },
+            "gaussian_source_gaussian_receiver": {
+              "normalized_complex_l2": 0.6569522733720613,
+              "complex_relative_by_hz": [
+                1.386283782090173,
+                0.5774853720942421
+              ],
+              "magnitude_relative_by_hz": [
+                1.3760597790616813,
+                0.5252167925894418
+              ],
+              "phase_difference_deg_by_hz": [
+                6.2496918395714705,
+                11.155588980085515
+              ]
+            }
+          }
+        },
+        "0.7": {
+          "control_point_point_complex_40_80_hz": [
+            [
+              101.11318810769707,
+              3.0063944731411776
+            ],
+            [
+              158.12097801167783,
+              -197.6113044166866
+            ]
+          ],
+          "control_gaussian_gaussian_complex_40_80_hz": [
+            [
+              21.973103659775333,
+              9.403689470347329
+            ],
+            [
+              28.269729230739205,
+              -61.096757709639185
+            ]
+          ],
+          "mixed_wave": {
+            "gaussian_source_point_receiver": {
+              "complex_40_80_hz": [
+                [
+                  32.215278126978276,
+                  7.291685750230122
+                ],
+                [
+                  54.27238157407048,
+                  -110.7129905937043
+                ]
+              ],
+              "magnitude_40_80_hz": [
+                33.03018053051896,
+                123.29986896961069
+              ],
+              "phase_deg_40_80_hz": [
+                12.753574156277521,
+                -63.885541707414426
+              ],
+              "worst_true_relative_linear_residual": 1.805375447261549e-15,
+              "maximum_cg_iterations": 0,
+              "sampled_time_impulse_q0_only": true,
+              "actual_wave_wall_seconds": 37.91582220001146
+            },
+            "point_source_gaussian_receiver": {
+              "complex_40_80_hz": [
+                [
+                  32.215278126995095,
+                  7.291685750241224
+                ],
+                [
+                  54.27238157407724,
+                  -110.71299059377085
+                ]
+              ],
+              "magnitude_40_80_hz": [
+                33.03018053053782,
+                123.29986896967341
+              ],
+              "phase_deg_40_80_hz": [
+                12.753574156289863,
+                -63.88554170742522
+              ],
+              "worst_true_relative_linear_residual": 1.7324073402426479e-15,
+              "maximum_cg_iterations": 0,
+              "sampled_time_impulse_q0_only": true,
+              "actual_wave_wall_seconds": 37.61769940005615
+            }
+          },
+          "regularization_impact_vs_original_point": {
+            "gaussian_source_point_receiver": {
+              "normalized_complex_l2": 1.1907066593203883,
+              "complex_relative_by_hz": [
+                2.089938591162225,
+                1.0982162969371319
+              ],
+              "magnitude_relative_by_hz": [
+                2.0625891567649925,
+                1.0526047532263345
+              ],
+              "phase_difference_deg_by_hz": [
+                11.050502729558959,
+                12.55099533382822
+              ]
+            },
+            "point_source_gaussian_receiver": {
+              "normalized_complex_l2": 1.1907066593193862,
+              "complex_relative_by_hz": [
+                2.0899385911605446,
+                1.0982162969361848
+              ],
+              "magnitude_relative_by_hz": [
+                2.062589156763244,
+                1.0526047532252902
+              ],
+              "phase_difference_deg_by_hz": [
+                11.050502729571301,
+                12.550995333839014
+              ]
+            },
+            "gaussian_source_gaussian_receiver": {
+              "normalized_complex_l2": 2.8620273589236587,
+              "complex_relative_by_hz": [
+                3.321994920852982,
+                2.798689789483897
+              ],
+              "magnitude_relative_by_hz": [
+                3.2324111612141966,
+                2.7594421569182823
+              ],
+              "phase_difference_deg_by_hz": [
+                21.46609267599148,
+                13.835272713413522
+              ]
+            }
+          }
+        }
+      },
+      "wall_seconds": 156.9985843000468
+    },
+    {
+      "method": "mfem",
+      "level": 3,
+      "operator_provenance": {
+        "original_p2_sparse_sha256": "6a43a624223fa512152059d103c4d841723fa1266ea8a22842322fb50db42511",
+        "independent_gaussian_source_functionals_sha256": "090baa497d90739f2dbb24062eaa98e73dba28103c3399d4d135e25f3835751d",
+        "p2_ndofs": 4913
+      },
+      "widths": {
+        "0.35": {
+          "control_point_point_complex_40_80_hz": [
+            [
+              118.28063818572429,
+              1.9755548256506732
+            ],
+            [
+              156.787712798592,
+              -213.0454315894987
+            ]
+          ],
+          "control_gaussian_gaussian_complex_40_80_hz": [
+            [
+              39.77145334231682,
+              2.6144872062198394
+            ],
+            [
+              58.6628180287794,
+              -161.7585549226541
+            ]
+          ],
+          "mixed_wave": {
+            "gaussian_source_point_receiver": {
+              "complex_40_80_hz": [
+                [
+                  53.57996394656104,
+                  1.1632623477786637
+                ],
+                [
+                  80.04880262241375,
+                  -187.91898316019473
+                ]
+              ],
+              "magnitude_40_80_hz": [
+                53.59259012031925,
+                204.25805989787455
+              ],
+              "phase_deg_40_80_hz": [
+                1.243740179130026,
+                -66.92720425995378
+              ],
+              "worst_true_relative_linear_residual": 9.995812952654217e-12,
+              "maximum_cg_iterations": 36,
+              "sampled_time_impulse_q0_only": true,
+              "actual_wave_wall_seconds": 5.213986899936572
+            },
+            "point_source_gaussian_receiver": {
+              "complex_40_80_hz": [
+                [
+                  53.77103846816634,
+                  1.165916574784221
+                ],
+                [
+                  80.19374854806455,
+                  -188.01177109221246
+                ]
+              ],
+              "magnitude_40_80_hz": [
+                53.783677258108526,
+                204.40025287513885
+              ],
+              "phase_deg_40_80_hz": [
+                1.24214883721951,
+                -66.90001746132239
+              ],
+              "worst_true_relative_linear_residual": 9.995181113029775e-12,
+              "maximum_cg_iterations": 37,
+              "sampled_time_impulse_q0_only": true,
+              "actual_wave_wall_seconds": 6.300997000187635
+            }
+          },
+          "regularization_impact_vs_original_point": {
+            "gaussian_source_point_receiver": {
+              "normalized_complex_l2": 0.4900030085710454,
+              "complex_relative_by_hz": [
+                1.2073641692872337,
+                0.3953222098571793
+              ],
+              "magnitude_relative_by_hz": [
+                1.207341255423501,
+                0.2950276457152607
+              ],
+              "phase_difference_deg_by_hz": [
+                0.2868597315923508,
+                13.277878284532115
+              ]
+            },
+            "point_source_gaussian_receiver": {
+              "normalized_complex_l2": 0.4883911192046002,
+              "complex_relative_by_hz": [
+                1.1995215566302018,
+                0.3942320770406694
+              ],
+              "magnitude_relative_by_hz": [
+                1.1994988291684336,
+                0.2941267474336117
+              ],
+              "phase_difference_deg_by_hz": [
+                0.28526838968183443,
+                13.250691485900719
+              ]
+            },
+            "gaussian_source_gaussian_receiver": {
+              "normalized_complex_l2": 0.7684784081958113,
+              "complex_relative_by_hz": [
+                1.9698221555075694,
+                0.6434670559732184
+              ],
+              "magnitude_relative_by_hz": [
+                1.9680170767744067,
+                0.5373044839718792
+              ],
+              "phase_difference_deg_by_hz": [
+                2.804205565705307,
+                16.417160070627702
+              ]
+            }
+          }
+        },
+        "0.7": {
+          "control_point_point_complex_40_80_hz": [
+            [
+              118.28063818572429,
+              1.9755548256506732
+            ],
+            [
+              156.787712798592,
+              -213.0454315894987
+            ]
+          ],
+          "control_gaussian_gaussian_complex_40_80_hz": [
+            [
+              20.655802125268124,
+              8.184925198696302
+            ],
+            [
+              20.59114092103437,
+              -66.11367607466252
+            ]
+          ],
+          "mixed_wave": {
+            "gaussian_source_point_receiver": {
+              "complex_40_80_hz": [
+                [
+                  29.91108622718143,
+                  5.076263414572653
+                ],
+                [
+                  40.54993924337078,
+                  -121.15885034730528
+                ]
+              ],
+              "magnitude_40_80_hz": [
+                30.33877930214087,
+                127.76448876789583
+              ],
+              "phase_deg_40_80_hz": [
+                9.63199410187653,
+                -71.49542617539285
+              ],
+              "worst_true_relative_linear_residual": 9.995173316556497e-12,
+              "maximum_cg_iterations": 35,
+              "sampled_time_impulse_q0_only": true,
+              "actual_wave_wall_seconds": 4.753852599998936
+            },
+            "point_source_gaussian_receiver": {
+              "complex_40_80_hz": [
+                [
+                  29.875843759987735,
+                  5.079808611104221
+                ],
+                [
+                  40.48783125565862,
+                  -121.20745617399429
+                ]
+              ],
+              "magnitude_40_80_hz": [
+                30.304628291675954,
+                127.79089134972584
+              ],
+              "phase_deg_40_80_hz": [
+                9.649751122607036,
+                -71.52874951599733
+              ],
+              "worst_true_relative_linear_residual": 9.995181113029775e-12,
+              "maximum_cg_iterations": 37,
+              "sampled_time_impulse_q0_only": true,
+              "actual_wave_wall_seconds": 6.394319799961522
+            }
+          },
+          "regularization_impact_vs_original_point": {
+            "gaussian_source_point_receiver": {
+              "normalized_complex_l2": 1.3139862881156326,
+              "complex_relative_by_hz": [
+                2.9145514767340566,
+                1.1597123093776607
+              ],
+              "magnitude_relative_by_hz": [
+                2.8992055012982973,
+                1.0703705464548354
+              ],
+              "phase_difference_deg_by_hz": [
+                8.675113654338853,
+                17.846100199971186
+              ]
+            },
+            "point_source_gaussian_receiver": {
+              "normalized_complex_l2": 1.3140676989003361,
+              "complex_relative_by_hz": [
+                2.9190022826167885,
+                1.159618256544636
+              ],
+              "magnitude_relative_by_hz": [
+                2.9035996092410863,
+                1.069942791963151
+              ],
+              "phase_difference_deg_by_hz": [
+                8.69287067506936,
+                17.879423540575665
+              ]
+            },
+            "gaussian_source_gaussian_receiver": {
+              "normalized_complex_l2": 3.0657608932071487,
+              "complex_relative_by_hz": [
+                4.4027616802665035,
+                2.89324610202718
+              ],
+              "magnitude_relative_by_hz": [
+                4.324298381574258,
+                2.819999767369651
+              ],
+              "phase_difference_deg_by_hz": [
+                20.659218928948714,
+                19.051445124378823
+              ]
+            }
+          }
+        }
+      },
+      "wall_seconds": 22.8616645000875
+    },
+    {
+      "method": "mfem",
+      "level": 4,
+      "operator_provenance": {
+        "original_p2_sparse_sha256": "e1c67d02db77a6e8775a0a59d8e75fa996434d58f8efae077f4cec2cf2c831ed",
+        "independent_gaussian_source_functionals_sha256": "ae527d0af6c9d0a983acb80042fc278693cf3c1baa23ff0da0a2412e0c55d799",
+        "p2_ndofs": 35937
+      },
+      "widths": {
+        "0.35": {
+          "control_point_point_complex_40_80_hz": [
+            [
+              73.36501973071158,
+              -1.694541960075574
+            ],
+            [
+              107.1926801821992,
+              -218.9261820829705
+            ]
+          ],
+          "control_gaussian_gaussian_complex_40_80_hz": [
+            [
+              33.39282686414442,
+              2.844941731342441
+            ],
+            [
+              53.72302758263304,
+              -160.16646376268923
+            ]
+          ],
+          "mixed_wave": {
+            "gaussian_source_point_receiver": {
+              "complex_40_80_hz": [
+                [
+                  32.961922762914384,
+                  0.675685921185092
+                ],
+                [
+                  59.55612598900206,
+                  -187.49245378064776
+                ]
+              ],
+              "magnitude_40_80_hz": [
+                32.96884747291633,
+                196.72405131937026
+              ],
+              "phase_deg_40_80_hz": [
+                1.1743407859962507,
+                -72.37778618639666
+              ],
+              "worst_true_relative_linear_residual": 9.984851373760897e-12,
+              "maximum_cg_iterations": 32,
+              "sampled_time_impulse_q0_only": true,
+              "actual_wave_wall_seconds": 43.428722199983895
+            },
+            "point_source_gaussian_receiver": {
+              "complex_40_80_hz": [
+                [
+                  32.94094572296583,
+                  0.6749707807280465
+                ],
+                [
+                  59.531140357393774,
+                  -187.5009950145116
+                ]
+              ],
+              "magnitude_40_80_hz": [
+                32.94786018360248,
+                196.7246293774209
+              ],
+              "phase_deg_40_80_hz": [
+                1.1738450495569772,
+                -72.38547483237502
+              ],
+              "worst_true_relative_linear_residual": 9.999500968098337e-12,
+              "maximum_cg_iterations": 34,
+              "sampled_time_impulse_q0_only": true,
+              "actual_wave_wall_seconds": 53.53099240013398
+            }
+          },
+          "regularization_impact_vs_original_point": {
+            "gaussian_source_point_receiver": {
+              "normalized_complex_l2": 0.35076770482259256,
+              "complex_relative_by_hz": [
+                1.2276001281204378,
+                0.29011674173512497
+              ],
+              "magnitude_relative_by_hz": [
+                1.22587662328981,
+                0.2390961413164532
+              ],
+              "phase_difference_deg_by_hz": [
+                2.497489649805503,
+                8.465511858495212
+              ]
+            },
+            "point_source_gaussian_receiver": {
+              "normalized_complex_l2": 0.3508994737614128,
+              "complex_relative_by_hz": [
+                1.229016402208373,
+                0.2901980047844711
+              ],
+              "magnitude_relative_by_hz": [
+                1.2272944730806492,
+                0.2390925003412368
+              ],
+              "phase_difference_deg_by_hz": [
+                2.496993913366229,
+                8.47320050447357
+              ]
+            },
+            "gaussian_source_gaussian_receiver": {
+              "normalized_complex_l2": 0.5170520162261361,
+              "complex_relative_by_hz": [
+                1.200375261562998,
+                0.470273583088409
+              ],
+              "magnitude_relative_by_hz": [
+                1.1896828703403743,
+                0.4429111516635709
+              ],
+              "phase_difference_deg_by_hz": [
+                6.192772010273576,
+                7.54524529146611
+              ]
+            }
+          }
+        },
+        "0.7": {
+          "control_point_point_complex_40_80_hz": [
+            [
+              73.36501973071158,
+              -1.694541960075574
+            ],
+            [
+              107.1926801821992,
+              -218.9261820829705
+            ]
+          ],
+          "control_gaussian_gaussian_complex_40_80_hz": [
+            [
+              20.776951788986885,
+              8.335733945590377
+            ],
+            [
+              21.639374100202176,
+              -65.44330471993574
+            ]
+          ],
+          "mixed_wave": {
+            "gaussian_source_point_receiver": {
+              "complex_40_80_hz": [
+                [
+                  29.095973719568278,
+                  5.433981916254117
+                ],
+                [
+                  41.21260989242187,
+                  -119.53990374926185
+                ]
+              ],
+              "magnitude_40_80_hz": [
+                29.599051440138833,
+                126.4447223197858
+              ],
+              "phase_deg_40_80_hz": [
+                10.578724870266669,
+                -70.9778409209644
+              ],
+              "worst_true_relative_linear_residual": 9.9936779901721e-12,
+              "maximum_cg_iterations": 31,
+              "sampled_time_impulse_q0_only": true,
+              "actual_wave_wall_seconds": 39.7739568001125
+            },
+            "point_source_gaussian_receiver": {
+              "complex_40_80_hz": [
+                [
+                  29.08951407235139,
+                  5.434819164465696
+                ],
+                [
+                  41.20445250568647,
+                  -119.54184231620071
+                ]
+              ],
+              "magnitude_40_80_hz": [
+                29.59285535929193,
+                126.44389653377804
+              ],
+              "phase_deg_40_80_hz": [
+                10.582614413787905,
+                -70.98162175380013
+              ],
+              "worst_true_relative_linear_residual": 9.999500968098337e-12,
+              "maximum_cg_iterations": 34,
+              "sampled_time_impulse_q0_only": true,
+              "actual_wave_wall_seconds": 54.06799040012993
+            }
+          },
+          "regularization_impact_vs_original_point": {
+            "gaussian_source_point_receiver": {
+              "normalized_complex_l2": 0.9813611749543018,
+              "complex_relative_by_hz": [
+                1.5148903134076017,
+                0.9434459679670409
+              ],
+              "magnitude_relative_by_hz": [
+                1.4792884675775804,
+                0.9277990288712
+              ],
+              "phase_difference_deg_by_hz": [
+                11.901873734075918,
+                7.065566593062955
+              ]
+            },
+            "point_source_gaussian_receiver": {
+              "normalized_complex_l2": 0.9814164447384165,
+              "complex_relative_by_hz": [
+                1.5154275032503663,
+                0.9434750404804897
+              ],
+              "magnitude_relative_by_hz": [
+                1.479807575031099,
+                0.9278116190357507
+              ],
+              "phase_difference_deg_by_hz": [
+                11.905763277597154,
+                7.069347425898668
+              ]
+            },
+            "gaussian_source_gaussian_receiver": {
+              "normalized_complex_l2": 2.5346357779962236,
+              "complex_relative_by_hz": [
+                2.391418843167053,
+                2.549273867628067
+              ],
+              "magnitude_relative_by_hz": [
+                2.278037919939523,
+                2.5364367699887476
+              ],
+              "phase_difference_deg_by_hz": [
+                23.183854924508697,
+                7.790826930053432
+              ]
+            }
+          }
+        }
+      },
+      "wall_seconds": 192.46770359994844
+    }
+  ],
+  "adjacent_metrics": {
+    "fv": {
+      "0.35": {
+        "point_source_point_receiver": {
+          "normalized_complex_l2": 0.28845865583030594,
+          "complex_relative_by_hz": [
+            0.5027856310023169,
+            0.23688769969621287
+          ],
+          "magnitude_relative_by_hz": [
+            0.4608907381757064,
+            0.23603414530460154
+          ],
+          "phase_difference_deg_by_hz": [
+            15.728776319897495,
+            1.317059842724694
+          ]
+        },
+        "gaussian_source_gaussian_receiver": {
+          "normalized_complex_l2": 0.1571340170569274,
+          "complex_relative_by_hz": [
+            0.14567749418772116,
+            0.15785901400344832
+          ],
+          "magnitude_relative_by_hz": [
+            0.08046151436786425,
+            0.09483287864439666
+          ],
+          "phase_difference_deg_by_hz": [
+            7.260943911966326,
+            7.605594076231498
+          ]
+        },
+        "gaussian_source_point_receiver": {
+          "normalized_complex_l2": 0.16360729045406702,
+          "complex_relative_by_hz": [
+            0.2701236683375971,
+            0.1533128341300125
+          ],
+          "magnitude_relative_by_hz": [
+            0.22485824541994645,
+            0.12275159717129379
+          ],
+          "phase_difference_deg_by_hz": [
+            9.752915692179329,
+            5.621163500142891
+          ]
+        },
+        "point_source_gaussian_receiver": {
+          "normalized_complex_l2": 0.1636072904543544,
+          "complex_relative_by_hz": [
+            0.27012366833828516,
+            0.15331283413024818
+          ],
+          "magnitude_relative_by_hz": [
+            0.22485824542087257,
+            0.12275159717144166
+          ],
+          "phase_difference_deg_by_hz": [
+            9.752915692175387,
+            5.621163500155347
+          ]
+        }
+      },
+      "0.7": {
+        "point_source_point_receiver": {
+          "normalized_complex_l2": 0.28845865583030594,
+          "complex_relative_by_hz": [
+            0.5027856310023169,
+            0.23688769969621287
+          ],
+          "magnitude_relative_by_hz": [
+            0.4608907381757064,
+            0.23603414530460154
+          ],
+          "phase_difference_deg_by_hz": [
+            15.728776319897495,
+            1.317059842724694
+          ]
+        },
+        "gaussian_source_gaussian_receiver": {
+          "normalized_complex_l2": 0.16688760758558943,
+          "complex_relative_by_hz": [
+            0.08796716229615299,
+            0.1743178154843375
+          ],
+          "magnitude_relative_by_hz": [
+            0.06626851468089891,
+            0.06727946882119888
+          ],
+          "phase_difference_deg_by_hz": [
+            3.2103686695367752,
+            9.551367922965989
+          ]
+        },
+        "gaussian_source_point_receiver": {
+          "normalized_complex_l2": 0.16753405242246935,
+          "complex_relative_by_hz": [
+            0.10206349023625458,
+            0.17127263255185976
+          ],
+          "magnitude_relative_by_hz": [
+            0.03588774713703431,
+            0.07732920594186478
+          ],
+          "phase_difference_deg_by_hz": [
+            5.380691578857779,
+            9.125227736415482
+          ]
+        },
+        "point_source_gaussian_receiver": {
+          "normalized_complex_l2": 0.16753405242278654,
+          "complex_relative_by_hz": [
+            0.10206349023514032,
+            0.17127263255224043
+          ],
+          "magnitude_relative_by_hz": [
+            0.03588774713557984,
+            0.07732920594241105
+          ],
+          "phase_difference_deg_by_hz": [
+            5.380691578825265,
+            9.125227736427174
+          ]
+        }
+      }
+    },
+    "mfem": {
+      "0.35": {
+        "point_source_point_receiver": {
+          "normalized_complex_l2": 0.2642493650607944,
+          "complex_relative_by_hz": [
+            0.6140977884008558,
+            0.20488377555439094
+          ],
+          "magnitude_relative_by_hz": [
+            0.612016094607282,
+            0.0851650001469662
+          ],
+          "phase_difference_deg_by_hz": [
+            2.2800293113469277,
+            10.26294835247978
+          ]
+        },
+        "gaussian_source_gaussian_receiver": {
+          "normalized_complex_l2": 0.047765391799760075,
+          "complex_relative_by_hz": [
+            0.1904525534630019,
+            0.03072175109350698
+          ],
+          "magnitude_relative_by_hz": [
+            0.1892802291119861,
+            0.018533866538634255
+          ],
+          "phase_difference_deg_by_hz": [
+            1.1085371332213414,
+            1.391033573318191
+          ]
+        },
+        "gaussian_source_point_receiver": {
+          "normalized_complex_l2": 0.14577319468512293,
+          "complex_relative_by_hz": [
+            0.6255543361097439,
+            0.10419221672454243
+          ],
+          "magnitude_relative_by_hz": [
+            0.6255524298914354,
+            0.03829734355294082
+          ],
+          "phase_difference_deg_by_hz": [
+            0.06939939313377536,
+            5.450581926442877
+          ]
+        },
+        "point_source_gaussian_receiver": {
+          "normalized_complex_l2": 0.14713666525611874,
+          "complex_relative_by_hz": [
+            0.6323893992606231,
+            0.1050652398725968
+          ],
+          "magnitude_relative_by_hz": [
+            0.6323875650314806,
+            0.03901709471767294
+          ],
+          "phase_difference_deg_by_hz": [
+            0.0683037876625327,
+            5.485457371052636
+          ]
+        }
+      },
+      "0.7": {
+        "point_source_point_receiver": {
+          "normalized_complex_l2": 0.2642493650607944,
+          "complex_relative_by_hz": [
+            0.6140977884008558,
+            0.20488377555439094
+          ],
+          "magnitude_relative_by_hz": [
+            0.612016094607282,
+            0.0851650001469662
+          ],
+          "phase_difference_deg_by_hz": [
+            2.2800293113469277,
+            10.26294835247978
+          ]
+        },
+        "gaussian_source_gaussian_receiver": {
+          "normalized_complex_l2": 0.017375025077072195,
+          "complex_relative_by_hz": [
+            0.008641000367577513,
+            0.018051597423937808
+          ],
+          "magnitude_relative_by_hz": [
+            0.00752183537221829,
+            0.004611948096283672
+          ],
+          "phase_difference_deg_by_hz": [
+            0.24460668421304846,
+            0.9976698418456084
+          ]
+        },
+        "gaussian_source_point_receiver": {
+          "normalized_complex_l2": 0.015114220608082474,
+          "complex_relative_by_hz": [
+            0.030073672958522934,
+            0.013834662071431077
+          ],
+          "magnitude_relative_by_hz": [
+            0.02499160702828821,
+            0.010437497302356892
+          ],
+          "phase_difference_deg_by_hz": [
+            0.9467307683901388,
+            0.5175852544284533
+          ]
+        },
+        "point_source_gaussian_receiver": {
+          "normalized_complex_l2": 0.015462913895947138,
+          "complex_relative_by_hz": [
+            0.029154178735958207,
+            0.01434022122337252
+          ],
+          "magnitude_relative_by_hz": [
+            0.02405218839960744,
+            0.010652904986900342
+          ],
+          "phase_difference_deg_by_hz": [
+            0.9328632911808693,
+            0.5471277621972165
+          ]
+        }
+      }
+    }
+  },
+  "canonical_original_point_q0": "SELF_CONVERGENCE_FAILED",
+  "source_receiver_spatial_operator_was_changed": true,
+  "physical_validation": "NOT_VALIDATED",
+  "production_ready": false
+}
