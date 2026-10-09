@@ -521,12 +521,23 @@ class CableRunWaypointController(QObject):
             version = str(int(latest.version) + 1)
         else:
             version = '1'
+        # The committed record is a snapshot of the WHOLE run's route, so
+        # previously committed segments merge under the staged set —
+        # otherwise recording segment N+1 would silently unregister
+        # segments 0..N. Staged entries win on the same sequence (a
+        # re-recorded segment replaces its prior geometry).
+        merged: dict[int, CableRunSegmentGeometry] = {}
+        if latest is not None:
+            for segment in latest.segment_geometries:
+                merged[segment.segment_sequence] = segment
+        for segment in self._staged:
+            merged[segment.segment_sequence] = segment
         try:
             geometry = build_cable_run_geometry(
                 run=run,
-                segment_geometries=sorted(
-                    self._staged, key=lambda item: item.segment_sequence
-                ),
+                segment_geometries=[
+                    merged[key] for key in sorted(merged)
+                ],
                 created_at_utc=utc_now_iso(),
                 geometry_id=geometry_id,
                 version=version,

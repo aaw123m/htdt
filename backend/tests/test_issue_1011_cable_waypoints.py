@@ -543,6 +543,56 @@ class WaypointControllerTests(unittest.TestCase):
                 len(first.segment_geometries[0].waypoints), 2
             )
 
+    def test_commit_merges_prior_committed_segments(self):
+        """A later session's snapshot keeps earlier committed segments —
+        recording segment N+1 must not unregister segments 0..N."""
+        with tempfile.TemporaryDirectory(
+            dir='C:/t', ignore_cleanup_errors=True
+        ) as _tmp:
+            (
+                scene_repo,
+                revision,
+                run_repo,
+                run,
+                geometry_repo,
+                _w,
+                _v,
+                controller,
+            ) = _controller_setup(Path(_tmp))
+            self.addCleanup(scene_repo.close)
+            self.assertTrue(controller.begin(run.run_id))
+            controller.set_segment_sequence(0)
+            for point in ((0, 0, 0), (1, 0, 0)):
+                controller.record_domain_point(point)
+            self.assertTrue(controller.stage_segment())
+            self.assertTrue(controller.commit())
+
+            self.assertTrue(controller.begin(run.run_id))
+            self.assertTrue(controller.set_segment_sequence(1))
+            for point in ((2, 0, 0), (3, 0, 0)):
+                controller.record_domain_point(point)
+            self.assertTrue(controller.stage_segment())
+            self.assertTrue(controller.commit())
+
+            latest = geometry_repo.latest_geometry_for_run(
+                run.run_id, run.version
+            )
+            self.assertEqual(latest.version, '2')
+            sequences = {
+                segment.segment_sequence
+                for segment in latest.segment_geometries
+            }
+            self.assertEqual(sequences, {0, 1})
+            seg0 = next(
+                segment
+                for segment in latest.segment_geometries
+                if segment.segment_sequence == 0
+            )
+            self.assertEqual(
+                [(w.x_m, w.y_m, w.z_m) for w in seg0.waypoints],
+                [(0, 0, 0), (1, 0, 0)],
+            )
+
     def test_refresh_run_missing_cancels_session(self):
         with tempfile.TemporaryDirectory(
             dir='C:/t', ignore_cleanup_errors=True
@@ -734,6 +784,45 @@ class WaypointDraftOverlayTests(unittest.TestCase):
         self.assertAlmostEqual(center[0], 0.5, places=5)
         self.assertAlmostEqual(center[1], -2.0, places=5)
         self.assertAlmostEqual(center[2], 1.0, places=5)
+
+    def test_release_probe_pick_does_not_double_record(self):
+        """One armed click records once — the release-time probe pick is
+        read-only and must not dispatch a second ``waypointPicked``."""
+        from PySide6.QtCore import QPointF
+
+        viewport = self._viewport()
+        plotter = viewport.plotter
+        plotter.iren = SimpleNamespace(
+            picker=SimpleNamespace(
+                GetPickPosition=lambda: (3.0, -2.0, 0.0),
+                Pick=lambda *_a: 1,
+                GetActor=lambda: object(),
+            ),
+            get_poked_renderer=lambda: None,
+        )
+        viewport._waypoint_pick_armed = True
+        received = []
+        viewport.waypointPicked.connect(received.append)
+
+        actor = object()
+        # The press pick dispatches once and records the surface point.
+        viewport._picked_actor(actor)
+        self.assertEqual(len(received), 1)
+        self.assertEqual(received[0], (3.0, 2.0, 0.0))
+
+        # The release path's pick_actor_at probe re-picks to READ the
+        # result; its dispatch must not record the same point again.
+        flags = []
+
+        def pick_spy(*_args):
+            flags.append(viewport._in_pick_probe)
+            viewport._picked_actor(actor)  # the probe's dispatch
+            return 1
+
+        plotter.iren.picker.Pick = pick_spy
+        viewport.pick_actor_at(QPointF(10, 10))
+        self.assertEqual(flags, [True])
+        self.assertEqual(len(received), 1)
 
 
 class _RecordingPlotter:

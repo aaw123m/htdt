@@ -1553,6 +1553,12 @@ class RoomViewport3D(QFrame):
         # resolves to the true surface point. Disarming restores the normal
         # "entity selection = pickable mesh" contract exactly.
         self._waypoint_pick_armed = False
+        # Probe picks (``pick_actor_at``/``pick_waypoint_domain``) re-enter
+        # the shared picker purely to READ its result — while armed they
+        # must not dispatch ``_picked_actor`` a second time, or a single
+        # click on an actor records the press pick and the release probe
+        # as two identical waypoints.
+        self._in_pick_probe = False
         self._search_domain_handles: dict[int, tuple[str, str, str, bool]] = {}
         # deferred_render(): compositing callers (e.g. the workspace refresh
         # that stacks document + constraint + measure + video + proposal
@@ -4289,7 +4295,14 @@ class RoomViewport3D(QFrame):
                 # position comes off the shared picker — it is populated by
                 # the Pick() whose EndPickEvent invoked this callback, so no
                 # second pick (and no recursion) is needed.
-                picked = self._last_pick_render_position()
+                # Probe picks (pick_actor_at on release, the pick inside
+                # pick_waypoint_domain) consume their Pick() result
+                # directly — dispatching them here would double-record.
+                picked = (
+                    None
+                    if self._in_pick_probe
+                    else self._last_pick_render_position()
+                )
                 if picked is not None:
                     array = np.asarray(picked, dtype=float).reshape(-1)
                     if array.size >= 3:
@@ -4542,7 +4555,11 @@ class RoomViewport3D(QFrame):
         try:
             picker = self.plotter.iren.picker
             renderer = self.plotter.iren.get_poked_renderer()
-            picker.Pick(display[0], display[1], 0.0, renderer)
+            self._in_pick_probe = True
+            try:
+                picker.Pick(display[0], display[1], 0.0, renderer)
+            finally:
+                self._in_pick_probe = False
             return picker.GetActor()
         except Exception:
             return None
@@ -4641,7 +4658,12 @@ class RoomViewport3D(QFrame):
         try:
             picker = self.plotter.iren.picker
             renderer = self.plotter.iren.get_poked_renderer()
-            if picker.Pick(display[0], display[1], 0.0, renderer):
+            self._in_pick_probe = True
+            try:
+                hit = picker.Pick(display[0], display[1], 0.0, renderer)
+            finally:
+                self._in_pick_probe = False
+            if hit:
                 got = picker.GetPickPosition()
                 if got is not None and len(got) >= 3:
                     return (float(got[0]), -float(got[1]), float(got[2]))
