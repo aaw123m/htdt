@@ -708,6 +708,12 @@ class _RepositoryChain:
             )
 
             return CadMeasurementRunnerRepository(scene)
+        if name == 'remeasure_queue':
+            from .measurement.persistence.cad_remeasure_queue_repository import (
+                CadRemeasureQueueRepository,
+            )
+
+            return CadRemeasureQueueRepository(scene)
         if name == 'dependencies':
             from .external_dependency_repository import (
                 ExternalDependencyRepository,
@@ -2230,6 +2236,27 @@ def _verify_runner_event(
     return events
 
 
+def _verify_remeasure_queue_event(
+    chain: _RepositoryChain, key: tuple[Any, ...]
+) -> Any:
+    event_id, queue_id = key
+    repository = chain.repo('remeasure_queue')
+    queue = _require(
+        repository.get_queue(queue_id),
+        f're-measurement queue {queue_id}',
+    )
+    event = _require(
+        repository.get_event(event_id),
+        f're-measurement queue event {event_id}',
+    )
+    if event.queue_sha256 != queue.queue_sha256:
+        raise ValueError(
+            f're-measurement queue event {event_id} pins queue revision '
+            f'{event.queue_sha256}, not persisted {queue.queue_sha256}'
+        )
+    return event
+
+
 def _verify_calibration_result(
     chain: _RepositoryChain, key: tuple[Any, ...]
 ) -> Any:
@@ -3632,6 +3659,18 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         'cad_measurement_runner_events',
         ('event_id', 'run_id'),
         _verify_runner_event,
+    ),
+    _ReplayProbe(
+        'remeasure_queue',
+        'cad_remeasure_queues',
+        ('queue_id',),
+        _get('remeasure_queue', 'get_queue'),
+    ),
+    _ReplayProbe(
+        'remeasure_queue_event',
+        'cad_remeasure_queue_events',
+        ('event_id', 'queue_id'),
+        _verify_remeasure_queue_event,
     ),
     _ReplayProbe(
         'project_tombstone',

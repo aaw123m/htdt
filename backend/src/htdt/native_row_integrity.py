@@ -10391,6 +10391,32 @@ _ROW_BINDINGS: dict[str, tuple[str, tuple[RowBinding, ...], tuple[ExtraCheck, ..
         ),
         (),
     ),
+    # REV73: #968 re-measurement queue authority.
+    'cad_remeasure_queues': (
+        'payload_json',
+        (
+            _b('queue_id', 'queue_id'),
+            _b('queue_sha256', 'queue_sha256'),
+            _b('document_id', 'document_id'),
+            _b('scene_revision_id', 'scene_revision_id'),
+            _b('evaluation_set_sha256', 'evaluation_set_sha256'),
+        ),
+        (
+            _list_count('cad_remeasure_queues', 'item_count', 'items'),
+        ),
+    ),
+    'cad_remeasure_queue_events': (
+        'payload_json',
+        (
+            _b('event_id', 'event_id'),
+            _b('event_sha256', 'event_sha256'),
+            _b('queue_id', 'queue_id'),
+            _b('measurement_id', 'measurement_id'),
+            _b('kind', 'kind'),
+            _b('created_at_utc', 'created_at_utc'),
+        ),
+        (),
+    ),
 }
 
 

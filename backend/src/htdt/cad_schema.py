@@ -2204,6 +2204,8 @@ def _migrate_115_to_116(connection: sqlite3.Connection) -> None:
 def _migrate_116_to_117(connection: sqlite3.Connection) -> None:
     # REV74: #981 IFC diff-review apply authority — the sealed apply
     # record table the idempotent baseline creates.
+    # REV73: #968 re-measurement queue authority — sealed queues and
+    # their append-only item events the idempotent baseline creates.
     for statement in NATIVE_BASELINE_DDL:
         connection.execute(statement)
 

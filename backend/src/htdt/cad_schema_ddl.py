@@ -9321,6 +9321,25 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
         CREATE INDEX IF NOT EXISTS idx_cable_run_geometry_run ON cad_cable_run_geometries(run_id, run_version, seq ASC)
     """
     ,
+    # REV73: #968 re-measurement queue authority — sealed deterministic
+    # queues pinned to the quality evaluation set, plus the append-only
+    # sealed terminal events (dismissed / converted) of queued items.
+    """
+        CREATE TABLE IF NOT EXISTS cad_remeasure_queues ( seq INTEGER PRIMARY KEY AUTOINCREMENT, queue_id TEXT NOT NULL UNIQUE, queue_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, scene_revision_id TEXT NOT NULL, evaluation_set_sha256 TEXT NOT NULL, item_count INTEGER NOT NULL, created_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_rqueue_doc ON cad_remeasure_queues(document_id, seq ASC)
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_remeasure_queue_events ( seq INTEGER PRIMARY KEY AUTOINCREMENT, event_id TEXT NOT NULL UNIQUE, event_sha256 TEXT NOT NULL UNIQUE, queue_id TEXT NOT NULL, measurement_id TEXT NOT NULL, kind TEXT NOT NULL, created_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_rqev_queue ON cad_remeasure_queue_events(queue_id, seq ASC)
+    """
+    ,
 )
 
 
@@ -10529,4 +10548,7 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_gate_acceptance_runs',
     # REV73: #1011 cable-run route geometry authority (M2).
     'cad_cable_run_geometries',
+    # REV73: #968 re-measurement queue authority.
+    'cad_remeasure_queues',
+    'cad_remeasure_queue_events',
 )

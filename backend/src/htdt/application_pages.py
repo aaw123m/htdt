@@ -963,6 +963,8 @@ _LIFECYCLE_TABLE_LABELS = {
     "cad_gate_acceptance_runs": "ゲート受入実行レコード",
     # REV73: #1011 ケーブル経路ジオメトリ権威
     "cad_cable_run_geometries": "ケーブル経路ジオメトリ",
+    "cad_remeasure_queues": "再測定キュー",
+    "cad_remeasure_queue_events": "再測定キューイベント",
 }
 
 

@@ -70,7 +70,7 @@ def test_calibration_context_selects_the_onboarding_page(
     _, workspace = _workspace(tmp_path)
     try:
         workspace.set_context("calibration")
-        assert workspace.pages.currentIndex() == 6
+        assert workspace.pages.currentIndex() == 7
     finally:
         workspace.close()
         workspace.deleteLater()

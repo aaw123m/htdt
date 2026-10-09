@@ -31,6 +31,7 @@ from PySide6.QtWidgets import (
     QFrame,
     QHeaderView,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
     QLineEdit,
     QListWidget,
@@ -169,6 +170,8 @@ _CONTEXT_IDS = (
     "assignment",
     "campaign",
     "quality",
+    # #968: re-measurement queue generated from sealed quality verdicts.
+    "remeasure",
     "comparison",
     "correspondence",
     "calibration",
@@ -832,6 +835,7 @@ class MeasurementPageWorkspace(QWidget):
         self._build_assignment_page()
         self._build_campaign_page()
         self._build_quality_page()
+        self._build_remeasure_page()
         self._build_comparison_page()
         self._build_correspondence_page()
         self._build_calibration_page()
@@ -1175,6 +1179,7 @@ class MeasurementPageWorkspace(QWidget):
             views, plans=runner_plans, plan_created=runner_plan_created
         )
         self._refresh_quality(views)
+        self._refresh_remeasure()
         self._refresh_comparison_choices(views)
         self._refresh_onboarding(plans=runner_plans)
         self._refresh_authority_inventory()
@@ -6529,6 +6534,468 @@ class MeasurementPageWorkspace(QWidget):
         self.set_context("correspondence")
         if measurement_id is not None:
             self.correspondence_panel.select_measurement(measurement_id)
+
+    # ------------------------------------------------------------------
+    # Re-measurement queue (#968)
+
+    def _build_remeasure_page(self) -> None:
+        page, host, layout = _page(
+            "再測定キュー",
+            "保存済みの品質評価から、宣言した基準を満たさなかった測定だけをキューに集めます。"
+            "判定不能な測定は理由を付けて除外し、ファイル再読み込みやメタデータ補完で直せるものは"
+            "再測定ではなく再評価候補として分けます。",
+        )
+        page.setObjectName("measurementRemeasurePage")
+
+        status_card, status_layout = _card("キューの状態", host)
+        self.remeasure_status_label = QLabel("キューはまだ生成されていません。", status_card)
+        self.remeasure_status_label.setObjectName("remeasureStatusLabel")
+        self.remeasure_status_label.setWordWrap(True)
+        set_typography_role(self.remeasure_status_label, TypographyRole.SECONDARY)
+        status_layout.addWidget(self.remeasure_status_label)
+        status_row = QHBoxLayout()
+        self.remeasure_generate_button = QPushButton(
+            "キューを生成 / 再生成", status_card
+        )
+        self.remeasure_generate_button.setObjectName("remeasureGenerateButton")
+        self.remeasure_generate_button.setToolTip(
+            "最新の品質評価セットから再測定キューを再構成します。"
+            "同じ評価セットなら既存のキューがそのまま再利用されます。"
+        )
+        self.remeasure_generate_button.clicked.connect(
+            self._generate_remeasure_queue
+        )
+        status_row.addWidget(self.remeasure_generate_button)
+        self.remeasure_convert_button = QPushButton(
+            "保留中の項目をキャンペーン計画へ変換", status_card
+        )
+        self.remeasure_convert_button.setObjectName("remeasureConvertButton")
+        self.remeasure_convert_button.setToolTip(
+            "保留中のキュー項目を、測定位置・チャンネル・音源を固定した"
+            "キャンペーン計画に変換します。変換は実行ではありません — "
+            "音声出力やマイク移動を伴う実行はキャンペーン側で明示的に承認します。"
+        )
+        self.remeasure_convert_button.clicked.connect(
+            self._convert_remeasure_queue
+        )
+        status_row.addWidget(self.remeasure_convert_button)
+        status_row.addStretch(1)
+        status_layout.addLayout(status_row)
+        layout.addWidget(status_card)
+
+        items_card, items_layout = _card("再測定が必要な測定", host)
+        items_hint = QLabel(
+            "各項目は品質権威が出力した失敗基準名をそのまま表示します。"
+            "却下には理由の記録が必須で、記録は追記のみの権威に残ります。",
+            items_card,
+        )
+        items_hint.setWordWrap(True)
+        set_typography_role(items_hint, TypographyRole.SECONDARY)
+        items_layout.addWidget(items_hint)
+        self.remeasure_table = QTableWidget(0, 6, items_card)
+        self.remeasure_table.setObjectName("remeasureTable")
+        self.remeasure_table.setAccessibleName("再測定キュー項目一覧")
+        self.remeasure_table.setHorizontalHeaderLabels(
+            ["測定", "測定位置", "チャンネル", "音源", "失敗した基準", "状態"]
+        )
+        self.remeasure_table.setSelectionBehavior(
+            QAbstractItemView.SelectionBehavior.SelectRows
+        )
+        self.remeasure_table.setSelectionMode(
+            QAbstractItemView.SelectionMode.SingleSelection
+        )
+        self.remeasure_table.setEditTriggers(
+            QAbstractItemView.EditTrigger.NoEditTriggers
+        )
+        self.remeasure_table.verticalHeader().setVisible(False)
+        self.remeasure_table.horizontalHeader().setSectionResizeMode(
+            QHeaderView.ResizeMode.ResizeToContents
+        )
+        self.remeasure_table.horizontalHeader().setStretchLastSection(True)
+        self.remeasure_table.itemSelectionChanged.connect(
+            self._update_remeasure_buttons
+        )
+        self.remeasure_table.setMinimumHeight(200)
+        items_layout.addWidget(self.remeasure_table)
+        item_actions = QHBoxLayout()
+        self.remeasure_open_button = QPushButton("この測定を開く", items_card)
+        self.remeasure_open_button.setObjectName("remeasureOpenButton")
+        self.remeasure_open_button.clicked.connect(
+            self._open_remeasure_measurement
+        )
+        item_actions.addWidget(self.remeasure_open_button)
+        self.remeasure_dismiss_button = QPushButton(
+            "却下（理由を記録）", items_card
+        )
+        self.remeasure_dismiss_button.setObjectName("remeasureDismissButton")
+        self.remeasure_dismiss_button.setToolTip(
+            "選択した項目を再測定対象から外します。理由は変更不可能な"
+            "キューイベントとして記録されます。"
+        )
+        self.remeasure_dismiss_button.clicked.connect(
+            self._dismiss_remeasure_item
+        )
+        item_actions.addWidget(self.remeasure_dismiss_button)
+        item_actions.addStretch(1)
+        items_layout.addLayout(item_actions)
+        layout.addWidget(items_card)
+
+        soft_card, soft_layout = _card(
+            "再評価で回復できる測定（再測定不要）", host
+        )
+        soft_hint = QLabel(
+            "判定に必要な証拠が未登録なだけで、ファイルの再読み込みや"
+            "メタデータ補完で品質評価をやり直せる測定です。新しい測定は不要です。",
+            soft_card,
+        )
+        soft_hint.setWordWrap(True)
+        set_typography_role(soft_hint, TypographyRole.SECONDARY)
+        soft_layout.addWidget(soft_hint)
+        self.remeasure_soft_table = QTableWidget(0, 4, soft_card)
+        self.remeasure_soft_table.setObjectName("remeasureSoftTable")
+        self.remeasure_soft_table.setAccessibleName("再評価候補一覧")
+        self.remeasure_soft_table.setHorizontalHeaderLabels(
+            ["測定", "測定位置", "欠落している証拠", "対処"]
+        )
+        self.remeasure_soft_table.setSelectionBehavior(
+            QAbstractItemView.SelectionBehavior.SelectRows
+        )
+        self.remeasure_soft_table.setSelectionMode(
+            QAbstractItemView.SelectionMode.SingleSelection
+        )
+        self.remeasure_soft_table.setEditTriggers(
+            QAbstractItemView.EditTrigger.NoEditTriggers
+        )
+        self.remeasure_soft_table.verticalHeader().setVisible(False)
+        self.remeasure_soft_table.horizontalHeader().setSectionResizeMode(
+            QHeaderView.ResizeMode.ResizeToContents
+        )
+        self.remeasure_soft_table.horizontalHeader().setStretchLastSection(
+            True
+        )
+        self.remeasure_soft_table.itemSelectionChanged.connect(
+            self._update_remeasure_buttons
+        )
+        soft_layout.addWidget(self.remeasure_soft_table)
+        soft_actions = QHBoxLayout()
+        self.remeasure_soft_open_button = QPushButton(
+            "この測定を開く", soft_card
+        )
+        self.remeasure_soft_open_button.clicked.connect(
+            self._open_remeasure_measurement
+        )
+        soft_actions.addWidget(self.remeasure_soft_open_button)
+        self.remeasure_reeval_button = QPushButton(
+            "品質を再評価", soft_card
+        )
+        self.remeasure_reeval_button.setObjectName("remeasureReevalButton")
+        self.remeasure_reeval_button.setToolTip(
+            "保存済みの権威（再読み込み済みファイル・補完済みメタデータ）だけで"
+            "品質評価をやり直します。証拠が足りないままなら判定不能のまま残ります。"
+        )
+        self.remeasure_reeval_button.clicked.connect(
+            self._reevaluate_remeasure_item
+        )
+        soft_actions.addWidget(self.remeasure_reeval_button)
+        soft_actions.addStretch(1)
+        soft_layout.addLayout(soft_actions)
+        layout.addWidget(soft_card)
+
+        skipped_card, skipped_layout = _card("対象外となった測定", host)
+        skipped_hint = QLabel(
+            "品質が判定不能でもキューに入れず、理由を記録した測定です。"
+            "未知の品質状態を合格扱いにすることはありません。",
+            skipped_card,
+        )
+        skipped_hint.setWordWrap(True)
+        set_typography_role(skipped_hint, TypographyRole.SECONDARY)
+        skipped_layout.addWidget(skipped_hint)
+        self.remeasure_skipped_table = QTableWidget(0, 3, skipped_card)
+        self.remeasure_skipped_table.setObjectName("remeasureSkippedTable")
+        self.remeasure_skipped_table.setAccessibleName("キュー対象外の測定一覧")
+        self.remeasure_skipped_table.setHorizontalHeaderLabels(
+            ["測定", "理由", "詳細"]
+        )
+        self.remeasure_skipped_table.setSelectionBehavior(
+            QAbstractItemView.SelectionBehavior.SelectRows
+        )
+        self.remeasure_skipped_table.setSelectionMode(
+            QAbstractItemView.SelectionMode.SingleSelection
+        )
+        self.remeasure_skipped_table.setEditTriggers(
+            QAbstractItemView.EditTrigger.NoEditTriggers
+        )
+        self.remeasure_skipped_table.verticalHeader().setVisible(False)
+        self.remeasure_skipped_table.horizontalHeader().setSectionResizeMode(
+            QHeaderView.ResizeMode.ResizeToContents
+        )
+        self.remeasure_skipped_table.horizontalHeader().setStretchLastSection(
+            True
+        )
+        skipped_layout.addWidget(self.remeasure_skipped_table)
+        layout.addWidget(skipped_card)
+        layout.addStretch(1)
+        self.pages.addWidget(page)
+
+    _REMEASURE_SKIP_REASON_LABELS = {
+        'superseded': "新しい測定に置き換え済み",
+        'not_normally_eligible': "通常の測定条件を満たしていない",
+        'target_not_in_current_scene': "測定位置が現在のシーンに存在しない",
+        'no_current_report': "品質評価がまだ存在しない",
+        'report_unreadable': "品質評価を読み込めない",
+        'undetermined': "判定根拠が不明確",
+    }
+
+    _REMEASURE_STATE_LABELS = {
+        'pending': "保留中",
+        'dismissed': "却下済み",
+        'converted': "キャンペーンへ変換済み",
+    }
+
+    _REMEASURE_STATUS_LABELS = {
+        'current': "最新",
+        'lapsed_evaluations': "評価セットが変わったため失効",
+        'lapsed_scene': "シーンが変わったため失効",
+    }
+
+    def _remeasure_selected_id(self, table: QTableWidget) -> str | None:
+        row_index = table.currentRow()
+        if row_index < 0:
+            return None
+        item = table.item(row_index, 0)
+        if item is None:
+            return None
+        value = item.data(Qt.ItemDataRole.UserRole)
+        return str(value) if value else None
+
+    def _refresh_remeasure(self) -> None:
+        snapshot = self.controller.remeasure_queue()
+        if snapshot is None:
+            self.remeasure_status_label.setText(
+                "キューはまだ生成されていません。"
+                "「キューを生成 / 再生成」で品質評価を走査します。"
+            )
+            self.remeasure_table.setRowCount(0)
+            self.remeasure_soft_table.setRowCount(0)
+            self.remeasure_skipped_table.setRowCount(0)
+            self.remeasure_convert_button.setEnabled(False)
+            self._update_remeasure_buttons()
+            return
+        queue = snapshot.queue
+        status_label = self._REMEASURE_STATUS_LABELS.get(
+            snapshot.status, snapshot.status
+        )
+        pending = sum(
+            1 for state in snapshot.item_states.values() if state == 'pending'
+        )
+        self.remeasure_status_label.setText(
+            f"キュー {queue.queue_id}（{status_label}） · "
+            f"再測定 {len(queue.items)}件（保留 {pending}件） · "
+            f"再評価候補 {len(queue.soft_candidates)}件 · "
+            f"対象外 {len(queue.skipped)}件 · "
+            f"基準を満たした測定 {queue.passed_count}件"
+        )
+        self.remeasure_status_label.setToolTip(
+            f"評価セット: {queue.evaluation_set_sha256}\n"
+            f"シーン: {queue.scene_revision_id}"
+        )
+        current = snapshot.status == 'current'
+        self.remeasure_convert_button.setEnabled(current and pending > 0)
+
+        self.remeasure_table.setSortingEnabled(False)
+        self.remeasure_table.setRowCount(len(queue.items))
+        for row_index, item in enumerate(queue.items):
+            inputs = item.inputs
+            state = snapshot.item_states.get(item.measurement_id, 'pending')
+            values = (
+                item.measurement_id,
+                inputs.measurement_entity_id,
+                _channel_role_label(inputs.channel_role),
+                ' / '.join(inputs.source_speaker_ids),
+                ', '.join(item.failed_checks) or ', '.join(item.unknown_checks),
+                self._REMEASURE_STATE_LABELS.get(state, state),
+            )
+            for column, value in enumerate(values):
+                cell = QTableWidgetItem(value)
+                cell.setData(Qt.ItemDataRole.UserRole, item.measurement_id)
+                if column == 4:
+                    # Verbatim authority reasons stay reachable via tooltip;
+                    # the cell itself lists the failed criterion names.
+                    cell.setToolTip('\n'.join(item.retake_reasons))
+                self.remeasure_table.setItem(row_index, column, cell)
+        self.remeasure_table.setSortingEnabled(True)
+
+        self.remeasure_soft_table.setRowCount(len(queue.soft_candidates))
+        for row_index, candidate in enumerate(queue.soft_candidates):
+            values = (
+                candidate.measurement_id,
+                candidate.inputs.measurement_entity_id,
+                ', '.join(candidate.missing_evidence),
+                candidate.detail,
+            )
+            for column, value in enumerate(values):
+                cell = QTableWidgetItem(value)
+                cell.setData(
+                    Qt.ItemDataRole.UserRole, candidate.measurement_id
+                )
+                self.remeasure_soft_table.setItem(row_index, column, cell)
+
+        self.remeasure_skipped_table.setRowCount(len(queue.skipped))
+        for row_index, row in enumerate(queue.skipped):
+            values = (
+                row.measurement_id,
+                self._REMEASURE_SKIP_REASON_LABELS.get(
+                    row.reason_code, row.reason_code
+                ),
+                row.detail,
+            )
+            for column, value in enumerate(values):
+                cell = QTableWidgetItem(value)
+                cell.setData(Qt.ItemDataRole.UserRole, row.measurement_id)
+                self.remeasure_skipped_table.setItem(row_index, column, cell)
+        self._update_remeasure_buttons()
+
+    def _update_remeasure_buttons(self) -> None:
+        has_item = (
+            self._remeasure_selected_id(self.remeasure_table) is not None
+        )
+        has_soft = (
+            self._remeasure_selected_id(self.remeasure_soft_table) is not None
+        )
+        self.remeasure_open_button.setEnabled(has_item)
+        self.remeasure_dismiss_button.setEnabled(has_item)
+        self.remeasure_soft_open_button.setEnabled(has_soft)
+        self.remeasure_reeval_button.setEnabled(has_soft)
+
+    def _generate_remeasure_queue(self) -> None:
+        try:
+            queue = self.controller.generate_remeasure_queue()
+        except EXPECTED_OPERATION_ERRORS as exc:
+            self._operation_error_notice(
+                "再測定キューを生成できませんでした", exc
+            )
+            return
+        self._set_notice(
+            f"再測定キューを生成しました: 再測定 {len(queue.items)}件 · "
+            f"再評価候補 {len(queue.soft_candidates)}件 · "
+            f"対象外 {len(queue.skipped)}件",
+            SemanticState.SUCCESS,
+        )
+        self.refresh()
+        self.set_context("remeasure")
+
+    def _dismiss_remeasure_item(self) -> None:
+        snapshot = self.controller.remeasure_queue()
+        measurement_id = self._remeasure_selected_id(self.remeasure_table)
+        if snapshot is None or measurement_id is None:
+            return
+        reason, accepted = QInputDialog.getText(
+            self,
+            "キュー項目の却下",
+            f"{measurement_id} を再測定キューから外します。\n理由（記録されます・必須）:",
+        )
+        if not accepted:
+            return
+        if not reason.strip():
+            self._set_notice(
+                "却下するには理由の記録が必要です。", SemanticState.WARNING
+            )
+            return
+        try:
+            self.controller.dismiss_remeasure_item(
+                snapshot.queue.queue_id, measurement_id, reason.strip()
+            )
+        except EXPECTED_OPERATION_ERRORS as exc:
+            self._operation_error_notice(
+                "キュー項目を却下できませんでした", exc
+            )
+            return
+        self._set_notice(
+            f"{measurement_id} をキューから却下しました（理由を記録済み）。",
+            SemanticState.SUCCESS,
+        )
+        self.refresh()
+
+    def _convert_remeasure_queue(self) -> None:
+        snapshot = self.controller.remeasure_queue()
+        if snapshot is None:
+            return
+        if snapshot.status != 'current':
+            self._set_notice(
+                "キューが失効しています。先に「キューを生成 / 再生成」で最新化してください。",
+                SemanticState.WARNING,
+            )
+            return
+        pending = sum(
+            1 for state in snapshot.item_states.values() if state == 'pending'
+        )
+        if pending == 0:
+            self._set_notice(
+                "キャンペーンへ変換できる保留中の項目がありません。",
+                SemanticState.WARNING,
+            )
+            return
+        try:
+            plan = self.controller.convert_remeasure_queue(
+                snapshot.queue.queue_id
+            )
+        except EXPECTED_OPERATION_ERRORS as exc:
+            self._operation_error_notice(
+                "キューをキャンペーン計画へ変換できませんでした", exc
+            )
+            return
+        self._set_notice(
+            f"{pending}件をキャンペーン計画 {plan.plan_id} へ変換しました。"
+            "実行はキャンペーンページで明示的に開始してください。",
+            SemanticState.SUCCESS,
+            action=(
+                "キャンペーンを開く",
+                lambda: self.set_context("campaign"),
+            ),
+        )
+        self.refresh()
+
+    def _open_remeasure_measurement(self) -> None:
+        measurement_id = (
+            self._remeasure_selected_id(self.remeasure_table)
+            or self._remeasure_selected_id(self.remeasure_soft_table)
+            or self._remeasure_selected_id(self.remeasure_skipped_table)
+        )
+        if measurement_id is None:
+            return
+        if not self.select_measurement_id(measurement_id):
+            self._set_notice(
+                f"測定 {measurement_id} は一覧に見つかりませんでした。",
+                SemanticState.WARNING,
+            )
+
+    def _reevaluate_remeasure_item(self) -> None:
+        measurement_id = self._remeasure_selected_id(
+            self.remeasure_soft_table
+        )
+        if measurement_id is None:
+            return
+        try:
+            result = self.controller.soft_reevaluate_measurement(
+                measurement_id
+            )
+        except EXPECTED_OPERATION_ERRORS as exc:
+            self._operation_error_notice(
+                "品質の再評価に失敗しました", exc
+            )
+            return
+        verdict = (
+            None
+            if result.report is None
+            else result.report.retake_recommendation
+        )
+        self._set_notice(
+            f"{measurement_id} を再評価しました: "
+            f"{result.status}（判定 {verdict or 'なし'}）。"
+            "「キューを生成 / 再生成」でキューに反映します。",
+            SemanticState.SUCCESS,
+        )
+        self.refresh()
 
     def _build_correspondence_page(self) -> None:
         """#1002 — measured ETC ↔ predicted reflection-path correspondence
