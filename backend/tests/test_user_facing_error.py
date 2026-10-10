@@ -100,7 +100,7 @@ def test_warn_user_shows_mapped_text_and_preserves_detail(monkeypatch) -> None:
     import os
     os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
     from PySide6.QtWidgets import QApplication, QMessageBox
-    from htdt.user_facing_error import warn_user
+    from htdt.operation_error_dialog import warn_user
 
     QApplication.instance() or QApplication([])
     captured: dict[str, str] = {}

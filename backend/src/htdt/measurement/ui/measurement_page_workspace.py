@@ -127,7 +127,7 @@ from ..services.measurement_workflow import (
     PendingMeasurementImport,
     RewReadSource,
 )
-from ...native_worker import WORKER_CANCELLED, NativeWorkerPool
+from ...worker_pool import WORKER_CANCELLED, NativeWorkerPool
 from ...rew_auto import (
     find_rew_install,
     launch_rew,
@@ -148,8 +148,8 @@ from ...user_facing_error import (
     log_operation_error,
     operation_error_message,
     to_user_facing_error,
-    warn_user,
 )
+from ...operation_error_dialog import warn_user
 from ...ui_theme import (
     DARK_THEME,
     ControlSize,

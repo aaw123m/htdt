@@ -221,8 +221,8 @@ from .error_boundary import (
 from .user_facing_error import (
     operation_error_message,
     to_user_facing_error,
-    warn_user,
 )
+from .operation_error_dialog import warn_user
 from .workspace_dirty_state import (
     DirtyResolutionAction,
     WorkspaceDirtyState,

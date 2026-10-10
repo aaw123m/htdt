@@ -40,7 +40,7 @@ from uuid import uuid4
 from pydantic import BaseModel, ConfigDict, Field
 
 from .export_io import write_text_atomic
-from .native_diagnostics import diagnostics_dir
+from .diagnostics_support import diagnostics_dir
 
 
 RECOVERY_SCHEMA_VERSION = 1

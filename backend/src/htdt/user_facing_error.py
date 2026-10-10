@@ -29,14 +29,10 @@ import re
 import sqlite3 as _sqlite3
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
 
 from pydantic import ValidationError
 
-from .ui_theme import SemanticState
-
-if TYPE_CHECKING:
-    from PySide6.QtWidgets import QWidget
+from .ui_theme_tokens import SemanticState
 
 _LOG = logging.getLogger('htdt.errors')
 
@@ -372,80 +368,10 @@ def operation_error_message(exc: BaseException) -> str:
     return _map_exception(exc)[1]
 
 
-def warn_user(
-    parent: "QWidget | None",
-    title: str,
-    exc: BaseException,
-    *,
-    effect: str | None = None,
-    on_retry: Callable[[], None] | None = None,
-    retry_label: str | None = None,
-    on_help: Callable[[str], None] | None = None,
-) -> UserFacingError:
-    """Present one operation failure as a warning dialog.
-
-    Visible text is the mapped, localized message plus its recovery hint and
-    optional effect line — never raw exception text. The exception's class
-    and message are preserved under the dialog's Details expander and in the
-    diagnostics log.
-
-    ``on_retry`` adds a retry button only when the failure class is actually
-    retryable (``RETRYABLE_ERROR_CODES``) — the dialog never offers a second
-    attempt it knows cannot succeed differently. The callback runs after the
-    dialog closes; its own failure surfaces through the same error channel.
-
-    ``on_help`` (REV32-TERMS) adds a ヘルプ button that opens the topic
-    bound to the error's code — it receives the code and the warning box
-    re-shows afterwards, so the operator can read the explanation and then
-    still choose OK/retry.
-    """
-    from PySide6.QtWidgets import QMessageBox
-
-    error = to_user_facing_error(exc, title=title, effect=effect)
-    log_operation_error(error, exc)
-    box = QMessageBox(parent)
-    box.setIcon(QMessageBox.Icon.Warning)
-    box.setWindowTitle(title)
-    text = error.message
-    if error.recovery:
-        text += f'\n{error.recovery}'
-    if error.effect:
-        text += f'\n{error.effect}'
-    box.setText(text)
-    if error.technical_detail:
-        box.setDetailedText(error.technical_detail)
-    retry_button = None
-    if on_retry is not None and error.code in RETRYABLE_ERROR_CODES:
-        box.addButton(QMessageBox.StandardButton.Ok)
-        retry_button = box.addButton(
-            retry_label or '再試行', QMessageBox.ButtonRole.ApplyRole
-        )
-        box.setDefaultButton(QMessageBox.StandardButton.Ok)
-    help_button = None
-    if on_help is not None:
-        if not box.buttons():
-            # A HelpRole button alone leaves the box with no way out.
-            box.addButton(QMessageBox.StandardButton.Ok)
-            box.setDefaultButton(QMessageBox.StandardButton.Ok)
-        help_button = box.addButton(
-            'ヘルプ', QMessageBox.ButtonRole.HelpRole
-        )
-    while True:
-        box.exec()
-        if help_button is not None and box.clickedButton() is help_button:
-            on_help(error.code)
-            continue
-        break
-    if retry_button is not None and box.clickedButton() is retry_button:
-        on_retry()
-    return error
-
-
 __all__ = [
     'RETRYABLE_ERROR_CODES',
     'UserFacingError',
     'log_operation_error',
     'operation_error_message',
     'to_user_facing_error',
-    'warn_user',
 ]

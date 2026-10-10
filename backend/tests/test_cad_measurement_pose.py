@@ -6,8 +6,10 @@ from pathlib import Path
 
 import pytest
 
-from htdt.cad_measurement_pose import (
+from htdt.cad_measurement_pose_observation_repository import (
     MeasurementPoseObservationRepository,
+)
+from htdt.cad_measurement_pose import (
     SpatialUncertainty,
     UNKNOWN_UNCERTAINTY,
     build_pose_observation,

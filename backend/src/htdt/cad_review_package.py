@@ -270,8 +270,8 @@ class OffscreenSceneRenderer:
         import pyvista as pv
 
         from .cad_view_state import RoomCameraState
-        from .room_viewport import (
-            DARK_THEME,
+        from .ui_theme_tokens import DARK_THEME
+        from .room_render_meshes import (
             _category_color,
             _entity_category,
             _grid_mesh,

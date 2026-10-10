@@ -57,7 +57,7 @@ from .native_backup import (
     create_backup,
     recover_interrupted_restore,
 )
-from .native_diagnostics import diagnostics_dir
+from .diagnostics_support import diagnostics_dir
 from .clock import utc_now_iso as _utc_now
 
 

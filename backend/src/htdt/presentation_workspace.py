@@ -74,7 +74,7 @@ from .presentation_export_runner import (
     _bytes_label,
 )
 from .room_viewport import RoomOverlayState, RoomViewport3D
-from .user_facing_error import warn_user
+from .operation_error_dialog import warn_user
 
 
 _VIEW_ONLY_OVERLAYS = RoomOverlayState(grid=True, labels=True)

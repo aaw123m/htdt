@@ -82,7 +82,7 @@ from ...error_boundary import (
 )
 from ...launch_intents import build_launch_intent
 from ...launch_router import route_capture_intent
-from ...native_worker import NativeWorkerPool, WORKER_CANCELLED
+from ...worker_pool import NativeWorkerPool, WORKER_CANCELLED
 
 
 _LOGGER = logging.getLogger(__name__)
