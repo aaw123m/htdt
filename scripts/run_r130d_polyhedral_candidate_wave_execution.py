@@ -11,7 +11,6 @@ import traceback
 import numpy as np
 
 from htdt.acoustic_pffdtd_polyhedral_geometry import (
-    PffdtdPolyhedralCandidateWaveExecutor,
     compile_r120b_polyhedral_to_pffdtd,
     r130d_snapshot_geometry_identity,
     register_r120b_polyhedral_authorities,
@@ -32,6 +31,7 @@ from run_r130a_candidate_wave_execution import (
     PFFDTD_SHA,
     _fixture as build_r130a_fixture,
 )
+from htdt.acoustics.services.acoustic_pffdtd_polyhedral_executor import PffdtdPolyhedralCandidateWaveExecutor
 
 
 FIXTURE_ID = 'r130d-polyhedral-candidate-wave-v1'

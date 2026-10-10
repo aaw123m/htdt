@@ -53,7 +53,6 @@ from htdt.cad_wave_excitation import (
     WAVE_EXCITATION_TABLE_CONVERTER_ID,
     WAVE_EXCITATION_TABLE_CONVERTER_VERSION,
     WAVE_EXCITATION_TABLE_SCHEMA,
-    CadWaveExcitationRepository,
     ComplexVolumeVelocitySample,
     WaveExcitationEvidenceSubject,
     WaveExcitationManualDerivation,
@@ -81,6 +80,7 @@ from htdt.semantic_geometry import (
     make_semantic_geometry_conversion_request,
     raw_triangle_ids,
 )
+from htdt.acoustics.persistence.cad_wave_excitation_repository import CadWaveExcitationRepository
 
 
 CLOSED_TETRA = b'''\

@@ -24,25 +24,21 @@ latency permits relative diagnostics only. #732 receiver uncertainty is
 consumed — receiver bounds widen the reported source bound.
 """
 
-from __future__ import annotations
-
-import sqlite3
-from contextlib import closing
 from datetime import datetime
-from pathlib import Path
 from typing import Any, Literal, Sequence
 from uuid import uuid4
 
 import numpy as np
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from ...cad_schema import connect_sqlite, ensure_native_schema, require_native_tables
 from ...measurement.domain.cad_measurement_pose import SpatialUncertainty
 from ...cad_scene import Position3
 from ...r120_geometry_compiler import ExactExternalAuthorityRef
-from ...canonical_json import canonical_json as _canonical, canonical_sha256 as _hash, canonicalize_payload
+from ...canonical_json import (
+    canonical_sha256 as _hash,
+    canonicalize_payload,
+)
 from ...clock import utc_now_iso as _utc_now
-
 
 TimingReferenceCapability = Literal[
     'common_clock_exact',
@@ -76,7 +72,6 @@ _GN_CONVERGENCE_M = 1e-9
 _WEAK_CONDITIONING = 25.0
 _RESIDUAL_TOLERANCE_FACTOR = 3.0
 
-
 def _require_iso8601(value: str, name: str) -> None:
     try:
         parsed = datetime.fromisoformat(value)
@@ -84,7 +79,6 @@ def _require_iso8601(value: str, name: str) -> None:
         raise ValueError(f'{name} must be ISO-8601') from exc
     if parsed.tzinfo is None:
         raise ValueError(f'{name} must be timezone-aware')
-
 
 class AcousticReceiverAnchor(BaseModel):
     """One receiver's known pose evidence feeding localization (#732)."""
@@ -94,7 +88,6 @@ class AcousticReceiverAnchor(BaseModel):
     receiver_id: str = Field(min_length=1)
     position_m: Position3
     uncertainty: SpatialUncertainty
-
 
 class DirectArrivalEvidence(BaseModel):
     """One extracted direct arrival; a failed/ambiguous pick stays UNKNOWN."""
@@ -106,7 +99,6 @@ class DirectArrivalEvidence(BaseModel):
     picker_method: str = Field(min_length=1)
     ambiguity: ArrivalAmbiguity = 'unambiguous'
     reflection_contamination: ReflectionContamination = 'unknown'
-
 
 class AcousticSourcePoseObservation(BaseModel):
     """Immutable observed acoustic source pose evidence (#783).
@@ -217,11 +209,9 @@ class AcousticSourcePoseObservation(BaseModel):
             semantic_hash_sha256=self.semantic_sha256,
         )
 
-
 def _receiver_bound_m(anchor: AcousticReceiverAnchor) -> float:
     bound = anchor.uncertainty.bound_m()
     return bound if bound is not None else 1.0
-
 
 def _linear_solution(
     points: np.ndarray, ranges: np.ndarray
@@ -242,7 +232,6 @@ def _linear_solution(
         return None
     return solution
 
-
 def _gauss_newton(
     points: np.ndarray, ranges: np.ndarray, x0: np.ndarray
 ) -> np.ndarray | None:
@@ -262,7 +251,6 @@ def _gauss_newton(
         if float(np.linalg.norm(step)) < _GN_CONVERGENCE_M:
             break
     return x
-
 
 def localize_acoustic_source(
     *,
@@ -485,7 +473,6 @@ def localize_acoustic_source(
         receiver_count=len(usable),
     )
 
-
 def check_aim_capability(
     *,
     directivity_dataset_ref: str | None,
@@ -499,7 +486,6 @@ def check_aim_capability(
     if receiver_count < 2:
         return False, 'aim cannot be derived from a single receiver'
     return True, 'aim estimation is capability-satisfied'
-
 
 class SourcePoseComparison(BaseModel):
     """ASL40: observed vs. design vs. as-built pose comparison (#783/#520).
@@ -523,7 +509,6 @@ class SourcePoseComparison(BaseModel):
     observed_uncertainty_bound_m: float | None = None
     detail: str = ''
 
-
 def _compare(
     observed: Position3 | None,
     reference: Position3 | None,
@@ -541,7 +526,6 @@ def _compare(
         'within_tolerance' if norm <= tolerance_bound_m
         else 'outside_tolerance'
     )
-
 
 def compare_source_pose(
     observation: AcousticSourcePoseObservation,
@@ -583,94 +567,10 @@ def compare_source_pose(
         detail=detail,
     )
 
-
-class AcousticSourcePoseRepository:
-    """Append-only acoustic-source-pose store on the shared cad DB."""
-
-    def __init__(self, path: Path | str) -> None:
-        self.path = Path(path)
-        ensure_native_schema(self.path)
-        # #767: persistent schema is owned by the migration authority;
-        # repositories verify the migrated contract, never converge it.
-        with closing(self._connect()) as connection, connection:
-            require_native_tables(connection,
-                'cad_acoustic_source_poses',
-            )
-
-    def _connect(self) -> sqlite3.Connection:
-        return connect_sqlite(self.path)
-
-    def save_observation(
-        self, observation: AcousticSourcePoseObservation
-    ) -> AcousticSourcePoseObservation:
-        """Append; identical re-save is a no-op, conflicting content fails."""
-        with closing(self._connect()) as connection, connection:
-            connection.execute(
-                'INSERT INTO cad_acoustic_source_poses('
-                'observation_id, document_id, source_entity_id, verdict, '
-                'observed_at_utc, semantic_sha256, payload_json) '
-                'VALUES(?,?,?,?,?,?,?) '
-                'ON CONFLICT(observation_id) DO NOTHING',
-                (
-                    observation.observation_id,
-                    observation.document_id,
-                    observation.source_entity_id,
-                    observation.verdict,
-                    observation.observed_at_utc,
-                    observation.semantic_sha256,
-                    observation.model_dump_json(),
-                ),
-            )
-            row = connection.execute(
-                'SELECT payload_json FROM cad_acoustic_source_poses '
-                'WHERE observation_id=?',
-                (observation.observation_id,),
-            ).fetchone()
-            if row['payload_json'] != observation.model_dump_json():
-                raise ValueError(
-                    f'acoustic source pose {observation.observation_id} '
-                    'already persisted with different content — '
-                    'observations are immutable'
-                )
-        return observation
-
-    def get_observation(
-        self, observation_id: str
-    ) -> AcousticSourcePoseObservation | None:
-        with closing(self._connect()) as connection:
-            row = connection.execute(
-                'SELECT payload_json FROM cad_acoustic_source_poses '
-                'WHERE observation_id=?',
-                (observation_id,),
-            ).fetchone()
-        if row is None:
-            return None
-        return AcousticSourcePoseObservation.model_validate_json(
-            row['payload_json']
-        )
-
-    def list_observations_for_source(
-        self, document_id: str, source_entity_id: str
-    ) -> tuple[AcousticSourcePoseObservation, ...]:
-        with closing(self._connect()) as connection:
-            rows = connection.execute(
-                'SELECT payload_json FROM cad_acoustic_source_poses '
-                'WHERE document_id=? AND source_entity_id=? '
-                'ORDER BY observed_at_utc ASC, observation_id ASC',
-                (document_id, source_entity_id),
-            ).fetchall()
-        return tuple(
-            AcousticSourcePoseObservation.model_validate_json(
-                row['payload_json']
-            )
-            for row in rows
-        )
-
-
 __all__ = [
     'AcousticReceiverAnchor',
     'AcousticSourcePoseObservation',
-    'AcousticSourcePoseRepository',
+    '',
     'ArrivalAmbiguity',
     'ASLVerdict',
     'DirectArrivalEvidence',

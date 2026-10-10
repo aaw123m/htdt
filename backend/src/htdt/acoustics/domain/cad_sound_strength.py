@@ -13,22 +13,17 @@ references; #668 excitation authority; #734 source normalization;
 #618 absolute SPL calibration; #564/#566 solver validation.
 """
 
-from __future__ import annotations
-
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from ...cad_authority_resolver import AuthorityRef
+from ...cad_authority_registry import AuthorityRef
 from ...canonical_json import canonical_sha256 as _hash, canonicalize_payload
-
 
 _SHA256_PATTERN = r'^[0-9a-f]{64}$'
 
-
 def _semantic_id(prefix: str, digest: str) -> str:
     return f'{prefix}-{digest[:24]}'
-
 
 def _seal(
     model: type[BaseModel],
@@ -46,12 +41,10 @@ def _seal(
         **{sha_field: digest, id_field: _semantic_id(prefix, digest)},
     )
 
-
 def _require_refs(*refs: AuthorityRef) -> None:
     for ref in refs:
         if ref.ref_sha256 is None:
             raise ValueError(f'{ref.kind} reference must pin its sha256')
-
 
 GMethod = Literal[
     'measured_with_reference_source', 'derived_from_source_power',
@@ -64,7 +57,6 @@ G_LABELS: dict[str, str] = {
     'not_sound_strength': 'これは G ではない',
     'insufficient_evidence': '証拠不足',
 }
-
 
 class SoundStrengthObservation(BaseModel):
     """A G observation bound to source-power reference + method
@@ -114,7 +106,6 @@ class SoundStrengthObservation(BaseModel):
             cls, payload, 'observation_id',
             'observation_sha256', 'gobs')
 
-
 class SoundStrengthQualification(BaseModel):
     """A G verdict bound to pinned observations (gqual- prefix)."""
 
@@ -146,7 +137,6 @@ class SoundStrengthQualification(BaseModel):
         return _seal(
             cls, payload, 'qualification_id',
             'qualification_sha256', 'gqual')
-
 
 def evaluate_g_claim(
     observation: SoundStrengthObservation | None,

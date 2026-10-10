@@ -7,6 +7,7 @@ import math
 import os
 from pathlib import Path
 import platform
+import re
 import shutil
 import subprocess
 import time
@@ -23,10 +24,7 @@ from htdt.acoustic_pffdtd_adapter import (
     pffdtd_velocity_potential_to_pressure_trace,
     recombine_pffdtd_receiver_traces,
 )
-from htdt.acoustic_pffdtd_polyhedral_geometry import (
-    PffdtdPolyhedralCandidateWaveExecutor,
-    register_r120b_polyhedral_authorities,
-)
+from htdt.acoustic_pffdtd_polyhedral_geometry import register_r120b_polyhedral_authorities
 from htdt.cad_acoustic_solver_adapter import bind_prediction_request_to_solver_adapter
 from htdt.cad_candidate_wave_execution import (
     CandidateResourceConfiguration,
@@ -73,6 +71,7 @@ from run_r130d_polyhedral_candidate_wave_execution import (
     _result_evidence,
     _sloped_same_bbox_fixture,
 )
+from htdt.acoustics.services.acoustic_pffdtd_polyhedral_executor import PffdtdPolyhedralCandidateWaveExecutor
 
 
 SYSTEM_SCHEMA = 'htdt.r130d.mfem-sloped-system-1'
@@ -149,6 +148,53 @@ def _git_head(root: Path) -> str:
         text=True,
     )
     return completed.stdout.strip().lower()
+
+
+_WINDOWS_DRIVE_PATH_RE = re.compile(
+    r'^(?P<drive>[A-Za-z]):[\\/](?P<rest>.*)$'
+)
+
+
+def _wsl_path(value: str) -> str:
+    """Translate a Windows drive-letter path to its WSL mount form."""
+    match = _WINDOWS_DRIVE_PATH_RE.match(value)
+    if match is None:
+        return value
+    return (
+        '/mnt/'
+        + match.group('drive').lower()
+        + '/'
+        + match.group('rest').replace('\\', '/')
+    )
+
+
+def _mfem_execution_mode(executable: Path) -> str:
+    """How the pinned MFEM adapter is invoked on this platform."""
+    if os.name != 'nt' or executable.suffix.lower() == '.exe':
+        return 'native'
+    return 'wsl'
+
+
+def _mfem_executable_invocation(
+    executable: Path, args: list[str]
+) -> list[str]:
+    """Invocation prefix for the pinned MFEM adapter executable.
+
+    POSIX runs the adapter directly; a native Windows ``.exe`` also runs
+    directly. The pinned MFEM toolchain has no supported native Windows
+    build, so a Linux ELF adapter built under WSL is invoked through
+    ``wsl.exe`` with drive-letter paths translated to ``/mnt/<drive>/``.
+    The execution is the real pinned MFEM build either way — the bridge
+    only carries the process boundary.
+    """
+    if _mfem_execution_mode(executable) == 'native':
+        return [str(executable), *args]
+    return [
+        'wsl.exe',
+        '-e',
+        _wsl_path(str(executable)),
+        *[_wsl_path(arg) for arg in args],
+    ]
 
 
 def _complex_pairs(values: np.ndarray) -> list[list[float]]:
@@ -518,20 +564,22 @@ def _run_reference_level(
     level_dir = work_root / f'mfem-r{refinement}'
     level_dir.mkdir(parents=True, exist_ok=True)
     system_path = level_dir / 'system.json'
-    command = [
-        str(executable),
-        '--density', str(plan.fixture.density_kg_m3),
-        '--sound-speed', str(plan.fixture.sound_speed_m_s),
-        '--source-x', str(plan.fixture.source_position_m[0]),
-        '--source-y', str(plan.fixture.source_position_m[1]),
-        '--source-z', str(plan.fixture.source_position_m[2]),
-        '--receiver-x', str(plan.fixture.receiver_position_m[0]),
-        '--receiver-y', str(plan.fixture.receiver_position_m[1]),
-        '--receiver-z', str(plan.fixture.receiver_position_m[2]),
-        '--order', str(plan.independent_reference.polynomial_order),
-        '--uniform-refinements', str(refinement),
-        '--output', str(system_path),
-    ]
+    command = _mfem_executable_invocation(
+        executable,
+        [
+            '--density', str(plan.fixture.density_kg_m3),
+            '--sound-speed', str(plan.fixture.sound_speed_m_s),
+            '--source-x', str(plan.fixture.source_position_m[0]),
+            '--source-y', str(plan.fixture.source_position_m[1]),
+            '--source-z', str(plan.fixture.source_position_m[2]),
+            '--receiver-x', str(plan.fixture.receiver_position_m[0]),
+            '--receiver-y', str(plan.fixture.receiver_position_m[1]),
+            '--receiver-z', str(plan.fixture.receiver_position_m[2]),
+            '--order', str(plan.independent_reference.polynomial_order),
+            '--uniform-refinements', str(refinement),
+            '--output', str(system_path),
+        ],
+    )
     export_started = time.perf_counter()
     try:
         completed = subprocess.run(

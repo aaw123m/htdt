@@ -1,4 +1,4 @@
-"""#954 compatibility shim — canonical home is ``htdt.acoustics.services.cad_acoustic_solver_adapter``.
+"""#954 compatibility shim — canonical home is ``htdt.acoustics.domain.cad_acoustic_solver_adapter``.
 
 Kept so existing ``htdt.cad_acoustic_solver_adapter`` import paths (and references by module
 name — monkeypatched helpers, serialized attributes) keep resolving while
@@ -9,6 +9,6 @@ later #807 slice once external importers migrate.
 
 import sys as _sys
 
-import htdt.acoustics.services.cad_acoustic_solver_adapter as _impl
+import htdt.acoustics.domain.cad_acoustic_solver_adapter as _impl
 
 _sys.modules[__name__] = _impl

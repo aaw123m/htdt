@@ -1,4 +1,3 @@
-from __future__ import annotations
 
 from math import isfinite
 
@@ -6,12 +5,10 @@ import numpy as np
 
 from ..domain.acoustic_benchmark import AcousticMaterial
 from .acoustic_pffdtd_adapter import acoustic_position_array
-
-
-PFFDTD_IMPEDANCE_MAPPING_ID = (
-    'htdt.pffdtd.exact_frequency_independent_resistive_specific_impedance_def'
+from ..domain.cad_candidate_wave_contracts import (
+    PFFDTD_IMPEDANCE_MAPPING_ID,
+    PFFDTD_IMPEDANCE_MAPPING_VERSION,
 )
-PFFDTD_IMPEDANCE_MAPPING_VERSION = '1'
 
 
 def pffdtd_impedance_mapping_authority_payload() -> dict[str, object]:
@@ -28,7 +25,6 @@ def pffdtd_impedance_mapping_authority_payload() -> dict[str, object]:
         'frequency_dependent_impedance_supported': False,
         'scalar_absorption_conversion': False,
     }
-
 
 def compile_frequency_independent_resistive_impedance_boundary(
     *,
@@ -130,7 +126,6 @@ def compile_frequency_independent_resistive_impedance_boundary(
         'mapping_version': PFFDTD_IMPEDANCE_MAPPING_VERSION,
     }
 
-
 def compile_impedance_fixture_boundary(fixture) -> dict[str, object]:
     """Map the canonical R100B fixture through the reusable exact subset."""
 
@@ -186,7 +181,6 @@ def compile_impedance_fixture_boundary(fixture) -> dict[str, object]:
         density_kg_m3=float(fixture.environment.density_kg_m3),
         sound_speed_m_s=float(fixture.environment.sound_speed_m_s),
     )
-
 
 def compile_impedance_fixture_model(fixture) -> dict[str, object]:
     """Compile the canonical closed impedance fixture into PFFDTD material groups."""

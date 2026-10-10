@@ -19,7 +19,6 @@ import pytest
 
 from htdt.acoustic_benchmark import GeometricAcousticBand
 from htdt.cad_acoustic_material import (
-    CadAcousticMaterialRepository,
     MaterialBulkApplyError,
     build_acoustic_material,
 )
@@ -41,6 +40,7 @@ from htdt.semantic_geometry import (
     make_semantic_geometry_conversion_request,
     raw_triangle_ids,
 )
+from htdt.acoustics.persistence.cad_acoustic_material_repository import CadAcousticMaterialRepository
 
 NOW = '2026-01-01T00:00:00Z'
 

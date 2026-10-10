@@ -54,10 +54,7 @@ from run_r130d_general3d_validation import (
     _validate_target_window_diagnostic_binding,
 )
 
-from htdt.acoustic_pffdtd_polyhedral_geometry import (
-    PffdtdPolyhedralCandidateWaveExecutor,
-    register_r120b_polyhedral_authorities,
-)
+from htdt.acoustic_pffdtd_polyhedral_geometry import register_r120b_polyhedral_authorities
 from htdt.r130d_general3d_validation import (
     classify_dense_frequency_neighborhood,
     dense_frequency_grid,
@@ -73,6 +70,7 @@ from htdt.r130d_general3d_validation import (
     validate_refinement_schedule,
     validate_spatial_representation_diagnostic_binding,
 )
+from htdt.acoustics.services.acoustic_pffdtd_polyhedral_executor import PffdtdPolyhedralCandidateWaveExecutor
 
 
 EVIDENCE_SCHEMA = 'htdt.r130d.dense-frequency-diagnostic-committed-evidence-1'

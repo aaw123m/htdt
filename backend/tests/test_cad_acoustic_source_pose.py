@@ -9,7 +9,6 @@ import pytest
 
 from htdt.cad_acoustic_source_pose import (
     AcousticReceiverAnchor,
-    AcousticSourcePoseRepository,
     DirectArrivalEvidence,
     check_aim_capability,
     compare_source_pose,
@@ -17,6 +16,7 @@ from htdt.cad_acoustic_source_pose import (
 )
 from htdt.cad_measurement_pose import SpatialUncertainty
 from htdt.cad_scene import Position3
+from htdt.acoustics.persistence.cad_acoustic_source_pose_repository import AcousticSourcePoseRepository
 
 
 SOURCE = Position3(x_m=2.0, y_m=3.0, z_m=1.2)

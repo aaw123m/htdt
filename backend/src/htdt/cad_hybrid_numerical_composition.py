@@ -1,4 +1,4 @@
-"""#954 compatibility shim — canonical home is ``htdt.acoustics.services.cad_hybrid_numerical_composition``.
+"""#954 compatibility shim — canonical home is ``htdt.acoustics.domain.cad_hybrid_numerical_composition``.
 
 Kept so existing ``htdt.cad_hybrid_numerical_composition`` import paths (and references by module
 name — monkeypatched helpers, serialized attributes) keep resolving while
@@ -9,6 +9,6 @@ later #807 slice once external importers migrate.
 
 import sys as _sys
 
-import htdt.acoustics.services.cad_hybrid_numerical_composition as _impl
+import htdt.acoustics.domain.cad_hybrid_numerical_composition as _impl
 
 _sys.modules[__name__] = _impl

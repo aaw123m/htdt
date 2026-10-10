@@ -28,13 +28,11 @@ Runtime emit points (the manifest is no longer test-only):
   overclaim. The polyhedral executor routes through the same helper.
 """
 
-from __future__ import annotations
-
 from typing import Iterable, Literal, Sequence
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from ..services.cad_acoustic_solver_adapter import (
+from .cad_acoustic_solver_adapter import (
     AcousticSolverAdapterDescriptor,
     AcousticSolverDomain,
     _domain_contains,
@@ -69,7 +67,6 @@ SOLVER_PATH_PHENOMENA: tuple[str, ...] = (
 )
 
 SolverCapabilityState = Literal['SUPPORTED', 'BOUNDED', 'UNSUPPORTED']
-
 
 class SolverCapabilityRow(BaseModel):
     """One phenomenon declaration inside a solver-path capability manifest."""
@@ -112,7 +109,6 @@ class SolverCapabilityRow(BaseModel):
                 'SUPPORTED capability row cannot carry a bound description'
             )
         return self
-
 
 class SolverCapabilityManifest(BaseModel):
     """Declared phenomenon coverage for one solver-adapter path."""
@@ -179,7 +175,6 @@ class SolverCapabilityManifest(BaseModel):
             row for row in self.rows if row.phenomenon == phenomenon
         )
 
-
 def build_solver_capability_manifest(
     *,
     descriptor: AcousticSolverAdapterDescriptor,
@@ -224,7 +219,6 @@ def build_solver_capability_manifest(
         solver_valid_frequency_domain=descriptor.valid_frequency_domain,
         rows=normalized,
     )
-
 
 # ---------------------------------------------------------------------------
 # Honest row derivation from a persisted adapter descriptor
@@ -353,7 +347,6 @@ _DOMAIN_UNSUPPORTED_REASONS: dict[str, dict[str, str]] = {
         ),
     },
 }
-
 
 def derive_solver_capability_rows(
     descriptor: AcousticSolverAdapterDescriptor,

@@ -11,7 +11,6 @@ from htdt.cad_acoustic_solver_adapter import AcousticSolverDispatchBinding
 from htdt.cad_acoustic_solver_result import (
     AcousticSolverArtifactManifest,
     AcousticSolverObservableArtifact,
-    CadAcousticSolverResultRepository,
     build_acoustic_solver_result_envelope,
 )
 from htdt.cad_equipment import FrequencyDomain
@@ -21,6 +20,7 @@ from htdt.cad_prediction_models import (
 )
 from htdt.cad_repository import SceneRepository
 from htdt.r120_geometry_compiler import ExactExternalAuthorityRef
+from htdt.acoustics.persistence.cad_acoustic_solver_result_repository import CadAcousticSolverResultRepository
 
 
 NOW = '2026-09-20T00:00:00+00:00'

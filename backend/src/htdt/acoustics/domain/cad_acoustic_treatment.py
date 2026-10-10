@@ -1,4 +1,3 @@
-from __future__ import annotations
 
 from math import isfinite
 from typing import Any, Literal, Sequence
@@ -6,13 +5,12 @@ from typing import Any, Literal, Sequence
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .acoustic_benchmark import AcousticMaterial
-from ...cad_repository import SceneRevision
+from ...cad_scene_revisions import SceneRevision
 from ...cad_scene import Position3, Quaternion4
 from ...cad_system_variant import SystemVariant, materialize_system_variant
 from ...r120_geometry_compiler import ExactExternalAuthorityRef
 from ...semantic_geometry import SemanticSurface
 from ...canonical_json import canonical_json as _canonical, canonical_sha256 as _digest
-
 
 ACOUSTIC_TREATMENT_SCHEMA_VERSION = 2
 ACOUSTIC_TREATMENT_AUTHORITY_VERSION = 'acoustic-treatment-2'
@@ -85,11 +83,6 @@ EVIDENCE_BASIS_SOURCE_KINDS: dict[str, frozenset[str]] = {
     'modelled': MODEL_TREATMENT_SOURCE_KINDS,
 }
 
-
-
-
-
-
 class TreatmentProvenance(BaseModel):
     """Versioned source claim bound to an exact resolvable evidence authority.
 
@@ -119,7 +112,6 @@ class TreatmentProvenance(BaseModel):
             )
         return self
 
-
 class TreatmentDimensions(BaseModel):
     """Manufacturing/cut-list dimensions. Air gap is intentionally separate."""
 
@@ -134,7 +126,6 @@ class TreatmentDimensions(BaseModel):
         if not all(isfinite(float(value)) for value in (self.width_m, self.height_m, self.thickness_m)):
             raise ValueError('treatment dimensions must be finite')
         return self
-
 
 class TreatmentLayer(BaseModel):
     """Physical assembly layer; this is not a room base-construction material assignment."""
@@ -160,7 +151,6 @@ class TreatmentLayer(BaseModel):
             raise ValueError('treatment layer values must be finite')
         return self
 
-
 class TreatmentPhysicalParameters(BaseModel):
     """Explicit treatment-model inputs that must not be hidden in free-form metadata."""
 
@@ -182,7 +172,6 @@ class TreatmentPhysicalParameters(BaseModel):
             raise ValueError('treatment physical parameters must be finite')
         return self
 
-
 class TreatmentFrequencyBand(BaseModel):
     model_config = ConfigDict(frozen=True)
 
@@ -196,7 +185,6 @@ class TreatmentFrequencyBand(BaseModel):
         if self.max_hz <= self.min_hz:
             raise ValueError('treatment frequency band max_hz must exceed min_hz')
         return self
-
 
 class TreatmentUncertainty(BaseModel):
     """Uncertainty remains explicit even when no quantitative model is available."""
@@ -219,7 +207,6 @@ class TreatmentUncertainty(BaseModel):
             raise ValueError('unknown uncertainty cannot carry a quantitative value/unit')
         return self
 
-
 class TreatmentAcousticModelSubject(BaseModel):
     """Normalized acoustic-model values an evidence authority supports.
 
@@ -235,7 +222,6 @@ class TreatmentAcousticModelSubject(BaseModel):
     valid_frequency_band: TreatmentFrequencyBand
     uncertainty: TreatmentUncertainty
     material: AcousticMaterial
-
 
 class TreatmentEvidenceSubject(BaseModel):
     """Exact normalized treatment data a persisted evidence authority supports.
@@ -263,7 +249,6 @@ class TreatmentEvidenceSubject(BaseModel):
         if not isfinite(float(self.air_gap_m)):
             raise ValueError('treatment evidence subject air gap must be finite')
         return self
-
 
 class TreatmentModelBasis(BaseModel):
     """Exact generative-model authority for analytic_model/inference evidence.
@@ -299,7 +284,6 @@ class TreatmentModelBasis(BaseModel):
                 f'derived: {sorted(overlap)}'
             )
         return self
-
 
 class TreatmentEvidenceAuthority(BaseModel):
     """Immutable content-addressed evidence record behind a provenance claim.
@@ -382,7 +366,6 @@ class TreatmentEvidenceAuthority(BaseModel):
             source_authority=self.as_external_ref(),
         )
 
-
 class TreatmentAcousticModel(BaseModel):
     """Treatment-level acoustic capability using the existing R110/R100 material split."""
 
@@ -412,7 +395,6 @@ class TreatmentAcousticModel(BaseModel):
                 f"source_kind '{self.provenance.source_kind}'"
             )
         return self
-
 
 class AcousticTreatmentDefinition(BaseModel):
     """Immutable/versioned first-class attached treatment definition."""
@@ -467,7 +449,6 @@ class AcousticTreatmentDefinition(BaseModel):
             ),
         }
 
-
 class TreatmentCoverage(BaseModel):
     model_config = ConfigDict(frozen=True)
 
@@ -482,7 +463,6 @@ class TreatmentCoverage(BaseModel):
         if self.host_surface_fraction is not None and not isfinite(float(self.host_surface_fraction)):
             raise ValueError('host surface coverage fraction must be finite')
         return self
-
 
 class AcousticTreatmentPlacement(BaseModel):
     """Immutable treatment instance/placement; it never edits the Scene base material."""
@@ -572,7 +552,6 @@ class AcousticTreatmentPlacement(BaseModel):
             'previous_placement_sha256': self.previous_placement_sha256,
         }
 
-
 class TreatmentPredictionCapability(BaseModel):
     """Physics availability is separate from placement and solver/compiler readiness."""
 
@@ -586,7 +565,6 @@ class TreatmentPredictionCapability(BaseModel):
     geometric_material_capability: CapabilityState
     solver_prediction_readiness: PredictionReadiness = 'UNKNOWN'
     reasons: tuple[str, ...]
-
 
 class TreatmentSurfaceBindingEvaluation(BaseModel):
     """Deterministic evaluation of one placement against exact R120 surface authority."""
@@ -647,7 +625,6 @@ class TreatmentSurfaceBindingEvaluation(BaseModel):
     def identity_payload(self) -> dict[str, Any]:
         return self.model_dump(mode='json', exclude={'evaluation_sha256'})
 
-
 def semantic_surface_host_authority_sha256(surface: SemanticSurface) -> str:
     """Hash only the stable SemanticSurface authority, not the whole geometry snapshot."""
 
@@ -657,7 +634,6 @@ def semantic_surface_host_authority_sha256(surface: SemanticSurface) -> str:
             'surface': surface.model_dump(mode='json'),
         }
     )
-
 
 def _surface_in_revision(
     revision: SceneRevision,
@@ -670,7 +646,6 @@ def _surface_in_revision(
     if len(matches) > 1:
         raise ValueError('R120 semantic geometry contains duplicate SemanticSurface ids')
     return None if not matches else matches[0]
-
 
 def _resolve_host_surface_binding(
     revision: SceneRevision,
@@ -701,7 +676,6 @@ def _resolve_host_surface_binding(
         raise ValueError('host SemanticSurface authority hash mismatch')
     return host_surface_id, actual_sha256
 
-
 def _make_surface_binding_evaluation(**payload: Any) -> TreatmentSurfaceBindingEvaluation:
     identity = {
         'evaluator_id': TREATMENT_SURFACE_BINDING_EVALUATOR_ID,
@@ -712,7 +686,6 @@ def _make_surface_binding_evaluation(**payload: Any) -> TreatmentSurfaceBindingE
         **identity,
         evaluation_sha256=_digest(identity),
     )
-
 
 def evaluate_treatment_surface_binding(
     placement: AcousticTreatmentPlacement,
@@ -956,7 +929,6 @@ def evaluate_treatment_surface_binding(
         reasons=tuple(reasons),
     )
 
-
 def build_treatment_evidence_authority(
     *,
     source_kind: TreatmentSourceKind,
@@ -995,7 +967,6 @@ def build_treatment_evidence_authority(
         **payload,
     )
 
-
 def acoustic_model_evidence_subject(
     model: TreatmentAcousticModel,
 ) -> TreatmentAcousticModelSubject:
@@ -1009,7 +980,6 @@ def acoustic_model_evidence_subject(
         uncertainty=model.uncertainty,
         material=model.material,
     )
-
 
 def definition_evidence_subject(
     definition: AcousticTreatmentDefinition,
@@ -1037,7 +1007,6 @@ def definition_evidence_subject(
             else acoustic_model_evidence_subject(model)
         ),
     )
-
 
 def build_acoustic_treatment_definition(
     *,
@@ -1084,7 +1053,6 @@ def build_acoustic_treatment_definition(
         definition_sha256=_digest(identity),
     )
 
-
 def evaluate_treatment_prediction_capability(
     definition: AcousticTreatmentDefinition,
 ) -> TreatmentPredictionCapability:
@@ -1126,7 +1094,6 @@ def evaluate_treatment_prediction_capability(
         geometric_material_capability=geometric,
         reasons=tuple(reasons),
     )
-
 
 def build_treatment_placement(
     *,
@@ -1205,7 +1172,6 @@ def build_treatment_placement(
         host_surface_authority_sha256=host_surface_authority_sha256,
         placement_sha256=_digest(identity),
     )
-
 
 def revise_treatment_placement(
     previous: AcousticTreatmentPlacement,

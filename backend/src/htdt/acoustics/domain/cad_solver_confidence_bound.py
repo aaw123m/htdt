@@ -66,19 +66,13 @@ default; a solver envelope/manifest that does not cover the claim yields
 never scattering, scalar absorption never carries phase authority).
 """
 
-from __future__ import annotations
-
 from dataclasses import dataclass
 from typing import Any, Literal, Sequence
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from .acoustic_validation_envelope import (
-    AccuracyEnvelopeRecord,
-    ValidationCapabilityState,
-    ValidationObservableKind,
-)
-from ...cad_authority_resolver import AuthorityRef
+from .acoustic_validation_envelope import AccuracyEnvelopeRecord
+from ...cad_authority_registry import AuthorityRef
 from ...cad_directivity_admission import DirectivityCoverage
 from ...cad_material_evidence_compatibility import (
     BoundaryPhysicalQuantity,
@@ -86,12 +80,8 @@ from ...cad_material_evidence_compatibility import (
     EvidenceMethodClass,
     EvidencePhase,
 )
-from .cad_solver_capability_manifest import (
-    SolverCapabilityManifest,
-    SolverPathPhenomenon,
-)
+from .cad_solver_capability_manifest import SolverCapabilityManifest
 from ...canonical_json import canonical_sha256 as _hash, canonicalize_payload
-
 
 _SHA256_PATTERN = r'^[0-9a-f]{64}$'
 
@@ -104,10 +94,8 @@ SOLVER_INPUT_ENVELOPE_VERSION = 'solver-input-envelope-1'
 CLAIM_BOUND_RECORD_VERSION = 'claim-bound-record-1'
 CONFIDENCE_BOUND_EVALUATOR_VERSION = 'confidence-bound-evaluator-1'
 
-
 def _semantic_id(prefix: str, digest: str) -> str:
     return f'{prefix}-{digest[:24]}'
-
 
 def _seal(
     model: type[BaseModel],
@@ -125,12 +113,10 @@ def _seal(
         **{sha_field: digest, id_field: _semantic_id(prefix, digest)},
     )
 
-
 def _require_refs(*refs: AuthorityRef) -> None:
     for ref in refs:
         if ref.ref_sha256 is None:
             raise ValueError(f'{ref.kind} reference must pin its sha256')
-
 
 # ---------------------------------------------------------------------------
 # Claim classes, dimensions, verdict vocabulary
@@ -227,7 +213,6 @@ _RANK_CEILING: dict[str, ConfidenceCeiling] = {
 SOLVER_DOMAIN = 'solver_domain'
 
 BoundRowSupport = Literal['supports', 'bounds', 'denies', 'undeclared']
-
 
 # ---------------------------------------------------------------------------
 # Per-dimension authority classes
@@ -389,9 +374,6 @@ _SOLVER_STATE_RANK: dict[str, AuthorityRank] = {
     'NOT_APPLICABLE': 'insufficient',
 }
 
-
-
-
 # ---------------------------------------------------------------------------
 # Per-claim material-relevance requirements — a declared, inspectable
 # matrix. ``supports`` classes leave the claim unbounded by that
@@ -402,12 +384,10 @@ _SOLVER_STATE_RANK: dict[str, AuthorityRank] = {
 # staleness, mirrored for inputs).
 # ---------------------------------------------------------------------------
 
-
 @dataclass(frozen=True)
 class _DimensionRule:
     supports: frozenset[str]
     bounds: frozenset[str]
-
 
 @dataclass(frozen=True)
 class _ClaimRule:
@@ -418,7 +398,6 @@ class _ClaimRule:
     directivity: _DimensionRule | None
     geometry: _DimensionRule | None
     pose: _DimensionRule | None
-
 
 _MATERIAL_STRONG = frozenset({
     'measured_complex_boundary',
@@ -680,7 +659,6 @@ _CLAIM_REQUIREMENTS: dict[str, _ClaimRule] = {
     ),
 }
 
-
 #: Product-facing Japanese labels for the bound vocabulary.
 CONFIDENCE_BOUND_LABELS: dict[str, str] = {
     # verdicts
@@ -739,11 +717,9 @@ CONFIDENCE_BOUND_LABELS: dict[str, str] = {
     'undeclared': '未宣言',
 }
 
-
 # ---------------------------------------------------------------------------
 # Environmental binding — nested inside the input envelope, per aspect.
 # ---------------------------------------------------------------------------
-
 
 class EnvironmentalBinding(BaseModel):
     """One environmental/operating-state input (issue §6).
@@ -775,11 +751,9 @@ class EnvironmentalBinding(BaseModel):
             )
         return self
 
-
 # ---------------------------------------------------------------------------
 # Sealed per-dimension input-authority records
 # ---------------------------------------------------------------------------
-
 
 class MaterialInputAuthority(BaseModel):
     """Boundary/material input authority for one solver run (mia-).
@@ -973,7 +947,6 @@ class MaterialInputAuthority(BaseModel):
             cls, payload, 'material_id', 'material_sha256', 'mia',
         )
 
-
 class SourceDirectivityAuthority(BaseModel):
     """Source/directivity input authority (sda-).
 
@@ -1111,7 +1084,6 @@ class SourceDirectivityAuthority(BaseModel):
             cls, payload, 'directivity_id', 'directivity_sha256', 'sda',
         )
 
-
 class GeometryInputAuthority(BaseModel):
     """Geometry/scene input authority (gia-).
 
@@ -1203,7 +1175,6 @@ class GeometryInputAuthority(BaseModel):
             cls, payload, 'geometry_id', 'geometry_sha256', 'gia',
         )
 
-
 class PoseInputAuthority(BaseModel):
     """Pose/placement input authority per subject (pia-).
 
@@ -1294,7 +1265,6 @@ class PoseInputAuthority(BaseModel):
     def create(cls, **payload: Any) -> 'PoseInputAuthority':
         return _seal(cls, payload, 'pose_id', 'pose_sha256', 'pia')
 
-
 class SolverInputEnvelope(BaseModel):
     """The sealed input-qualification bundle for one solver run (sie-).
 
@@ -1364,11 +1334,9 @@ class SolverInputEnvelope(BaseModel):
             cls, payload, 'envelope_id', 'envelope_sha256', 'sie',
         )
 
-
 # ---------------------------------------------------------------------------
 # Claim bound row + record
 # ---------------------------------------------------------------------------
-
 
 class ClaimBoundRow(BaseModel):
     """One claim class's bound verdict inside a ClaimBoundRecord."""
@@ -1425,7 +1393,6 @@ class ClaimBoundRow(BaseModel):
             )
         _require_refs(*self.supporting_refs)
         return self
-
 
 class ClaimBoundRecord(BaseModel):
     """The sealed per-claim confidence bound for one input envelope (cbr-).
@@ -1490,11 +1457,9 @@ class ClaimBoundRecord(BaseModel):
     def row_for(self, claim: ClaimClass) -> ClaimBoundRow:
         return next(row for row in self.rows if row.claim == claim)
 
-
 # ---------------------------------------------------------------------------
 # Evaluator — per-claim bound, weakest input identified, fail closed
 # ---------------------------------------------------------------------------
-
 
 _SUPPORT_ORDER: dict[str, int] = {
     'undeclared': 0,
@@ -1502,7 +1467,6 @@ _SUPPORT_ORDER: dict[str, int] = {
     'bounds': 2,
     'supports': 3,
 }
-
 
 def _dimension_support(
     rule: _DimensionRule,
@@ -1535,7 +1499,6 @@ def _dimension_support(
             weakest_rank = rank
             weakest_class = cls
     return (support, weakest_rank, weakest_class)
-
 
 def _environment_support(
     aspects: frozenset[str],
@@ -1570,7 +1533,6 @@ def _environment_support(
             weakest_aspect = aspect
     return (support, weakest_rank, weakest_aspect)
 
-
 def _has_scattering_evidence(
     materials: Sequence[MaterialInputAuthority],
 ) -> bool:
@@ -1587,7 +1549,6 @@ def _has_scattering_evidence(
         ):
             return True
     return False
-
 
 def evaluate_claim_bound(
     claim: ClaimClass,
@@ -1922,7 +1883,6 @@ def evaluate_claim_bound(
         supporting_refs=tuple(supporting),
     )
 
-
 def _resolve_envelope_refs(
     refs: Sequence[AuthorityRef],
     records: Sequence[Any],
@@ -1952,7 +1912,6 @@ def _resolve_envelope_refs(
             )
         resolved.append(record)
     return tuple(resolved)
-
 
 def evaluate_input_envelope(
     envelope: SolverInputEnvelope,

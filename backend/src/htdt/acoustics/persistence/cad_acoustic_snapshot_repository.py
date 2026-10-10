@@ -1,4 +1,3 @@
-from __future__ import annotations
 
 from collections.abc import Callable
 from contextlib import closing
@@ -19,7 +18,7 @@ from ..domain.cad_acoustic_snapshot import (
     _snapshot_schema_version,
     source_binding_from_r110,
 )
-from ..services.cad_acoustic_solver_adapter import (
+from ..domain.cad_acoustic_solver_adapter import (
     AcousticNumericalFidelityPolicy,
     NumericalFidelityPolicyResolver,
     numerical_fidelity_policy_request_reasons,
@@ -36,7 +35,7 @@ from ...cad_schema import (
 )
 from ...cad_system_variant import materialize_system_variant
 from ...cad_system_variant_repository import CadSystemVariantRepository
-from ..domain.cad_wave_excitation import CadWaveExcitationRepository
+from ..persistence.cad_wave_excitation_repository import CadWaveExcitationRepository
 from ...r120_geometry_compiler import (
     ExactExternalAuthorityRef,
     R120CompiledGeometry,
@@ -44,7 +43,6 @@ from ...r120_geometry_compiler import (
 from ...r120_geometry_compiler_repository import R120GeometryCompilerRepository
 from ...treatment_boundary_overlay_repository import TreatmentBoundaryOverlayRepository
 from ...clock import utc_now_iso as _utc_now
-
 
 SnapshotEnvironmentResolver = Callable[
     [ExactExternalAuthorityRef],
@@ -71,7 +69,6 @@ SnapshotExternalAuthorityResolver = Callable[
     ExactExternalAuthorityRef | None,
 ]
 
-
 class AcousticSnapshotAuthorityResolvers(NamedTuple):
     """Typed external-authority resolver registry for AcousticSceneSnapshot.
 
@@ -93,14 +90,12 @@ class AcousticSnapshotAuthorityResolvers(NamedTuple):
     geometric_topology_preflight: SnapshotTopologyPreflightResolver | None = None
     external_authority: SnapshotExternalAuthorityResolver | None = None
 
-
 def _ref_key(ref: ExactExternalAuthorityRef) -> tuple[str, str, str]:
     return (
         ref.authority_id,
         ref.authority_version,
         ref.semantic_hash_sha256,
     )
-
 
 class CadAcousticSnapshotRepository:
     """Append-only exact AcousticSceneSnapshot and request persistence.

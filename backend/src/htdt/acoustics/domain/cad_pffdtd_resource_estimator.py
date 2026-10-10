@@ -1,4 +1,3 @@
-from __future__ import annotations
 
 from dataclasses import dataclass
 import json
@@ -8,12 +7,12 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from ..services.cad_candidate_wave_execution import (
+from .cad_candidate_wave_contracts import (
     CandidateWaveExecutionCancelled,
     CandidateWaveExecutionError,
     CandidateWaveExecutionInput,
     PffdtdCandidateConfiguration,
-    PffdtdCandidateWaveExecutor,
+    CandidateWaveExecutor,
 )
 from ...cad_multifidelity import MultiFidelityAuthorityRef
 from ...cad_r140_executor import (
@@ -27,8 +26,7 @@ from ...cad_r140_executor import (
     ResourceQuantity,
 )
 from ...r120_geometry_compiler import ExactExternalAuthorityRef
-from ...canonical_json import canonical_json as _canonical_json, canonical_sha256 as _digest
-
+from ...canonical_json import canonical_sha256 as _digest
 
 PFFDTD_RESOURCE_ESTIMATOR_ID = (
     'htdt.r140.pffdtd_python_numba_cpu.resource_estimator'
@@ -50,18 +48,12 @@ _COURANT_BACKOFF = 0.999
 _HDF5_METADATA_RESERVE_PER_FILE = 64 * 1024
 _JSON_METADATA_RESERVE = 16 * 1024
 
-
-
-
-
-
 class PffdtdResourceComponent(BaseModel):
     model_config = ConfigDict(frozen=True, extra='forbid')
 
     component: str = Field(min_length=1)
     bytes: int = Field(ge=0)
     derivation: str = Field(min_length=1)
-
 
 class PffdtdCandidateWorkloadEstimate(BaseModel):
     """Solver-specific, source-bound workload authority for the pinned CPU path."""
@@ -136,12 +128,10 @@ class PffdtdCandidateWorkloadEstimate(BaseModel):
             semantic_sha256=self.semantic_sha256,
         )
 
-
 @dataclass(frozen=True)
 class PffdtdCandidateResourceEstimation:
     workload: PffdtdCandidateWorkloadEstimate
     execution_resource_estimate: ExecutionResourceEstimate
-
 
 def _multifidelity_ref(
     ref: ExactExternalAuthorityRef,
@@ -155,7 +145,6 @@ def _multifidelity_ref(
         semantic_sha256=ref.semantic_hash_sha256,
     )
 
-
 def pffdtd_execution_backend_ref(
     authority: CandidateWaveExecutionInput,
 ) -> MultiFidelityAuthorityRef:
@@ -164,7 +153,6 @@ def pffdtd_execution_backend_ref(
         authority_kind='solver_implementation',
     )
 
-
 def pffdtd_execution_configuration_ref(
     authority: CandidateWaveExecutionInput,
 ) -> MultiFidelityAuthorityRef:
@@ -172,7 +160,6 @@ def pffdtd_execution_configuration_ref(
         authority.solver_configuration_ref,
         authority_kind='solver_configuration',
     )
-
 
 def pffdtd_candidate_input_ref(
     authority: CandidateWaveExecutionInput,
@@ -186,7 +173,6 @@ def pffdtd_candidate_input_ref(
         model_version=authority.solver_implementation_ref.authority_version,
         fidelity='r130a-candidate',
     )
-
 
 def _model_geometry(
     model: dict[str, Any],
@@ -242,7 +228,6 @@ def _model_geometry(
         nonrigid_material_count,
     )
 
-
 def _grid_shape(
     extents: tuple[float, float, float],
     *,
@@ -258,7 +243,6 @@ def _grid_shape(
         + 1
         for extent in extents
     )
-
 
 def _voxel_grid_upper_bound(
     *,
@@ -298,7 +282,6 @@ def _voxel_grid_upper_bound(
                 sz = (nh + 2) if iz < counts[2] - 1 else nz - iz * nh
                 total_points += sx * sy * sz
     return nh, math.prod(counts), total_points
-
 
 def _ram_components(
     *,
@@ -496,7 +479,6 @@ def _ram_components(
         ResourceQuantity.known(max(post_bytes, setup_bytes), 'bytes'),
     )
 
-
 def _scratch_components(
     *,
     model: dict[str, Any],
@@ -593,7 +575,6 @@ def _scratch_components(
         )
     total = sum(item.bytes for item in components)
     return components, ResourceQuantity.known(total, 'bytes')
-
 
 class PffdtdCandidateResourceEstimator:
     """Deterministic estimator for the exact pinned R130A Python/Numba CPU path.
@@ -820,14 +801,13 @@ class PffdtdCandidateResourceEstimator:
             execution_resource_estimate=generic,
         )
 
-
 class PffdtdR140Worker:
     """R140 worker adapter executing the real bounded R130A candidate path."""
 
     def __init__(
         self,
         *,
-        candidate_executor: PffdtdCandidateWaveExecutor,
+        candidate_executor: CandidateWaveExecutor,
         dispatch_binding_id: str,
         configuration: PffdtdCandidateConfiguration,
         expected_input: CandidateWaveExecutionInput,

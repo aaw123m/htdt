@@ -1,4 +1,3 @@
-from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 from contextlib import closing
@@ -10,7 +9,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from ...cad_equipment import FrequencyDomain
-from .cad_hybrid_numerical_composition import (
+from ..domain.cad_hybrid_numerical_composition import (
     COMMON_ANALYSIS_FOURIER_KERNEL,
     COMMON_PHASOR_CONVENTION,
     COMMON_TIME_ORIGIN,
@@ -43,7 +42,6 @@ from ..domain.cad_wave_excitation import AcousticWaveExcitationAuthority
 from ...comparison import FrequencyResponse
 from ...r120_geometry_compiler import ExactExternalAuthorityRef
 from ...canonical_json import canonical_json as _canonical_json, canonical_sha256 as _semantic_hash
-
 
 HYBRID_PREDICTION_PROVIDER_SCHEMA_VERSION = 1
 HYBRID_PREDICTION_PROVIDER_AUTHORITY_VERSION = (
@@ -79,15 +77,9 @@ HybridProviderConsumerKind = Literal[
     'O80_AIM_ANALYSIS',
 ]
 
-
 HybridArtifactResolver = Callable[[str], NumericalHybridResponseArtifact | None]
 HybridCompositionSpecResolver = Callable[[str], NumericalHybridCompositionSpec | None]
 WaveExcitationResolver = Callable[[str], AcousticWaveExcitationAuthority | None]
-
-
-
-
-
 
 def _excitation_ref(
     excitation: AcousticWaveExcitationAuthority,
@@ -98,7 +90,6 @@ def _excitation_ref(
         semantic_hash_sha256=excitation.semantic_sha256,
     )
 
-
 def _crossover_ref(crossover: object) -> ExactExternalAuthorityRef:
     return ExactExternalAuthorityRef(
         authority_id=getattr(crossover, 'authority_id'),
@@ -106,13 +97,11 @@ def _crossover_ref(crossover: object) -> ExactExternalAuthorityRef:
         semantic_hash_sha256=getattr(crossover, 'semantic_sha256'),
     )
 
-
 def _domain_for_grid(grid: tuple[float, ...]) -> FrequencyDomain:
     return FrequencyDomain(
         minimum_hz=float(grid[0]),
         maximum_hz=float(grid[-1]),
     )
-
 
 def _receiver_identity(
     provider: LowBandPredictionProvider,
@@ -128,7 +117,6 @@ def _receiver_identity(
             'R170B receiver identity must resolve exactly once in base R170A provider'
         )
     return matches[0]
-
 
 def evaluate_excitation_volume_velocity(
     excitation: AcousticWaveExcitationAuthority,
@@ -171,7 +159,6 @@ def evaluate_excitation_volume_velocity(
 
     raise ValueError('R170B Q(f) output-grid frequency is missing from exact authority')
 
-
 class HybridAbsolutePressureSample(BaseModel):
     model_config = ConfigDict(frozen=True, extra='forbid')
 
@@ -208,13 +195,11 @@ class HybridAbsolutePressureSample(BaseModel):
             raise ValueError('R170B absolute-pressure phase mismatch')
         return self
 
-
 class HybridPredictionProviderRef(BaseModel):
     model_config = ConfigDict(frozen=True, extra='forbid')
 
     provider_id: str = Field(pattern=r'^r170b-hybrid-provider:[0-9a-f]{64}$')
     semantic_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
-
 
 class HybridValidatedObservable(BaseModel):
     """One observable-scoped validation claim on a promoted R170B provider.
@@ -230,9 +215,7 @@ class HybridValidatedObservable(BaseModel):
     evidence_scope: Literal['synthetic_fixture', 'owned_room']
     frequency_domain: FrequencyDomain | None = None
 
-
 class HybridPredictionProvider(BaseModel):  # noqa: D101 - documented below
-
 
     """Solver-neutral product contract over one exact R160 numerical hybrid result.
 
@@ -535,7 +518,6 @@ class HybridPredictionProvider(BaseModel):  # noqa: D101 - documented below
             ),
         )
 
-
 def _capabilities() -> tuple[PredictionProviderCapability, ...]:
     return (
         PredictionProviderCapability(
@@ -596,7 +578,6 @@ def _capabilities() -> tuple[PredictionProviderCapability, ...]:
             reason='R170B bounded provider covers one exact R160 receiver only',
         ),
     )
-
 
 def build_hybrid_prediction_provider(
     *,
@@ -749,7 +730,6 @@ def build_hybrid_prediction_provider(
         **core,
     )
 
-
 def promote_hybrid_provider_evidence(
     provider: HybridPredictionProvider,
     *,
@@ -831,7 +811,6 @@ def promote_hybrid_provider_evidence(
         )
     return promoted
 
-
 def require_hybrid_provider_evidence(
     provider: HybridPredictionProvider,
     *,
@@ -861,7 +840,6 @@ def require_hybrid_provider_evidence(
             'R170B provider evidence scope does not satisfy requirement: '
             f'{provider.evidence_scope} < {minimum_scope}'
         )
-
 
 def hybrid_provider_frequency_response(
     provider: HybridPredictionProvider,
@@ -904,7 +882,6 @@ def hybrid_provider_frequency_response(
         level_db=tuple(float(item.magnitude_db_spl) for item in selected),
     )
 
-
 class HybridPredictionProviderBinding(BaseModel):
     """Immutable O50/O60/O70 consumer binding to one exact R170B provider."""
 
@@ -946,7 +923,6 @@ class HybridPredictionProviderBinding(BaseModel):
             exclude={'binding_id', 'semantic_sha256'},
         )
 
-
 def build_hybrid_provider_binding(
     provider: HybridPredictionProvider,
     *,
@@ -984,7 +960,6 @@ def build_hybrid_provider_binding(
         expected_authority=provider.base_current_authority,
     )
 
-
 def require_hybrid_binding_current(
     binding: HybridPredictionProviderBinding,
     provider: HybridPredictionProvider,
@@ -1000,7 +975,6 @@ def require_hybrid_binding_current(
         raise ValueError('R170B provider binding authority is stale')
     for observable in binding.required_observables:
         provider.require_observable(observable)
-
 
 class CadHybridPredictionProviderRepository:
     """Append-only R170B persistence with exact R170A/R160 reopen validation."""

@@ -13,24 +13,16 @@ kind, and derived field-level source refs keep provenance exact without
 inventing physics.
 """
 
-from __future__ import annotations
-
-from contextlib import closing
 from datetime import datetime
-import json
 from math import exp, isclose, isfinite
-from pathlib import Path
-import sqlite3
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .cad_acoustic_snapshot import SnapshotEnvironmentAuthorityRef
-from ...cad_schema import ensure_native_schema, require_native_tables, connect_sqlite
 from ...canonical_json import canonical_json, canonical_sha256
 from ...clock import utc_now_iso
 from ...r120_geometry_compiler import ExactExternalAuthorityRef
-
 
 ACOUSTIC_ENVIRONMENT_SCHEMA_VERSION = 1
 ACOUSTIC_ENVIRONMENT_AUTHORITY_VERSION = '1'
@@ -51,10 +43,8 @@ NOMINAL_TEMPERATURE_C = 20.0
 NOMINAL_AIR_PRESSURE_PA = 101325.0
 NOMINAL_RELATIVE_HUMIDITY_PERCENT = 50.0
 
-
 _canonical = canonical_json
 _hash = canonical_sha256
-
 
 class AcousticEnvironmentProfile(BaseModel):
     """Sealed environment authority; ids and hashes are content-derived."""
@@ -212,7 +202,6 @@ class AcousticEnvironmentProfile(BaseModel):
             semantic_hash_sha256=self.semantic_hash_sha256,
         )
 
-
 def _field_source_ref(
     profile: AcousticEnvironmentProfile,
     field_name: str,
@@ -232,7 +221,6 @@ def _field_source_ref(
         authority_version='1',
         semantic_hash_sha256=digest,
     )
-
 
 def build_acoustic_environment_profile(
     *,
@@ -298,7 +286,6 @@ def build_acoustic_environment_profile(
         **payload,
     )
 
-
 def nominal_environment_profile() -> AcousticEnvironmentProfile:
     """Shared 343 m/s / 20 °C default — deterministic and labelled assumption."""
 
@@ -312,16 +299,13 @@ def nominal_environment_profile() -> AcousticEnvironmentProfile:
         created_at_utc='1970-01-01T00:00:00+00:00',
     )
 
-
 def sound_speed_from_temperature_c(temperature_c: float) -> float:
     """Documented derivation c = 331.3 + 0.606·T (m/s); never applied silently."""
 
     return 331.3 + 0.606 * temperature_c
 
-
 _DRY_AIR_GAS_CONSTANT = 287.05  # R_d, J/(kg·K)
 _WATER_VAPOUR_GAS_CONSTANT = 461.495  # R_v, J/(kg·K)
-
 
 def air_density_moist_ideal_gas_v1(
     temperature_c: float,
@@ -357,7 +341,6 @@ def air_density_moist_ideal_gas_v1(
         dry_pa / (_DRY_AIR_GAS_CONSTANT * temperature_k)
         + vapour_pa / (_WATER_VAPOUR_GAS_CONSTANT * temperature_k)
     )
-
 
 def snapshot_environment_ref(
     profile: AcousticEnvironmentProfile,
@@ -407,7 +390,6 @@ def snapshot_environment_ref(
         relative_humidity_source_authority=relative_humidity_source,
     )
 
-
 def environment_compatibility(
     prediction_environment: ExactExternalAuthorityRef | None,
     measurement_environment: ExactExternalAuthorityRef | None,
@@ -424,136 +406,3 @@ def environment_compatibility(
         return 'same'
     return 'different'
 
-
-class CadAcousticEnvironmentRepository:
-    """Persist environment profiles and per-document profile selections."""
-
-    def __init__(self, path: Path) -> None:
-        self.path = Path(path)
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        ensure_native_schema(self.path)
-        self._initialize()
-
-    def _connect(self) -> sqlite3.Connection:
-        return connect_sqlite(self.path)
-
-    def _initialize(self) -> None:
-        # #767: persistent schema is owned by the migration authority;
-        # repositories verify the migrated contract, never converge it.
-        with closing(self._connect()) as connection, connection:
-            require_native_tables(connection, 'cad_environment_profiles', 'cad_environment_selections')
-
-    @staticmethod
-    def _payload(profile: AcousticEnvironmentProfile) -> str:
-        return canonical_json(profile.model_dump(mode='json'))
-
-    def save_profile(self, profile: AcousticEnvironmentProfile) -> None:
-        payload = self._payload(profile)
-        with closing(self._connect()) as connection, connection:
-            existing = connection.execute(
-                'SELECT payload_json FROM cad_environment_profiles WHERE authority_id=?',
-                (profile.authority_id,),
-            ).fetchone()
-            if existing is not None:
-                if str(existing['payload_json']) != payload:
-                    raise ValueError(
-                        'acoustic environment profile id collision with different payload'
-                    )
-                return
-            connection.execute(
-                '''
-                INSERT INTO cad_environment_profiles(
-                    authority_id, semantic_hash_sha256, label, created_at_utc, payload_json
-                ) VALUES (?, ?, ?, ?, ?)
-                ''',
-                (
-                    profile.authority_id,
-                    profile.semantic_hash_sha256,
-                    profile.label,
-                    profile.created_at_utc,
-                    payload,
-                ),
-            )
-
-    def get_profile(self, authority_id: str) -> AcousticEnvironmentProfile | None:
-        with closing(self._connect()) as connection, connection:
-            row = connection.execute(
-                'SELECT payload_json FROM cad_environment_profiles WHERE authority_id=?',
-                (authority_id,),
-            ).fetchone()
-        if row is None:
-            return None
-        return AcousticEnvironmentProfile.model_validate(json.loads(str(row['payload_json'])))
-
-    def list_profiles(self) -> tuple[AcousticEnvironmentProfile, ...]:
-        with closing(self._connect()) as connection, connection:
-            rows = connection.execute(
-                'SELECT payload_json FROM cad_environment_profiles '
-                'ORDER BY created_at_utc ASC, authority_id ASC'
-            ).fetchall()
-        return tuple(
-            AcousticEnvironmentProfile.model_validate(json.loads(str(row['payload_json'])))
-            for row in rows
-        )
-
-    def ensure_default_profile(self) -> AcousticEnvironmentProfile:
-        """Persist the shared nominal-assumption profile once and return it."""
-
-        profile = nominal_environment_profile()
-        self.save_profile(profile)
-        return profile
-
-    def select_profile(
-        self,
-        document_id: str,
-        profile: AcousticEnvironmentProfile,
-    ) -> None:
-        if not document_id:
-            raise ValueError('document_id must not be empty')
-        if self.get_profile(profile.authority_id) is None:
-            raise ValueError('selected environment profile is not persisted')
-        updated_at = utc_now_iso()
-        with closing(self._connect()) as connection, connection:
-            connection.execute(
-                '''
-                INSERT INTO cad_environment_selections(
-                    document_id, authority_id, semantic_hash_sha256, updated_at_utc
-                ) VALUES (?, ?, ?, ?)
-                ON CONFLICT(document_id) DO UPDATE SET
-                    authority_id=excluded.authority_id,
-                    semantic_hash_sha256=excluded.semantic_hash_sha256,
-                    updated_at_utc=excluded.updated_at_utc
-                ''',
-                (
-                    document_id,
-                    profile.authority_id,
-                    profile.semantic_hash_sha256,
-                    updated_at,
-                ),
-            )
-
-    def clear_selection(self, document_id: str) -> None:
-        with closing(self._connect()) as connection, connection:
-            connection.execute(
-                'DELETE FROM cad_environment_selections WHERE document_id=?',
-                (document_id,),
-            )
-
-    def selected_profile(
-        self,
-        document_id: str,
-    ) -> AcousticEnvironmentProfile | None:
-        """The document's selected profile; fails closed on tampered rows."""
-
-        with closing(self._connect()) as connection, connection:
-            row = connection.execute(
-                'SELECT authority_id, semantic_hash_sha256 FROM cad_environment_selections '
-                'WHERE document_id=?',
-                (document_id,),
-            ).fetchone()
-        if row is None:
-            return None
-        profile = self.get_profile(str(row['authority_id']))
-        if profile is None or profile.semantic_hash_sha256 != str(row['semantic_hash_sha256']):
-            raise ValueError('selected environment profile does not match stored identity')
-        return profile

@@ -31,30 +31,27 @@ s between specular and scattered; Born/Kirchhoff approximations for
 rough-surface scattering; Cox & D'Antonio on diffuser directionality.
 """
 
-from __future__ import annotations
-
 from datetime import datetime
-from math import isfinite
-from typing import Any, Literal, Sequence
+from typing import (
+    Any,
+    Literal,
+)
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from ...cad_authority_resolver import AuthorityRef
+from ...cad_authority_registry import AuthorityRef
 from ...cad_bass_management import FrequencyBand
 from .cad_surface_scattering import ScatteringQuantityKind
 from ...canonical_json import canonical_sha256 as _hash, canonicalize_payload
 from ...clock import utc_now_iso as _utc_now
-
 
 SCATTERING_MODEL_SCHEMA_VERSION = 'scattering-model-1'
 SCATTERING_MODEL_EVALUATION_VERSION = 'scattering-model-eval-1'
 
 _SHA256_PATTERN = r'^[0-9a-f]{64}$'
 
-
 def _semantic_id(prefix: str, digest: str) -> str:
     return f'{prefix}-{digest[:24]}'
-
 
 def _require_iso8601(value: str, label: str) -> None:
     try:
@@ -63,7 +60,6 @@ def _require_iso8601(value: str, label: str) -> None:
         raise ValueError(f'{label} must be ISO-8601') from exc
     if parsed.tzinfo is None:
         raise ValueError(f'{label} must be timezone-aware')
-
 
 def _seal(
     model: type[BaseModel],
@@ -83,7 +79,6 @@ def _seal(
             id_field: _semantic_id(prefix, digest),
         },
     )
-
 
 # ---------------------------------------------------------------------------
 # Taxonomies
@@ -173,11 +168,9 @@ _NON_FRACTION_KINDS = frozenset(
     }
 )
 
-
 # ---------------------------------------------------------------------------
 # Sub-specs
 # ---------------------------------------------------------------------------
-
 
 class CoefficientDistributionMapping(BaseModel):
     """The explicit law turning a scalar coefficient into a directional
@@ -250,7 +243,6 @@ class CoefficientDistributionMapping(BaseModel):
             )
         return self
 
-
 class DirectionalDiscretization(BaseModel):
     """Outgoing/incident angular discretization the solver uses."""
 
@@ -259,7 +251,6 @@ class DirectionalDiscretization(BaseModel):
     outgoing_step_deg: float | None = Field(default=None, gt=0.0)
     incident_grid: str = ''
     hemisphere_samples: int | None = Field(default=None, ge=1)
-
 
 class ScatteringValidation(BaseModel):
     """Validation tier and evidence refs behind the model claim."""
@@ -287,11 +278,9 @@ class ScatteringValidation(BaseModel):
             )
         return self
 
-
 # ---------------------------------------------------------------------------
 # Sealed records
 # ---------------------------------------------------------------------------
-
 
 class SurfaceReflectionModelProfile(BaseModel):
     """Sealed declaration of the solver's surface-reflection model."""
@@ -428,7 +417,6 @@ class SurfaceReflectionModelProfile(BaseModel):
             )
         return self
 
-
 class ScatteringModelQualification(BaseModel):
     """Sealed verdict of :func:`evaluate_scattering_model`."""
 
@@ -489,7 +477,6 @@ class ScatteringModelQualification(BaseModel):
             )
         return self
 
-
 def scattering_model_binding(
     profile: SurfaceReflectionModelProfile,
 ) -> AuthorityRef:
@@ -499,7 +486,6 @@ def scattering_model_binding(
         ref_sha256=profile.profile_sha256,
     )
 
-
 def scattering_model_qualification_binding(
     qualification: ScatteringModelQualification,
 ) -> AuthorityRef:
@@ -508,7 +494,6 @@ def scattering_model_qualification_binding(
         ref_id=qualification.qualification_id,
         ref_sha256=qualification.qualification_sha256,
     )
-
 
 # ---------------------------------------------------------------------------
 # Evaluation
@@ -520,7 +505,6 @@ _REDIRECTING_MODELS = {
     'geometric_brdf_model',
     'custom_validated',
 }
-
 
 def evaluate_scattering_model(
     document_id: str,
@@ -651,7 +635,6 @@ def evaluate_scattering_model(
         reasons, limitations, evaluated_at_utc,
     )
 
-
 def _finish_scat(
     document_id: str,
     profile: SurfaceReflectionModelProfile,
@@ -682,11 +665,9 @@ def _finish_scat(
         'scatqual',
     )
 
-
 # ---------------------------------------------------------------------------
 # Builder
 # ---------------------------------------------------------------------------
-
 
 def build_surface_reflection_model_profile(
     document_id: str,

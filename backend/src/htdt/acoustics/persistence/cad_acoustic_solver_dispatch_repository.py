@@ -1,4 +1,3 @@
-from __future__ import annotations
 
 from collections.abc import Callable
 from contextlib import closing
@@ -10,7 +9,7 @@ from .cad_acoustic_snapshot_repository import (
     AcousticSnapshotAuthorityResolvers,
     CadAcousticSnapshotRepository,
 )
-from ..services.cad_acoustic_solver_adapter import (
+from ..domain.cad_acoustic_solver_adapter import (
     AcousticNumericalFidelityPolicy,
     AcousticSolverAdapterDescriptor,
     AcousticSolverDispatchBinding,
@@ -31,12 +30,10 @@ from ..domain.cad_solver_capability_manifest import (
 from ...r120_geometry_compiler import ExactExternalAuthorityRef
 from ...clock import utc_now_iso as _utc_now
 
-
 ExternalAuthorityResolver = Callable[
     [ExactExternalAuthorityRef],
     ExactExternalAuthorityRef | None,
 ]
-
 
 class CadAcousticSolverDispatchRepository:
     """Append-only solver-adapter and dispatch authority persistence.

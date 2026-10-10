@@ -15,7 +15,6 @@ from htdt.cad_acoustic_treatment import (
     build_treatment_placement,
 )
 from htdt.cad_acoustic_treatment_comparison import (
-    CadAcousticTreatmentComparisonRepository,
     build_treatment_design_candidate,
     build_treatment_design_comparison,
 )
@@ -24,6 +23,7 @@ from htdt.cad_repository import SceneRepository
 from htdt.cad_scene import Position3, RoomPrism, SceneDocument
 from htdt.cad_system_variant import VariantProvenanceItem, build_system_variant
 from htdt.cad_system_variant_repository import CadSystemVariantRepository
+from htdt.acoustics.persistence.cad_acoustic_treatment_comparison_repository import CadAcousticTreatmentComparisonRepository
 
 
 NOW = '2026-09-20T00:00:00+00:00'
