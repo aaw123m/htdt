@@ -488,7 +488,7 @@ def _external_payload(
 ) -> object:
     try:
         payload = resolver(ref)
-    except Exception as exc:
+    except Exception as exc:  # error-boundary: error translation — an authority-resolve failure wraps as ValueError with the original failure preserved via 'from exc' (noqa: BLE001)
         raise ValueError(f'{label} exact external authority is unavailable') from exc
     if _semantic_hash(payload) != ref.semantic_hash_sha256:
         raise ValueError(f'{label} exact external authority hash mismatch')

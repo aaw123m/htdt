@@ -106,7 +106,7 @@ class FileDialogMemoryStore:
                 handle.flush()
                 os.fsync(handle.fileno())
             os.replace(tmp, self.path)
-        except BaseException:
+        except BaseException:  # error-boundary: cleanup before re-raise — any write failure (incl. cancel/interrupt) removes the temp file so a partial memory file never replaces the good one (noqa: BLE001)
             try:
                 os.unlink(tmp)
             except OSError:

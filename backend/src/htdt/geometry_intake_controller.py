@@ -498,7 +498,7 @@ class GeometryIntakeController:
                 connection, proposal
             )
             connection.commit()
-        except Exception:
+        except Exception:  # error-boundary: rollback before re-raise — any commit failure rolls the transaction back so a partial diff-apply never persists (noqa: BLE001)
             connection.rollback()
             raise
         finally:

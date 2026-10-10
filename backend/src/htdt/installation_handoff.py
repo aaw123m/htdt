@@ -680,7 +680,7 @@ def write_handoff_package(
                     backups[key] = backup
                 os.replace(staged[key], final)
                 promoted.append(key)
-        except Exception:
+        except Exception:  # error-boundary: rollback before re-raise — any promote failure restores the previous complete generation so a partial handoff never looks finished (noqa: BLE001)
             # Roll back to the previous complete generation: restore every
             # file moved aside into backup (promoted or merely displaced by
             # a later failure) and drop members that had no predecessor.
@@ -692,7 +692,7 @@ def write_handoff_package(
                 elif key in promoted:
                     final.unlink(missing_ok=True)
             raise
-    except Exception:
+    except Exception:  # error-boundary: cleanup before re-raise — any stage/promote failure removes the staging tree so partial work never persists (noqa: BLE001)
         shutil.rmtree(staging, ignore_errors=True)
         raise
     shutil.rmtree(staging, ignore_errors=True)

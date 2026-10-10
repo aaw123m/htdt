@@ -820,7 +820,7 @@ class JointOptimizationContext:
             self.field_metric_repository.save_prerun_estimate(
                 prerun_estimate
             )
-        except Exception:  # noqa: BLE001 - estimation is advisory
+        except Exception:  # error-boundary: advisory estimate — an estimation/save failure proceeds with no pre-run estimate honestly (noqa: BLE001)
             prerun_estimate = None
         started_at = perf_counter()
         result = run_joint_execution(
@@ -869,7 +869,7 @@ class JointOptimizationContext:
                     self.field_metric_repository.save_compute_observation(
                         observation
                     )
-                except Exception:  # noqa: BLE001 - never fabricate actuals
+                except Exception:  # error-boundary: advisory observation — a compute-observation save failure skips the record honestly; actuals are never fabricated (noqa: BLE001)
                     pass
         return result
 

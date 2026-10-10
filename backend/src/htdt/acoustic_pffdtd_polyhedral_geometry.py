@@ -164,7 +164,7 @@ def load_r120b_polyhedral_authorities(
                 'compiled_hash_sha256': compiled_ref.semantic_hash_sha256,
             }
         )
-    except Exception as exc:
+    except Exception as exc:  # error-boundary: error translation — a geometry/import failure wraps as CandidateWaveExecutionError with the original failure preserved via 'from exc' (noqa: BLE001)
         raise CandidateWaveExecutionError(
             'R120B exact polyhedral authority is missing, stale, or modified'
         ) from exc
@@ -791,7 +791,7 @@ def _read_executed_grid(
 ) -> PffdtdExecutedGridGeometry:
     try:
         import h5py
-    except Exception as exc:
+    except Exception as exc:  # error-boundary: error translation — a geometry/import failure wraps as CandidateWaveExecutionError with the original failure preserved via 'from exc' (noqa: BLE001)
         raise CandidateWaveExecutionError(
             'h5py is required to bind exact PFFDTD grid/voxel provenance'
         ) from exc

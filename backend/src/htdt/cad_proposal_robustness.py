@@ -918,7 +918,7 @@ def evaluate_proposal_local_robustness(
             if not domain_rejections:
                 try:
                     document = apply_local_perturbation(document, axis, delta)
-                except Exception as exc:
+                except Exception as exc:  # error-boundary: sampling boundary — a perturbation/evaluation failure degrades to an honest domain rejection or empty result with the reason recorded in failure_reason; a bad sample is never silently accepted (noqa: BLE001)
                     domain_rejections = (
                         f'__perturbation_unsupported__:{axis.axis_id}',
                     )
@@ -943,7 +943,7 @@ def evaluate_proposal_local_robustness(
                     result=evaluator(document, plan.sample_id),
                     sample_id=plan.sample_id,
                 )
-            except Exception as exc:
+            except Exception as exc:  # error-boundary: sampling boundary — a perturbation/evaluation failure degrades to an honest domain rejection or empty result with the reason recorded in failure_reason; a bad sample is never silently accepted (noqa: BLE001)
                 result = None
                 failure_reason = f'objective_evaluation_failed:{exc}'
 
@@ -1099,7 +1099,7 @@ def evaluate_proposal_multidimensional_robustness(
                 domain_rejections.extend(_domain_rejections(axis, delta))
                 try:
                     document = apply_local_perturbation(document, axis, delta)
-                except Exception as exc:
+                except Exception as exc:  # error-boundary: sampling boundary — a perturbation/evaluation failure degrades to an honest domain rejection or empty result with the reason recorded in failure_reason; a bad sample is never silently accepted (noqa: BLE001)
                     domain_rejections.append(
                         f'__perturbation_unsupported__:{axis.axis_id}'
                     )
@@ -1124,7 +1124,7 @@ def evaluate_proposal_multidimensional_robustness(
                     result=evaluator(document, plan.sample_id),
                     sample_id=plan.sample_id,
                 )
-            except Exception as exc:
+            except Exception as exc:  # error-boundary: sampling boundary — a perturbation/evaluation failure degrades to an honest domain rejection or empty result with the reason recorded in failure_reason; a bad sample is never silently accepted (noqa: BLE001)
                 result = None
                 failure_reason = f'objective_evaluation_failed:{exc}'
 
@@ -1526,7 +1526,7 @@ class CadProposalRobustnessRepository:
                 if not local_rejections:
                     try:
                         document = apply_local_perturbation(document, axis, delta)
-                    except Exception as exc:
+                    except Exception as exc:  # error-boundary: sampling boundary — a perturbation/evaluation failure degrades to an honest domain rejection or empty result with the reason recorded in failure_reason; a bad sample is never silently accepted (noqa: BLE001)
                         domain_rejections.append(
                             f'__perturbation_unsupported__:{axis.axis_id}'
                         )
@@ -1545,7 +1545,7 @@ class CadProposalRobustnessRepository:
                     domain_rejections.extend(_domain_rejections(axis, delta))
                     try:
                         document = apply_local_perturbation(document, axis, delta)
-                    except Exception as exc:
+                    except Exception as exc:  # error-boundary: sampling boundary — a perturbation/evaluation failure degrades to an honest domain rejection or empty result with the reason recorded in failure_reason; a bad sample is never silently accepted (noqa: BLE001)
                         domain_rejections.append(
                             f'__perturbation_unsupported__:{axis.axis_id}'
                         )

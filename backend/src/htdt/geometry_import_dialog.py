@@ -103,7 +103,10 @@ from .ui_theme import (
     set_semantic_state,
     set_typography_role,
 )
+import logging
 from .user_facing_error import operation_error_message
+
+_LOGGER = logging.getLogger(__name__)
 
 
 GeometryImportDestination = Literal['entity_body', 'room_geometry']
@@ -429,8 +432,8 @@ class GeometryImportDialog(QDialog):
         if plotter is not None:
             try:
                 plotter.close()
-            except Exception:
-                pass
+            except Exception:  # error-boundary: teardown — a plotter close failure logs and the dialog still releases its reference (noqa: BLE001)
+                _LOGGER.warning('preview plotter close failed', exc_info=True)
             self._preview_plotter = None
         super().done(result)
 
@@ -570,14 +573,14 @@ class GeometryImportDialog(QDialog):
         try:
             import pyvista as pv  # noqa: F401
             from pyvistaqt import QtInteractor
-        except Exception:
+        except Exception:  # error-boundary: optional import — a missing/broken render stack honestly yields no preview layer (noqa: BLE001)
             return None
         try:
             plotter = QtInteractor(parent, auto_update=False)
             plotter.set_background('#171F27')
             plotter.enable_anti_aliasing('fxaa')
             return plotter
-        except Exception:
+        except Exception:  # error-boundary: render-layer construction — a GL/driver failure honestly yields no preview layer (noqa: BLE001)
             return None
 
     def _set_repair_views_enabled(self, enabled: bool) -> None:
@@ -741,7 +744,7 @@ class GeometryImportDialog(QDialog):
             elif focus is not None and focus.state != 'located':
                 self._preview_render_state = 'focus_unknown'
             plotter.reset_camera() if focus is None else plotter.render()
-        except Exception:
+        except Exception:  # error-boundary: preview render — a draw failure records the honest 'render_failure' state, never a fake preview (noqa: BLE001)
             self._preview_render_state = 'render_failure'
         info = self._preview_info_text(scene)
         if self._preview_render_state == 'focus_unknown':

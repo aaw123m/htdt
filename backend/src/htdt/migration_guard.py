@@ -326,12 +326,12 @@ def install_migration_guard() -> None:
                     raise MigrationOpenError('Post-migration integrity check failed: ' + '; '.join(problems))
                 self.pre_migration_backup = preparation.backup_path
                 self.migrated_from_schema_version = preparation.source_version
-        except Exception as exc:
+        except Exception as exc:  # error-boundary: migration boundary — any prepare/migrate failure runs the verified pre-migration restore; a rollback failure surfaces as MigrationOpenError with both identities (noqa: BLE001)
             if preparation is None:
                 raise
             try:
                 _restore_pre_migration_backup(root, preparation.backup_path, preparation.source_version)
-            except Exception as rollback_exc:
+            except Exception as rollback_exc:  # error-boundary: error translation — a rollback failure wraps as MigrationOpenError with the rollback failure preserved via 'from rollback_exc' (noqa: BLE001)
                 raise MigrationOpenError(
                     f'Migration v{preparation.source_version}->v{preparation.target_version} failed and rollback also failed '
                     f'({rollback_exc}); pre-migration backup remains at {preparation.backup_path}'

@@ -62,6 +62,11 @@ from .ui_theme import (
     set_typography_role,
 )
 from .user_facing_error import operation_error_message
+from .error_boundary import (
+    EXPECTED_OPERATION_ERRORS,
+    is_authority_failure,
+    report_boundary_failure,
+)
 
 
 _STATUS_LABELS = {
@@ -311,7 +316,7 @@ class ReflectionGuidancePanel(QWidget):
                 self._view = load_reflection_guidance_view(
                     connection, self._controller.document_id
                 )
-        except Exception as exc:  # noqa: BLE001 — surface honest failure
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: op surface — expected failures surface a verbatim load error; unexpected errors propagate to diagnostics
             load_error = (
                 'ガイダンスの読み込みに失敗しました: '
                 f'{operation_error_message(exc)}'
@@ -355,7 +360,10 @@ class ReflectionGuidancePanel(QWidget):
             labels = self._controller.repository.revision_labels(
                 self._controller.document_id
             )
-        except Exception:  # noqa: BLE001 — labels are display-only
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: label read — expected failures report and degrade to no labels (display-only); sealed-store failures propagate
+            if is_authority_failure(exc):
+                raise
+            report_boundary_failure(exc, operation='リビジョンラベルの読み取り')
             labels = None
         current = self.revision_combo.currentData()
         self.revision_combo.blockSignals(True)

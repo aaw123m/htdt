@@ -83,7 +83,7 @@ def write_bytes_atomic(path: str | Path, data: bytes) -> Path:
             handle.flush()
             os.fsync(handle.fileno())
         os.replace(temp, path)
-    except BaseException:
+    except BaseException:  # error-boundary: cleanup before re-raise — any write failure (incl. cancel/interrupt) removes the temp file so a partial export never replaces the good one (noqa: BLE001)
         temp.unlink(missing_ok=True)
         raise
     return path
@@ -203,7 +203,7 @@ def write_export_generation(
                 f'export generation already exists: {final.name}'
             )
         os.rename(staging, final)
-    except BaseException:
+    except BaseException:  # error-boundary: cleanup before re-raise — any publish failure removes the staged tree so a partial generation never looks finished (noqa: BLE001)
         shutil.rmtree(staging, ignore_errors=True)
         raise
     return ExportGeneration(

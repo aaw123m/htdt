@@ -250,7 +250,7 @@ def hide_plot_state(plot: pg.PlotWidget, item: pg.TextItem | None) -> None:
     if item is not None:
         try:
             plot.getPlotItem().getViewBox().removeItem(item)
-        except Exception:
+        except Exception:  # error-boundary: render teardown — a stale overlay-item remove failure is benign; the plot re-renders cleanly on next draw (noqa: BLE001)
             pass
 
 

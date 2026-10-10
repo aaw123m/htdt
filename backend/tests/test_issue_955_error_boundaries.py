@@ -95,6 +95,22 @@ def test_no_unmarked_broad_catches_in_955_scope() -> None:
     assert not unmarked, f"unmarked broad catches remain: {unmarked}"
 
 
+def test_no_unmarked_broad_catches_repo_wide() -> None:
+    """Final #955 tranche: every broad catch under ``backend/src/htdt`` —
+    not just the tranche-scoped modules — must carry an ``error-boundary:``
+    marker (or be narrowed, which removes it from this walk)."""
+    unmarked: list[str] = []
+    for source in sorted(SRC.rglob("*.py")):
+        text = source.read_text(encoding="utf-8")
+        lines = text.splitlines()
+        for node in ast.walk(ast.parse(text)):
+            if isinstance(node, ast.ExceptHandler) and _broad(node.type):
+                if "error-boundary:" not in lines[node.lineno - 1]:
+                    rel = source.relative_to(SRC)
+                    unmarked.append(f"{rel}:{node.lineno}")
+    assert not unmarked, f"unmarked broad catches remain: {unmarked}"
+
+
 @pytest.fixture()
 def repository(tmp_path):
     repository = SceneRepository(tmp_path / "scenes.sqlite3")

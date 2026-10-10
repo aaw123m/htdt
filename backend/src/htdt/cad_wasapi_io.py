@@ -31,6 +31,7 @@ driver only exists on Windows and only when constructed.
 
 from __future__ import annotations
 
+import logging
 import sys
 import time
 from dataclasses import dataclass
@@ -45,6 +46,8 @@ from .cad_sweep_acquisition import (
     CaptureOutcome,
     CaptureResult,
 )
+
+_LOGGER = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -139,7 +142,7 @@ def stereo_pair_channels(labels: Sequence[str]) -> tuple[int, int] | None:
         from .cad_layout_tools import CANONICAL_SPEAKER_PAIRS
         pairs: Sequence[tuple[str, str]] = tuple(
             CANONICAL_SPEAKER_PAIRS.items())
-    except Exception:
+    except Exception:  # error-boundary: optional import — any layout-tools import failure falls back to the bundled canonical pairs honestly (noqa: BLE001)
         pairs = _CANONICAL_PAIRS
     for left, right in pairs:
         if left in labels and right in labels:
@@ -415,7 +418,7 @@ class _WasapiStream(AcquisitionStream):
                 if preload > 0:
                     written += self._render.write_f32(_render_chunk(preload))
                 self._render.start()
-            except Exception:
+            except Exception:  # error-boundary: cleanup before re-raise — any preload/start failure stops capture so the device is never left running (noqa: BLE001)
                 self._capture.stop()
                 raise
 
@@ -474,12 +477,12 @@ class _WasapiStream(AcquisitionStream):
             for client in (self._render, self._capture):
                 try:
                     client.stop()
-                except Exception:
-                    pass
+                except Exception:  # error-boundary: teardown — a stop failure logs and close still runs; teardown must not mask the run's outcome (noqa: BLE001)
+                    _LOGGER.warning('wasapi client stop failed', exc_info=True)
                 try:
                     client.close()
-                except Exception:
-                    pass
+                except Exception:  # error-boundary: teardown — a close failure logs; teardown must not mask the run's outcome (noqa: BLE001)
+                    _LOGGER.warning('wasapi client close failed', exc_info=True)
 
         samples = (np.concatenate(chunks, axis=0) if chunks else
                    np.zeros((0, len(cap_columns)), dtype=np.float64))
@@ -934,7 +937,7 @@ if sys.platform == 'win32':
                     ctypes.byref(service_iid), ctypes.byref(svc))
                 _check(hr, f'IAudioClient::GetService({service_name})')
                 return client, svc.value, int(buffer_frames.value)
-            except Exception:
+            except Exception:  # error-boundary: cleanup before re-raise — any service-acquire failure releases the COM client so the device is never leaked (noqa: BLE001)
                 _release(client)
                 raise
 

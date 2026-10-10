@@ -320,7 +320,7 @@ def resolve_campaign_overlay(
             joined, progress_source, guided_point_id = _resolve_executor_join(
                 runner_repository, head, design, document_id
             )
-        except Exception:
+        except Exception:  # error-boundary: overlay read — a progress-resolve failure shows an honest 'progress unknown' notice, never fabricated progress (noqa: BLE001)
             notices.append('測定実行の進捗を取得できません（進捗は不明として表示）')
 
     bindings: dict[str, int] = {}

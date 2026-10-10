@@ -1173,7 +1173,7 @@ class PffdtdCandidateWaveExecutor:
                     ),
                 }
             )
-        except Exception as exc:
+        except Exception as exc:  # error-boundary: error translation — every authority payload validation failure wraps as CandidateWaveExecutionError with the original failure preserved via 'from exc' (identity never masked; consumers map the domain type) (noqa: BLE001)
             raise CandidateWaveExecutionError(
                 'treatment composition exact authority payload is malformed'
             ) from exc
@@ -1250,7 +1250,7 @@ class PffdtdCandidateWaveExecutor:
                     'overlay_hash_sha256': overlay_ref.semantic_hash_sha256,
                 }
             )
-        except Exception as exc:
+        except Exception as exc:  # error-boundary: error translation — every authority payload validation failure wraps as CandidateWaveExecutionError with the original failure preserved via 'from exc' (identity never masked; consumers map the domain type) (noqa: BLE001)
             raise CandidateWaveExecutionError(
                 'treatment overlay exact authority payload is malformed'
             ) from exc
@@ -1311,7 +1311,7 @@ class PffdtdCandidateWaveExecutor:
             treatment_model = TreatmentAcousticModel.model_validate(
                 treatment_model_payload
             )
-        except Exception as exc:
+        except Exception as exc:  # error-boundary: error translation — every authority payload validation failure wraps as CandidateWaveExecutionError with the original failure preserved via 'from exc' (identity never masked; consumers map the domain type) (noqa: BLE001)
             raise CandidateWaveExecutionError(
                 'treatment material exact authority payload is malformed'
             ) from exc
@@ -1794,7 +1794,7 @@ class PffdtdCandidateWaveExecutor:
                             }
                         )
                     )
-                except Exception as exc:
+                except Exception as exc:  # error-boundary: error translation — every authority payload validation failure wraps as CandidateWaveExecutionError with the original failure preserved via 'from exc' (identity never masked; consumers map the domain type) (noqa: BLE001)
                     raise CandidateWaveExecutionError(
                         'causal boundary exact authority payload is malformed'
                     ) from exc
@@ -1945,7 +1945,7 @@ class PffdtdCandidateWaveExecutor:
                     boundary_payload.get('valid_frequency_domain')
                 )
                 material = AcousticMaterial.model_validate(material_payload)
-            except Exception as exc:
+            except Exception as exc:  # error-boundary: error translation — every authority payload validation failure wraps as CandidateWaveExecutionError with the original failure preserved via 'from exc' (identity never masked; consumers map the domain type) (noqa: BLE001)
                 raise CandidateWaveExecutionError(
                     'explicit impedance boundary exact authority payload is malformed'
                 ) from exc
@@ -2410,7 +2410,7 @@ class PffdtdCandidateWaveExecutor:
         cancelled()
         try:
             actual_head = pffdtd_git_head(self.upstream_root)
-        except Exception as exc:
+        except Exception as exc:  # error-boundary: error translation — every implementation identity resolution failure wraps as CandidateWaveExecutionError with the original failure preserved via 'from exc' (identity never masked; consumers map the domain type) (noqa: BLE001)
             raise CandidateWaveExecutionError(
                 'PFFDTD implementation identity resolution failed: '
                 f'{type(exc).__name__}: {exc}'
@@ -2423,7 +2423,7 @@ class PffdtdCandidateWaveExecutor:
             compatibility = apply_pffdtd_runtime_compatibility_patches(
                 self.upstream_root
             )
-        except Exception as exc:
+        except Exception as exc:  # error-boundary: error translation — every compatibility mapping failure wraps as CandidateWaveExecutionError with the original failure preserved via 'from exc' (identity never masked; consumers map the domain type) (noqa: BLE001)
             raise CandidateWaveExecutionError(
                 'PFFDTD exact compatibility mapping failed: '
                 f'{type(exc).__name__}: {exc}'
@@ -2443,7 +2443,7 @@ class PffdtdCandidateWaveExecutor:
                 write_freq_dep_mat,
                 write_freq_ind_mat_from_Zn,
             )
-        except Exception as exc:
+        except Exception as exc:  # error-boundary: error translation — every runtime import failure wraps as CandidateWaveExecutionError with the original failure preserved via 'from exc' (identity never masked; consumers map the domain type) (noqa: BLE001)
             raise CandidateWaveExecutionError(
                 f'PFFDTD runtime import failed: {type(exc).__name__}: {exc}'
             ) from exc
@@ -2500,7 +2500,7 @@ class PffdtdCandidateWaveExecutor:
                         handle['DEF'][...],
                         dtype=np.float64,
                     )
-            except Exception as exc:
+            except Exception as exc:  # error-boundary: error translation — every boundary material generation failure wraps as CandidateWaveExecutionError with the original failure preserved via 'from exc' (identity never masked; consumers map the domain type) (noqa: BLE001)
                 raise CandidateWaveExecutionError(
                     'PFFDTD exact boundary material generation failed: '
                     f'{type(exc).__name__}: {exc}'
@@ -2628,7 +2628,7 @@ class PffdtdCandidateWaveExecutor:
             engine.checks()
         except CandidateWaveExecutionCancelled:
             raise
-        except Exception as exc:
+        except Exception as exc:  # error-boundary: error translation — every solver setup/compile failure wraps as CandidateWaveExecutionError with the original failure preserved via 'from exc' (identity never masked; consumers map the domain type) (noqa: BLE001)
             raise CandidateWaveExecutionError(
                 f'PFFDTD setup/compile failed: {type(exc).__name__}: {exc}'
             ) from exc
@@ -2673,7 +2673,7 @@ class PffdtdCandidateWaveExecutor:
         solve_started = time.perf_counter()
         try:
             engine.run_all(nsteps=int(engine.Nt))
-        except Exception as exc:
+        except Exception as exc:  # error-boundary: error translation — every solver execution failure wraps as CandidateWaveExecutionError with the original failure preserved via 'from exc' (identity never masked; consumers map the domain type) (noqa: BLE001)
             raise CandidateWaveExecutionError(
                 f'PFFDTD numerical execution failed: {type(exc).__name__}: {exc}'
             ) from exc
@@ -2758,7 +2758,7 @@ class PffdtdCandidateWaveExecutor:
             raw_hash = _file_sha256(output_path)
         except CandidateWaveExecutionError:
             raise
-        except Exception as exc:
+        except Exception as exc:  # error-boundary: error translation — every receiver extraction failure wraps as CandidateWaveExecutionError with the original failure preserved via 'from exc' (identity never masked; consumers map the domain type) (noqa: BLE001)
             raise CandidateWaveExecutionError(
                 f'PFFDTD receiver extraction failed: {type(exc).__name__}: {exc}'
             ) from exc

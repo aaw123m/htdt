@@ -214,7 +214,7 @@ class CadMeasurementQualityProducer:
             return None, None
         try:
             asset = self.quality_repository.validate_calibration_file(digest)
-        except Exception:
+        except Exception:  # error-boundary: calibration probe — an unresolvable calibration asset logs verbatim and degrades to no calibration honestly (noqa: BLE001)
             _LOGGER.warning(
                 'context %s declares an unresolvable calibration file %s',
                 context.acquisition_context_id,
@@ -439,7 +439,7 @@ class CadMeasurementQualityProducer:
                         created_at_utc=created_at_utc,
                     )
                 )
-            except Exception as exc:  # fail closed per measurement
+            except Exception as exc:  # error-boundary: report lane — a production failure logs verbatim and fails closed per measurement; one broken report never poisons the batch (noqa: BLE001)
                 _LOGGER.warning(
                     'quality report production failed for %s: %r',
                     record.measurement_id,

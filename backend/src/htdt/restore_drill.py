@@ -461,7 +461,7 @@ def run_restore_drill(
             )
         except BackupCancelledError:
             raise
-        except Exception as exc:
+        except Exception as exc:  # error-boundary: drill check — every check failure records a 'failed' RestoreDrillCheck with the exception identity and concludes the drill as failed; a failed check never masquerades as passed (noqa: BLE001)
             checks.append(
                 RestoreDrillCheck(
                     'archive_verified',
@@ -603,7 +603,7 @@ def run_restore_drill(
             )
         except BackupCancelledError:
             raise
-        except Exception as exc:
+        except Exception as exc:  # error-boundary: drill check — every check failure records a 'failed' RestoreDrillCheck with the exception identity and concludes the drill as failed; a failed check never masquerades as passed (noqa: BLE001)
             checks.append(
                 RestoreDrillCheck(
                     'isolated_restore',
@@ -626,7 +626,7 @@ def run_restore_drill(
         restored_db = drill_data_dir / DATABASE_NAME
         try:
             _sqlite_integrity(restored_db)
-        except Exception as exc:
+        except Exception as exc:  # error-boundary: drill check — every check failure records a 'failed' RestoreDrillCheck with the exception identity and concludes the drill as failed; a failed check never masquerades as passed (noqa: BLE001)
             checks.append(
                 RestoreDrillCheck(
                     'sqlite_integrity',
@@ -668,7 +668,7 @@ def run_restore_drill(
 
         try:
             _assert_staged_database_openable(restored_db)
-        except Exception as exc:
+        except Exception as exc:  # error-boundary: drill check — every check failure records a 'failed' RestoreDrillCheck with the exception identity and concludes the drill as failed; a failed check never masquerades as passed (noqa: BLE001)
             checks.append(
                 RestoreDrillCheck(
                     'same_machine_opened',
@@ -704,7 +704,7 @@ def run_restore_drill(
             )
         except BackupCancelledError:
             raise
-        except Exception as exc:
+        except Exception as exc:  # error-boundary: drill check — every check failure records a 'failed' RestoreDrillCheck with the exception identity and concludes the drill as failed; a failed check never masquerades as passed (noqa: BLE001)
             checks.append(
                 RestoreDrillCheck(
                     'authority_audit',
@@ -733,7 +733,7 @@ def run_restore_drill(
             emit('migrate')
             try:
                 event = execute_native_upgrade(drill_data_dir)
-            except Exception as exc:
+            except Exception as exc:  # error-boundary: drill check — every check failure records a 'failed' RestoreDrillCheck with the exception identity and concludes the drill as failed; a failed check never masquerades as passed (noqa: BLE001)
                 checks.append(
                     RestoreDrillCheck(
                         'schema_migration',
@@ -746,7 +746,7 @@ def run_restore_drill(
             try:
                 final_schema = read_native_schema_version(restored_db)
                 _sqlite_integrity(restored_db)
-            except Exception as exc:
+            except Exception as exc:  # error-boundary: drill check — every check failure records a 'failed' RestoreDrillCheck with the exception identity and concludes the drill as failed; a failed check never masquerades as passed (noqa: BLE001)
                 checks.append(
                     RestoreDrillCheck(
                         'schema_migration',

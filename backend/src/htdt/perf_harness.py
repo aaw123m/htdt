@@ -61,8 +61,7 @@ def process_rss_bytes() -> int | None:
                     kernel32.GetCurrentProcess(),
                     ctypes.byref(counters), counters.cb):
                 return int(counters.WorkingSetSize)
-        except Exception:
-            # error-boundary: platform probe — return unprobed
+        except Exception:  # error-boundary: platform probe — a process-memory probe failure returns unprobed honestly (noqa: BLE001)
             return None
         return None
     try:
@@ -417,7 +416,7 @@ def run_benchmark(
                     observed = getattr(ctx, 'rss_sample', None)
                     if observed is not None:
                         last_rss = observed
-        except Exception as exc:  # noqa: BLE001 — evidence, not a crash
+        except Exception as exc:  # error-boundary: benchmark harness — an unmeasurable operation is recorded as unmeasured evidence with the exception identity, never silently passed (noqa: BLE001)
             # error-boundary: benchmark harness — an unmeasurable operation
             # is recorded as unmeasured evidence, never silently passed.
             if on_error is not None:

@@ -516,7 +516,7 @@ def _aim_mismatch_notice(
         return None
     try:
         states = aim_repository.list_aim_states(document_id)
-    except Exception:
+    except Exception:  # error-boundary: overlay read — an aim-store failure returns an honest 'comparison unknown' notice, never a fabricated mismatch (noqa: BLE001)
         return '音響エイム権威を読み取れません（設計/実測比較は不明）'
     aim: CadAcousticAimState | None = None
     for state in states:
@@ -894,7 +894,7 @@ def resolve_coverage_overlay(
     if priority_repository is not None:
         try:
             profiles = priority_repository.list_for_document(document_id)
-        except Exception:
+        except Exception:  # error-boundary: overlay read — a profile-read failure shows an honest 'unreadable' notice, never a fabricated profile (noqa: BLE001)
             notices.append('座席優先度プロファイルを読み取れませんでした')
     if axis_determined:
         notices.append(

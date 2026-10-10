@@ -77,6 +77,11 @@ from .package_progress import (
 )
 from .support_diagnostics import failure_correlation_id
 from .user_facing_error import operation_error_message
+from .error_boundary import (
+    EXPECTED_OPERATION_ERRORS,
+    is_authority_failure,
+    report_boundary_failure,
+)
 from .workflow_navigation import WorkspaceDeepLink, WorkspaceId
 
 logger = logging.getLogger(__name__)
@@ -299,7 +304,7 @@ class PresentationExportRunner(QObject):
             if op is not None and op.is_active:
                 try:
                     self._activity_center.confirm_cancelled(op_id)
-                except Exception:
+                except EXPECTED_OPERATION_ERRORS:  # error-boundary: completion record — an expected transition race is benign (the op is already terminal); unexpected errors propagate
                     pass
         self._job = None
         self._operation_id = None
@@ -377,7 +382,7 @@ class PresentationExportRunner(QObject):
                 # result.
                 if cancel_event.is_set():
                     raise ExportCancelledError()
-            except BaseException:
+            except BaseException:  # error-boundary: cleanup before re-raise — cancel/failure/crash all remove the staged tree so no partial package survives to look finished (noqa: BLE001)
                 # Cancel / failure / renderer crash: remove the staged
                 # tree so no partial package survives to look finished.
                 shutil.rmtree(staging_dir, ignore_errors=True)
@@ -418,7 +423,7 @@ class PresentationExportRunner(QObject):
             )
         try:
             self._activity_center.update_progress(op_id, op_progress)
-        except Exception:
+        except Exception:  # error-boundary: best-effort progress — progress is reporting, not authority; a raced terminal transition must never break the job (noqa: BLE001)
             # Progress is reporting, not authority — a raced terminal
             # transition must never break the job.
             pass
@@ -461,13 +466,13 @@ class PresentationExportRunner(QObject):
         if center is not None and op_id is not None:
             try:
                 center.mark_commit_point(op_id)
-            except Exception as exc:
+            except Exception as exc:  # error-boundary: completion boundary — any commit-point failure discards the staged tree and marks the job failed with the exception identity (noqa: BLE001)
                 self._discard(result.staging_dir)
                 self._mark_failed(job, exc)
                 return
         try:
             _publish_staged(result.staging_dir, job.package_dir)
-        except Exception as exc:
+        except Exception as exc:  # error-boundary: completion boundary — any publish failure discards the staged tree and marks the job failed with the exception identity (noqa: BLE001)
             self._discard(result.staging_dir)
             self._mark_failed(job, exc)
             return
@@ -477,13 +482,16 @@ class PresentationExportRunner(QObject):
                 center.complete(
                     op_id, result_summary=self._result_summary(job, result)
                 )
-            except Exception:
+            except Exception:  # error-boundary: activity record — a completion-record failure must not undo a published package (noqa: BLE001)
                 pass
             try:
                 stale = self._presentation_repository.session_stale(
                     job.session
                 )
-            except Exception:
+            except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: staleness probe — expected failures report and degrade to 'not stale' honestly; sealed-store failures propagate
+                if is_authority_failure(exc):
+                    raise
+                report_boundary_failure(exc, operation='セッション鮮度の確認')
                 stale = False
             if stale:
                 # The pinned input is no longer the document head — the
@@ -515,7 +523,7 @@ class PresentationExportRunner(QObject):
         if op_id is not None and self._activity_center is not None:
             try:
                 self._activity_center.confirm_cancelled(op_id)
-            except Exception:
+            except EXPECTED_OPERATION_ERRORS:  # error-boundary: completion record — an expected transition race is benign (the op is already terminal); unexpected errors propagate
                 pass
         self.export_cancelled.emit()
 
@@ -538,7 +546,7 @@ class PresentationExportRunner(QObject):
                     ),
                     diagnostic_id=diagnostic_id,
                 )
-            except Exception:
+            except EXPECTED_OPERATION_ERRORS:  # error-boundary: failure record — an expected activity-record failure is benign (the export_failed signal still carries the identity); unexpected errors propagate
                 pass
         logger.warning(
             'presentation export failed %s: %r', diagnostic_id, error

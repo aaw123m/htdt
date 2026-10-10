@@ -9518,7 +9518,7 @@ def audit_native_authority_graph(
                 record_ref = ':'.join(str(part) for part in key)
                 try:
                     probe.verify(chain, key)
-                except Exception as exc:  # noqa: BLE001 — collect, don't abort
+                except Exception as exc:  # error-boundary: audit lane — any verify failure is recorded as a finding with the exception identity; a broken record is evidence, never skipped (noqa: BLE001)
                     record(
                         probe.authority,
                         record_ref,
@@ -9547,7 +9547,7 @@ def audit_native_authority_graph(
                 try:
                     plan = json.loads(row['plan_json'])
                     chain.repo('capture').verify_persisted_ingestion(plan)
-                except Exception as exc:  # noqa: BLE001
+                except Exception as exc:  # error-boundary: audit lane — any verify failure is recorded as a finding with the exception identity; a broken record is evidence, never skipped (noqa: BLE001)
                     record(
                         'capture_ingestion_run',
                         ref,
@@ -9625,7 +9625,7 @@ def audit_native_authority_graph(
                         raise ValueError(
                             f'managed asset length mismatch for {digest}'
                         )
-                except Exception as exc:  # noqa: BLE001
+                except Exception as exc:  # error-boundary: audit lane — any verify failure is recorded as a finding with the exception identity; a broken record is evidence, never skipped (noqa: BLE001)
                     record(
                         'managed_asset',
                         ref,
@@ -9657,7 +9657,7 @@ def audit_native_authority_graph(
                         raise ValueError(
                             f'content blob length mismatch for {digest}'
                         )
-                except Exception as exc:  # noqa: BLE001
+                except Exception as exc:  # error-boundary: audit lane — any verify failure is recorded as a finding with the exception identity; a broken record is evidence, never skipped (noqa: BLE001)
                     record(
                         'content_blob',
                         digest,
@@ -9730,7 +9730,7 @@ def audit_native_authority_graph(
                             continue
                         try:
                             json.loads(raw)
-                        except Exception as exc:  # noqa: BLE001
+                        except Exception as exc:  # error-boundary: audit lane — any payload-parse failure is recorded as a finding with the exception identity; a broken record is evidence, never skipped (noqa: BLE001)
                             record(
                                 table,
                                 f'row {count}',

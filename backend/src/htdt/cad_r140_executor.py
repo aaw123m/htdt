@@ -1256,7 +1256,7 @@ class BoundedR140Executor:
             failure_reason = exc.reason
             exit_condition = exc.exit_condition
             partial_diagnostic = exc.partial_diagnostic
-        except Exception as exc:
+        except Exception as exc:  # error-boundary: worker boundary — an unhandled worker exception records a FAILED state with the exception identity in failure_reason, never a crash (noqa: BLE001)
             finished_at = _utc_now()
             state = 'FAILED'
             failure_reason = f'{type(exc).__name__}: {exc}'
@@ -1291,7 +1291,7 @@ class BoundedR140Executor:
                     cache_entry=cache_entry,
                     attempt=attempt,
                 )
-            except Exception as exc:
+            except Exception as exc:  # error-boundary: commit boundary — a commit failure records a FAILED attempt with the exception identity, never a silent success (noqa: BLE001)
                 attempt = build_execution_attempt(
                     task=task,
                     estimate=estimate,

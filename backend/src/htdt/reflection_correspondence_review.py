@@ -643,7 +643,7 @@ def build_correspondence_review(
                 )
             )
         predicted_rows = tuple(rows)
-    except Exception as exc:  # noqa: BLE001 — honest degraded state
+    except Exception as exc:  # error-boundary: review lane — a predicted-paths load failure degrades to an honest guidance issue with the exception identity, never a fake pairing (noqa: BLE001)
         guidance_issues = (f'予測パスの読み込みに失敗しました: {exc}',)
 
     # --- declared correspondence authority ---------------------------------

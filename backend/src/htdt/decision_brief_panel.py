@@ -55,6 +55,11 @@ from .ui_theme import (
     set_typography_role,
 )
 from .user_facing_error import operation_error_message
+from .error_boundary import (
+    EXPECTED_OPERATION_ERRORS,
+    is_authority_failure,
+    report_boundary_failure,
+)
 from .dynamic_a11y import (
     DynamicAnnouncer,
     capture_focus,
@@ -320,7 +325,7 @@ class DecisionBriefPanel(QFrame):
             try:  # error-boundary: repository read must never crash the page
                 head = self._scene_repository.current_head(self._document_id)
                 brief = self._brief_repository.latest_brief(self._document_id)
-            except Exception as exc:  # noqa: BLE001
+            except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: op surface — expected failures show a verbatim error; unexpected errors propagate to diagnostics
                 self.freshness_label.setText('')
                 self.headline_label.setText(
                     f'決定ブリーフを読み込めません: '
@@ -508,7 +513,7 @@ class DecisionBriefPanel(QFrame):
     ) -> None:
         try:  # error-boundary: navigation must report, not crash the page
             resolved = self._on_navigate(link)
-        except Exception:  # noqa: BLE001
+        except EXPECTED_OPERATION_ERRORS:  # error-boundary: navigation surface — an expected navigate failure reports 'cannot move' honestly; unexpected errors propagate to diagnostics
             resolved = False
         if not resolved:
             self._set_status('その画面へ移動できませんでした。')
@@ -597,7 +602,7 @@ class DecisionBriefPanel(QFrame):
                 created_at_utc=datetime.now(timezone.utc).isoformat(),
             )
             self._brief_repository.save_brief(brief)
-        except Exception as exc:  # noqa: BLE001
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: op surface — expected failures show a verbatim error; unexpected errors propagate to diagnostics
             message = (
                 f'決定ブリーフを作成できません: '
                 f'{operation_error_message(exc)}'

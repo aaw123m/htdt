@@ -120,6 +120,11 @@ from .perf_budget import _total_memory_bytes
 from .perf_harness import process_rss_bytes
 from .r120_geometry_compiler import ExactExternalAuthorityRef
 from .user_facing_error import operation_error_message
+from .error_boundary import (
+    EXPECTED_OPERATION_ERRORS,
+    is_authority_failure,
+    report_boundary_failure,
+)
 from .room_prediction_options import (
     HYBRID_MODEL_KEY,
     HYBRID_MODEL_KEY_PREFIX,
@@ -861,7 +866,7 @@ class RoomPredictionController(QObject):
                 pass
         try:
             response = provider.frequency_response(receiver_entity_id)
-        except Exception:  # noqa: BLE001 - any read failure is 'missing'
+        except Exception:  # error-boundary: response probe — any frequency-response read failure is honestly 'missing' evidence (noqa: BLE001)
             return None
         frequencies = getattr(response, 'frequency_hz', None)
         if frequencies is None:
@@ -949,7 +954,7 @@ class RoomPredictionController(QObject):
         """Seal+persist the run's estimate and start the wall clock."""
         try:
             estimate = self._persist_prerun_estimate(spec)
-        except Exception:  # noqa: BLE001 - estimation is advisory
+        except Exception:  # error-boundary: advisory estimate — a pre-run estimation failure logs and proceeds without the estimate honestly (noqa: BLE001)
             _LOGGER.warning('pre-run estimate failed', exc_info=True)
             estimate = None
         self._prerun_estimates[spec.token.job_id] = estimate
@@ -1207,7 +1212,7 @@ class RoomPredictionController(QObject):
                         allow_source_receiver=allow_source_receiver,
                         system_variant_id=system_variant_id,
                     )
-                except Exception as exc:
+                except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: op surface — expected failures emit a failed run state verbatim; unexpected errors propagate to diagnostics
                     self.stateChanged.emit(
                         RoomPredictionRunState(
                             False,
@@ -1251,7 +1256,7 @@ class RoomPredictionController(QObject):
                 allow_source_receiver=allow_source_receiver,
                 system_variant_id=system_variant_id,
             )
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: op surface — expected failures emit a failed run state verbatim; unexpected errors propagate to diagnostics
             self.stateChanged.emit(
                 RoomPredictionRunState(
                     False,
@@ -2218,14 +2223,14 @@ class RoomPredictionPanel(QWidget):
                 ),
                 allow_source_receiver=self.source_receiver.isChecked(),
             )
-        except Exception as exc:  # noqa: BLE001 - shown fail-closed
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: fail-closed surface — expected failures render the card unavailable verbatim; unexpected errors propagate to diagnostics
             self.prerun_card.show_unavailable(
                 operation_error_message(exc)
             )
             return
         try:
             observations = self.controller.prerun_observations(estimate)
-        except Exception:  # noqa: BLE001 - history is advisory
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: advisory history — expected failures report and degrade to no observations; sealed-store failures propagate
             observations = ()
         self.prerun_card.show_estimate(estimate, observations)
 

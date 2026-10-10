@@ -53,7 +53,7 @@ def render_analysis_marker_cloud(
     cloud = analysis_marker_polydata(domain_xyz)
     try:
         plotter.remove_actor(actor_name, reset_camera=False, render=False)
-    except Exception:
+    except Exception:  # error-boundary: render teardown — a stale-actor remove failure is benign (the actor is replaced by name below); add_mesh is the authority (noqa: BLE001)
         pass
 
     actor = plotter.add_mesh(

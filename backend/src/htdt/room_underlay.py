@@ -422,7 +422,7 @@ def render_pdf_page(data: bytes, page: int = 0, zoom: float = 2.0) -> bytes:
         ) from exc
     try:
         document = pymupdf.open(stream=data, filetype='pdf')
-    except Exception as exc:  # pymupdf raises FileDataError et al.
+    except Exception as exc:  # error-boundary: error translation — a PyMuPDF open failure wraps as UnderlayImportError with the original failure preserved via 'from exc' (noqa: BLE001)
         raise UnderlayImportError(f'PDF を開けませんでした: {exc}') from exc
     try:
         if document.page_count < 1:

@@ -64,6 +64,11 @@ from .native_worker import WORKER_CANCELLED, NativeWorkerPool
 from .room_field_overlay import FieldOverlay3DRequest
 from .length_spinbox import MetricSpinBox
 from .user_facing_error import operation_error_message
+from .error_boundary import (
+    EXPECTED_OPERATION_ERRORS,
+    is_authority_failure,
+    report_boundary_failure,
+)
 
 _ROLE = Qt.ItemDataRole.UserRole
 
@@ -742,12 +747,12 @@ class FieldExplorerPanel(QWidget):
                     return (epoch, None, None)
                 field_repository.save(built)
                 return (epoch, built, None)
-            except Exception as exc:  # envelope carries the honest reason
+            except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: worker envelope — expected failures return their reason verbatim in the result envelope; unexpected errors propagate to diagnostics
                 return (epoch, None, operation_error_message(exc))
 
         try:
             self._pool.start(_BUILD_TASK_KEY, work, self._build_job_completed)
-        except Exception as exc:  # pool shutdown / disposed mid-click
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: op surface — an expected pool-start failure shows a verbatim error; unexpected errors propagate to diagnostics
             self._set_build_busy(False)
             self.field_status_label.setText(
                 f'音場を生成できません · {operation_error_message(exc)}'
@@ -1007,7 +1012,7 @@ class FieldExplorerPanel(QWidget):
                     sample_state=view.sample_state,
                     error=None,
                 )
-            except Exception as exc:  # envelope carries the honest reason
+            except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: worker envelope — expected failures return their reason verbatim in the result envelope; unexpected errors propagate to diagnostics
                 return _SliceJobResult(
                     request=request,
                     image=None,
@@ -1019,7 +1024,7 @@ class FieldExplorerPanel(QWidget):
 
         try:
             self._pool.start(_SLICE_TASK_KEY, work, self._slice_job_completed)
-        except Exception as exc:  # pool shut down mid-edit
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: op surface — an expected pool-start failure shows a verbatim error; unexpected errors propagate to diagnostics
             self._set_slice_busy(False)
             self._clear_field_view(
                 f'断面を表示できません · {operation_error_message(exc)}'

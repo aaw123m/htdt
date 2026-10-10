@@ -365,7 +365,7 @@ def build_native_preflight(
 
     try:
         devices = backend.enumerate_devices()
-    except Exception:
+    except Exception:  # error-boundary: device probe — an enumeration failure degrades to no devices honestly; the precheck still reports its real blocked reasons (noqa: BLE001)
         devices = ()
     playback = tuple(d.device_id for d in devices
                      if d.direction in ('playback', 'duplex'))
@@ -412,7 +412,7 @@ def build_native_preflight(
                 declared_synchronized=plan.declared_synchronized,
                 quality_thresholds=plan.quality_thresholds,
             ))
-        except Exception as exc:  # PRECHECK fail-closed
+        except Exception as exc:  # error-boundary: PRECHECK fail-closed — a crashing precheck lands in blocked_reasons with the error, refusing arming honestly (noqa: BLE001)
             blocked.append(
                 f'{binding.channel_entity_id}: 事前チェック失敗 — {exc}')
             continue

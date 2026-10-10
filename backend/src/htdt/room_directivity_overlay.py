@@ -68,6 +68,11 @@ from .cad_scene import (
     acoustic_reference_position,
 )
 from .cad_schema import connect_sqlite
+from .error_boundary import (
+    EXPECTED_OPERATION_ERRORS,
+    is_authority_failure,
+    report_boundary_failure,
+)
 
 
 DIRECTIVITY_OVERLAY_AUTHORITY = 'issue1000-directivity-balloon-1'
@@ -468,7 +473,10 @@ def _cheap_dataset_listing(
                         present,
                     )
                 )
-    except Exception:
+    except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: listing read — expected failures report and degrade to no rows; sealed-store failures propagate
+        if is_authority_failure(exc):
+            raise
+        report_boundary_failure(exc, operation='指向性データ一覧の読み取り')
         return ()
     return tuple(rows_out)
 

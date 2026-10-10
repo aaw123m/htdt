@@ -42,6 +42,11 @@ from .cad_design_comparison import (
     evaluate_comparison_set,
 )
 from .cad_scene import SceneDocument, SceneEntity
+from .error_boundary import (
+    EXPECTED_OPERATION_ERRORS,
+    is_authority_failure,
+    report_boundary_failure,
+)
 
 
 #: Category vocabulary — Japanese legend label + display color. Colors are
@@ -170,7 +175,7 @@ def _resolve_document(
 ) -> SceneDocument | None:
     try:
         return resolve_document(alternative)
-    except Exception as exc:
+    except Exception as exc:  # error-boundary: overlay lane — a side-resolve failure lands in problems with the exception identity and that side honestly absent (noqa: BLE001)
         problems.append(
             f'案{side}「{alternative.label}」のシーンを再現できません: {exc}'
         )
@@ -220,7 +225,10 @@ def _evidence_rows(
                     resolved_evidence[key] = evidence_resolver.resolve(
                         ref.kind, ref.ref_id, comparison_set.document_id
                     )
-                except Exception:
+                except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: evidence probe — expected failures report and degrade the ref to absent; sealed-store failures propagate
+                    if is_authority_failure(exc):
+                        raise
+                    report_boundary_failure(exc, operation='比較証拠の解決')
                     resolved_evidence[key] = None
     availability = evaluate_comparison_set(
         comparison_set, resolved_evidence=resolved_evidence

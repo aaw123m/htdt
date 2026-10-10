@@ -124,7 +124,7 @@ def load_lifecycle_gates(
     sha = _manifest_sha256(path)
     try:
         raw = yaml.safe_load(path.read_text(encoding='utf-8'))
-    except Exception as exc:
+    except Exception as exc:  # error-boundary: error translation — a manifest parse failure wraps as LifecycleGateManifestError with the original failure preserved via 'from exc' (noqa: BLE001)
         raise LifecycleGateManifestError(
             f'{path}: lifecycle manifest parse failed: {exc}') from exc
     if not isinstance(raw, dict) or not isinstance(

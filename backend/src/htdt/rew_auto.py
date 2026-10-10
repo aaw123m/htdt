@@ -344,7 +344,7 @@ def scan_rew_watch_dir(
                 MAX_NATIVE_REW_TEXT_FILE_BYTES,
                 label='REWテキストファイル',
             )
-        except Exception:
+        except Exception:  # error-boundary: per-file lane — an unreadable watch-dir file lands in skipped with its name; one bad file never loses the rest (noqa: BLE001)
             skipped.append(entry.name)
             continue
         files.append((raw, entry.name))

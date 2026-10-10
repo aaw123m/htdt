@@ -359,7 +359,7 @@ def _load_spec(verb: str, spec_path: str | None) -> Any:
     raw = _read_json_file(spec_path)
     try:
         return model.model_validate(raw)
-    except Exception as exc:
+    except Exception as exc:  # error-boundary: error translation — a spec/driver failure wraps as HeadlessCliError with the original failure preserved via 'from exc' (noqa: BLE001)
         raise HeadlessCliError(
             'missing_evidence',
             f'{spec_path} failed spec validation: {exc}') from exc
@@ -371,7 +371,7 @@ def _load_backend_spec(path: str | None) -> HeadlessBackendSpec:
     raw = _read_json_file(path)
     try:
         return HeadlessBackendSpec.model_validate(raw)
-    except Exception as exc:
+    except Exception as exc:  # error-boundary: error translation — a spec/driver failure wraps as HeadlessCliError with the original failure preserved via 'from exc' (noqa: BLE001)
         raise HeadlessCliError(
             'missing_evidence',
             f'{path} failed backend-spec validation: {exc}') from exc
@@ -657,7 +657,7 @@ def _load_plan(
         raw = _read_json_file(plan_arg)
         try:
             plan = model.model_validate(raw)
-        except Exception as exc:
+        except Exception as exc:  # error-boundary: error translation — a spec/driver failure wraps as HeadlessCliError with the original failure preserved via 'from exc' (noqa: BLE001)
             raise HeadlessCliError(
                 'missing_evidence',
                 f'{plan_arg} failed {kind} validation: {exc}') from exc
@@ -923,7 +923,7 @@ def _verb_calibration_run(ctx: _Ctx) -> _VerbOutcome:
                 notes=spec.notes)
     except HeadlessCliError:
         raise
-    except Exception as exc:
+    except Exception as exc:  # error-boundary: error translation — a spec/driver failure wraps as HeadlessCliError with the original failure preserved via 'from exc' (noqa: BLE001)
         raise HeadlessCliError(
             'blocked', f'wizard begin failed: {exc}') from exc
     if ctx.args.dry_run:
@@ -1577,7 +1577,7 @@ def _load_gate_plan(ctx: _Ctx) -> GateOperatorPlan:
         raw = candidates[0]
     try:
         return GateOperatorPlan.model_validate(raw)
-    except Exception as exc:
+    except Exception as exc:  # error-boundary: error translation — a spec/driver failure wraps as HeadlessCliError with the original failure preserved via 'from exc' (noqa: BLE001)
         raise HeadlessCliError(
             'missing_evidence',
             f'{args.plan} is not a sealed gate operator plan: {exc}') \

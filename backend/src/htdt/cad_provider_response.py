@@ -228,7 +228,7 @@ def _decode_provider_request(
             raise ValueError('provider request kind is unsupported')
     except ValueError:
         raise
-    except Exception as exc:
+    except Exception as exc:  # error-boundary: error translation — a snapshot re-validation failure wraps as ValueError with the original failure preserved via 'from exc' (noqa: BLE001)
         raise ValueError(
             'provider input snapshot authority fails to re-validate'
         ) from exc

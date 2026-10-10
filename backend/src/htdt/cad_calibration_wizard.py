@@ -1584,7 +1584,7 @@ class CalibrationWizard:
                     'completed', 'failed', 'cancelled'):
             try:
                 self._engine.cancel()
-            except Exception:
+            except Exception:  # error-boundary: best-effort cancel — an engine-cancel failure is benign: the operator intent is still recorded as run_cancelled below and the engine stage re-derives on next poll (noqa: BLE001)
                 pass
         return self._apply(WizardEvent(
             kind='run_cancelled', at_utc=at_utc or self._clock(),

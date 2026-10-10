@@ -246,7 +246,7 @@ class OffscreenSceneRenderer:
                         gl = line.split(':', 1)[1].strip()
                         break
                 probe.close()
-            except Exception:
+            except Exception:  # error-boundary: renderer probe — a GL-string probe failure logs nothing and falls back to the version-only renderer id honestly (noqa: BLE001)
                 pass
             self._renderer_id = (
                 f'pyvista-{pv.__version__}/vtk-{vtkVersion().GetVTKVersion()}'
@@ -734,7 +734,7 @@ def build_review_package(
     if render_ok:
         try:
             renderer_id = renderer.renderer_id()
-        except Exception:
+        except Exception:  # error-boundary: renderer probe — an id-probe failure reports 'unknown' honestly (noqa: BLE001)
             renderer_id = 'unknown'
 
     frames: list[tuple[tuple[str, int], str]] = []
@@ -792,7 +792,7 @@ def build_review_package(
                     png = renderer.render_frame(
                         document, viewpoint, yaw_deg=yaw
                     )
-                except Exception as exc:
+                except Exception as exc:  # error-boundary: render lane — a frame failure is recorded in warnings with the exception identity and the package still builds honestly (noqa: BLE001)
                     warnings.append(
                         f'viewpoint {viewpoint.name} yaw {yaw}: {exc}'
                     )
@@ -922,7 +922,7 @@ def build_review_package(
                     detail='InstallationOutput から導出したベクトル図面。',
                 )
             )
-        except Exception as exc:
+        except Exception as exc:  # error-boundary: capability lane — a drawing-build failure records an honest 'unavailable' capability row with the error, never 'rendered' (noqa: BLE001)
             capability_rows.append(
                 ReviewPackageCapability(
                     capability='svg_drawings',

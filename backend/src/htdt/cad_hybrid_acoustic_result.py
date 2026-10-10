@@ -1146,7 +1146,7 @@ def _coherent_component(
 
     try:
         payload_domain = FrequencyDomain.model_validate(payload.get('valid_domain'))
-    except Exception as exc:
+    except Exception as exc:  # error-boundary: error translation — a domain-metadata validation failure wraps as ValueError with the original failure preserved via 'from exc' (noqa: BLE001)
         raise ValueError(
             'CoherentTransfer artifact valid-domain metadata is invalid'
         ) from exc
@@ -2338,7 +2338,7 @@ class CadHybridAcousticResultRepository:
                         ),
                     )
                 connection.commit()
-            except Exception:
+            except Exception:  # error-boundary: rollback before re-raise — any commit failure rolls the transaction back so a partial hybrid record never persists (noqa: BLE001)
                 connection.rollback()
                 raise
         return hybrid

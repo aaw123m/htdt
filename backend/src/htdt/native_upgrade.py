@@ -668,7 +668,7 @@ def _verify_upgraded_database(
 
         try:
             audit_report = audit_native_authority_graph(probe_path)
-        except Exception as exc:
+        except Exception as exc:  # error-boundary: error translation — a semantic-audit failure wraps as NativeUpgradeVerificationError with the original failure preserved via 'from exc' (noqa: BLE001)
             raise NativeUpgradeVerificationError(
                 'semantic_audit',
                 f'post-migration semantic audit failed: {exc}',
@@ -786,7 +786,7 @@ def execute_native_upgrade(
         release_read_handles_under(data_dir)
         try:
             recover_interrupted_restore(data_dir)
-        except Exception as exc:
+        except Exception as exc:  # error-boundary: error translation — an unresolved-restore detection failure wraps as NativeUpgradeError with the original failure preserved via 'from exc' (noqa: BLE001)
             raise NativeUpgradeError(
                 'a previous restore is still unresolved; refusing to upgrade '
                 f'managed data until it is recovered: {exc}'
@@ -834,7 +834,7 @@ def execute_native_upgrade(
                 entry.model_dump(mode='json')
                 for entry in snapshot_manifest.stale_authorities
             )
-        except Exception as exc:
+        except Exception as exc:  # error-boundary: upgrade boundary — a pre-migration failure records a 'failed' UpgradeEvent and raises with the exception identity (noqa: BLE001)
             event = UpgradeEvent(
                 **event_common,
                 completed_at_utc=_utc_now(),
@@ -880,7 +880,7 @@ def execute_native_upgrade(
 
     try:
         ensure_native_schema(plan.database_path)
-    except Exception as exc:
+    except Exception as exc:  # error-boundary: migration boundary — the transaction rolled back; the failure records 'failed_before_commit' state plus an upgrade event and raises with the exception identity (noqa: BLE001)
         # The migration transaction rolled back: the live database is
         # unchanged, so this failure does not quarantine the generation.
         state_record = state_record.model_copy(update={
@@ -934,7 +934,7 @@ def execute_native_upgrade(
             plan.target_schema_version,
             tolerated_stale=upgrade_stale_declaration,
         )
-    except Exception as exc:
+    except Exception as exc:  # error-boundary: verification boundary — the failure records 'failed_after_commit' state plus an upgrade event and raises with the exception identity (noqa: BLE001)
         stage = getattr(exc, 'stage', None) or 'verification'
         state_record = state_record.model_copy(update={
             'state': 'failed_after_commit',
@@ -1029,7 +1029,7 @@ def _resolve_quarantined_generation(
             plan.target_schema_version,
             tolerated_stale=marker_stale_declaration(marker),
         )
-    except Exception as exc:
+    except Exception as exc:  # error-boundary: verification boundary — the failure records 'failed_after_commit' state plus an upgrade event and raises with the exception identity (noqa: BLE001)
         stage = getattr(exc, 'stage', None) or 'verification'
         write_upgrade_state(
             data_dir,

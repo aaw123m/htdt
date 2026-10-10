@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Literal
 from PySide6.QtWidgets import QMessageBox, QWidget
 
 from .user_facing_error import operation_error_message
+from .error_boundary import EXPECTED_OPERATION_ERRORS
 from .workspace_dirty_state import (
     DeactivationContext,
     DirtyResolutionAction,
@@ -89,7 +90,7 @@ def _apply(
 ) -> bool:
     try:
         resolved, message = mount.resolve_dirty_state(action)
-    except Exception as error:  # resolution must never lose the context
+    except EXPECTED_OPERATION_ERRORS as error:  # error-boundary: op surface — expected failures warn verbatim; unexpected errors propagate to diagnostics
         QMessageBox.warning(
             parent,
             title,

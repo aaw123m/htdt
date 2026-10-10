@@ -500,7 +500,7 @@ def build_proposal_package(
             (sheet.title_block.sheet_title, sheet.to_svg())
             for sheet in drawing_set.sheets
         ]
-    except Exception as exc:
+    except Exception as exc:  # error-boundary: drawing lane — a sheet-render failure lands in warnings with the exception identity and the package still builds honestly (noqa: BLE001)
         warnings.append(f'図面の生成に失敗: {exc}')
 
     # -- Comparison --------------------------------------------------------

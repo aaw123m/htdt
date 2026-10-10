@@ -217,7 +217,7 @@ def offer_session_recovery(
                     restoring_session_id=restoring_session_id,
                     reason='operator deferred recovery',
                 )
-        except Exception:
+        except Exception:  # error-boundary: decision journal — a decision-record failure logs the exception verbatim and the dialog still returns its honest outcome (noqa: BLE001)
             if logger is not None:
                 logger.exception(
                     'session recovery decision failed: %s',
@@ -255,7 +255,7 @@ def offer_session_recovery(
                         reason='operator deleted rejected evidence',
                         delete_journal=True,
                     )
-                except Exception:
+                except Exception:  # error-boundary: evidence cleanup — a removal failure logs the exception verbatim and the remaining items still process (noqa: BLE001)
                     if logger is not None:
                         logger.exception(
                             'rejected-evidence removal failed: %s',

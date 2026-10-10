@@ -31,6 +31,7 @@ from typing import Any, Callable, Literal
 from .canonical_json import canonical_json
 from .clock import utc_now_iso
 from .user_facing_error import operation_error_message
+from .error_boundary import EXPECTED_OPERATION_ERRORS
 
 CheckVerdict = Literal['pass', 'fail', 'unavailable', 'deferred']
 
@@ -115,13 +116,13 @@ def check_env_snapshot(ctx: CheckContext, arg: str) -> AutoCheckResult:
             import htdt
 
             snapshot['htdt_version'] = getattr(htdt, '__version__', None)
-        except Exception:
+        except Exception:  # error-boundary: environment probe — any import/version probe failure yields an honest 'unknown' field (noqa: BLE001)
             snapshot['htdt_version'] = None
         try:
             import PySide6
 
             snapshot['pyside6'] = PySide6.__version__
-        except Exception:
+        except Exception:  # error-boundary: environment probe — any import/version probe failure yields an honest 'unknown' field (noqa: BLE001)
             snapshot['pyside6'] = None
         try:
             from PySide6.QtGui import QGuiApplication
@@ -136,7 +137,7 @@ def check_env_snapshot(ctx: CheckContext, arg: str) -> AutoCheckResult:
                     }
                     for screen in gui.screens()
                 ]
-        except Exception:
+        except Exception:  # error-boundary: environment probe — a screen-enumeration failure leaves the field absent honestly (noqa: BLE001)
             pass
         # The code state under test — a verifier's replay anchor. Repo
         # checkouts expose HEAD; packaged installs record nothing.
@@ -151,7 +152,7 @@ def check_env_snapshot(ctx: CheckContext, arg: str) -> AutoCheckResult:
                 )
                 if proc.returncode == 0:
                     snapshot['code_sha'] = proc.stdout.strip()
-        except Exception:
+        except Exception:  # error-boundary: environment probe — a git/subprocess probe failure leaves code_sha absent honestly (noqa: BLE001)
             pass
     return AutoCheckResult(
         verdict='pass',
@@ -188,7 +189,7 @@ def check_rew_engine_probe(ctx: CheckContext, arg: str) -> AutoCheckResult:
 def _preflight_or_unavailable(ctx: CheckContext) -> tuple[dict | None, AutoCheckResult | None]:
     try:
         preflight = _rew_client(ctx).get_audio_preflight()
-    except Exception as exc:
+    except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: adapter probe — expected REW failures yield an honest 'unavailable' verdict with the error in evidence; unexpected errors propagate to the check wrapper
         return None, AutoCheckResult(
             verdict='unavailable',
             detail_ja=(
@@ -486,7 +487,7 @@ def check_backup_restore_roundtrip(ctx: CheckContext, arg: str) -> AutoCheckResu
             detail_ja=f'バックアップ検証に失敗しました: {exc}',
             evidence={'error': str(exc)},
         )
-    except Exception as exc:
+    except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: backup verify — expected failures yield an honest 'unavailable' verdict with the error in evidence; unexpected errors propagate to the check wrapper
         return AutoCheckResult(
             verdict='unavailable',
             detail_ja=f'バックアップ検証を実行できません: {exc}',
@@ -502,7 +503,7 @@ def check_campaign_registered(ctx: CheckContext, arg: str) -> AutoCheckResult:
             ctx,
             'SELECT COUNT(*) FROM cad_validation_campaign_registrations',
         )
-    except Exception as exc:
+    except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: sealed read — expected failures yield an honest 'unavailable' verdict with the error in evidence; unexpected errors propagate to the check wrapper
         return AutoCheckResult(
             verdict='unavailable',
             detail_ja=f'キャンペーン登録を確認できません: {exc}',
@@ -524,7 +525,7 @@ def check_comparison_present(ctx: CheckContext, arg: str) -> AutoCheckResult:
         row = _query_scalar(
             ctx, 'SELECT COUNT(*) FROM cad_design_comparison_sets'
         )
-    except Exception as exc:
+    except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: sealed read — expected failures yield an honest 'unavailable' verdict with the error in evidence; unexpected errors propagate to the check wrapper
         return AutoCheckResult(
             verdict='unavailable',
             detail_ja=f'比較レコードを確認できません: {exc}',
@@ -710,7 +711,7 @@ def run_auto_check(check_spec: str, ctx: CheckContext) -> AutoCheckResult:
         )
     try:
         return fn(ctx, arg)
-    except Exception as exc:  # fail-closed wrapper
+    except Exception as exc:  # error-boundary: fail-closed check wrapper — any check failure yields an 'unavailable' verdict with the exception identity in evidence; a broken check never crashes the suite (noqa: BLE001)
         return AutoCheckResult(
             verdict='unavailable',
             detail_ja=(

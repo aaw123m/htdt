@@ -698,7 +698,7 @@ class RewApiClient:
             adapter_version = CAD_REW_API_ADAPTER_VERSION
         try:
             version = self._get_json('/version')
-        except Exception:
+        except Exception:  # error-boundary: metadata probe — an unavailable /version endpoint degrades to engine_version=None honestly, never fails the session (noqa: BLE001)
             # The /version probe is optional metadata: an older REW build or
             # a client that cannot serve it degrades to engine_version=None
             # rather than failing the whole session contract.

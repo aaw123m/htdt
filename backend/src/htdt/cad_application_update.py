@@ -2147,7 +2147,7 @@ class FilesystemUpdateDriver:
             install_root.rename(previous)
         try:
             staged_dir.rename(install_root)
-        except Exception:
+        except Exception:  # error-boundary: swap repair — any rename failure restores the previous install before re-raise so a partial swap never leaves the install missing (noqa: BLE001)
             # Best-effort repair: the previous install is still intact in
             # the update area — put it back so a partial swap never
             # leaves the install missing.
@@ -2925,7 +2925,7 @@ class ApplicationUpdateService:
         fetched_dir = Path(session.update_area) / 'fetched'
         try:  # error-boundary: package source
             fetched = self._source.fetch(package, fetched_dir)
-        except Exception as exc:
+        except Exception as exc:  # error-boundary: package source — every fetch failure emits a failed update event (exception type in reason) and raises ApplicationUpdateError; the identity is never masked (noqa: BLE001)
             self._emit(session, UpdateEvent(
                 kind='package_fetched',
                 at_utc=self._clock(),
@@ -3016,7 +3016,7 @@ class ApplicationUpdateService:
                 f'run_preflight not permitted at {state.current_stage}')
         try:  # error-boundary: environment probe
             facts = self._probe.environment_facts(session=session)
-        except Exception as exc:
+        except Exception as exc:  # error-boundary: environment probe — every probe failure emits a failed update event (exception type in reason) and raises ApplicationUpdateError; the identity is never masked (noqa: BLE001)
             self._emit(session, UpdateEvent(
                 kind='preflight_evaluated',
                 at_utc=self._clock(),
@@ -3231,7 +3231,7 @@ class ApplicationUpdateService:
                 update_area=Path(session.update_area),
                 data_backup_kind=session.data_backup_kind,
             )
-        except Exception as exc:
+        except Exception as exc:  # error-boundary: install driver — every capture failure emits a failed update event (exception type in reason) and raises ApplicationUpdateError; the identity is never masked (noqa: BLE001)
             self._emit(session, UpdateEvent(
                 kind='restore_point_captured',
                 at_utc=self._clock(),
@@ -3298,7 +3298,7 @@ class ApplicationUpdateService:
                 descriptor=package,
                 update_area=Path(session.update_area),
             )
-        except Exception as exc:
+        except Exception as exc:  # error-boundary: install driver — every staging failure emits a failed update event (exception identity in reason) and raises ApplicationUpdateError; the identity is never masked (noqa: BLE001)
             self._emit(session, UpdateEvent(
                 kind='payload_staged',
                 at_utc=self._clock(),
@@ -3343,7 +3343,7 @@ class ApplicationUpdateService:
                 staged_dir=Path(session.update_area) / 'staged',
                 update_area=Path(session.update_area),
             )
-        except Exception as exc:
+        except Exception as exc:  # error-boundary: install driver — every swap failure emits a failed update event (exception identity in reason) and enters the verified rollback path; the identity is never masked (noqa: BLE001)
             # A failed swap may have partially mutated the install —
             # hold the stage and enter the verified rollback path.
             self._emit(session, UpdateEvent(
@@ -3390,7 +3390,7 @@ class ApplicationUpdateService:
                 expected_version=package.target_version,
                 expected_schema=package.target_native_schema_version,
             )
-        except Exception as exc:
+        except Exception as exc:  # error-boundary: environment probe — a health-probe failure fails closed into the verified rollback path with the exception type in the emitted event (noqa: BLE001)
             # Health could not be evaluated — fail closed into the
             # verified rollback path rather than guess.
             self._emit(session, UpdateEvent(
@@ -3525,7 +3525,7 @@ class ApplicationUpdateService:
                 data_dir=Path(session.data_dir),
                 update_area=Path(session.update_area),
             )
-        except Exception as exc:
+        except Exception as exc:  # error-boundary: install driver — every restore failure emits a failed update event (exception identity in reason); the identity is never masked (noqa: BLE001)
             self._emit(session, UpdateEvent(
                 kind='rollback_completed',
                 at_utc=self._clock(),

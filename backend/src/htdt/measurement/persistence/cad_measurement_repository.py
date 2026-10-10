@@ -422,7 +422,7 @@ class CadMeasurementRepository:
                 verified[measurement_id] = self._row_to_dataset(
                     row, datasets=datasets, asset_rows=asset_rows
                 )
-            except Exception as exc:
+            except Exception as exc:  # error-boundary: row read — a row-decode failure lands in errors verbatim; one poisoned row never loses the healthy datasets (noqa: BLE001)
                 errors[measurement_id] = exc
         return verified, errors
 

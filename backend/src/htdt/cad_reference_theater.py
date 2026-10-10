@@ -299,7 +299,7 @@ def load_reference_theater_payload() -> ReferenceTheaterPayload:
 
     try:
         document = json.loads(raw.decode('utf-8'))
-    except Exception as exc:
+    except Exception as exc:  # error-boundary: error translation — a JSON parse failure wraps as ReferenceTheaterDriftError with the original failure preserved via 'from exc' (noqa: BLE001)
         raise ReferenceTheaterDriftError(
             f'reference theater payload is not parseable JSON: {exc}'
         ) from exc
@@ -310,7 +310,7 @@ def load_reference_theater_payload() -> ReferenceTheaterPayload:
             f'expected {manifest.payload_sha256}, got {observed}')
     try:
         payload = ReferenceTheaterPayload.model_validate(document)
-    except Exception as exc:
+    except Exception as exc:  # error-boundary: error translation — a payload-validation failure wraps as ReferenceTheaterDriftError with the original failure preserved via 'from exc' (noqa: BLE001)
         raise ReferenceTheaterDriftError(
             f'reference theater payload failed validation: {exc}') from exc
     if payload.fixture_version != manifest.fixture_version:
@@ -647,7 +647,7 @@ def run_reference_theater_self_test(
                 'verified' if report.ok else 'diverged',
                 expected='authority audit clean', observed=observed,
                 note=report.summary()[:200])
-        except Exception as exc:  # error-boundary
+        except Exception as exc:  # error-boundary: self-test step — a crashing step yields an honest 'blocked' verdict with the exception identity, never a pass/diverge (noqa: BLE001)
             steps['authority'] = _step(
                 'authority', 'blocked', expected='audit runs',
                 observed=f'{type(exc).__name__}: {exc}')
@@ -664,7 +664,7 @@ def run_reference_theater_self_test(
                 expected=canonical_json(expected)[:240],
                 observed=canonical_json(facts)[:240],
                 note='' if diff is None else f'diverged: {diff}')
-        except Exception as exc:  # error-boundary
+        except Exception as exc:  # error-boundary: self-test step — a crashing step yields an honest 'blocked' verdict with the exception identity, never a pass/diverge (noqa: BLE001)
             steps['analysis'] = _step(
                 'analysis', 'blocked', expected='scene facts derive',
                 observed=f'{type(exc).__name__}: {exc}')
@@ -703,7 +703,7 @@ def run_reference_theater_self_test(
                 expected=f'preferred={wanted}',
                 observed=f'preferred={winner}',
                 note=tolerance_note)
-        except Exception as exc:  # error-boundary
+        except Exception as exc:  # error-boundary: self-test step — a crashing step yields an honest 'blocked' verdict with the exception identity, never a pass/diverge (noqa: BLE001)
             steps['compare'] = _step(
                 'compare', 'blocked', expected='candidates compare',
                 observed=f'{type(exc).__name__}: {exc}')
@@ -797,7 +797,7 @@ def run_reference_theater_self_test(
                     observed=str(exc))
                 steps['verify'] = _step(
                     'verify', 'skipped', note='deploy drifted')
-            except Exception as exc:  # error-boundary
+            except Exception as exc:  # error-boundary: self-test step — a crashing step yields an honest 'blocked' verdict with the exception identity, never a pass/diverge (noqa: BLE001)
                 steps['deploy'] = _step(
                     'deploy', 'blocked',
                     expected='readback_matched simulated deploy',
@@ -836,7 +836,7 @@ def run_reference_theater_self_test(
                         expected=canonical_json(wanted_gains)[:240],
                         observed=canonical_json(observed_gains)[:240],
                         note=divergence or '')
-                except Exception as exc:  # error-boundary
+                except Exception as exc:  # error-boundary: self-test step — a crashing step yields an honest 'blocked' verdict with the exception identity, never a pass/diverge (noqa: BLE001)
                     steps['verify'] = _step(
                         'verify', 'blocked',
                         expected='deployed gains match fixture',
@@ -885,7 +885,7 @@ def run_reference_theater_self_test(
                          f'keys {required}',
                 observed=f'{len(loaded)} B at {target}',
                 note='' if not missing else f'missing {missing}')
-        except Exception as exc:  # error-boundary
+        except Exception as exc:  # error-boundary: self-test step — a crashing step yields an honest 'blocked' verdict with the exception identity, never a pass/diverge (noqa: BLE001)
             steps['export'] = _step(
                 'export', 'blocked', expected='report artifact writes',
                 observed=f'{type(exc).__name__}: {exc}')

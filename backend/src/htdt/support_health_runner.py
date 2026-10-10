@@ -139,7 +139,7 @@ class SupportHealthRunner(QObject):
                 self._on_completed,
                 on_finished=self._job_finished,
             )
-        except Exception:
+        except Exception:  # error-boundary: dispatch boundary — any pool-start failure clears busy/operation state and fails the record so a run never looks in-flight (noqa: BLE001)
             # A dispatch failure must not wedge ``busy`` or strand a
             # RUNNING operation — fail the record and let the caller see
             # the error instead of pretending the run is in flight.

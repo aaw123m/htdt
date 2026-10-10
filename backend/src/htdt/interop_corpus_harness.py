@@ -762,7 +762,7 @@ def run_interop_fixture(
     else:
         try:
             lane = _LANES[entry.format_family](entry, source, work_dir)
-        except Exception as exc:  # noqa: BLE001 — recorded, not raised
+        except Exception as exc:  # error-boundary: fixture lane — a crashing lane records 'unexpected_failure' with the exception identity in detail, never a pass (noqa: BLE001)
             verdict = 'unexpected_failure'
             lane = _LaneResult(
                 observed={},

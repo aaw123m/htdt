@@ -65,6 +65,11 @@ from .ui_theme import (
     set_typography_role,
 )
 from .user_facing_error import operation_error_message
+from .error_boundary import (
+    EXPECTED_OPERATION_ERRORS,
+    is_authority_failure,
+    report_boundary_failure,
+)
 
 
 _BACKUP_SUFFIX = ".htdt-backup"
@@ -1150,7 +1155,7 @@ class DataManagementWidget(QWidget):
             return
         try:
             report = self.controller.revalidate()
-        except Exception as exc:  # noqa: BLE001 - surface, never crash the page
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: op surface — expected failures show a verbatim error state; unexpected errors propagate to diagnostics
             self._show_status(
                 "再検証を完了できませんでした",
                 operation_error_message(exc),
@@ -1179,7 +1184,10 @@ class DataManagementWidget(QWidget):
             generations = list_restorable_backups(
                 self.controller.backend.data_dir
             )
-        except Exception:  # noqa: BLE001 - listing must never break the page
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: listing read — expected failures report and degrade to no rows; sealed-store failures propagate
+            if is_authority_failure(exc):
+                raise
+            report_boundary_failure(exc, operation='バックアップ一覧の読み取り')
             generations = ()
         self.generations_combo.clear()
         for path in generations:
@@ -1282,7 +1290,10 @@ class DataManagementWidget(QWidget):
     def _refresh_last_drill(self) -> None:
         try:
             latest = latest_drill_result(self.controller.backend.data_dir)
-        except Exception:  # noqa: BLE001 - journal must never break the page
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: journal read — expected failures report and degrade to 'no drill' honestly; sealed-store failures propagate
+            if is_authority_failure(exc):
+                raise
+            report_boundary_failure(exc, operation='ドリル結果の読み取り')
             latest = None
         if latest is None:
             self.last_drill_label.hide()
@@ -1414,7 +1425,10 @@ class DataManagementWidget(QWidget):
 
         try:
             report = inspect_legacy_store(self.controller.backend.data_dir)
-        except Exception:  # noqa: BLE001 - warning must never break the page
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: legacy probe — expected failures report and hide the warning honestly; sealed-store failures propagate
+            if is_authority_failure(exc):
+                raise
+            report_boundary_failure(exc, operation='レガシーストアの検査')
             self.legacy_label.hide()
             return
         if report.state == 'populated':

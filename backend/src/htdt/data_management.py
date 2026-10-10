@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import atexit
+import logging
 import time
 import weakref
 from dataclasses import dataclass
@@ -66,6 +67,9 @@ from .storage_maintenance import (
     run_storage_gc,
 )
 from .user_facing_error import operation_error_message
+from .error_boundary import EXPECTED_OPERATION_ERRORS
+
+_LOGGER = logging.getLogger('htdt.data_management')
 
 
 class DataManagementBusyError(RuntimeError):
@@ -432,8 +436,8 @@ class DataManagementBackend:
         # next tick — best-effort mark, never gates the backup itself.
         try:
             AutomaticBackupScheduler(self.data_dir).record_external_generation()
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception:  # error-boundary: best-effort scheduler mark — a failed mark never gates the backup; the failure identity is logged (noqa: BLE001)
+            _LOGGER.exception('external-generation mark failed')
         # The live database is the snapshot source, so its stored version is
         # the version the archive actually contains — the manifest field was
         # verified against the staged snapshot during creation.
@@ -661,7 +665,7 @@ class ApplicationDataLifecycle:
         self._mutations_frozen = True
         try:
             self._release_data_handles()
-        except Exception:
+        except Exception:  # error-boundary: cleanup before re-raise — any release failure thaws mutations and propagates unchanged (noqa: BLE001)
             self._thaw_mutations()
             self._mutations_frozen = False
             raise
@@ -672,7 +676,7 @@ class ApplicationDataLifecycle:
             raise RuntimeError(f'data lifecycle is not quiesced: {self._state.value}')
         try:
             self._reopen_data_handles()
-        except Exception:
+        except Exception:  # error-boundary: lifecycle transition — any reopen failure records RESTART_REQUIRED then propagates unchanged (noqa: BLE001)
             self._state = DataLifecycleState.RESTART_REQUIRED
             raise
 
@@ -781,7 +785,7 @@ class _OperationWorker(QObject):
             )
         except _OPERATION_CANCEL_EXCEPTIONS:
             self.cancelled.emit()
-        except Exception as exc:
+        except Exception as exc:  # error-boundary: worker dispatch — every job failure type crosses as the failed payload (consumers map by exception class); the worker never raises (noqa: BLE001)
             self.failed.emit((self._phase, exc))
         else:
             self.succeeded.emit(result)
@@ -881,8 +885,8 @@ def _drain_operation_threads_at_exit() -> None:
     """
     try:
         drain_operation_threads()
-    except Exception:
-        pass
+    except Exception:  # error-boundary: interpreter-exit drain — a drain failure at exit is logged, never raised during teardown (noqa: BLE001)
+        _LOGGER.exception('operation-thread drain failed at exit')
 
 
 atexit.register(_drain_operation_threads_at_exit)
@@ -967,7 +971,7 @@ class DataManagementController(QObject):
         operation_id = uuid4().hex
         try:
             self.lifecycle.begin_backup()
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: lifecycle begin — expected failures emit an immediate operation failure honestly; unexpected errors propagate to diagnostics
             self._emit_immediate_failure(
                 operation_id,
                 DataOperationKind.CREATE_BACKUP,
@@ -1024,7 +1028,7 @@ class DataManagementController(QObject):
         operation_id = uuid4().hex
         try:
             self.lifecycle.begin_restore()
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: lifecycle begin — expected failures emit an immediate operation failure honestly; unexpected errors propagate to diagnostics
             self._emit_immediate_failure(
                 operation_id,
                 DataOperationKind.RESTORE,
@@ -1095,7 +1099,7 @@ class DataManagementController(QObject):
         operation_id = uuid4().hex
         try:
             self.lifecycle.begin_restore()
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: lifecycle begin — expected failures emit an immediate operation failure honestly; unexpected errors propagate to diagnostics
             self._emit_immediate_failure(
                 operation_id,
                 DataOperationKind.RELOCATE,
@@ -1384,7 +1388,7 @@ class DataManagementController(QObject):
                 self.lifecycle.finish_backup()
             elif active.lifecycle_mode in ('restore', 'relocate'):
                 self.lifecycle.resume_after_restore_attempt()
-        except Exception:
+        except EXPECTED_OPERATION_ERRORS:  # error-boundary: lifecycle teardown — expected teardown failures fold into the recorded restart-required flag honestly; unexpected errors propagate
             restart_required = self.lifecycle.restart_required
 
         self._note_superseded_inputs(active)
@@ -1421,7 +1425,7 @@ class DataManagementController(QObject):
                 # The data root lives at the destination now; existing
                 # handles stay closed and the app must restart.
                 self.lifecycle.mark_restart_required()
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: lifecycle teardown — expected failures fold into the operation result message honestly; unexpected errors propagate
             lifecycle_error = exc
 
         self._note_superseded_inputs(active)
@@ -1494,7 +1498,7 @@ class DataManagementController(QObject):
                 self.lifecycle.finish_backup()
             elif active.lifecycle_mode in ('restore', 'relocate'):
                 self.lifecycle.resume_after_restore_attempt()
-        except Exception as lifecycle_exc:
+        except EXPECTED_OPERATION_ERRORS as lifecycle_exc:  # error-boundary: lifecycle teardown — expected failures fold into the failure detail honestly; unexpected errors propagate
             restart_required = self.lifecycle.restart_required
             lifecycle_detail = f' / {operation_error_message(lifecycle_exc)}'
             lifecycle_technical = f' / reload failed: {lifecycle_exc}'
@@ -1542,7 +1546,7 @@ class DataManagementController(QObject):
             return
         try:
             current = managed_data_fingerprint(self.backend.data_dir)
-        except Exception:
+        except Exception:  # error-boundary: fingerprint probe — an unreadable fingerprint fails closed: pinned state cannot be proven intact, so dependents are marked stale (conservative, honest) (noqa: BLE001)
             # Fingerprint unreadable: fail closed — the pinned state cannot
             # be proven intact, so dependents are marked stale.
             current = None
@@ -1552,10 +1556,10 @@ class DataManagementController(QObject):
             center.note_authorities_changed(
                 {f'managed-data:{active.input_fingerprint}'}
             )
-        except Exception:
+        except Exception:  # error-boundary: registry bookkeeping — a note failure logs and never breaks the operation's lifecycle transition (noqa: BLE001)
             # Registry bookkeeping must never break the operation's own
             # lifecycle transition.
-            pass
+            _LOGGER.warning('authorities-changed note failed', exc_info=True)
 
     def _detach_active_thread(self) -> None:
         """Keep a running op thread alive if the controller is destroyed.

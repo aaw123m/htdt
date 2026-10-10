@@ -947,7 +947,7 @@ class ActivityCenter:
                 handle.flush()
                 os.fsync(handle.fileno())
             os.replace(tmp, path)
-        except BaseException:
+        except BaseException:  # error-boundary: cleanup before re-raise — any write failure (incl. cancel/interrupt) removes the temp file so a partial history never replaces the good one (noqa: BLE001)
             try:
                 os.unlink(tmp)
             except OSError:
@@ -1016,7 +1016,7 @@ class ActivityCenter:
                 operations.append(
                     ApplicationOperation.model_validate(item)
                 )
-            except Exception:
+            except Exception:  # error-boundary: record lane — an invalid persisted record is dropped with a logged warning; one poisoned row never loses the healthy history (noqa: BLE001)
                 _LOGGER.warning(
                     'dropping invalid activity record from %s', path
                 )

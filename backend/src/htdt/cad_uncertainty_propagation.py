@@ -916,7 +916,7 @@ def execute_propagation(
             failure: str | None = None
             try:
                 result = evaluator(candidate_id, state)
-            except Exception as exc:  # evidence of failure, never hidden
+            except Exception as exc:  # error-boundary: evaluation lane — an evaluator failure is honest evidence: result=None and the reason recorded in failure, never hidden (noqa: BLE001)
                 result = None
                 failure = f'evaluation_failed:{exc}'
             if result is None:

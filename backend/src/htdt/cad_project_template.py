@@ -750,7 +750,7 @@ def create_project_from_template(
                 instantiation, connection=connection
             )
             connection.commit()
-        except BaseException:
+        except BaseException:  # error-boundary: rollback before re-raise — any commit failure rolls the transaction back so a partial template project never persists (noqa: BLE001)
             connection.rollback()
             raise
         finally:
@@ -769,7 +769,7 @@ def create_project_from_template(
         scene_repository.save(scene, parent_revision_id=None)
         instantiation = _instantiation(record.project_id)
         instantiation_repository.save_instantiation(instantiation)
-    except BaseException:
+    except BaseException:  # error-boundary: rollback before re-raise — any save failure runs the verified cleanup so a partial template project never persists (noqa: BLE001)
         _rollback_template_creation(
             scene_repository,
             library,
@@ -842,7 +842,7 @@ def _rollback_template_creation(
                 (document_id,),
             )
             connection.commit()
-        except BaseException:
+        except BaseException:  # error-boundary: rollback before re-raise — any delete failure rolls the transaction back so a partial cleanup never persists (noqa: BLE001)
             connection.rollback()
             raise
     if project_id is not None:

@@ -415,7 +415,7 @@ class RoomEntityTransformController(QObject):
             return (float(point.x()), float(point.y()))
         try:
             display = self.viewport.world_to_screen(world)
-        except Exception:
+        except Exception:  # error-boundary: viewport probe — a projection failure yields no screen point honestly, never a guessed one (noqa: BLE001)
             return None
         return (float(display[0]), float(display[1]))
 

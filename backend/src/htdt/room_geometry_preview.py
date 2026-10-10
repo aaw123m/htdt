@@ -196,7 +196,7 @@ def _authoring_issues(
         return []
     try:
         issues = validate_room_authoring_model(authoring, wall_topology=topology)
-    except Exception:
+    except Exception:  # error-boundary: advisory validation — a re-validation failure reports 'impact unknown' honestly, never a clean bill (noqa: BLE001)
         return ["高度な形状への影響: 不明"]
     lines: list[str] = []
     for issue in issues:

@@ -116,7 +116,7 @@ def _staged_zip_archive(destination: Path):
         ) as archive:
             yield archive
         os.replace(staging, destination)
-    except BaseException:
+    except BaseException:  # error-boundary: cleanup before re-raise — any failure (incl. cancel) removes the staged archive so a partial file never looks published (noqa: BLE001)
         staging.unlink(missing_ok=True)
         raise
 
@@ -401,7 +401,7 @@ def _check_schema_compatibility(path: Path) -> HealthCheckResult:
                 'or install the HTDT build that created it.'
             ),
         )
-    except Exception as exc:
+    except Exception as exc:  # error-boundary: health check — a crashing check is itself a FAIL finding with the exception identity, never a blanked report (noqa: BLE001)
         return HealthCheckResult(
             check_id='storage.schema_compatibility',
             category=HealthCategory.APP_STORAGE,
@@ -616,7 +616,7 @@ def run_health_checks(
         # is itself a finding, never a blanked report.
         try:
             return list(produce())
-        except Exception as exc:
+        except Exception as exc:  # error-boundary: health check — a crashing check is itself a FAIL finding with the exception identity, never a blanked report (noqa: BLE001)
             return [
                 HealthCheckResult(
                     check_id=check_id,
@@ -647,7 +647,7 @@ def run_health_checks(
     if integrity_runner is not None:
         try:
             results.append(integrity_runner(Path(data_dir)))
-        except Exception as exc:  # a crashing probe is a finding, not a crash
+        except Exception as exc:  # error-boundary: health check — a crashing probe is itself a FAIL finding with the exception identity, never a crash (noqa: BLE001)
             results.append(
                 HealthCheckResult(
                     check_id='integrity.semantic',
@@ -669,7 +669,7 @@ def run_health_checks(
     for index, probe in enumerate(integration_probes):
         try:
             result = probe(Path(data_dir))
-        except Exception as exc:
+        except Exception as exc:  # error-boundary: health check — a crashing probe is itself a FAIL finding with the exception identity, never a crash (noqa: BLE001)
             result = HealthCheckResult(
                 check_id=f'integrations.probe_{index}',
                 category=HealthCategory.INTEGRATIONS,
@@ -935,7 +935,7 @@ def previous_session_unexpected_end(
         pid_alive = _default_pid_alive
     try:
         alive = pid_alive(info.pid)
-    except Exception:
+    except Exception:  # error-boundary: environment probe — a pid-liveness probe failure treats the pid as dead honestly (noqa: BLE001)
         alive = False
     if alive:
         return UnexpectedEndEvidence(

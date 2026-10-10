@@ -75,6 +75,11 @@ from .presentation_export_runner import (
 )
 from .room_viewport import RoomOverlayState, RoomViewport3D
 from .user_facing_error import warn_user
+from .error_boundary import (
+    EXPECTED_OPERATION_ERRORS,
+    is_authority_failure,
+    report_boundary_failure,
+)
 
 
 _VIEW_ONLY_OVERLAYS = RoomOverlayState(grid=True, labels=True)
@@ -319,8 +324,10 @@ class PresentationWorkspace(QWidget):
                 self.variant_combo.addItem(
                     variant.name, (variant.variant_id, variant.variant_sha256)
                 )
-        except Exception:
-            pass
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: variant list read — expected failures report and show an honest empty combo; sealed-store failures propagate
+            if is_authority_failure(exc):
+                raise
+            report_boundary_failure(exc, operation='バリアント一覧の読み取り')
         self.set_combo.addItem('（なし）', None)
         try:
             for item in self.comparison_repository.list_sets(
@@ -330,8 +337,10 @@ class PresentationWorkspace(QWidget):
                     f'{item.name} rev{item.revision}',
                     (item.set_id, item.set_sha256),
                 )
-        except Exception:
-            pass
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: comparison-set list read — expected failures report and show an honest empty combo; sealed-store failures propagate
+            if is_authority_failure(exc):
+                raise
+            report_boundary_failure(exc, operation='比較セット一覧の読み取り')
         self.variant_combo.blockSignals(False)
         self.set_combo.blockSignals(False)
 
@@ -602,8 +611,10 @@ class PresentationWorkspace(QWidget):
                 self.compare_set_combo.addItem(
                     f'{item.name} rev{item.revision}', item.set_id
                 )
-        except Exception:
-            pass
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: comparison-set list read — expected failures report and show an honest empty combo; sealed-store failures propagate
+            if is_authority_failure(exc):
+                raise
+            report_boundary_failure(exc, operation='比較セット一覧の読み取り')
         self.compare_set_combo.blockSignals(False)
         self._refresh_compare_alternatives()
 
@@ -613,7 +624,10 @@ class PresentationWorkspace(QWidget):
             return None
         try:
             return self.comparison_repository.get_set(set_id)
-        except Exception:
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: comparison-set read — expected failures report and yield no current set honestly; sealed-store failures propagate
+            if is_authority_failure(exc):
+                raise
+            report_boundary_failure(exc, operation='比較セットの読み取り')
             return None
 
     def _refresh_compare_alternatives(self, *_args) -> None:
@@ -757,7 +771,10 @@ class PresentationWorkspace(QWidget):
         head = None
         try:
             head = self.repository.current_head(comparison_set.document_id)
-        except Exception:
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: head probe — expected failures report and degrade the preview to 'impossible' honestly; sealed-store failures propagate
+            if is_authority_failure(exc):
+                raise
+            report_boundary_failure(exc, operation='先端リビジョンの確認')
             head = None
         preview = build_ab_overlay_preview(
             comparison_set,
@@ -979,8 +996,10 @@ class PresentationWorkspace(QWidget):
                 self.decisions_list.addItem(
                     f'[提案] {proposal.title} — {proposal.kind}'
                 )
-        except Exception:
-            pass
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: decision list read — expected failures report and show an honest empty list; sealed-store failures propagate
+            if is_authority_failure(exc):
+                raise
+            report_boundary_failure(exc, operation='決定一覧の読み取り')
         self.proposal_variant_combo.clear()
         try:
             for variant in self.variant_repository.list_variants(
@@ -989,8 +1008,10 @@ class PresentationWorkspace(QWidget):
                 self.proposal_variant_combo.addItem(
                     variant.name, (variant.variant_id, variant.variant_sha256)
                 )
-        except Exception:
-            pass
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: variant list read — expected failures report and show an honest empty combo; sealed-store failures propagate
+            if is_authority_failure(exc):
+                raise
+            report_boundary_failure(exc, operation='バリアント一覧の読み取り')
         self.decision_selected_combo.clear()
         comparison_set = self._current_set()
         if comparison_set is not None:
@@ -1052,7 +1073,7 @@ class PresentationWorkspace(QWidget):
                 self, '決定', '決定を記録しました'
             )
             self._refresh_decision_lists()
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: decision save — expected failures surface verbatim; unexpected errors propagate to diagnostics
             warn_user(self, '決定を記録できませんでした', exc)
 
     def _save_proposal(self) -> None:
@@ -1121,7 +1142,7 @@ class PresentationWorkspace(QWidget):
             QMessageBox.information(
                 self, 'レビューメモ', 'メモを保存しました'
             )
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: note save — expected failures surface verbatim; unexpected errors propagate to diagnostics
             warn_user(self, 'レビューメモを保存できませんでした', exc)
 
     # ------------------------------------------------------------------
@@ -1459,7 +1480,10 @@ class PresentationWorkspace(QWidget):
         self.open_output_button.setVisible(True)
         try:
             stale = self.presentation_repository.session_stale(job.session)
-        except Exception:
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: staleness probe — expected failures report and degrade to 'not stale' honestly; sealed-store failures propagate
+            if is_authority_failure(exc):
+                raise
+            report_boundary_failure(exc, operation='セッション鮮度の確認')
             stale = False
         lines = [
             f'生成完了: {job.package_dir}',

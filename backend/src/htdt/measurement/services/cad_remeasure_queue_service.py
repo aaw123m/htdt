@@ -29,6 +29,7 @@ from typing import Literal
 _LOGGER = logging.getLogger(__name__)
 
 from ...cad_repository import SceneRepository
+from ...error_boundary import EXPECTED_OPERATION_ERRORS
 from ...cad_scene import is_measurement_target_eligible
 from ...canonical_json import canonical_sha256 as _hash
 from ...clock import utc_now_iso as _utc_now
@@ -152,7 +153,7 @@ class CadRemeasureQueueService:
         """
         try:
             return self.quality_repository.latest_reports(document_id)
-        except Exception as batch_error:
+        except EXPECTED_OPERATION_ERRORS as batch_error:  # error-boundary: fallback strategy — an expected batched-read failure logs verbatim and re-reads per measurement; unexpected errors propagate
             _LOGGER.warning(
                 'batched quality read failed for %s (%r); '
                 're-reading per measurement',
@@ -166,7 +167,7 @@ class CadRemeasureQueueService:
                     report = self.quality_repository.latest_report(
                         record.measurement_id
                     )
-                except Exception as exc:
+                except Exception as exc:  # error-boundary: row read — any failure lands in report_errors verbatim; one poisoned row never poisons the queue (noqa: BLE001)
                     report_errors[record.measurement_id] = exc
                 else:
                     if report is not None:
@@ -278,7 +279,7 @@ class CadRemeasureQueueService:
             # the evaluation rows below record the unreadable one verbatim.
             try:
                 producer.ensure_reports(document_id)
-            except Exception:
+            except Exception:  # error-boundary: best-effort backfill — a partial backfill failure logs and the queue still evaluates reachable rows honestly (noqa: BLE001)
                 _LOGGER.warning(
                     'quality report backfill partially failed for %s; '
                     'continuing with reachable evaluations',
@@ -299,7 +300,7 @@ class CadRemeasureQueueService:
             error = report_errors.get(record.measurement_id)
             try:
                 effective = self._effective.resolve(record.measurement_id)
-            except Exception as exc:
+            except Exception as exc:  # error-boundary: evaluation row — a resolve failure lands the row skipped with the error recorded verbatim; one unreadable report never poisons the queue (noqa: BLE001)
                 # The resolver re-reads the report authority; an unreadable
                 # one cannot poison the queue — it lands skipped with the
                 # error recorded verbatim.

@@ -26,6 +26,11 @@ from pydantic import BaseModel, ConfigDict, Field
 from .cad_measurement_repository import CadMeasurementRepository
 from .cad_system_variant_repository import CadSystemVariantRepository
 from .workflow_navigation import WorkspaceDeepLink, WorkspaceId
+from .error_boundary import (
+    EXPECTED_OPERATION_ERRORS,
+    is_authority_failure,
+    report_boundary_failure,
+)
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from .overview_readiness import OverviewReadinessService
@@ -407,7 +412,10 @@ class DeliverablesCatalogService:
                     self._document_id
                 )
             )
-        except Exception:
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: sealed read — expected failures report and degrade to count 0; sealed-store failures propagate
+            if is_authority_failure(exc):
+                raise
+            report_boundary_failure(exc, operation='委託プラン数の読み取り')
             return 0
 
     def _calibration_plan_states(self) -> tuple[tuple[str, ...], int]:
@@ -429,7 +437,10 @@ class DeliverablesCatalogService:
                     measurements
                 ),
             ).list_plans(self._document_id)
-        except Exception:
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: sealed read — expected failures report and degrade to no plan states; sealed-store failures propagate
+            if is_authority_failure(exc):
+                raise
+            report_boundary_failure(exc, operation='校正プラン状態の読み取り')
             return (), 0
         return (
             tuple(

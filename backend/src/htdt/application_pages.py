@@ -1396,7 +1396,7 @@ class ProjectLibraryPage(QWidget):
             return
         try:
             self.service.set_archived(entry.project_id, archived)
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: archive toggle — expected store failures surface verbatim; unexpected errors propagate to diagnostics
             warn_user(
                 self,
                 "アーカイブ" if archived else "アーカイブ解除",
@@ -1411,7 +1411,7 @@ class ProjectLibraryPage(QWidget):
             return
         try:
             plan = self.service.plan_project_deletion(entry.project_id)
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: deletion plan probe — expected failures surface verbatim; unexpected errors propagate to diagnostics
             warn_user(self, "削除内容を確認できませんでした", exc)
             return
         non_archive_blockers = [
@@ -1486,7 +1486,7 @@ class ProjectLibraryPage(QWidget):
                         safety_scheduler.run_due('pre_destructive')
                         is not None
                     )
-                except Exception as backup_exc:  # noqa: BLE001
+                except EXPECTED_OPERATION_ERRORS as backup_exc:  # error-boundary: best-effort safety backup — expected failures warn and the delete continues; unexpected errors propagate
                     warn_user(
                         self,
                         "削除前の安全バックアップを作成できませんでした",
@@ -1516,7 +1516,7 @@ class ProjectLibraryPage(QWidget):
                 ),
             )
             return
-        except Exception as exc:  # noqa: BLE001 - surface any store fault verbatim
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: project delete — expected store faults surface verbatim; unexpected errors propagate to diagnostics
             warn_user(self, "削除できませんでした", exc)
             self.refresh()
             return
@@ -2723,7 +2723,7 @@ class CaptureInboxPage(QWidget):
             return
         try:
             self._promote_item(digest, reason.strip())
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: promotion — expected failures surface verbatim; unexpected errors propagate to diagnostics
             warn_user(self, "昇格できませんでした", exc)
             return
         self._refresh_keep_selection()
@@ -2750,7 +2750,7 @@ class CaptureInboxPage(QWidget):
             reason = reason.strip()
         try:
             handler(digest, reason) if reason else handler(digest)
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: contribution disposition — expected failures surface verbatim; unexpected errors propagate to diagnostics
             warn_user(self, "取り込みできませんでした", exc)
             return
         self._refresh_keep_selection()
@@ -2762,7 +2762,7 @@ class CaptureInboxPage(QWidget):
             return
         try:
             self._assign_scope(digest, str(scope))
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: scope assignment — expected failures surface verbatim; unexpected errors propagate to diagnostics
             warn_user(self, "プロジェクト領域を割り当てできませんでした", exc)
             return
         self._refresh_keep_selection()
@@ -3046,7 +3046,7 @@ class CaptureInboxPage(QWidget):
             return
         try:
             self._retry_watch_failure(entry.path)
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: watch-failure retry — expected failures surface verbatim; unexpected errors propagate to diagnostics
             warn_user(self, "安全な再試行に失敗しました", exc)
             return
         self.refresh()
@@ -3084,7 +3084,7 @@ class CaptureInboxPage(QWidget):
             return
         try:
             self._import_watch_failure(entry.path)
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: explicit watch-failure import — expected failures surface verbatim; unexpected errors propagate to diagnostics
             warn_user(self, "取り込みに失敗しました", exc)
             return
         self.refresh()
@@ -3095,7 +3095,7 @@ class CaptureInboxPage(QWidget):
             return
         try:
             self._diagnose_watch_failure(entry.path)
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: support diagnostics — expected failures surface verbatim; unexpected errors propagate to diagnostics
             warn_user(self, "サポート診断に失敗しました", exc)
             return
         self.refresh()
@@ -3447,7 +3447,7 @@ class CaptureInboxPage(QWidget):
                 reason.strip(),
                 decided_by.strip(),
             )
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: rebase decision record — expected failures surface verbatim; unexpected errors propagate to diagnostics
             warn_user(self, "再基準決定を記録できませんでした", exc)
             return
         self._sync_contribution_detail()
@@ -3467,7 +3467,7 @@ class CaptureInboxPage(QWidget):
             outcome = self._apply_record(
                 self._selected_contribution, applied_by.strip()
             )
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: returned-task apply — expected failures surface verbatim; unexpected errors propagate to diagnostics
             warn_user(self, "適用できませんでした", exc)
             return
         applied_count = len(getattr(outcome, 'applied', ()))
@@ -3514,7 +3514,7 @@ class CaptureInboxPage(QWidget):
             return
         try:
             self._discard_record(contribution)
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: contribution discard — expected failures surface verbatim; unexpected errors propagate to diagnostics
             warn_user(self, "破棄できませんでした", exc)
             return
         self._refresh_contributions()
@@ -3823,7 +3823,7 @@ class CaptureInboxPage(QWidget):
             package = self._issue_mission(
                 entry, purpose, room_name.strip(), pairing_id
             )
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: mission issue — expected failures surface verbatim; unexpected errors propagate to diagnostics
             warn_user(self, "ミッションを発行できませんでした", exc)
             return
         QMessageBox.information(
@@ -3852,7 +3852,7 @@ class CaptureInboxPage(QWidget):
             written = self._export_mission(
                 package.package_id, destination
             )
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: mission export — expected failures surface verbatim; unexpected errors propagate to diagnostics
             warn_user(self, "エクスポートできませんでした", exc)
             return
         QMessageBox.information(
@@ -6070,7 +6070,10 @@ class ReferenceLibraryPage(QWidget):
                 detail_resolver=resolver,
                 usage_sites=usages,
             )
-        except Exception:  # noqa: BLE001 - a broken provider must not blank the page
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: library read — expected failures report and show an honest empty page; sealed-store failures propagate
+            if is_authority_failure(exc):
+                raise
+            report_boundary_failure(exc, operation='ライブラリ一覧の読み取り')
             self._all_rows = ()
         self._rows_by_key = {
             row.semantic_key: row for row in self._all_rows
@@ -6157,7 +6160,10 @@ class ReferenceLibraryPage(QWidget):
         for family, (header, table) in self._family_frames.items():
             try:
                 entries = self._library_index.entries(family=family)
-            except Exception:  # noqa: BLE001 - a broken provider must not blank the page
+            except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: per-family library read — expected failures report and hide that section honestly; sealed-store failures propagate
+                if is_authority_failure(exc):
+                    raise
+                report_boundary_failure(exc, operation='ライブラリ族の読み取り')
                 entries = ()
             header.setVisible(bool(entries))
             table.setVisible(bool(entries))
@@ -6790,7 +6796,7 @@ class SupportPage(QWidget):
     def _run_export(self) -> None:
         try:
             path = self._export_diagnostics(self)
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: diagnostics export — expected failures surface verbatim on the status label; unexpected errors propagate to diagnostics
             self.export_status.setText(
                 "診断パッケージを作成できませんでした: "
                 f"{operation_error_message(exc)}"

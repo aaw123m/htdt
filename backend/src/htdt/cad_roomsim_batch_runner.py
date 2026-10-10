@@ -175,7 +175,7 @@ def run_cad_roomsim_batch(
         started_at_utc = roomsim_result_timestamp_utc()
         try:
             result = run_roomsim_position_batch(control, request)
-        except Exception as exc:
+        except Exception as exc:  # error-boundary: run boundary — a position-batch failure records a failed attempt with the exception identity and continues the batch; one bad position never loses the ledger (noqa: BLE001)
             failed = _attempt(
                 batch_run_id=batch_spec.batch_run_id,
                 candidate_id=frozen.candidate_id,

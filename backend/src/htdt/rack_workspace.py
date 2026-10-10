@@ -85,6 +85,7 @@ from .cad_rack_infrastructure import (
 )
 from .cad_repository import SceneRepository
 from .user_facing_error import operation_error_message
+from .error_boundary import EXPECTED_OPERATION_ERRORS
 from .ui_theme import (
     ACCENT,
     SCIENTIFIC,
@@ -1176,7 +1177,7 @@ class RackWorkspacePanel(QFrame):
                 ElectricalScenario.model_validate(item)
                 for item in data.get('scenarios', ())
             )
-        except Exception as exc:  # noqa: BLE001 - fail closed, show why
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: op surface — expected failures show a verbatim error; unexpected errors propagate to diagnostics
             self._set_error(
                 f'コンテキストの読み込みに失敗しました: {exc}'
             )
@@ -1625,7 +1626,7 @@ class RackWorkspacePanel(QFrame):
             layout_id = self.feature_repository.save_rack_layout(
                 candidate, document_id=self.document_id
             )
-        except Exception as exc:  # noqa: BLE001 - surfaced honestly
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: op surface — expected failures show a verbatim error; unexpected errors propagate to diagnostics
             self._set_error(
                 'レイアウトの保存に失敗しました: '
                 + operation_error_message(exc)

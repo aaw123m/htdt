@@ -709,7 +709,7 @@ class FixtureMeasurement(BaseModel):
 def _dataset_attr(node: Any, name: str) -> str | None:
     try:
         value = node.attrs.get(name)
-    except Exception:  # noqa: BLE001 - attribute reads must not guess
+    except Exception:  # error-boundary: attribute probe — an unreadable dataset attribute returns None honestly, never a guessed value (noqa: BLE001)
         return None
     if value is None:
         return None
@@ -727,7 +727,7 @@ def _dataset_attr(node: Any, name: str) -> str | None:
 def _scalar_attr(handle: Any, name: str) -> str | None:
     try:
         value = handle.attrs.get(name)
-    except Exception:  # noqa: BLE001
+    except Exception:  # error-boundary: attribute probe — an unreadable scalar attribute returns None honestly, never a guessed value (noqa: BLE001)
         return None
     if value is None:
         return None

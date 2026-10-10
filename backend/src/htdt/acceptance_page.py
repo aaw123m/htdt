@@ -84,13 +84,13 @@ def _environment_snapshot() -> dict[str, Any]:
         import htdt
 
         snapshot['htdt_version'] = getattr(htdt, '__version__', None)
-    except Exception:
+    except Exception:  # error-boundary: environment probe — any import/version probe failure leaves the field absent honestly (noqa: BLE001)
         pass
     try:
         from PySide6.QtCore import qVersion
 
         snapshot['qt'] = qVersion()
-    except Exception:
+    except Exception:  # error-boundary: environment probe — any import/version probe failure leaves the field absent honestly (noqa: BLE001)
         pass
     try:
         from PySide6.QtGui import QGuiApplication
@@ -105,7 +105,7 @@ def _environment_snapshot() -> dict[str, Any]:
                 }
                 for screen in gui.screens()
             ]
-    except Exception:
+    except Exception:  # error-boundary: environment probe — a screen-enumeration failure leaves the field absent honestly (noqa: BLE001)
         pass
     try:
         # The code state under test — the run header renders this when
@@ -121,7 +121,7 @@ def _environment_snapshot() -> dict[str, Any]:
             )
             if proc.returncode == 0:
                 snapshot['code_sha'] = proc.stdout.strip()
-    except Exception:
+    except Exception:  # error-boundary: environment probe — a git/subprocess probe failure leaves code_sha absent honestly (noqa: BLE001)
         pass
     return snapshot
 

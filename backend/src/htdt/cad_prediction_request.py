@@ -87,7 +87,7 @@ def _environment_profile_ref(decoded: object) -> ExactExternalAuthorityRef | Non
         raise ValueError('prediction environment_profile must be an exact authority ref')
     try:
         return ExactExternalAuthorityRef.model_validate(raw)
-    except Exception as exc:
+    except Exception as exc:  # error-boundary: error translation — a snapshot re-validation failure wraps as ValueError with the original failure preserved via 'from exc' (noqa: BLE001)
         raise ValueError(
             'prediction environment_profile must be an exact authority ref'
         ) from exc
@@ -213,7 +213,7 @@ def _request_listener_pose(
         raise ValueError('prediction listener_pose snapshot is malformed')
     try:
         return ListenerPoseAuthority.model_validate(block['authority'])
-    except Exception as exc:
+    except Exception as exc:  # error-boundary: error translation — a snapshot re-validation failure wraps as ValueError with the original failure preserved via 'from exc' (noqa: BLE001)
         raise ValueError(
             'prediction listener_pose authority is not a sealed pose'
         ) from exc
@@ -243,7 +243,7 @@ def _request_operating_state(
         raise ValueError('prediction room_operating_state snapshot is malformed')
     try:
         return RoomOperatingState.model_validate(block['authority'])
-    except Exception as exc:
+    except Exception as exc:  # error-boundary: error translation — a snapshot re-validation failure wraps as ValueError with the original failure preserved via 'from exc' (noqa: BLE001)
         raise ValueError(
             'prediction room_operating_state authority is not a sealed state'
         ) from exc
