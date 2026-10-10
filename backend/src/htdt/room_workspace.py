@@ -48,6 +48,7 @@ from PySide6.QtWidgets import (
     QWidgetAction,
 )
 
+from .modal_transient import exec_transient
 from . import file_dialog_memory
 from .cad_document import (
     CommandHistoryEntry,
@@ -6436,7 +6437,7 @@ class RoomWorkspace(QWidget):
             document=self.controller.document,
             existing=existing[0][1] if existing else None,
         )
-        if dialog.exec() != QDialog.DialogCode.Accepted:
+        if exec_transient(dialog) != QDialog.DialogCode.Accepted:
             return False
         spec = dialog.spec()
         if spec is None:
@@ -7430,7 +7431,7 @@ class RoomWorkspace(QWidget):
         if screen is None:
             return
         dialog = ScreenTransferDialog(self)
-        if dialog.exec() != ScreenTransferDialog.DialogCode.Accepted:
+        if exec_transient(dialog) != ScreenTransferDialog.DialogCode.Accepted:
             return
         values = dialog.values()
         samples: list[TransferSample] = []
@@ -7703,7 +7704,7 @@ class RoomWorkspace(QWidget):
 
     def _video_create_spec(self) -> None:
         dialog = ProjectorSpecDialog(self)
-        if dialog.exec() != ProjectorSpecDialog.DialogCode.Accepted:
+        if exec_transient(dialog) != ProjectorSpecDialog.DialogCode.Accepted:
             return
         values = dialog.values()
         if not values["specification_id"]:
@@ -7789,7 +7790,7 @@ class RoomWorkspace(QWidget):
         dialog = DisplaySpecDialog(
             self, length_policy=self.video_panel.length_policy()
         )
-        if dialog.exec() != DisplaySpecDialog.DialogCode.Accepted:
+        if exec_transient(dialog) != DisplaySpecDialog.DialogCode.Accepted:
             return
         values = dialog.values()
         if not values["specification_id"]:
@@ -8392,7 +8393,7 @@ class RoomWorkspace(QWidget):
         except (EditStateError, RawMeshImportError, ValueError, OSError) as exc:
             self._set_operation_error("ジオメトリをインポートできませんでした", exc)
             return False
-        if dialog.exec() != QDialog.DialogCode.Accepted:
+        if exec_transient(dialog) != QDialog.DialogCode.Accepted:
             return False
         request = dialog.import_request()
         if request.destination == 'entity_body' and entity_id is not None:
@@ -8436,7 +8437,7 @@ class RoomWorkspace(QWidget):
                     "メッシュを縮小して適合", QMessageBox.ButtonRole.DestructiveRole
                 )
                 box.addButton(QMessageBox.StandardButton.Cancel)
-                box.exec()
+                exec_transient(box)
                 clicked = box.clickedButton()
                 if clicked is adopt:
                     entity = attach('adopt')

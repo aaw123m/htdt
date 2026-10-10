@@ -43,6 +43,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .modal_transient import exec_transient
 from .build_info import version_string
 from .cad_repository import SceneRepository
 from .capture_inbox import capture_inbox_item_project_id
@@ -1432,7 +1433,7 @@ class ProjectLibraryPage(QWidget):
                 )
             )
             box.setStandardButtons(QMessageBox.StandardButton.Ok)
-            box.exec()
+            exec_transient(box)
             return
 
         # The persisted policy decides whether a pre-destructive safety
@@ -1464,7 +1465,7 @@ class ProjectLibraryPage(QWidget):
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel
         )
         box.setDefaultButton(QMessageBox.StandardButton.Cancel)
-        if box.exec() != QMessageBox.StandardButton.Yes:
+        if exec_transient(box) != QMessageBox.StandardButton.Yes:
             return
 
         safety_backup_created = False
@@ -3043,7 +3044,7 @@ class CaptureInboxPage(QWidget):
         box.setStandardButtons(
             QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel
         )
-        if box.exec() != QMessageBox.StandardButton.Ok:
+        if exec_transient(box) != QMessageBox.StandardButton.Ok:
             return
         try:
             self._retry_watch_failure(entry.path)
@@ -3081,7 +3082,7 @@ class CaptureInboxPage(QWidget):
         box.setStandardButtons(
             QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel
         )
-        if box.exec() != QMessageBox.StandardButton.Ok:
+        if exec_transient(box) != QMessageBox.StandardButton.Ok:
             return
         try:
             self._import_watch_failure(entry.path)
@@ -3511,7 +3512,7 @@ class CaptureInboxPage(QWidget):
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel
         )
         box.setDefaultButton(QMessageBox.StandardButton.Cancel)
-        if box.exec() != QMessageBox.StandardButton.Yes:
+        if exec_transient(box) != QMessageBox.StandardButton.Yes:
             return
         try:
             self._discard_record(contribution)

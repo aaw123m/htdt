@@ -11,6 +11,7 @@ import sys
 import threading
 from types import TracebackType
 
+from .modal_transient import exec_transient
 from . import __version__
 from .diagnostics_support import (
     DIAGNOSTICS_DIRNAME,
@@ -457,7 +458,7 @@ def report_launch_failure(
         )
         if technical_detail:
             box.setDetailedText(technical_detail)
-        box.exec()
+        exec_transient(box)
         return
     except Exception:  # error-boundary: last-resort reporter — any dialog failure falls back to stderr so the launch failure is never lost; identity is logged (noqa: BLE001)
         _LOGGER.exception('launch failure dialog unavailable; falling back to stderr')

@@ -87,6 +87,9 @@ def warn_user(
             on_help(error.code)
             continue
         break
+    # Transient box re-shown in a loop: delete once it exits (a per-exec
+    # deleteLater could be delivered inside the next nested exec pass).
+    box.deleteLater()
     if retry_button is not None and box.clickedButton() is retry_button:
         on_retry()
     return error

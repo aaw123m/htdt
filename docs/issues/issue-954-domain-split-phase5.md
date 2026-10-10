@@ -186,5 +186,8 @@ declared package (206 moved stems × parametrized import forms):
   ownership); the `ui -> native_worker` edges want an
   application-facing worker-submission seam; the cross-package
   `domain/persistence -> services` edges want provider/loop interfaces
-  extracted down into domain layers
+  extracted down into domain layers — **the 20 optimization entries
+  were re-seamed in Phase 6** (`issue-954-domain-split-phase6.md`);
+  the earlier packages' entries were resolved by the intervening
+  seam PRs (#123/#124/#128)
 - require `--diff` in CI so the inventory can only shrink

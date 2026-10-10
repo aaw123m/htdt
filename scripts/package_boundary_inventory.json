@@ -48,7 +48,6 @@
       "acoustics.persistence.cad_wave_excitation_repository",
       "acoustics.persistence.cad_wave_fidelity_repository",
       "acoustics.services.cad_hybrid_prediction_provider",
-      "acoustics.services.cad_hybrid_prediction_provider_integration",
       "cad_acceptance_repository",
       "cad_accessible_media",
       "cad_acoustic_geometry_derivation",
@@ -660,26 +659,5 @@
     "room_workspace": 9522,
     "workflow_application": 6423
   },
-  "violations": [
-    "package_import_direction|optimization.domain.cad_joint_optimization|optimization.domain module imports cad_repository (flat persistence)",
-    "package_import_direction|optimization.domain.cad_objective_authority|optimization.domain module imports acoustics.services.cad_hybrid_prediction_provider (acoustics.services)",
-    "package_import_direction|optimization.domain.cad_objective_authority|optimization.domain module imports acoustics.services.cad_hybrid_prediction_provider_integration (acoustics.services)",
-    "package_import_direction|optimization.domain.cad_objective_authority|optimization.domain module imports cad_repository (flat persistence)",
-    "package_import_direction|optimization.domain.cad_objective_authority|optimization.domain module imports cad_roomsim_repository (flat persistence)",
-    "package_import_direction|optimization.domain.cad_objectives|optimization.domain module imports cad_repository (flat persistence)",
-    "package_import_direction|optimization.domain.cad_optimizer_qualification|optimization.domain module imports cad_authority_resolver (flat persistence)",
-    "package_import_direction|optimization.domain.optimization_robustness_multidimensional|optimization.domain module imports cad_repository (flat persistence)",
-    "package_import_direction|optimization.domain.optimization_robustness_uncertainty|optimization.domain module imports cad_repository (flat persistence)",
-    "package_import_direction|optimization.domain.optimization_robustness_validation|optimization.domain module imports cad_repository (flat persistence)",
-    "package_import_direction|optimization.domain.optimization_robustness_validation|optimization.domain module imports measurement.services.cad_measurement_loop (measurement.services)",
-    "package_import_direction|optimization.domain.optimization_robustness|optimization.domain module imports cad_repository (flat persistence)",
-    "package_import_direction|optimization.persistence.cad_robustness_validation_repository|optimization.persistence module imports measurement.services.cad_measurement_loop (measurement.services)",
-    "package_import_direction|optimization.ui.joint_optimization_panel|optimization.ui module imports native_worker (flat application)",
-    "package_import_direction|optimization.ui.optimization_adaptive_controller|optimization.ui module imports native_worker (flat application)",
-    "package_import_direction|optimization.ui.optimization_adaptive_extended_controller|optimization.ui module imports native_worker (flat application)",
-    "package_import_direction|optimization.ui.optimization_extended_controller|optimization.ui module imports native_worker (flat application)",
-    "package_import_direction|optimization.ui.optimization_search_controller|optimization.ui module imports native_worker (flat application)",
-    "package_import_direction|optimization.ui.optimization_workflow_controller|optimization.ui module imports native_worker (flat application)",
-    "package_import_direction|optimization.ui.robustness_authoring_panel|optimization.ui module imports native_worker (flat application)"
-  ]
+  "violations": []
 }

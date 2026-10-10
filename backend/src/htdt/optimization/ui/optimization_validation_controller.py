@@ -30,6 +30,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from ...modal_transient import exec_transient
 from ...analysis_markers import render_analysis_marker_cloud
 from ...cad_adaptive_repository import CadAdaptivePlanRepository
 from ...cad_adaptive_service import CadAdaptivePlannerService
@@ -528,7 +529,7 @@ class ValidationControllerMixin:
             repository=self.validation_service.applicability_attestations,
             parent=self.campaign_applicability_attest.get(code),
         )
-        if dialog.exec() != QDialog.DialogCode.Accepted:
+        if exec_transient(dialog) != QDialog.DialogCode.Accepted:
             return
         attestation_id = dialog.selected_attestation_id
         if not attestation_id:

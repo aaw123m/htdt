@@ -7,7 +7,7 @@ from typing import Callable, Sequence
 
 from ...cad_constraint_models import CadConstraintSet
 from .cad_objective_models import CadObjectiveEvaluation
-from ...cad_repository import SceneRevision
+from ...cad_scene_revisions import SceneRevision
 from ...cad_scene import SceneDocument
 from ...cad_search_models import CadSearchSpec
 from .optimization_objectives import ObjectiveMetric

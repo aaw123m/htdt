@@ -230,6 +230,7 @@ PACKAGE_LAYERS: dict[str, dict[str, tuple[str, ...]]] = {
             'cad_hybrid_composition_validation',
             'cad_hybrid_grid_reconciliation',
             'cad_hybrid_handoff_authority', 'cad_hybrid_late_energy',
+            'cad_hybrid_prediction_objective_contracts',
             'cad_hybrid_stitching', 'cad_measured_modal_analysis',
             'cad_modal_decay_view', 'cad_observer_scattering',
             'cad_occupancy_acoustics', 'cad_pffdtd_resource_estimator',

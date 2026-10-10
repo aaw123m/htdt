@@ -30,6 +30,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from ...modal_transient import exec_transient
 from ...accessible_labels import announce_status, wire_label_buddies
 from ..services.capture_receiver import ReceiverPairing, ReceiverPairingPayload
 from .capture_receiver_controller import CaptureReceiverController
@@ -258,7 +259,7 @@ class PairingDialog(QDialog):
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel
         )
         box.setDefaultButton(QMessageBox.StandardButton.Cancel)
-        if box.exec() != QMessageBox.StandardButton.Yes:
+        if exec_transient(box) != QMessageBox.StandardButton.Yes:
             return
         try:
             self._controller.service.revoke_pairing(pairing_id)
@@ -424,5 +425,5 @@ class CaptureReceiverPanel(QWidget):
             report_boundary_failure(exc, operation='プロジェクト参照の解決')
             project_ref = None
         dialog = PairingDialog(self._controller, project_ref, self)
-        dialog.exec()
+        exec_transient(dialog)
         self.refresh()

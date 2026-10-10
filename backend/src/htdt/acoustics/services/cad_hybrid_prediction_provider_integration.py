@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from contextlib import closing
-from math import isfinite
 from pathlib import Path
 import sqlite3
 from typing import Any, Literal
@@ -12,8 +11,14 @@ from .cad_hybrid_prediction_provider import (
     CadHybridPredictionProviderRepository,
     HybridPredictionProvider,
     HybridPredictionProviderBinding,
-    HybridPredictionProviderRef,
     build_hybrid_provider_binding,
+)
+from ..domain.cad_hybrid_prediction_objective_contracts import (
+    HYBRID_PROVIDER_OBJECTIVE_INPUT_AUTHORITY_VERSION,
+    HybridPredictionProviderObjectiveInput,
+    HybridPredictionProviderRef,
+    _validate_band,
+    build_hybrid_provider_objective_input,
     hybrid_provider_frequency_response,
 )
 from ...measurement.services.cad_measurement_loop import (
@@ -42,110 +47,26 @@ from ...optimization_objectives import (
     ResponseObjectiveSpec,
     target_response_objectives,
 )
-from ...canonical_json import canonical_json as _canonical_json, canonical_sha256 as _digest
+from ...canonical_json import canonical_sha256 as _digest
 
 
 HYBRID_PROVIDER_OBJECTIVE_CONNECTION_AUTHORITY_VERSION = (
     'r170b-hybrid-provider-objective-connection-1'
 )
-HYBRID_PROVIDER_OBJECTIVE_INPUT_AUTHORITY_VERSION = (
-    'r170b-hybrid-provider-objective-input-1'
-)
 
 
+def hybrid_objective_input_ref(
+    objective_input: HybridPredictionProviderObjectiveInput,
+) -> CadObjectiveInputRef:
+    """Bridge an objective-input authority record to its O30 input ref.
 
-
-
-
-def _validate_band(low_hz: float, high_hz: float) -> tuple[float, float]:
-    low = float(low_hz)
-    high = float(high_hz)
-    if (
-        not isfinite(low)
-        or not isfinite(high)
-        or low <= 0.0
-        or high <= low
-    ):
-        raise ValueError('R170B objective requested band is invalid')
-    return low, high
-
-
-class HybridPredictionProviderObjectiveInput(BaseModel):
-    """Immutable O30 input authority over one exact provider/source/receiver/band."""
-
-    model_config = ConfigDict(frozen=True, extra='forbid')
-
-    authority_version: Literal[
-        'r170b-hybrid-provider-objective-input-1'
-    ] = HYBRID_PROVIDER_OBJECTIVE_INPUT_AUTHORITY_VERSION
-    input_id: str = Field(
-        pattern=r'^r170b-hybrid-objective-input:[0-9a-f]{64}$'
-    )
-    semantic_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
-    provider_ref: HybridPredictionProviderRef
-    source_entity_id: str = Field(min_length=1)
-    receiver_id: str = Field(min_length=1)
-    observable: Literal['frequency_response_magnitude'] = (
-        'frequency_response_magnitude'
-    )
-    requested_low_hz: float = Field(gt=0.0)
-    requested_high_hz: float = Field(gt=0.0)
-
-    @model_validator(mode='after')
-    def validate_identity(self) -> 'HybridPredictionProviderObjectiveInput':
-        if self.requested_high_hz <= self.requested_low_hz:
-            raise ValueError('R170B objective input band requires low < high')
-        expected = _digest(self.semantic_payload())
-        if self.semantic_sha256 != expected:
-            raise ValueError('R170B objective input semantic hash mismatch')
-        if self.input_id != f'r170b-hybrid-objective-input:{expected}':
-            raise ValueError('R170B objective input id mismatch')
-        return self
-
-    def semantic_payload(self) -> dict[str, Any]:
-        return self.model_dump(
-            mode='json',
-            exclude={'input_id', 'semantic_sha256'},
-        )
-
-    def as_objective_input_ref(self) -> CadObjectiveInputRef:
-        return CadObjectiveInputRef(
-            evidence_class='predicted',
-            source_kind='r170b_hybrid_prediction_provider',
-            source_id=self.input_id,
-        )
-
-
-def build_hybrid_provider_objective_input(
-    provider: HybridPredictionProvider,
-    *,
-    source_entity_id: str,
-    receiver_id: str,
-    low_hz: float,
-    high_hz: float,
-) -> HybridPredictionProviderObjectiveInput:
-    low, high = _validate_band(low_hz, high_hz)
-    hybrid_provider_frequency_response(
-        provider,
-        source_entity_id=source_entity_id,
-        receiver_id=receiver_id,
-        low_hz=low,
-        high_hz=high,
-    )
-    core = {
-        'authority_version': HYBRID_PROVIDER_OBJECTIVE_INPUT_AUTHORITY_VERSION,
-        'provider_ref': provider.ref().model_dump(mode='json'),
-        'source_entity_id': source_entity_id,
-        'receiver_id': receiver_id,
-        'observable': 'frequency_response_magnitude',
-        'requested_low_hz': low,
-        'requested_high_hz': high,
-    }
-    digest = _digest(core)
-    return HybridPredictionProviderObjectiveInput(
-        input_id=f'r170b-hybrid-objective-input:{digest}',
-        semantic_sha256=digest,
-        **core,
+    Lives at services rank because it produces the optimization-domain
+    ``CadObjectiveInputRef``; the domain contract stays free of
+    cross-package dependencies."""
+    return CadObjectiveInputRef(
+        evidence_class='predicted',
+        source_kind='r170b_hybrid_prediction_provider',
+        source_id=objective_input.input_id,
     )
 
 
@@ -217,7 +138,7 @@ def target_objective_evaluation_from_hybrid_provider(
         candidate_id,
         vector,
         evaluation_spec=evaluation_spec,
-        input_refs=(objective_input.as_objective_input_ref(),),
+        input_refs=(hybrid_objective_input_ref(objective_input),),
     )
 
 
@@ -285,7 +206,7 @@ def build_hybrid_provider_objective_connection(
         low_hz=low_hz,
         high_hz=high_hz,
     )
-    expected_ref = objective_input.as_objective_input_ref()
+    expected_ref = hybrid_objective_input_ref(objective_input)
     if expected_ref not in evaluation.input_refs:
         raise ValueError(
             'R170B objective evaluation is not bound to this exact provider input'
@@ -369,7 +290,7 @@ class CadHybridPredictionProviderObjectiveRepository:
             raise ValueError('R170B objective connection evaluation is missing')
         if evaluation.evaluation_sha256 != connection.evaluation_sha256:
             raise ValueError('R170B objective connection evaluation hash mismatch')
-        if expected_input.as_objective_input_ref() not in evaluation.input_refs:
+        if hybrid_objective_input_ref(expected_input) not in evaluation.input_refs:
             raise ValueError('R170B objective evaluation lost exact provider input')
         return connection
 

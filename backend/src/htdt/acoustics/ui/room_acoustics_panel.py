@@ -41,6 +41,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from ...modal_transient import exec_transient
 from ... import file_dialog_memory
 from ..domain.acoustic_benchmark import GeometricAcousticBand, SpecificImpedancePoint
 from ..domain.cad_acoustic_material import (
@@ -732,7 +733,7 @@ class SurfaceMaterialPanel(QWidget):
 
     def _new_material(self) -> None:
         dialog = MaterialDialog(self)
-        if dialog.exec() != MaterialDialog.DialogCode.Accepted:
+        if exec_transient(dialog) != MaterialDialog.DialogCode.Accepted:
             return
         values = dialog.values()
         try:
@@ -825,7 +826,7 @@ class SurfaceMaterialPanel(QWidget):
             else None
         )
         box.addButton(QMessageBox.StandardButton.Cancel)
-        box.exec()
+        exec_transient(box)
         clicked = box.clickedButton()
         if clicked is apply_all:
             return 'all'
@@ -1267,7 +1268,7 @@ class RoomTreatmentPanel(QWidget):
 
     def _new_definition(self) -> None:
         dialog = TreatmentDefinitionDialog(self)
-        if dialog.exec() != TreatmentDefinitionDialog.DialogCode.Accepted:
+        if exec_transient(dialog) != TreatmentDefinitionDialog.DialogCode.Accepted:
             return
         values = dialog.values()
         repository = self.controller.treatment_repository

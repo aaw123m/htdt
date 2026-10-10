@@ -18,7 +18,7 @@ from ...cad_extended_search import (
 )
 from .cad_objective_models import CadObjectiveEvaluation
 from ...cad_orientation_constraints import orientation_constraint_rejections
-from ...cad_repository import SceneRevision
+from ...cad_scene_revisions import SceneRevision
 from ...cad_scene import Direction3, SceneDocument, scene_content_hash
 from ...cad_search import candidate_preview_document
 from ...cad_search_models import (

@@ -7,7 +7,7 @@ from pathlib import Path
 import sqlite3
 from typing import Sequence
 
-from ...measurement.services.cad_measurement_loop import CadMeasurementPlan
+from ...measurement.domain.cad_measurement_plan import CadMeasurementPlan
 from ...measurement.domain.cad_measurement_quality import (
     CadMeasurementQualityReport,
     dataset_sha256,

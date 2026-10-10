@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from ...modal_transient import exec_transient
 from ..services.capture_retention import (
     CapturePurgePlan,
     CaptureRetentionError,
@@ -613,7 +614,7 @@ class RetentionPolicyWidget(QWidget):
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel
         )
         box.setDefaultButton(QMessageBox.StandardButton.Cancel)
-        if box.exec() != QMessageBox.StandardButton.Yes:
+        if exec_transient(box) != QMessageBox.StandardButton.Yes:
             return
         try:
             plan = self._service.purge_capture_revision(revision_id)

@@ -15,6 +15,7 @@ from typing import Literal, Protocol
 
 from PySide6.QtWidgets import QMessageBox, QWidget
 
+from .modal_transient import exec_transient
 from .user_facing_error import operation_error_message
 from .error_boundary import EXPECTED_OPERATION_ERRORS
 from .workspace_dirty_state import (
@@ -92,7 +93,7 @@ def _choose(prompt, parent: QWidget | None) -> DirtyResolutionAction | None:
     # non-destructive choice (save/keep/open), or Cancel when every choice
     # is destructive (e.g. busy workspaces offering only stop_busy).
     box.setDefaultButton(default_button or cancel_button)
-    box.exec()
+    exec_transient(box)
     return buttons.get(box.clickedButton())
 
 
@@ -154,7 +155,7 @@ def choose_snapshot_action(
     # Enter saves first — the non-destructive choice; Esc/Cancel aborts and
     # never produces an artifact.
     box.setDefaultButton(save_button)
-    box.exec()
+    exec_transient(box)
     clicked = box.clickedButton()
     if clicked is last_saved_button:
         return "last_saved"

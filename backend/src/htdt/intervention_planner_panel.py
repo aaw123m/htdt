@@ -37,6 +37,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .modal_transient import exec_transient
 from .cad_acoustic_treatment_repository import CadAcousticTreatmentRepository
 from .cad_display_labels import measurement_claim_label
 from .cad_equipment_binding_repository import CadEquipmentBindingRepository
@@ -435,7 +436,7 @@ class InterventionPlannerPanel(QFrame):
             context_repository=self.context_repository,
             parent=self,
         )
-        dialog.exec()
+        exec_transient(dialog)
         self.refresh()
 
     def _refresh_family_gates(self, baseline) -> None:

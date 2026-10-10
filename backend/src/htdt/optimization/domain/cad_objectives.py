@@ -13,7 +13,7 @@ from .cad_objective_models import (
     new_pareto_set_id,
     objective_timestamp_utc,
 )
-from ...cad_repository import SceneRevision
+from ...cad_scene_revisions import SceneRevision
 from ...cad_search_models import CadSearchSpec
 from .optimization_objectives import ObjectiveVector
 from .pareto import pareto_front

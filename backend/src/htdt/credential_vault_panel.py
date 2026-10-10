@@ -47,6 +47,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .modal_transient import exec_transient
 from .cad_credential_vault import (
     CredentialReference,
     CredentialVaultService,
@@ -913,7 +914,7 @@ class CredentialVaultPanel(QWidget):
         consent_needed = not self._service.has_consent(self._document_id)
         dialog = CredentialStoreDialog(
             consent_needed=consent_needed, parent=self)
-        if dialog.exec() != QDialog.DialogCode.Accepted:
+        if exec_transient(dialog) != QDialog.DialogCode.Accepted:
             return
         try:
             if dialog.consent_requested:
@@ -944,7 +945,7 @@ class CredentialVaultPanel(QWidget):
         if reference is None:
             return
         dialog = CredentialRotateDialog(reference, parent=self)
-        if dialog.exec() != QDialog.DialogCode.Accepted:
+        if exec_transient(dialog) != QDialog.DialogCode.Accepted:
             return
         try:
             rotated = self._service.rotate(
@@ -974,7 +975,7 @@ class CredentialVaultPanel(QWidget):
             return
         dialog = CredentialConfirmDialog(
             reference, action=action, parent=self)
-        if dialog.exec() != QDialog.DialogCode.Accepted:
+        if exec_transient(dialog) != QDialog.DialogCode.Accepted:
             return
         try:
             if action == 'revoke':
@@ -1043,7 +1044,7 @@ class CredentialVaultPanel(QWidget):
     def _on_pick(self) -> None:
         dialog = CredentialReferencePickerDialog(
             self._service, self._document_id, parent=self)
-        if dialog.exec() != QDialog.DialogCode.Accepted:
+        if exec_transient(dialog) != QDialog.DialogCode.Accepted:
             return
         self._report(
             '選択した参照ID: '

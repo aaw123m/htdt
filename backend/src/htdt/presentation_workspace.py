@@ -32,6 +32,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .modal_transient import exec_transient
 from . import file_dialog_memory
 from .activity_center import ActivityCenter
 from .cad_design_comparison import DesignComparisonSet
@@ -1399,7 +1400,7 @@ class PresentationWorkspace(QWidget):
             default_scope='external_review',
             parent=self,
         )
-        if dialog.exec() != ExportPreflightDialog.DialogCode.Accepted:
+        if exec_transient(dialog) != ExportPreflightDialog.DialogCode.Accepted:
             return False
         scope = dialog.scope()
         self._export_preflight_scope = scope

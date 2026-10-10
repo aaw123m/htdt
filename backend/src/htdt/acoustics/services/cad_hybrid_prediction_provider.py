@@ -38,6 +38,10 @@ from ...cad_schema import (
     require_native_tables,
     connect_sqlite,
 )
+from ..domain.cad_hybrid_prediction_objective_contracts import (
+    HybridPredictionProviderRef,
+    hybrid_provider_frequency_response,
+)
 from ..domain.cad_wave_excitation import AcousticWaveExcitationAuthority
 from ...comparison import FrequencyResponse
 from ...r120_geometry_compiler import ExactExternalAuthorityRef
@@ -194,12 +198,6 @@ class HybridAbsolutePressureSample(BaseModel):
         if abs(expected_phase - float(self.phase_deg)) > 1e-10:
             raise ValueError('R170B absolute-pressure phase mismatch')
         return self
-
-class HybridPredictionProviderRef(BaseModel):
-    model_config = ConfigDict(frozen=True, extra='forbid')
-
-    provider_id: str = Field(pattern=r'^r170b-hybrid-provider:[0-9a-f]{64}$')
-    semantic_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
 
 class HybridValidatedObservable(BaseModel):
     """One observable-scoped validation claim on a promoted R170B provider.
@@ -840,47 +838,6 @@ def require_hybrid_provider_evidence(
             'R170B provider evidence scope does not satisfy requirement: '
             f'{provider.evidence_scope} < {minimum_scope}'
         )
-
-def hybrid_provider_frequency_response(
-    provider: HybridPredictionProvider,
-    *,
-    source_entity_id: str,
-    receiver_id: str,
-    low_hz: float,
-    high_hz: float,
-) -> FrequencyResponse:
-    """N70 product-facing typed read. R160 raw JSON never crosses this boundary."""
-
-    provider = HybridPredictionProvider.model_validate(
-        provider.model_dump(mode='python')
-    )
-    if source_entity_id != provider.source_entity_id:
-        raise ValueError('hybrid provider source identity mismatch')
-    if receiver_id != provider.receiver_id:
-        raise ValueError('hybrid provider receiver identity mismatch')
-    provider.require_observable('frequency_response_magnitude')
-
-    low = float(low_hz)
-    high = float(high_hz)
-    if not isfinite(low) or not isfinite(high) or high <= low:
-        raise ValueError('hybrid provider requested frequency band is invalid')
-    domain = provider.valid_frequency_domain
-    if low < float(domain.minimum_hz) or high > float(domain.maximum_hz):
-        raise ValueError('hybrid provider requested band exceeds exact output domain')
-
-    selected = tuple(
-        item
-        for item in provider.absolute_pressure_samples
-        if low <= float(item.frequency_hz) <= high
-    )
-    if len(selected) < 2:
-        raise ValueError(
-            'hybrid provider exact output grid has fewer than two points in requested band'
-        )
-    return FrequencyResponse(
-        frequency_hz=tuple(float(item.frequency_hz) for item in selected),
-        level_db=tuple(float(item.magnitude_db_spl) for item in selected),
-    )
 
 class HybridPredictionProviderBinding(BaseModel):
     """Immutable O50/O60/O70 consumer binding to one exact R170B provider."""

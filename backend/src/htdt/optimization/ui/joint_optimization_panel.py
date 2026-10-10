@@ -35,7 +35,7 @@ from ...cad_display_labels import (
     saved_label,
     spec_display_label,
 )
-from ...native_worker import (
+from ...worker_pool import (
     WORKER_CANCELLED,
     NativeWorkerPool,
     WorkerShutdownReport,

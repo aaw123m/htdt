@@ -48,6 +48,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from ...modal_transient import exec_transient
 from ... import file_dialog_memory
 from ...analysis_export import (
     build_analysis_export,
@@ -1523,13 +1524,15 @@ class MeasurementPageWorkspace(QWidget):
         from ...localization import PresentationLocale
         from ...workflow_help import HelpDialog
 
-        HelpDialog.topic(
-            topic,
-            locale=PresentationLocale.JAPANESE,
-            command_registry=None,
-            help_registry=self._help_registry,
-            parent=self,
-        ).exec()
+        exec_transient(
+            HelpDialog.topic(
+                topic,
+                locale=PresentationLocale.JAPANESE,
+                command_registry=None,
+                help_registry=self._help_registry,
+                parent=self,
+            )
+        )
 
     def _show_glossary(self) -> None:
         """The TermId-registry-driven glossary surface (REV32-TERMS)."""
@@ -1540,11 +1543,13 @@ class MeasurementPageWorkspace(QWidget):
         from ...localization import PresentationLocale
         from ...workflow_help import GlossaryDialog
 
-        GlossaryDialog(
-            self._help_registry,
-            locale=PresentationLocale.JAPANESE,
-            parent=self,
-        ).exec()
+        exec_transient(
+            GlossaryDialog(
+                self._help_registry,
+                locale=PresentationLocale.JAPANESE,
+                parent=self,
+            )
+        )
 
     def _open_error_help(self, code: str) -> None:
         """Resolve an error code to its bound topic (fallback: the generic
@@ -3634,7 +3639,7 @@ class MeasurementPageWorkspace(QWidget):
         dialog = TimingReferenceDialog(self, default_signal_path=(
             self.signal_path_edit.text().strip() or None
         ))
-        if not dialog.exec():
+        if not exec_transient(dialog):
             return
         record = dialog.record
         assert record is not None
@@ -3653,7 +3658,7 @@ class MeasurementPageWorkspace(QWidget):
 
     def _register_routing_profile(self) -> None:
         dialog = RoutingProfileDialog(self.controller, self)
-        if not dialog.exec():
+        if not exec_transient(dialog):
             return
         record = dialog.record
         assert record is not None
@@ -3687,7 +3692,7 @@ class MeasurementPageWorkspace(QWidget):
         dialog = LevelCalibrationDialog(
             self._quality_views, contexts, self
         )
-        if not dialog.exec():
+        if not exec_transient(dialog):
             return
         record = dialog.record
         assert record is not None
@@ -3709,7 +3714,7 @@ class MeasurementPageWorkspace(QWidget):
         dialog = StimulusProfileDialog(
             self.controller, self._quality_views, self
         )
-        if not dialog.exec():
+        if not exec_transient(dialog):
             return
         record = dialog.record
         assert record is not None
@@ -3763,7 +3768,7 @@ class MeasurementPageWorkspace(QWidget):
                 severity=SemanticState.WARNING,
             )
         dialog = DatasetLevelReferenceDialog(row, dataset, calibrations, self)
-        if not dialog.exec():
+        if not exec_transient(dialog):
             return
         record = dialog.record
         assert record is not None
@@ -4092,6 +4097,10 @@ class MeasurementPageWorkspace(QWidget):
                     self._show_help_topic('concept.scene_vs_revision')
                     continue
                 break
+            # Transient box re-shown in a loop: delete once it exits —
+            # exec_transient's per-exec deleteLater could be delivered
+            # inside the next nested exec pass.
+            box.deleteLater()
             clicked = box.clickedButton()
             if clicked is historical_button:
                 on_divergence = "historical"
@@ -4140,6 +4149,8 @@ class MeasurementPageWorkspace(QWidget):
                     self._show_help_topic('workflow.measurements')
                     continue
                 break
+            # Transient box re-shown in a loop: delete once it exits.
+            duplicate_box.deleteLater()
             if duplicate_result != QMessageBox.StandardButton.Yes:
                 self._set_notice(
                     "保存をキャンセルしました。既存の測定はそのままです。",
@@ -4412,7 +4423,7 @@ class MeasurementPageWorkspace(QWidget):
                 else None
             ),
         )
-        ok = bool(reason_dialog.exec())
+        ok = bool(exec_transient(reason_dialog))
         reason = reason_dialog.text()
         if not ok or not reason.strip():
             self._set_notice("訂正の理由が必要です", SemanticState.WARNING)
@@ -4804,7 +4815,7 @@ class MeasurementPageWorkspace(QWidget):
         report = self.controller.native_preflight(
             plan, backend=self._acq_backend)
         dialog = _NativeCampaignPreflightDialog(report, self)
-        if (dialog.exec() != QDialog.DialogCode.Accepted
+        if (exec_transient(dialog) != QDialog.DialogCode.Accepted
                 or not dialog.armed):
             self._set_notice(
                 "自動実行は開始されていません — アーム承認がありません",
@@ -7011,7 +7022,7 @@ class MeasurementPageWorkspace(QWidget):
                 else None
             ),
         )
-        ok = bool(reason_dialog.exec())
+        ok = bool(exec_transient(reason_dialog))
         reason = reason_dialog.text()
         if not ok or not reason.strip():
             self._set_notice("状態を記録する理由が必要です", SemanticState.WARNING)
@@ -7122,7 +7133,7 @@ class MeasurementPageWorkspace(QWidget):
             document_id=self.controller.document_id,
             parent=self,
         )
-        dialog.exec()
+        exec_transient(dialog)
         self._refresh_record_surfaces()
 
     def _open_health_dialog(self) -> None:
@@ -7133,7 +7144,7 @@ class MeasurementPageWorkspace(QWidget):
             document_id=self.controller.document_id,
             parent=self,
         )
-        dialog.exec()
+        exec_transient(dialog)
         self._refresh_record_surfaces()
 
     def _open_preset_dialog(self) -> None:
@@ -7144,7 +7155,7 @@ class MeasurementPageWorkspace(QWidget):
             document_id=self.controller.document_id,
             parent=self,
         )
-        dialog.exec()
+        exec_transient(dialog)
         self._refresh_record_surfaces()
 
     def _refresh_record_surfaces(self) -> None:
