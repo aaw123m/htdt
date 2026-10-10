@@ -1,0 +1,48 @@
+{
+  "schema_version": "htdt.r130d.original-q0-bandlimited-modal-convergence-plan-1",
+  "date_jst": "2026-10-11",
+  "issue": 53,
+  "pr": 118,
+  "hypothesis": "The original q0 nonconvergence decomposes into (a) a non-convergent realization-dependent high-eigenmode finite-record leakage component and (b) for the original staircase graph, a non-convergent lowest-mode geometry component, while the physical low-band (<=200Hz semidiscrete modes) signed 40/80Hz transfer converges on the exact-geometry hybrid eigensystem. Diagnostic rescores committed all-mode band decompositions against cumulative mode-frequency cutoffs; it never substitutes a band-limited quantity for the canonical full-band original authority.",
+  "preregistration": "Commit and push this fixed diagnostic plan before the rescoring execution. The runner verifies plan bytes, local ancestry and remote HEAD.",
+  "original": {
+    "upstream_PFFDTD_sha": "aa319f6c86517cb95aabfae8656277da62c3ead5",
+    "ppw": [28, 32, 36, 40, 44],
+    "original_source_xyz_m": [1.5, 2, 2],
+    "original_receiver_xyz_m": [2.5, 2, 2],
+    "source_receiver": "exact original SHA-pinned vox_out.h5/comms_out.h5 native 8x8 indices and weights",
+    "q0": "exact original 8 sample native impulse in_sigs[:,0]; all later samples 0",
+    "native_dt_h_Nt_unchanged": true,
+    "record_length_s": 0.25,
+    "c_m_s": 343.2,
+    "rho_kg_m3": 1.2,
+    "signed_bins_hz": [40, 80],
+    "all_four_pairs_and_strict_monotonicity": true,
+    "three_gates": {
+      "complex_rms_relative": 0.2,
+      "magnitude_max_relative": 0.25,
+      "phase_max_deg": 15.0
+    }
+  },
+  "committed_inputs": {
+    "original_native_modal_evidence": "benchmarks/acoustics/r130d_original_pffdtd_native_full_modal_q0_evidence_2026-10-09.json",
+    "hybrid_modal_endpoint_evidence": "benchmarks/acoustics/r130d_original_q0_hybrid_modal_endpoint_attribution_evidence_2026-10-10.json",
+    "input_sha256_verified": true
+  },
+  "cutoffs_hz": [100, 200, 400, 800, 1600, 3200],
+  "scoring": "For each eigensystem (original native staircase graph, exact-geometry hybrid) and each cumulative mode-frequency cutoff, reconstruct the signed 40/80Hz transfer from committed per-grid per-band modal terms, then apply the unchanged three gates to all four adjacent pairs plus strict monotonicity of all three metric sequences. Band sums must reconstruct each frozen full transfer to <=1e-10 relative before any rescoring.",
+  "verdict_vocabulary": [
+    "BANDLIMITED_CONVERGENCE_ACHIEVED_TRUE_GEOMETRY",
+    "BANDLIMITED_CONVERGENCE_NOT_ACHIEVED_TRUE_GEOMETRY",
+    "ORIGINAL_NATIVE_LOWBAND_CONVERGENT",
+    "ORIGINAL_NATIVE_LOWBAND_NOT_CONVERGENT",
+    "MONOTONICITY_AT_NOISE_FLOOR"
+  ],
+  "honesty": "A band-limited convergent score is a diagnostic companion only: the canonical original full-band, full-record 8-point q0 acceptance remains failed and may not be recomputed with a truncated modal sum for authority. Verdicts report each grid/cutoff/gate symmetrically.",
+  "limits": {
+    "no_new_solver_runs": true,
+    "no_new_github_actions": true,
+    "no_modes_dropped_from_accounting": true,
+    "product_go": false
+  }
+}
