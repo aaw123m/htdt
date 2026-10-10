@@ -1,0 +1,123 @@
+{
+  "schema_version": "htdt.r130d.finite-band-grid-continuation-plan-1",
+  "scope": "41 discrete frequency samples only, not continuous-band certification or measured-room production approval",
+  "profile": "R130D_FINITE_BAND_GAUSSIAN_40MS_SIGMA4MS_SEM_P4_V1",
+  "frequencies_hz": [
+    40,
+    41,
+    42,
+    43,
+    44,
+    45,
+    46,
+    47,
+    48,
+    49,
+    50,
+    51,
+    52,
+    53,
+    54,
+    55,
+    56,
+    57,
+    58,
+    59,
+    60,
+    61,
+    62,
+    63,
+    64,
+    65,
+    66,
+    67,
+    68,
+    69,
+    70,
+    71,
+    72,
+    73,
+    74,
+    75,
+    76,
+    77,
+    78,
+    79,
+    80
+  ],
+  "room_volume_m3": 56,
+  "source_xyz_m": [
+    1.5,
+    2,
+    2
+  ],
+  "receiver_xyz_m": [
+    2.5,
+    2,
+    2
+  ],
+  "source": {
+    "center_s": 0.04,
+    "sigma_s": 0.004,
+    "amplitude_m3_s": 1
+  },
+  "record_s": 0.25,
+  "c_m_s": 343.2,
+  "rho_kg_m3": 1.2,
+  "ppw": [
+    28,
+    32,
+    36,
+    40,
+    44
+  ],
+  "all_modes": true,
+  "temporal_limits": {
+    "complex_rms_relative": 0.01,
+    "magnitude_max_relative": 0.02,
+    "phase_max_deg": 1
+  },
+  "spatial_limits": {
+    "complex_rms_relative": 0.2,
+    "magnitude_max_relative": 0.25,
+    "phase_max_deg": 15
+  },
+  "spatial_strict_monotone_all_three": true,
+  "independent_orders": [
+    8,
+    9,
+    10
+  ],
+  "independent_refinement": 1,
+  "independent_fine_and_cross_limits": {
+    "complex_rms_relative": 0.03,
+    "magnitude_max_relative": 0.05,
+    "phase_max_deg": 3
+  },
+  "masking": "none; every frequency included; zero reference magnitude is an explicit failure",
+  "input_artifacts": {
+    "scratch/physical-pulse-sem/ppw28.npz": "a103cb590191d00d429a2c000c1f15de0f7c65994e3cafca9fbc3b62462ae49e",
+    "scratch/physical-pulse-sem/ppw32.npz": "93103e9a4c7e0e8d6907510e9981c095eff3a823a93c55629183ba6391b2a372",
+    "scratch/physical-pulse-sem/ppw36.npz": "9a029d148eecb104c9760188ecec17e941d82e13a542305f531d1e0b6cfdfff1",
+    "scratch/physical-pulse-sem/ppw40.npz": "e4f001f70b2065c3e10cf8d8803588a7b1e89e9f26482ef9b89b219ad771b209",
+    "scratch/physical-pulse-sem/ppw44.npz": "61a3361621024ba8cc29e5829d5878128805d4753ed3037c05c6d87c150f79e4",
+    "scratch/independent-hp-impulse/order6.npz": "8e4df60fd0d8a89f8db78d758ae4457ff3114e96f00d6bfd797b98ce136f0bfc",
+    "scratch/independent-hp-impulse/order7.npz": "fd8c0c344a3fbc4260ddd95ab3e461eb6e9bf9c87f4b31189b719bff8de3fa9a",
+    "scratch/independent-hp-impulse/order8.npz": "7c121e8a4a0ca878899cd8fb0442686779a44f3a43612a759978385d8338db5b"
+  },
+  "measured_room": "NOT_VALIDATED",
+  "legacy_pffdtd": "SELF_CONVERGENCE_FAILED",
+  "physical_undamped_point_source_limit": "NOT_ESTABLISHED",
+  "parent_failed_evidence_sha256_lf": "7d2f7c2b3df0b7fa9792c2f354a74b6e184544a810bd1e67d48a47e914871052",
+  "reason": "41-point fixed-step control fails strict joint refinement and P8 phase comparison at 51 Hz. Supplementary joint space-time schedule and higher independent hp orders; previous failure retained.",
+  "runtime_steps_rule": "8*ceil(0.25*sqrt(3)*343.2/native_h_m); native_h_m=343.2/(100*ppw)",
+  "time_refinement_factor": 8,
+  "independent_max_dofs": 9261,
+  "independent_full_eigh_driver": "gvd",
+  "independent_memory_budget_bytes": 4294967296,
+  "mfem_pin": "d964264cdb9a13e94a201b6c236c7721e0c8765f",
+  "points.txt_sha256": "b2b244f7fe26edfe247d463dbba50d9638d627be421635c9be8042331eed5359",
+  "cloud_provenance.json_sha256": "d016bae660c75606fd6bf90211764a01a709e6b3d69e900030b0596ee69820fd",
+  "build_provenance.json_sha256": "80e885fad0f3788f782a1636471afc8b00205c5039b8be55184cb3c0a3452124",
+  "exporter_executable_sha256": "97a884770d48d4b357e9d848171509713939a87b6f85661e24d4e8764b397740"
+}
