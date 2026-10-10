@@ -1,0 +1,19 @@
+{
+  "purpose": "Independent higher-order P6-P7-P8 validation after retained P3-P4 and P4-P5 failures; same physical room and original source/observer; no gate relaxation",
+  "mfem_pin": "d964264cdb9a13e94a201b6c236c7721e0c8765f",
+  "exporter_sha256_lf": "eb3a82cbdafec0a8ae4386d87b3f381b0957ad38aac233519a7825e6a0e965f4",
+  "orders": [6,7,8],
+  "uniform_refinements": 1,
+  "complete_dofs_expected": [2197,3375,4913],
+  "strategy": "p-refine the same exact6tet base with1 uniform refinement; polynomial degree rises instead of enlarging full dense eigenproblem",
+  "memory": "max5000 complete DOFs, full GVD generalized eigenbasis; no modal deletion or positive spectral floor",
+  "original_inputs": "identical82 point cloud, original8 nodes and weights on each grid, same native dt/Nt and gradient and rectangular DTFT, q0 instantaneous velocity jump",
+  "numerical_operator": "identical mesh-vanishing viscosity nu_h=h^3/c^3 kappa1, fixed h44 for independent finest pair and cross comparison",
+  "primary_fine_pair": [7,8],
+  "independent_fine_pair_limits": {"complex_rms_relative":0.03,"magnitude_max_relative":0.05,"phase_max_deg":3},
+  "independent_cross_limits": {"complex_rms_relative":0.03,"magnitude_max_relative":0.05,"phase_max_deg":3},
+  "require_all_original_four_pairs_strict_three_error_decrease": true,
+  "retained_failures": ["P3-P4 magnitude5.548782 percent", "P4-P5 magnitude5.308088 percent", "all old pinned PFFDTD original q0"],
+  "qualifications_excluded": ["old PFFDTD retrospective PASS", "full undamped continuum proof", "measured-room validation"],
+  "prospective": "save hash and commit and push before assembling any P6/P7/P8 results"
+}

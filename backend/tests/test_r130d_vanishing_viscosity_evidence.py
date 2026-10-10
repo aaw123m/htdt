@@ -54,3 +54,24 @@ def test_prospective_plan_hashes_and_fixed_limit_contracts():
                           ('r130d_independent_hp_impulse_plan','c6b9c42cb4cc459b8b3496c4e4b38efba6ee42f7fb82b1363aa80588ede85faf')]:
         blob=(ROOT/f'benchmarks/acoustics/{stem}_2026-10-10.json').read_bytes().replace(b'\r\n',b'\n')
         assert hashlib.sha256(blob).hexdigest()==expected
+
+
+def test_supplementary_p5_refinement_preserves_failure_and_gates():
+    e=load('r130d_independent_hp_p5_impulse_evidence');prior=load('r130d_independent_hp_impulse_evidence')
+    assert prior['qualification']=='FAIL_NEW_VANISHING_VISCOSITY_Q0_NUMERICAL_METHOD'
+    assert e['old_pinned_pffdtd']=='SELF_CONVERGENCE_FAILED' and e['physical_undamped_point_source_limit']=='NOT_ESTABLISHED'
+    assert [r['dofs'] for r in e['cases']]==[4913,9261]
+    assert all(r['dofs']==r['all_modes'] for r in e['cases'])
+    assert e['cases'][0]==prior['cases'][-1]
+    oldpath=ROOT/'benchmarks/acoustics/r130d_independent_hp_impulse_evidence_2026-10-10.json'
+    assert hashlib.sha256(oldpath.read_bytes().replace(b'\r\n',b'\n')).hexdigest()==e['prior_failed_evidence_sha256_lf']
+    a,b=e['cases'];primary=next(r for r in load('r130d_vanishing_viscosity_q0_evidence')['arms'] if r['kappa']==1.)
+    actuals=[metrics(a['native_viscosity_cases'][-1]['signed_40_80'],b['native_viscosity_cases'][-1]['signed_40_80']),
+             metrics(primary['cases'][-1]['signed_40_80'],b['native_viscosity_cases'][-1]['signed_40_80'])]
+    for actual,key in zip(actuals,['independent_p4_p5','cross_sem44_mfem_p5']):
+        saved=e[key]['metrics'];np.testing.assert_allclose(actual,[saved[k] for k in ('complex_rms_relative','magnitude_max_relative','phase_max_deg')],rtol=1e-8,atol=1e-10)
+        assert e[key]['pass']==bool(np.all(actual<=[.03,.05,3.]))
+    ok=primary['gate_pass'] and all(np.all(actual<=[.03,.05,3.]) for actual in actuals)
+    assert e['qualification']==('PASS_NEW_VANISHING_VISCOSITY_Q0_NUMERICAL_METHOD' if ok else 'FAIL_NEW_VANISHING_VISCOSITY_Q0_NUMERICAL_METHOD')
+    blob=(ROOT/'benchmarks/acoustics/r130d_independent_hp_p5_impulse_plan_2026-10-10.json').read_bytes().replace(b'\r\n',b'\n')
+    assert hashlib.sha256(blob).hexdigest()==e['plan_sha256']=='6fed35366b3241334f4d2725466d38362783ebbdf4ec3f30a7583ca8a32f0fc5'

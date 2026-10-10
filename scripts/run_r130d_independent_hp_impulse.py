@@ -19,10 +19,10 @@ PLAN_SHA='c6b9c42cb4cc459b8b3496c4e4b38efba6ee42f7fb82b1363aa80588ede85faf'
 
 def sha(path):return hashlib.sha256(path.read_bytes()).hexdigest()
 
-def assemble_case(degree,folder,cloud,cache):
-    path=folder/f'mfem-p{degree}-r2.json'
-    doc=json.loads(path.read_bytes());n={2:729,3:2197,4:4913,5:9261}[degree]
-    if doc['ndofs']!=n or doc['order']!=degree or doc['uniform_refinements']!=2 or doc['elements']!=384:
+def assemble_case(degree,folder,cloud,cache,refinement=2):
+    path=folder/f'mfem-p{degree}-r{refinement}.json'
+    doc=json.loads(path.read_bytes());n=(2**refinement*degree+1)**3
+    if doc['ndofs']!=n or doc['order']!=degree or doc['uniform_refinements']!=refinement or doc['elements']!=6*8**refinement:
         raise ValueError('independent mesh changed')
     if doc['boundary_model']!='natural_neumann_rigid' or doc['sound_speed_m_s']!=343.2 or doc['base_volume_m3']!=56:
         raise ValueError('independent physical geometry changed')
@@ -54,7 +54,7 @@ def assemble_case(degree,folder,cloud,cache):
         A=K.toarray(order='F');B=M.toarray(order='F')
         # P5 belongs only to the supplementary prospectively registered plan.
         # Its full GVD basis retains all modes and uses more bounded workspace.
-        driver='gvd' if degree==5 else 'gv'
+        driver='gvd' if degree>=5 else 'gv'
         lam,V=eigh(A,B,driver=driver,overwrite_a=True,overwrite_b=True,check_finite=False)
         del A,B
         if abs(lam[0])/max(lam[-1],1.)>1e-10 or lam[1]<=0:raise ValueError('invalid rigid eigenmode')

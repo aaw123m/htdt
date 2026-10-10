@@ -23,7 +23,7 @@ def main():
     p4=next(r for r in prior['cases'] if r['order']==4)
     if sha(a.exports/'mfem-p4-r2.json')!=p4['matrix_sha256']:raise ValueError('independent p4 matrix changed')
     p5=assemble_case(5,a.exports,cloud,ROOT/'scratch/independent-hp-impulse')
-    e={'plan_sha256':digest,'plan':plan,'independent_build':build,'prior_failed_evidence_sha256':sha(prior_path),'cases':[p4,p5]}
+    e={'plan_sha256':digest,'plan':plan,'independent_build':build,'prior_failed_evidence_sha256_lf':hashlib.sha256(prior_path.read_bytes().replace(b'\r\n',b'\n')).hexdigest(),'cases':[p4,p5]}
     primary=json.loads((ROOT/'benchmarks/acoustics/r130d_vanishing_viscosity_q0_evidence_2026-10-10.json').read_text(encoding='utf8'))
     arm=next(r for r in primary['arms'] if r['kappa']==1.)
     fine=scores(p4['native_viscosity_cases'][-1]['signed_40_80'],p5['native_viscosity_cases'][-1]['signed_40_80'])
