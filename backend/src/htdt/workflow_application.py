@@ -33,6 +33,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .modal_transient import exec_transient
 from . import file_dialog_memory
 from .cad_input import (
     CAD_SCENE_COMMAND_IDS,
@@ -1776,7 +1777,7 @@ class WorkflowApplicationComposition:
             f'[diag: {entry.diagnostic_id}]\n{note_path}\n\n'
             'サポートへ共有する場合は診断パッケージに含めてください。'
         )
-        box.exec()
+        exec_transient(box)
 
     def _shutdown_background_runners(self) -> None:
         for runner in (
@@ -1952,7 +1953,7 @@ class WorkflowApplicationComposition:
         buttons.accepted.connect(dialog.accept)
         buttons.rejected.connect(dialog.reject)
         layout.addWidget(buttons)
-        if dialog.exec() != QDialog.DialogCode.Accepted:
+        if exec_transient(dialog) != QDialog.DialogCode.Accepted:
             return None
         item = listing.currentItem()
         if item is None:
@@ -2003,7 +2004,7 @@ class WorkflowApplicationComposition:
         buttons.accepted.connect(dialog.accept)
         buttons.rejected.connect(dialog.reject)
         layout.addWidget(buttons)
-        if dialog.exec() != QDialog.DialogCode.Accepted:
+        if exec_transient(dialog) != QDialog.DialogCode.Accepted:
             return None
         item = listing.currentItem()
         if item is None:
@@ -2368,6 +2369,7 @@ class WorkflowApplicationComposition:
         title = "テンプレートを保存できません"
         while True:
             if dialog.exec() != QDialog.DialogCode.Accepted:
+                dialog.deleteLater()
                 return
             name = name_edit.text().strip()
             version = version_edit.text().strip() or '1'
@@ -2376,6 +2378,8 @@ class WorkflowApplicationComposition:
             QMessageBox.warning(
                 self.shell, title, "テンプレート名を入力してください"
             )
+        # Transient dialog re-shown in a loop: delete once it exits.
+        dialog.deleteLater()
 
         reference_choice = reference_combo.currentData()
         try:
@@ -2486,7 +2490,7 @@ class WorkflowApplicationComposition:
             default_scope='private_archive',
             parent=self.shell,
         )
-        if dialog.exec() != ExportPreflightDialog.DialogCode.Accepted:
+        if exec_transient(dialog) != ExportPreflightDialog.DialogCode.Accepted:
             return
         scope = dialog.scope()
         # The operator's confirmations become sealed authority before the
@@ -2632,7 +2636,7 @@ class WorkflowApplicationComposition:
             default_scope=default_scope,
             parent=self.shell,
         )
-        if dialog.exec() != ExportPreflightDialog.DialogCode.Accepted:
+        if exec_transient(dialog) != ExportPreflightDialog.DialogCode.Accepted:
             return False
         scope = dialog.scope()
         record_confirmations(code_repository, preflight)
@@ -3068,29 +3072,37 @@ class WorkflowApplicationComposition:
 
     def _open_help_topic(self, topic_id: str) -> bool:
         if topic_id == 'help.shortcuts':
-            HelpDialog.shortcuts(self.registry, parent=self.shell).exec()
+            exec_transient(
+                HelpDialog.shortcuts(self.registry, parent=self.shell)
+            )
             return True
         if topic_id == 'help.palette':
-            HelpDialog.palette_usage(parent=self.shell).exec()
+            exec_transient(
+                HelpDialog.palette_usage(parent=self.shell)
+            )
             return True
         if topic_id == 'help.glossary':
             # REV32-TERMS: the TermId-registry-driven glossary surface.
-            GlossaryDialog(
-                self.help_registry,
-                locale=self._presentation_locale(),
-                parent=self.shell,
-            ).exec()
+            exec_transient(
+                GlossaryDialog(
+                    self.help_registry,
+                    locale=self._presentation_locale(),
+                    parent=self.shell,
+                )
+            )
             return True
         topic = self.help_registry.get(topic_id)
         if topic is None:
             return False
-        HelpDialog.topic(
-            topic,
-            locale=self._presentation_locale(),
-            command_registry=self.registry,
-            help_registry=self.help_registry,
-            parent=self.shell,
-        ).exec()
+        exec_transient(
+            HelpDialog.topic(
+                topic,
+                locale=self._presentation_locale(),
+                command_registry=self.registry,
+                help_registry=self.help_registry,
+                parent=self.shell,
+            )
+        )
         return True
 
     def _open_project(self, document_id: str) -> None:
@@ -3703,7 +3715,7 @@ class WorkflowApplicationComposition:
 
         def manage() -> None:
             dialog = EquipmentLibraryDialog(service, parent=page)
-            dialog.exec()
+            exec_transient(dialog)
             page.refresh()
 
         page.manage_requested.connect(manage)
@@ -3878,7 +3890,7 @@ class WorkflowApplicationComposition:
             initial_node_id=initial_node_id,
             parent=parent,
         )
-        dialog.exec()
+        exec_transient(dialog)
 
     def _open_applicability_envelope(self, parent: QWidget) -> None:
         """Compose the seven-dimension applicability envelope and open it
@@ -3905,7 +3917,7 @@ class WorkflowApplicationComposition:
             evaluated_at_utc=datetime.now(timezone.utc).isoformat(),
         )
         dialog = _self.ApplicabilityEnvelopeDialog(envelope, parent=parent)
-        dialog.exec()
+        exec_transient(dialog)
 
     def _open_credential_vault(self, parent: QWidget) -> None:
         """Open the credential-vault operator surface for the current
@@ -3927,7 +3939,7 @@ class WorkflowApplicationComposition:
         dialog = _self.CredentialVaultDialog(
             service, self.document_id, parent=parent,
         )
-        dialog.exec()
+        exec_transient(dialog)
 
     # -- first-run wizard (#886) ----------------------------------------
 
@@ -4085,7 +4097,7 @@ class WorkflowApplicationComposition:
             open_reference_theater=(
                 self._open_reference_theater_project),
         )
-        dialog.exec()
+        exec_transient(dialog)
         self._save_wizard_record(dialog)
 
     def _maybe_show_first_run_wizard(self) -> None:
@@ -4157,7 +4169,7 @@ class WorkflowApplicationComposition:
             ),
             parent=parent,
         )
-        dialog.exec()
+        exec_transient(dialog)
 
     def _export_diagnostics_package(self, parent) -> str | None:
         """Build the bounded support bundle via DiagnosticPackageBuilder (#604).
@@ -4226,7 +4238,7 @@ class WorkflowApplicationComposition:
             restage=lambda include: builder.preview(_plan(include)),
             parent=parent,
         )
-        if dialog.exec() != SupportBundlePreviewDialog.DialogCode.Accepted:
+        if exec_transient(dialog) != SupportBundlePreviewDialog.DialogCode.Accepted:
             return None
         # Persist the operator's opt-in choice so it stays sticky.
         if dialog.include_project_ids != initial_opt_in:
@@ -4302,7 +4314,7 @@ class WorkflowApplicationComposition:
         # Summary "開く" links queue inside the modal and accept() it;
         # navigate only after exec() returns so the destination is never
         # focused behind the still-open wizard (round-7 deferred fix).
-        if wizard.exec() == wizard.DialogCode.Accepted:
+        if exec_transient(wizard) == wizard.DialogCode.Accepted:
             self._open_project(wizard.created_document_id)
         for link in wizard.take_pending_navigations():
             self._navigate_target(link)
@@ -5620,7 +5632,7 @@ class WorkflowApplicationComposition:
         box.setIcon(QMessageBox.Icon.Information)
         box.setText(f"{result.definition_count} 件の機材定義を書き出しました。")
         box.setDetailedText(f"カタログSHA-256: {result.snapshot_sha256}")
-        box.exec()
+        exec_transient(box)
 
     def _export_installation_handoff(self) -> None:
         """Operator action behind ``installation.export_handoff`` (#453).
@@ -5757,7 +5769,7 @@ class WorkflowApplicationComposition:
         preview_buttons.rejected.connect(preview.reject)
         preview_layout.addWidget(preview_buttons)
         preview.resize(760, 560)
-        if preview.exec() != QDialog.DialogCode.Accepted:
+        if exec_transient(preview) != QDialog.DialogCode.Accepted:
             return
         directory = file_dialog_memory.get_existing_directory(
             self.shell,
@@ -5797,7 +5809,7 @@ class WorkflowApplicationComposition:
             self._export_postcheck(self._last_export_preflight)
         ))
         self._last_export_preflight = None
-        box.exec()
+        exec_transient(box)
 
     def _open_deliverables(self) -> None:
         """Project Deliverables Center (#900).
@@ -5833,7 +5845,7 @@ class WorkflowApplicationComposition:
             on_navigate=self._navigate_target,
             parent=self.shell,
         )
-        dialog.exec()
+        exec_transient(dialog)
 
     def _calibration_workflow_service(self) -> CadCalibrationWorkflowService:
         """The lifecycle facade over the persisted calibration authority."""
@@ -6004,7 +6016,7 @@ class WorkflowApplicationComposition:
             f"設定SHA-256: "
             f"{result.export.exported_settings_semantic_sha256}"
         )
-        box.exec()
+        exec_transient(box)
 
     def _export_analysis_bundle(self) -> None:
         """Operator action behind ``analysis.export_bundle`` (#512).
@@ -6275,7 +6287,7 @@ class WorkflowApplicationComposition:
             self._analysis_export_preflight = None
             self._last_export_preflight = None
         box.setDetailedText("\n".join(details))
-        box.exec()
+        exec_transient(box)
 
     def _can_close_application(self) -> tuple[bool, str | None]:
         if self._bundle_busy:
@@ -6357,7 +6369,7 @@ class WorkflowApplicationComposition:
             )
             self._last_export_preflight = None
             box.setDetailedText('\n'.join(details))
-            box.exec()
+            exec_transient(box)
             return
         if task_key.startswith("project.bundle.import"):
             if (

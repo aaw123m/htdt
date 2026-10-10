@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .modal_transient import exec_transient
 from .cad_repository import SceneRepository
 from .cad_standards import (
     CriterionDefinition,
@@ -634,7 +635,7 @@ class StandardsCriterionPanel(QFrame):
 
         service = StandardsProfileLibraryService(self.model.repository)
         dialog = StandardsProfileEditorDialog(service, parent=self)
-        dialog.exec()
+        exec_transient(dialog)
         self.refresh_profiles()
 
     def refresh_targets(self) -> None:
@@ -1124,7 +1125,7 @@ class StandardsCriterionPanel(QFrame):
         close = QPushButton("閉じる")
         close.clicked.connect(dialog.accept)
         layout.addWidget(close)
-        dialog.exec()
+        exec_transient(dialog)
 
 
 class StandardsVariantComparisonPanel(QFrame):
@@ -1199,7 +1200,7 @@ class StandardsVariantComparisonPanel(QFrame):
 
         service = StandardsProfileLibraryService(self.model.repository)
         dialog = StandardsProfileEditorDialog(service, parent=self)
-        dialog.exec()
+        exec_transient(dialog)
         self._load_profiles()
 
     def _load_profiles(self) -> None:

@@ -35,6 +35,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .modal_transient import exec_transient
 from .cad_display_labels import (
     environment_source_kind_label,
     geometry_compatibility_label,
@@ -2278,7 +2279,7 @@ class RoomPredictionPanel(QWidget):
 
     def _new_environment_profile(self) -> None:
         dialog = EnvironmentProfileDialog(self)
-        if dialog.exec() != dialog.DialogCode.Accepted:
+        if exec_transient(dialog) != dialog.DialogCode.Accepted:
             return
         profile = self.controller.create_environment_profile(**dialog.profile_kwargs())
         self.controller.select_environment_profile(profile)
@@ -2517,7 +2518,7 @@ class RoomPredictionPanel(QWidget):
             lane=self.prediction_lane,
             parent=self,
         )
-        dialog.exec()
+        exec_transient(dialog)
         # Registration changes the provider lane's model options too.
         self.refresh()
         self.refresh_matrix()

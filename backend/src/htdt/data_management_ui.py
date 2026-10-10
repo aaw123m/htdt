@@ -27,6 +27,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .modal_transient import exec_transient
 from . import file_dialog_memory
 from .data_management import (
     BackupCreateResult,
@@ -167,7 +168,7 @@ def _default_relocate_confirmation(
         QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel
     )
     box.setDefaultButton(QMessageBox.StandardButton.Cancel)
-    return box.exec() == QMessageBox.StandardButton.Yes
+    return exec_transient(box) == QMessageBox.StandardButton.Yes
 
 
 def _default_restore_confirmation(parent: QWidget, preview: RestorePreview) -> bool:
@@ -187,7 +188,7 @@ def _default_restore_confirmation(parent: QWidget, preview: RestorePreview) -> b
         QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel
     )
     box.setDefaultButton(QMessageBox.StandardButton.Cancel)
-    return box.exec() == QMessageBox.StandardButton.Yes
+    return exec_transient(box) == QMessageBox.StandardButton.Yes
 
 
 def _default_backup_name(now: datetime | None = None) -> str:
@@ -1501,7 +1502,7 @@ class DataManagementWidget(QWidget):
         )
         box.button(QMessageBox.StandardButton.Yes).setText("削除を実行")
         box.setDefaultButton(QMessageBox.StandardButton.No)
-        if box.exec() != QMessageBox.StandardButton.Yes:
+        if exec_transient(box) != QMessageBox.StandardButton.Yes:
             return
         self.controller.gc_storage()
 

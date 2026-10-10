@@ -423,6 +423,9 @@ def test_related_topic_link_opens_nested_topic(monkeypatch) -> None:
             def exec(self) -> int:
                 return 0
 
+            def deleteLater(self) -> None:
+                pass
+
         return _FakeDialog()
 
     monkeypatch.setattr(HelpDialog, 'topic', staticmethod(_fake_topic))

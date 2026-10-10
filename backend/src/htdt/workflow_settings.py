@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .modal_transient import exec_transient
 from .application_preferences import (
     PENDING_PREFERENCE_KEYS,
     PREFERENCES_RECOVERY_SUFFIX,
@@ -525,13 +526,13 @@ class PreferencesWidget(QWidget):
         pending: tuple[tuple[PreferenceDefinition, object], ...],
     ) -> frozenset[str] | None:
         dialog = PreferencesResetDialog(pending, parent=self)
-        if dialog.exec() != QDialog.DialogCode.Accepted:
+        if exec_transient(dialog) != QDialog.DialogCode.Accepted:
             return None
         return dialog.chosen_keys()
 
     def _confirm_sanctioned_reset(self) -> bool:
         dialog = SanctionedResetDialog(parent=self)
-        return dialog.exec() == QDialog.DialogCode.Accepted
+        return exec_transient(dialog) == QDialog.DialogCode.Accepted
 
     def _reset_all(self) -> None:
         if not self._store.write_allowed:

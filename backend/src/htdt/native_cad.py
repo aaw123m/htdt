@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     from .project_library_repository import ProjectLibraryRepository
     from .workflow_shell import WorkflowShellWindow
 
+from .modal_transient import exec_transient
 from .build_info import version_string
 from .native_diagnostics import (
     NativeDiagnostics,
@@ -315,7 +316,7 @@ def _choose_recovery_action(
         buttons['open_normal'] = box.addButton(
             "通常どおり開く", QMessageBox.ButtonRole.AcceptRole
         )
-    box.exec()
+    exec_transient(box)
     clicked = box.clickedButton()
     choice = next(
         (c for c, button in buttons.items() if button is clicked),
@@ -419,7 +420,7 @@ def _offer_post_update_revalidation(
             "再検証を実行", QMessageBox.ButtonRole.AcceptRole
         )
         box.addButton("あとで", QMessageBox.ButtonRole.RejectRole)
-        box.exec()
+        exec_transient(box)
         if box.clickedButton() is revalidate_button:
             try:
                 report = revalidate_native_authority_graph(database_path)

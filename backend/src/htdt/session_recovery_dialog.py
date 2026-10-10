@@ -10,6 +10,7 @@ explicit, and defer leaves the evidence untouched for the next launch.
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
+from .modal_transient import exec_transient
 
 if TYPE_CHECKING:
     from .session_recovery import (
@@ -162,7 +163,7 @@ def offer_session_recovery(
             'あとで決める', QMessageBox.ButtonRole.RejectRole
         )
         box.setDefaultButton(restore_button)
-        box.exec()
+        exec_transient(box)
         clicked = box.clickedButton()
         try:
             if clicked is restore_button:
@@ -244,7 +245,7 @@ def offer_session_recovery(
             QMessageBox.ButtonRole.DestructiveRole,
         )
         box.addButton('残す', QMessageBox.ButtonRole.RejectRole)
-        box.exec()
+        exec_transient(box)
         if box.clickedButton() is discard_button:
             for item in rejected:
                 try:

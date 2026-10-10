@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .modal_transient import exec_transient
 from .command_registry import CommandRegistry
 from .help_registry import HelpRegistry, HelpTopic, shortcut_reference
 from .localization import PresentationLocale, term_text
@@ -343,13 +344,15 @@ class HelpDialog(QDialog):
         topic = self._registry_topic(registry, link)
         if topic is None:
             return
-        HelpDialog.topic(
-            topic,
-            locale=self._locale,
-            command_registry=self._command_registry,
-            help_registry=registry,
-            parent=self,
-        ).exec()
+        exec_transient(
+            HelpDialog.topic(
+                topic,
+                locale=self._locale,
+                command_registry=self._command_registry,
+                help_registry=registry,
+                parent=self,
+            )
+        )
 
     @staticmethod
     def _registry_topic(registry: HelpRegistry, link: str) -> HelpTopic | None:
@@ -453,12 +456,14 @@ class GlossaryDialog(QDialog):
         topic = self._registry.get(link.removeprefix('htdt-topic:'))
         if topic is None:
             return
-        HelpDialog.topic(
-            topic,
-            locale=self._locale,
-            help_registry=self._registry,
-            parent=self,
-        ).exec()
+        exec_transient(
+            HelpDialog.topic(
+                topic,
+                locale=self._locale,
+                help_registry=self._registry,
+                parent=self,
+            )
+        )
 
     def _apply_filter(self, text: str) -> None:
         needle = text.strip().lower()

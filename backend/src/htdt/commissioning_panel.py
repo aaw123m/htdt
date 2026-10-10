@@ -30,6 +30,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .modal_transient import exec_transient
 from .cad_commissioning_orchestrator import (
     COMMISSIONING_DEVICE_MUTATING_STAGES,
     COMMISSIONING_EVENT_LABELS,
@@ -368,7 +369,7 @@ class CommissioningPanel(QWidget):
                 summary='承認対象の校正候補がありません'))
             return
         dialog = CommissioningApprovalDialog(preview, parent=self)
-        if dialog.exec() != QDialog.DialogCode.Accepted:
+        if exec_transient(dialog) != QDialog.DialogCode.Accepted:
             return
         operator_id = dialog.operator_id
         note = dialog.note or None
@@ -384,7 +385,7 @@ class CommissioningPanel(QWidget):
                         'が揃っていません'))
             return
         dialog = CommissioningApprovalDialog(preview, parent=self)
-        if dialog.exec() != QDialog.DialogCode.Accepted:
+        if exec_transient(dialog) != QDialog.DialogCode.Accepted:
             return
         operator_id = dialog.operator_id
         note = dialog.note or None
@@ -402,7 +403,7 @@ class CommissioningPanel(QWidget):
                 summary='ロールバック対象のデプロイ記録がありません'))
             return
         dialog = CommissioningApprovalDialog(preview, parent=self)
-        if dialog.exec() != QDialog.DialogCode.Accepted:
+        if exec_transient(dialog) != QDialog.DialogCode.Accepted:
             return
         operator_id = dialog.operator_id
         reason = dialog.note

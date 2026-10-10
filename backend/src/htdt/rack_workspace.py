@@ -63,6 +63,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .modal_transient import exec_transient
 from .cad_display_units import (
     LengthDisplayPolicy,
     display_length_policy,
@@ -1603,7 +1604,7 @@ class RackWorkspacePanel(QFrame):
             before=self._results,
             after=after,
         )
-        if dialog.exec() != QDialog.DialogCode.Accepted:
+        if exec_transient(dialog) != QDialog.DialogCode.Accepted:
             return
         self._commit_layout(candidate)
 
