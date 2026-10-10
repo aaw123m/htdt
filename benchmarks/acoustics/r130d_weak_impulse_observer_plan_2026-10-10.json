@@ -1,0 +1,17 @@
+{
+  "purpose": "Fix observation of a Dirac pressure distribution, preserving instantaneous forcing; explicitly different from legacy rectangular pressure gate",
+  "ppw": [28,32,36,40,44],
+  "sem_cache": "scratch/boundary-fitted-sem/ppw{ppw}.npz",
+  "source": "same original SHA-pinned eight-node source and receiver couplings; exact continuous impulse area native dt cancels in P/Q",
+  "all_modes": true,
+  "primary_start_ramp_s": 0.001,
+  "primary_end_ramp_s": 0.01,
+  "end_ramp_sensitivity_s": [0.02,0.01,0.005,0.0025,0.00125],
+  "duration": "native (Nt-1)*dt primary to preserve archived record endpoint; also fixed 0.25 control",
+  "bins_hz": [40,80],
+  "three_gates": {"complex_rms_relative":0.2,"magnitude_max_relative":0.25,"phase_max_deg":15},
+  "require_primary_all_four_pairs_and_strict_decrease_all_three": true,
+  "independent_checks": ["modal observer versus direct oscillatory quadrature", "free-space direct Green distribution w=1 near arrival", "legacy baseline remains separately scored"],
+  "claims_excluded": ["legacy gate PASS", "zero-width end-ramp limit established", "measured-room validation", "independent full-room physics qualification"],
+  "prospective": "Record plan hash before executing any new weak-observer numeric results; publish every ramp including failures"
+}

@@ -1,0 +1,467 @@
+{
+  "source": "UNCHANGED_ORIGINAL_Q0_ARCHIVED_WAVES",
+  "legacy_status": "SELF_CONVERGENCE_FAILED",
+  "window_status": "DIAGNOSTIC_CHANGED_OBSERVER",
+  "cases": [
+    {
+      "ppw": 28,
+      "native_dt": 0.00020599032818587005,
+      "Nt": 1214,
+      "original_sha256": {
+        "comms_out.h5": "4404a9818a8f0c673c97e8ede8665367100aecb3d2f2f8481bc532bc45fd6b6c",
+        "vox_out.h5": "9d8b598fc1e2077840ba5a51e8f2db72c30ad4b6991ae88d3174bac72acf9fc8",
+        "sim_outs.h5": "6e8a94d695fe77e992d8bd66bbb9b63ed9eaf27abd86f5be94f7554d2ba97d6b"
+      },
+      "legacy": [
+        [
+          101.09876930666196,
+          42.79568096674776
+        ],
+        [
+          150.77953891006572,
+          -21.729992606786688
+        ]
+      ],
+      "weak_pressure_quadrature": [
+        [
+          -6.547613425850445,
+          47.02022610591575
+        ],
+        [
+          46.978545441887505,
+          -9.351413213474737
+        ]
+      ],
+      "weak_potential_integration_by_parts": [
+        [
+          -6.566325921148375,
+          47.056983595477256
+        ],
+        [
+          47.112366021672756,
+          -9.357301973607944
+        ]
+      ]
+    },
+    {
+      "ppw": 32,
+      "native_dt": 0.0001802415371626363,
+      "Nt": 1388,
+      "original_sha256": {
+        "comms_out.h5": "716199c1cb8f9d982cdafe7deaccdf630073a2b0d8cdec17fcaf3dff52f4b60b",
+        "vox_out.h5": "8f3ebd62703c40793d68fdf703e098bbecc568cc9beb227cfa126b8042954e3b",
+        "sim_outs.h5": "773601d4be74cef568739d8957082c9561912ccfd4fa860c415585409a1d84b7"
+      },
+      "legacy": [
+        [
+          16.566281665940163,
+          -21.002334508771654
+        ],
+        [
+          -21.520688403756928,
+          -230.65774208886285
+        ]
+      ],
+      "weak_pressure_quadrature": [
+        [
+          22.60008302025744,
+          9.215186417503432
+        ],
+        [
+          13.892641069600174,
+          -197.71480322862476
+        ]
+      ],
+      "weak_potential_integration_by_parts": [
+        [
+          22.618157687645297,
+          9.234438652520177
+        ],
+        [
+          13.943416881855304,
+          -198.00612762888176
+        ]
+      ]
+    },
+    {
+      "ppw": 36,
+      "native_dt": 0.00016021469970012116,
+      "Nt": 1561,
+      "original_sha256": {
+        "comms_out.h5": "3cd05bcee5f8fed08da3dc94ff2ac90b92969b293daf2db77b4bac8d0c51a2f9",
+        "vox_out.h5": "433c1d334419006b1185a4ef275545d329244d0808b2a3c12a3200e7af4e3d50",
+        "sim_outs.h5": "8fad2511eee77d463b43a1aa5d6f7ae13047ed8bf5d27e0cb0b76ffb7b3bd486"
+      },
+      "legacy": [
+        [
+          57.8655759069645,
+          12.212530552108209
+        ],
+        [
+          119.43681400077286,
+          -167.8458584505423
+        ]
+      ],
+      "weak_pressure_quadrature": [
+        [
+          15.149278522183632,
+          35.12937957196597
+        ],
+        [
+          106.49203673451117,
+          -135.83124932930613
+        ]
+      ],
+      "weak_potential_integration_by_parts": [
+        [
+          15.15562143764131,
+          35.152163876836404
+        ],
+        [
+          106.64868910114939,
+          -135.95226595745743
+        ]
+      ]
+    },
+    {
+      "ppw": 40,
+      "native_dt": 0.00014419322973010905,
+      "Nt": 1734,
+      "original_sha256": {
+        "comms_out.h5": "64a4f45cf19b92bb7a8a1ffd24af05e10877c99000e29bf985637b18e287763a",
+        "vox_out.h5": "c7c1894826c4774393987855e533081f615b22d510ec6042aacda12acbe0daaf",
+        "sim_outs.h5": "79763a63cedf667e98cbcf5867b848675d634a861e63fc3e1cf94ed9982596fa"
+      },
+      "legacy": [
+        [
+          23.081760574919873,
+          18.909536564347945
+        ],
+        [
+          109.07263342140827,
+          -119.86161783862613
+        ]
+      ],
+      "weak_pressure_quadrature": [
+        [
+          5.039160508498202,
+          51.16171798834869
+        ],
+        [
+          119.34005533809047,
+          -65.39296837007613
+        ]
+      ],
+      "weak_potential_integration_by_parts": [
+        [
+          5.034582933718933,
+          51.19257715193745
+        ],
+        [
+          119.46897559332054,
+          -65.43216872902134
+        ]
+      ]
+    },
+    {
+      "ppw": 44,
+      "native_dt": 0.00013108475430009911,
+      "Nt": 1908,
+      "original_sha256": {
+        "comms_out.h5": "41c537b663ef11aa7404a248862f89398dec80fd3b6c794f4ecce4a0a8577ee4",
+        "vox_out.h5": "4a7cb6c30c013adc31d5b1910d50cef003cacbdd37a271ac3efa7a39956e505b",
+        "sim_outs.h5": "a5603179fa00ef7a82e5e5e486d864b1b2f08e3f432692d80631fcf406c0ce89"
+      },
+      "legacy": [
+        [
+          -64.44884936510246,
+          -11.312555997628882
+        ],
+        [
+          -83.61305811577184,
+          -224.3177326070581
+        ]
+      ],
+      "weak_pressure_quadrature": [
+        [
+          23.39470159588033,
+          14.78649844976394
+        ],
+        [
+          33.73189444961474,
+          -200.75075348538118
+        ]
+      ],
+      "weak_potential_integration_by_parts": [
+        [
+          23.407489123774734,
+          14.799059151787148
+        ],
+        [
+          33.77795688344761,
+          -200.9107647873489
+        ]
+      ]
+    }
+  ],
+  "legacy_pairs": [
+    {
+      "coarse": 28,
+      "fine": 32,
+      "metrics": {
+        "complex_rms_relative": 1.2469270700426662,
+        "magnitude_max_relative": 3.10412382125326,
+        "magnitude_max_db": 12.264409098974964,
+        "phase_max_deg": 87.12947751814937,
+        "mask_floor": 0.7325717303780155,
+        "compared_frequency_count": 2,
+        "frequency_metrics": [
+          {
+            "frequency_hz": 40.0,
+            "masked_in": true,
+            "magnitude_absolute": 83.03399182710316,
+            "magnitude_relative": 3.10412382125326,
+            "magnitude_db": 12.264409098974964,
+            "phase_deg": 74.67744374757274,
+            "complex_relative": 3.959138829081373
+          },
+          {
+            "frequency_hz": 80.0,
+            "masked_in": true,
+            "magnitude_absolute": 79.32219233173214,
+            "magnitude_relative": 0.3424085128657372,
+            "magnitude_db": 3.640876352016603,
+            "phase_deg": 87.12947751814937,
+            "complex_relative": 1.169001012744118
+          }
+        ]
+      }
+    },
+    {
+      "coarse": 32,
+      "fine": 36,
+      "metrics": {
+        "complex_rms_relative": 0.7613047721569632,
+        "magnitude_max_relative": 0.5476926714692769,
+        "magnitude_max_db": 6.891327510406892,
+        "phase_max_deg": 63.651615598346794,
+        "mask_floor": 0.6514398263666007,
+        "compared_frequency_count": 2,
+        "frequency_metrics": [
+          {
+            "frequency_hz": 40.0,
+            "masked_in": true,
+            "magnitude_absolute": 32.390688957171776,
+            "magnitude_relative": 0.5476926714692769,
+            "magnitude_db": 6.891327510406892,
+            "phase_deg": 63.651615598346794,
+            "complex_relative": 0.896152067216125
+          },
+          {
+            "frequency_hz": 80.0,
+            "masked_in": true,
+            "magnitude_absolute": 25.6561607582222,
+            "magnitude_relative": 0.1245424377320114,
+            "magnitude_db": 1.0195169877864239,
+            "phase_deg": 40.76547835161267,
+            "complex_relative": 0.7491090813120077
+          }
+        ]
+      }
+    },
+    {
+      "coarse": 36,
+      "fine": 40,
+      "metrics": {
+        "complex_rms_relative": 0.3673672932507242,
+        "magnitude_max_relative": 0.9820095441522041,
+        "magnitude_max_db": 5.942114829046249,
+        "phase_max_deg": 27.408370449371887,
+        "mask_floor": 0.5124807000499997,
+        "compared_frequency_count": 2,
+        "frequency_metrics": [
+          {
+            "frequency_hz": 40.0,
+            "masked_in": true,
+            "magnitude_absolute": 29.301727360853484,
+            "magnitude_relative": 0.9820095441522041,
+            "magnitude_db": 5.942114829046249,
+            "phase_deg": 27.408370449371887,
+            "complex_relative": 1.1871441546381978
+          },
+          {
+            "frequency_hz": 80.0,
+            "masked_in": true,
+            "magnitude_absolute": 43.94273408275035,
+            "magnitude_relative": 0.2711499697511412,
+            "magnitude_db": 2.0839358292258057,
+            "phase_deg": 6.866684363922502,
+            "complex_relative": 0.30291607398380505
+          }
+        ]
+      }
+    },
+    {
+      "coarse": 40,
+      "fine": 44,
+      "metrics": {
+        "complex_rms_relative": 0.9587423413785168,
+        "magnitude_max_relative": 0.5439913897220715,
+        "magnitude_max_db": 6.82053913965479,
+        "phase_max_deg": 150.6298197948165,
+        "mask_floor": 0.757030967989045,
+        "compared_frequency_count": 2,
+        "frequency_metrics": [
+          {
+            "frequency_hz": 40.0,
+            "masked_in": true,
+            "magnitude_absolute": 35.59561469867663,
+            "magnitude_relative": 0.5439913897220715,
+            "magnitude_db": 6.82053913965479,
+            "phase_deg": 150.6298197948165,
+            "complex_relative": 1.4151815280125053
+          },
+          {
+            "frequency_hz": 80.0,
+            "masked_in": true,
+            "magnitude_absolute": 77.33358490918349,
+            "magnitude_relative": 0.3230386579675354,
+            "magnitude_db": 3.388722621019137,
+            "phase_deg": 62.74444928198935,
+            "complex_relative": 0.9155512944726371
+          }
+        ]
+      }
+    }
+  ],
+  "weak_pairs": [
+    {
+      "coarse": 28,
+      "fine": 32,
+      "metrics": {
+        "complex_rms_relative": 0.9870800020430817,
+        "magnitude_max_relative": 0.9448085398735637,
+        "magnitude_max_db": 12.32432696592437,
+        "phase_max_deg": 75.73476427853865,
+        "mask_floor": 0.6277009276154228,
+        "compared_frequency_count": 2,
+        "frequency_metrics": [
+          {
+            "frequency_hz": 40.0,
+            "masked_in": true,
+            "magnitude_absolute": 23.082272348699398,
+            "magnitude_relative": 0.9448085398735637,
+            "magnitude_db": 5.777537057510008,
+            "phase_deg": 75.73476427853865,
+            "complex_relative": 1.9554630553001147
+          },
+          {
+            "frequency_hz": 80.0,
+            "masked_in": true,
+            "magnitude_absolute": 150.4638259491346,
+            "magnitude_relative": 0.7580176713613651,
+            "magnitude_db": 12.32432696592437,
+            "phase_deg": 74.73822862295285,
+            "complex_relative": 0.9649672064436778
+          }
+        ]
+      }
+    },
+    {
+      "coarse": 32,
+      "fine": 36,
+      "metrics": {
+        "complex_rms_relative": 0.6484923997379991,
+        "magnitude_max_relative": 0.3617931293574779,
+        "magnitude_max_db": 3.900770494041868,
+        "phase_max_deg": 44.46804343515444,
+        "mask_floor": 0.5464152405081767,
+        "compared_frequency_count": 2,
+        "frequency_metrics": [
+          {
+            "frequency_hz": 40.0,
+            "masked_in": true,
+            "magnitude_absolute": 13.84948393050054,
+            "magnitude_relative": 0.3617931293574779,
+            "magnitude_db": 3.900770494041868,
+            "phase_deg": 44.46804343515444,
+            "complex_relative": 0.7045612027130789
+          },
+          {
+            "frequency_hz": 80.0,
+            "masked_in": true,
+            "magnitude_absolute": 25.704791243068115,
+            "magnitude_relative": 0.14876174945568654,
+            "magnitude_db": 1.2045993270158852,
+            "phase_deg": 34.084585609735285,
+            "complex_relative": 0.6456152210511947
+          }
+        ]
+      }
+    },
+    {
+      "coarse": 36,
+      "fine": 40,
+      "metrics": {
+        "complex_rms_relative": 0.5092129530175008,
+        "magnitude_max_relative": 0.26853259437736593,
+        "magnitude_max_db": 2.566477170778416,
+        "phase_max_deg": 23.178189881310743,
+        "mask_floor": 0.4307459208617133,
+        "compared_frequency_count": 2,
+        "frequency_metrics": [
+          {
+            "frequency_hz": 40.0,
+            "masked_in": true,
+            "magnitude_absolute": 13.159428173216618,
+            "magnitude_relative": 0.2558231745314185,
+            "magnitude_db": 2.566477170778416,
+            "phase_deg": 17.706221723086543,
+            "complex_relative": 0.36871547284098183
+          },
+          {
+            "frequency_hz": 80.0,
+            "masked_in": true,
+            "magnitude_absolute": 36.57785054848867,
+            "magnitude_relative": 0.26853259437736593,
+            "magnitude_db": 2.066032614069759,
+            "phase_deg": 23.178189881310743,
+            "complex_relative": 0.5262018505824313
+          }
+        ]
+      }
+    },
+    {
+      "coarse": 40,
+      "fine": 44,
+      "metrics": {
+        "complex_rms_relative": 0.804492728236034,
+        "magnitude_max_relative": 0.8574679896889078,
+        "magnitude_max_db": 5.378426763362799,
+        "phase_max_deg": 52.08070245565767,
+        "mask_floor": 0.6442521694077366,
+        "compared_frequency_count": 2,
+        "frequency_metrics": [
+          {
+            "frequency_hz": 40.0,
+            "masked_in": true,
+            "magnitude_absolute": 23.74617763437267,
+            "magnitude_relative": 0.8574679896889078,
+            "magnitude_db": 5.378426763362799,
+            "phase_deg": 52.08070245565767,
+            "complex_relative": 1.4721310945682877
+          },
+          {
+            "frequency_hz": 80.0,
+            "masked_in": true,
+            "magnitude_absolute": 67.5166040083447,
+            "magnitude_relative": 0.3314016757480233,
+            "magnitude_db": 3.4966943248071325,
+            "phase_deg": 51.747289223795406,
+            "complex_relative": 0.7868441285267659
+          }
+        ]
+      }
+    }
+  ]
+}

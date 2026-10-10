@@ -1,0 +1,500 @@
+{
+  "plan_sha256": "e8eb68c5dd8cdcca36f1e25cd627fde84d1928e47d570bc4a2135b567b99ade7",
+  "plan": {
+    "scope": "New numerically qualified instantaneous Dirac-source solver with weak pressure observation; cannot qualify archived original rectangular PFFDTD",
+    "source": "q(t)=A delta(t), discrete q[0]=1 and q[n>0]=0, A=dt cancels in P/Q; no Gaussian pulse, no source lowpass",
+    "positions": "fixed physical source (1.5,2,2), receiver (2.5,2,2), exact point functionals, replaces moving original eight HDF5 points",
+    "room": "original 56m3 Neumann sloped prism, c343.2 rho1.2",
+    "observer": "C2 quintic start ramp 1ms, terminal ramp 10ms, full exact 250ms record, signed 40 and 80Hz; all modes retained",
+    "sem_ppw": [
+      28,
+      32,
+      36,
+      40,
+      44
+    ],
+    "spatial_gates": {
+      "complex_rms_relative": 0.02,
+      "magnitude_max_relative": 0.04,
+      "phase_max_deg": 2
+    },
+    "spatial_condition": "all four adjacent pairs under explicit error thresholds; strict monotonicity is not asserted for this changed contract",
+    "time_steps": [
+      1000,
+      2000,
+      4000,
+      8000
+    ],
+    "time_condition": "all complex errors decrease; final two orders 1.7 to2.3; finest relative error <=0.005",
+    "mfem_refinements": [
+      2,
+      3,
+      4
+    ],
+    "mfem_steps": 8000,
+    "independent_fine_pair_limits": {
+      "complex_rms_relative": 0.03,
+      "magnitude_max_relative": 0.05,
+      "phase_max_deg": 3
+    },
+    "independent_cross_limits": {
+      "complex_rms_relative": 0.03,
+      "magnitude_max_relative": 0.05,
+      "phase_max_deg": 3
+    },
+    "linear_solver": {
+      "rtol": 1e-11,
+      "atol": 0,
+      "maxiter": 350,
+      "residual_max": 1e-08
+    },
+    "excluded_claims": [
+      "old original gate solved",
+      "zero terminal-ramp limit",
+      "ordinary pointwise pressure converges",
+      "measured-room validation"
+    ],
+    "prospective": "record hash before any new physical-Dirac weak-observer numerical execution"
+  },
+  "legacy_status": "SELF_CONVERGENCE_FAILED",
+  "qualification": "FAIL_DIRAC_WEAK_OBSERVER",
+  "sem_cases": [
+    {
+      "ppw": 28,
+      "all_modes": 50653,
+      "cache_sha256": "a103cb590191d00d429a2c000c1f15de0f7c65994e3cafca9fbc3b62462ae49e",
+      "signed_40_80": [
+        [
+          24.825811405644004,
+          27.116975195315938
+        ],
+        [
+          72.35004680825003,
+          -200.63566021122165
+        ]
+      ]
+    },
+    {
+      "ppw": 32,
+      "all_modes": 68921,
+      "cache_sha256": "93103e9a4c7e0e8d6907510e9981c095eff3a823a93c55629183ba6391b2a372",
+      "signed_40_80": [
+        [
+          24.625347504453792,
+          27.105489015669107
+        ],
+        [
+          72.16234168555324,
+          -200.62075356668697
+        ]
+      ]
+    },
+    {
+      "ppw": 36,
+      "all_modes": 91125,
+      "cache_sha256": "9a029d148eecb104c9760188ecec17e941d82e13a542305f531d1e0b6cfdfff1",
+      "signed_40_80": [
+        [
+          24.57070058663228,
+          27.0980278076739
+        ],
+        [
+          72.11764633135219,
+          -200.66335883045485
+        ]
+      ]
+    },
+    {
+      "ppw": 40,
+      "all_modes": 117649,
+      "cache_sha256": "e4f001f70b2065c3e10cf8d8803588a7b1e89e9f26482ef9b89b219ad771b209",
+      "signed_40_80": [
+        [
+          24.63635515454537,
+          27.1121182957505
+        ],
+        [
+          72.16393989514803,
+          -200.64877536061095
+        ]
+      ]
+    },
+    {
+      "ppw": 44,
+      "all_modes": 148877,
+      "cache_sha256": "61a3361621024ba8cc29e5829d5878128805d4753ed3037c05c6d87c150f79e4",
+      "signed_40_80": [
+        [
+          24.652871393405032,
+          27.114788263409107
+        ],
+        [
+          72.16458611164788,
+          -200.67135824297608
+        ]
+      ]
+    }
+  ],
+  "spatial_pairs": [
+    {
+      "coarse": 28,
+      "fine": 32,
+      "metrics": {
+        "complex_rms_relative": 0.0012724702890570814,
+        "magnitude_max_relative": 0.003920382261364086,
+        "magnitude_max_db": 0.03398543315944059,
+        "phase_max_deg": 0.21919707826108947,
+        "mask_floor": 0.6742113193888685,
+        "compared_frequency_count": 2,
+        "frequency_metrics": [
+          {
+            "frequency_hz": 40.0,
+            "masked_in": true,
+            "magnitude_absolute": 0.14356926264814973,
+            "magnitude_relative": 0.003920382261364086,
+            "magnitude_db": 0.03398543315944059,
+            "phase_deg": 0.21919707826108947,
+            "complex_relative": 0.005482957292943874
+          },
+          {
+            "frequency_hz": 80.0,
+            "masked_in": true,
+            "magnitude_absolute": 0.07762758581546336,
+            "magnitude_relative": 0.00036409946463010473,
+            "magnitude_db": 0.00316195216943463,
+            "phase_deg": 0.04609333215947231,
+            "complex_relative": 0.0008831719851775001
+          }
+        ]
+      },
+      "pass": true
+    },
+    {
+      "coarse": 32,
+      "fine": 36,
+      "metrics": {
+        "complex_rms_relative": 0.0003826957119978452,
+        "magnitude_max_relative": 0.001155081863046047,
+        "magnitude_max_db": 0.010027123625247686,
+        "phase_max_deg": 0.05549631838914593,
+        "mask_floor": 0.6742902823672745,
+        "compared_frequency_count": 2,
+        "frequency_metrics": [
+          {
+            "frequency_hz": 40.0,
+            "masked_in": true,
+            "magnitude_absolute": 0.042251726795946354,
+            "magnitude_relative": 0.001155081863046047,
+            "magnitude_db": 0.010027123625247686,
+            "phase_deg": 0.05549631838914593,
+            "complex_relative": 0.0015078033793354802
+          },
+          {
+            "frequency_hz": 80.0,
+            "masked_in": true,
+            "magnitude_absolute": 0.02497028625938924,
+            "magnitude_relative": 0.00011710531868983133,
+            "magnitude_db": 0.0010172234364699728,
+            "phase_deg": 0.015175865859617943,
+            "complex_relative": 0.0002895875251263007
+          }
+        ]
+      },
+      "pass": true
+    },
+    {
+      "coarse": 36,
+      "fine": 40,
+      "metrics": {
+        "complex_rms_relative": 0.0003829549555857869,
+        "magnitude_max_relative": 0.0014893598181305236,
+        "magnitude_max_db": 0.012946058075855287,
+        "phase_max_deg": 0.06126701612831198,
+        "mask_floor": 0.6742964131218812,
+        "compared_frequency_count": 2,
+        "frequency_metrics": [
+          {
+            "frequency_hz": 40.0,
+            "masked_in": true,
+            "magnitude_absolute": 0.05456053671866812,
+            "magnitude_relative": 0.0014893598181305236,
+            "magnitude_db": 0.012946058075855287,
+            "phase_deg": 0.06126701612831198,
+            "complex_relative": 0.0018330073460174486
+          },
+          {
+            "frequency_hz": 80.0,
+            "masked_in": true,
+            "magnitude_absolute": 0.00193871483327257,
+            "magnitude_relative": 9.092076551646854e-06,
+            "magnitude_db": 7.897313252383065e-05,
+            "phase_deg": 0.013031476330752412,
+            "complex_relative": 0.00022762279159195453
+          }
+        ]
+      },
+      "pass": true
+    },
+    {
+      "coarse": 40,
+      "fine": 44,
+      "metrics": {
+        "complex_rms_relative": 0.0001299232641079527,
+        "magnitude_max_relative": 0.00035705331777456564,
+        "magnitude_max_db": 0.003101879514240932,
+        "phase_max_deg": 0.01630371184347723,
+        "mask_floor": 0.6743643044211808,
+        "compared_frequency_count": 2,
+        "frequency_metrics": [
+          {
+            "frequency_hz": 40.0,
+            "masked_in": true,
+            "magnitude_absolute": 0.013084802386401861,
+            "magnitude_relative": 0.00035705331777456564,
+            "magnitude_db": 0.003101879514240932,
+            "phase_deg": 0.01630371184347723,
+            "complex_relative": 0.00045654006107629085
+          },
+          {
+            "frequency_hz": 80.0,
+            "masked_in": true,
+            "magnitude_absolute": 0.02146911390948958,
+            "magnitude_relative": 0.00010067451502769183,
+            "magnitude_db": 0.0008744917471513233,
+            "phase_deg": 0.0018900380931370364,
+            "complex_relative": 0.00010594062569840883
+          }
+        ]
+      },
+      "pass": true
+    }
+  ],
+  "time_refinement": [
+    {
+      "steps": 1000,
+      "relative_error": 0.12116599529004053,
+      "signed_40_80": [
+        [
+          21.977855062162135,
+          31.000623603191176
+        ],
+        [
+          86.04408226224503,
+          -178.93490443865713
+        ]
+      ]
+    },
+    {
+      "steps": 2000,
+      "relative_error": 0.04594289002420994,
+      "signed_40_80": [
+        [
+          23.95655464581033,
+          27.98130171721855
+        ],
+        [
+          79.54291932137431,
+          -194.1025583149813
+        ]
+      ],
+      "order_from_previous": 1.3990713525248197
+    },
+    {
+      "steps": 4000,
+      "relative_error": 0.011724470974003047,
+      "signed_40_80": [
+        [
+          24.849986794491773,
+          27.421206317093716
+        ],
+        [
+          74.41036343134088,
+          -199.54898394694308
+        ]
+      ],
+      "order_from_previous": 1.9703187842741319
+    },
+    {
+      "steps": 8000,
+      "relative_error": 0.0026332363968447846,
+      "signed_40_80": [
+        [
+          24.614795806170058,
+          27.156184732407848
+        ],
+        [
+          72.65794881459313,
+          -200.39194007464948
+        ]
+      ],
+      "order_from_previous": 2.154613878422476
+    }
+  ],
+  "mfem_cases": [
+    {
+      "refinement": 2,
+      "dofs": 729,
+      "matrix_sha256": "e61410d4a69000c39975762b9986008974353953f7d8d9f100f9953a33c5ecb4",
+      "source": "Dirac initial velocity jump, no later input",
+      "impulse_area": 3.125e-05,
+      "steps": 8000,
+      "dt": 3.125e-05,
+      "signed_40_80": [
+        [
+          34.29675567689911,
+          16.664711655754633
+        ],
+        [
+          14.15119967457392,
+          -197.13055589956335
+        ]
+      ],
+      "max_true_residual": 9.99940375195256e-12,
+      "max_cg_iterations": 48,
+      "elapsed_s": 6.4514733999967575
+    },
+    {
+      "refinement": 3,
+      "dofs": 4913,
+      "matrix_sha256": "6a43a624223fa512152059d103c4d841723fa1266ea8a22842322fb50db42511",
+      "source": "Dirac initial velocity jump, no later input",
+      "impulse_area": 3.125e-05,
+      "steps": 8000,
+      "dt": 3.125e-05,
+      "signed_40_80": [
+        [
+          33.76385091237146,
+          28.79297219195138
+        ],
+        [
+          80.61736837622088,
+          -194.19121652961175
+        ]
+      ],
+      "max_true_residual": 9.99952886910334e-12,
+      "max_cg_iterations": 49,
+      "elapsed_s": 25.81853780010715
+    },
+    {
+      "refinement": 4,
+      "dofs": 35937,
+      "matrix_sha256": "e1c67d02db77a6e8775a0a59d8e75fa996434d58f8efae077f4cec2cf2c831ed",
+      "source": "Dirac initial velocity jump, no later input",
+      "impulse_area": 3.125e-05,
+      "steps": 8000,
+      "dt": 3.125e-05,
+      "signed_40_80": [
+        [
+          25.119465706125222,
+          27.641362709032467
+        ],
+        [
+          72.57718635122336,
+          -199.87481792496905
+        ]
+      ],
+      "max_true_residual": 9.996552867001978e-12,
+      "max_cg_iterations": 49,
+      "elapsed_s": 294.4263899996877
+    }
+  ],
+  "time_pass": true,
+  "mfem_pairs": [
+    {
+      "coarse": 2,
+      "fine": 3,
+      "metrics": {
+        "complex_rms_relative": 0.3147151271805689,
+        "magnitude_max_relative": 0.14068430851969962,
+        "magnitude_max_db": 1.3169451545592328,
+        "phase_max_deg": 18.439513376212375,
+        "mask_floor": 0.664901411196862,
+        "compared_frequency_count": 2,
+        "frequency_metrics": [
+          {
+            "frequency_hz": 40.0,
+            "masked_in": true,
+            "magnitude_absolute": 6.242695387296678,
+            "magnitude_relative": 0.14068430851969962,
+            "magnitude_db": 1.3169451545592328,
+            "phase_deg": 14.541713518742483,
+            "complex_relative": 0.2735841064154304
+          },
+          {
+            "frequency_hz": 80.0,
+            "masked_in": true,
+            "magnitude_absolute": 12.622456178096712,
+            "magnitude_relative": 0.06003252589974029,
+            "magnitude_db": 0.5377434825416166,
+            "phase_deg": 18.439513376212375,
+            "complex_relative": 0.31642271091964314
+          }
+        ]
+      }
+    },
+    {
+      "coarse": 3,
+      "fine": 4,
+      "metrics": {
+        "complex_rms_relative": 0.0609216311087405,
+        "magnitude_max_relative": 0.1880489165002001,
+        "magnitude_max_db": 1.4966864514346956,
+        "phase_max_deg": 7.279859098573013,
+        "mask_floor": 0.6724387765380557,
+        "compared_frequency_count": 2,
+        "frequency_metrics": [
+          {
+            "frequency_hz": 40.0,
+            "masked_in": true,
+            "magnitude_absolute": 7.0236521793777555,
+            "magnitude_relative": 0.1880489165002001,
+            "magnitude_db": 1.4966864514346956,
+            "phase_deg": 7.279859098573013,
+            "complex_relative": 0.23348662980060025
+          },
+          {
+            "frequency_hz": 80.0,
+            "masked_in": true,
+            "magnitude_absolute": 2.383524203498439,
+            "magnitude_relative": 0.01120899865412086,
+            "magnitude_db": 0.09790989210381584,
+            "phase_deg": 2.5888725108828794,
+            "complex_relative": 0.0463037693234462
+          }
+        ]
+      }
+    }
+  ],
+  "cross_solver": {
+    "metrics": {
+      "complex_rms_relative": 0.005280460241752111,
+      "magnitude_max_relative": 0.01883525688612725,
+      "magnitude_max_db": 0.1651613199163192,
+      "phase_max_deg": 0.1772428915941191,
+      "mask_floor": 0.6724387765380557,
+      "compared_frequency_count": 2,
+      "frequency_metrics": [
+        {
+          "frequency_hz": 40.0,
+          "masked_in": true,
+          "magnitude_absolute": 0.7034993635671754,
+          "magnitude_relative": 0.01883525688612725,
+          "magnitude_db": 0.1651613199163192,
+          "phase_deg": 0.01381229019955299,
+          "complex_relative": 0.018836770478961457
+        },
+        {
+          "frequency_hz": 80.0,
+          "masked_in": true,
+          "magnitude_absolute": 0.6089053808837548,
+          "magnitude_relative": 0.00286349917688907,
+          "magnitude_db": 0.024836495134041424,
+          "phase_deg": 0.1772428915941191,
+          "complex_relative": 0.004218600663963939
+        }
+      ]
+    },
+    "pass": true
+  },
+  "independent_fine_pair_pass": false
+}

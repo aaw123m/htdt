@@ -1,0 +1,16 @@
+{
+  "purpose": "Temporal consistency check after exact-time weak observer fails strict monotonicity; no replacement of previously failed experiment",
+  "parent_plan_sha256": "796d87da6feeb058a596314e270b599b25f54071f31fe65ac41859f5792513ca",
+  "same_original_all_mode_eight_node_caches": true,
+  "temporal_source": "original q0 Newmark kick unchanged, derivative of exact sinusoidal interpolant observed with compact endpoint window",
+  "clock": "native (Nt-1)*dt",
+  "ppw": [28,32,36,40,44],
+  "start_ramp_s": 0.001,
+  "end_ramp_s": [0.02,0.01,0.005,0.0025,0.00125],
+  "primary_end_ramp_s": 0.01,
+  "fixed_ppw44_time_steps": [1000,2000,4000,8000],
+  "fixed_time_record_s": 0.25,
+  "publish_all_failed_arms": true,
+  "legacy_rectangular_pressure_gate": "unchanged, still failed; this changed observer cannot qualify it",
+  "prospective": "hash this addendum before running the new numerical arm"
+}

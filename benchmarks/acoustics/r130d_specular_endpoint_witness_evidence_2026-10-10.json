@@ -1,0 +1,1351 @@
+{
+  "scope": "Partial non-corner x/y-wall specular image family only, NOT full sloped-room Green solution",
+  "family_size": 1341,
+  "nearest_250ms_paths": [
+    {
+      "n": -8,
+      "m": -7,
+      "sx": 1,
+      "sy": 1,
+      "distance_m": 85.7962703152066,
+      "arrival_s": 0.24998913262006586,
+      "gap_from_250ms_us": -10.867379934137444
+    },
+    {
+      "n": -8,
+      "m": 7,
+      "sx": 1,
+      "sy": 1,
+      "distance_m": 85.7962703152066,
+      "arrival_s": 0.24998913262006586,
+      "gap_from_250ms_us": -10.867379934137444
+    },
+    {
+      "n": 4,
+      "m": -10,
+      "sx": 1,
+      "sy": 1,
+      "distance_m": 85.7962703152066,
+      "arrival_s": 0.24998913262006586,
+      "gap_from_250ms_us": -10.867379934137444
+    },
+    {
+      "n": 4,
+      "m": 10,
+      "sx": 1,
+      "sy": 1,
+      "distance_m": 85.7962703152066,
+      "arrival_s": 0.24998913262006586,
+      "gap_from_250ms_us": -10.867379934137444
+    },
+    {
+      "n": -9,
+      "m": -5,
+      "sx": -1,
+      "sy": 1,
+      "distance_m": 85.88364221433555,
+      "arrival_s": 0.250243712745733,
+      "gap_from_250ms_us": 243.7127457329824
+    },
+    {
+      "n": -9,
+      "m": 5,
+      "sx": -1,
+      "sy": 1,
+      "distance_m": 85.88364221433555,
+      "arrival_s": 0.250243712745733,
+      "gap_from_250ms_us": 243.7127457329824
+    },
+    {
+      "n": 10,
+      "m": -5,
+      "sx": -1,
+      "sy": 1,
+      "distance_m": 85.88364221433555,
+      "arrival_s": 0.250243712745733,
+      "gap_from_250ms_us": 243.7127457329824
+    },
+    {
+      "n": 10,
+      "m": 5,
+      "sx": -1,
+      "sy": 1,
+      "distance_m": 85.88364221433555,
+      "arrival_s": 0.250243712745733,
+      "gap_from_250ms_us": 243.7127457329824
+    },
+    {
+      "n": -10,
+      "m": -3,
+      "sx": 1,
+      "sy": -1,
+      "distance_m": 85.70297544426332,
+      "arrival_s": 0.24971729441801666,
+      "gap_from_250ms_us": -282.7055819833446
+    },
+    {
+      "n": -10,
+      "m": 4,
+      "sx": 1,
+      "sy": -1,
+      "distance_m": 85.70297544426332,
+      "arrival_s": 0.24971729441801666,
+      "gap_from_250ms_us": -282.7055819833446
+    },
+    {
+      "n": -7,
+      "m": -8,
+      "sx": 1,
+      "sy": 1,
+      "distance_m": 85.70297544426332,
+      "arrival_s": 0.24971729441801666,
+      "gap_from_250ms_us": -282.7055819833446
+    },
+    {
+      "n": -7,
+      "m": 8,
+      "sx": 1,
+      "sy": 1,
+      "distance_m": 85.70297544426332,
+      "arrival_s": 0.24971729441801666,
+      "gap_from_250ms_us": -282.7055819833446
+    }
+  ],
+  "cases": [
+    {
+      "ppw": 28,
+      "native_dt_s": 0.00020599032818587005,
+      "Nt": 1214,
+      "last_pressure_time_s": 0.24986626808946039,
+      "nominal_half_open_record_endpoint_s": 0.25007225841764624,
+      "gap_last_sample_from_250ms_us": -133.73191053961398,
+      "native_edge_straddling_path_count": 20,
+      "straddling_paths": [
+        {
+          "path": [
+            -8,
+            -7,
+            1,
+            1
+          ],
+          "point_arrival_s": 0.24998913262006586,
+          "min_eight_pair_arrival_s": 0.24944255945113705,
+          "max_eight_pair_arrival_s": 0.2504501949464364,
+          "included_weight": 0.16800850413751892
+        },
+        {
+          "path": [
+            -8,
+            7,
+            1,
+            1
+          ],
+          "point_arrival_s": 0.24998913262006586,
+          "min_eight_pair_arrival_s": 0.24944255945113705,
+          "max_eight_pair_arrival_s": 0.2504501949464364,
+          "included_weight": 0.16800850413751886
+        },
+        {
+          "path": [
+            4,
+            -10,
+            1,
+            1
+          ],
+          "point_arrival_s": 0.24998913262006586,
+          "min_eight_pair_arrival_s": 0.24954757477598735,
+          "max_eight_pair_arrival_s": 0.25047203129520235,
+          "included_weight": 0.14950065474541133
+        },
+        {
+          "path": [
+            4,
+            10,
+            1,
+            1
+          ],
+          "point_arrival_s": 0.24998913262006586,
+          "min_eight_pair_arrival_s": 0.24954757477598735,
+          "max_eight_pair_arrival_s": 0.25047203129520235,
+          "included_weight": 0.14950065474541133
+        },
+        {
+          "path": [
+            -9,
+            -5,
+            -1,
+            1
+          ],
+          "point_arrival_s": 0.250243712745733,
+          "min_eight_pair_arrival_s": 0.24956095535039774,
+          "max_eight_pair_arrival_s": 0.25052609641160406,
+          "included_weight": 0.023135129385195866
+        },
+        {
+          "path": [
+            -9,
+            5,
+            -1,
+            1
+          ],
+          "point_arrival_s": 0.250243712745733,
+          "min_eight_pair_arrival_s": 0.24956095535039774,
+          "max_eight_pair_arrival_s": 0.25052609641160406,
+          "included_weight": 0.023135129385195866
+        },
+        {
+          "path": [
+            -10,
+            -3,
+            1,
+            -1
+          ],
+          "point_arrival_s": 0.24971729441801666,
+          "min_eight_pair_arrival_s": 0.2491359319656088,
+          "max_eight_pair_arrival_s": 0.2500442935632777,
+          "included_weight": 0.7728337720411865
+        },
+        {
+          "path": [
+            -10,
+            4,
+            1,
+            -1
+          ],
+          "point_arrival_s": 0.24971729441801666,
+          "min_eight_pair_arrival_s": 0.24928354475923145,
+          "max_eight_pair_arrival_s": 0.2501926633756263,
+          "included_weight": 0.7649640569221
+        },
+        {
+          "path": [
+            -7,
+            -8,
+            1,
+            1
+          ],
+          "point_arrival_s": 0.24971729441801666,
+          "min_eight_pair_arrival_s": 0.2491754208029634,
+          "max_eight_pair_arrival_s": 0.25018413222166563,
+          "included_weight": 0.6971804108337837
+        },
+        {
+          "path": [
+            -7,
+            8,
+            1,
+            1
+          ],
+          "point_arrival_s": 0.24971729441801666,
+          "min_eight_pair_arrival_s": 0.2491754208029634,
+          "max_eight_pair_arrival_s": 0.25018413222166563,
+          "included_weight": 0.6971804108337837
+        },
+        {
+          "path": [
+            -2,
+            -10,
+            1,
+            -1
+          ],
+          "point_arrival_s": 0.24971729441801666,
+          "min_eight_pair_arrival_s": 0.24906340426376566,
+          "max_eight_pair_arrival_s": 0.2499054130212911,
+          "included_weight": 0.8431098267988891
+        },
+        {
+          "path": [
+            -2,
+            11,
+            1,
+            -1
+          ],
+          "point_arrival_s": 0.24971729441801666,
+          "min_eight_pair_arrival_s": 0.24950740588126322,
+          "max_eight_pair_arrival_s": 0.2503492134510494,
+          "included_weight": 0.6903975700696885
+        },
+        {
+          "path": [
+            9,
+            -6,
+            1,
+            1
+          ],
+          "point_arrival_s": 0.24971729441801666,
+          "min_eight_pair_arrival_s": 0.24926832646896827,
+          "max_eight_pair_arrival_s": 0.2502603544281594,
+          "included_weight": 0.831991495862481
+        },
+        {
+          "path": [
+            9,
+            6,
+            1,
+            1
+          ],
+          "point_arrival_s": 0.24971729441801666,
+          "min_eight_pair_arrival_s": 0.24926832646896827,
+          "max_eight_pair_arrival_s": 0.2502603544281594,
+          "included_weight": 0.8319914958624809
+        },
+        {
+          "path": [
+            -8,
+            7,
+            -1,
+            -1
+          ],
+          "point_arrival_s": 0.24942814171366778,
+          "min_eight_pair_arrival_s": 0.24888529882970153,
+          "max_eight_pair_arrival_s": 0.24988701451670256,
+          "included_weight": 0.9778598681316362
+        },
+        {
+          "path": [
+            -6,
+            9,
+            -1,
+            -1
+          ],
+          "point_arrival_s": 0.24942814171366778,
+          "min_eight_pair_arrival_s": 0.24897011585570464,
+          "max_eight_pair_arrival_s": 0.24997149165399626,
+          "included_weight": 0.9778598681316362
+        },
+        {
+          "path": [
+            7,
+            -8,
+            -1,
+            -1
+          ],
+          "point_arrival_s": 0.24942814171366778,
+          "min_eight_pair_arrival_s": 0.24888529882970148,
+          "max_eight_pair_arrival_s": 0.24988701451670264,
+          "included_weight": 0.9818423596685317
+        },
+        {
+          "path": [
+            7,
+            9,
+            -1,
+            -1
+          ],
+          "point_arrival_s": 0.24942814171366778,
+          "min_eight_pair_arrival_s": 0.24924492292529868,
+          "max_eight_pair_arrival_s": 0.2502464917369164,
+          "included_weight": 0.9805237240807588
+        },
+        {
+          "path": [
+            9,
+            -6,
+            -1,
+            -1
+          ],
+          "point_arrival_s": 0.24942814171366778,
+          "min_eight_pair_arrival_s": 0.2489701158557047,
+          "max_eight_pair_arrival_s": 0.24997149165399624,
+          "included_weight": 0.9818423596685317
+        },
+        {
+          "path": [
+            9,
+            7,
+            -1,
+            -1
+          ],
+          "point_arrival_s": 0.24942814171366778,
+          "min_eight_pair_arrival_s": 0.2492449229252987,
+          "max_eight_pair_arrival_s": 0.2502464917369164,
+          "included_weight": 0.9805237240807588
+        }
+      ],
+      "signed_partial_image_sum_40_80": {
+        "native": [
+          [
+            3.959299969674788,
+            2.098841825272352
+          ],
+          [
+            8.539920793126448,
+            -71.65475033759279
+          ]
+        ],
+        "fixed_250ms": [
+          [
+            3.94471963945643,
+            1.2071705045622991
+          ],
+          [
+            8.481612377458411,
+            -73.43723237210693
+          ]
+        ]
+      },
+      "signed_exact_point_partial_image_sum_40_80": {
+        "native": [
+          [
+            3.9769260174726675,
+            1.72882346366643
+          ],
+          [
+            8.63319481764134,
+            -72.74839194379503
+          ]
+        ],
+        "fixed_250ms": [
+          [
+            3.973869921457652,
+            0.609897878961096
+          ],
+          [
+            8.620970479177217,
+            -74.98621807217796
+          ]
+        ]
+      }
+    },
+    {
+      "ppw": 32,
+      "native_dt_s": 0.0001802415371626363,
+      "Nt": 1388,
+      "last_pressure_time_s": 0.24999501204457655,
+      "nominal_half_open_record_endpoint_s": 0.2501752535817392,
+      "gap_last_sample_from_250ms_us": -4.987955423446655,
+      "native_edge_straddling_path_count": 16,
+      "straddling_paths": [
+        {
+          "path": [
+            -8,
+            -7,
+            1,
+            1
+          ],
+          "point_arrival_s": 0.24998913262006586,
+          "min_eight_pair_arrival_s": 0.2494717004698777,
+          "max_eight_pair_arrival_s": 0.25035336137876263,
+          "included_weight": 0.5742027561995555
+        },
+        {
+          "path": [
+            -8,
+            7,
+            1,
+            1
+          ],
+          "point_arrival_s": 0.24998913262006586,
+          "min_eight_pair_arrival_s": 0.2494717004698777,
+          "max_eight_pair_arrival_s": 0.25035336137876263,
+          "included_weight": 0.5742027561995555
+        },
+        {
+          "path": [
+            4,
+            -10,
+            1,
+            1
+          ],
+          "point_arrival_s": 0.24998913262006586,
+          "min_eight_pair_arrival_s": 0.2496214307939446,
+          "max_eight_pair_arrival_s": 0.25043036187888934,
+          "included_weight": 0.4374410670919855
+        },
+        {
+          "path": [
+            4,
+            10,
+            1,
+            1
+          ],
+          "point_arrival_s": 0.24998913262006586,
+          "min_eight_pair_arrival_s": 0.2496214307939446,
+          "max_eight_pair_arrival_s": 0.25043036187888934,
+          "included_weight": 0.43744106709198555
+        },
+        {
+          "path": [
+            -9,
+            -5,
+            -1,
+            1
+          ],
+          "point_arrival_s": 0.250243712745733,
+          "min_eight_pair_arrival_s": 0.24973978026207974,
+          "max_eight_pair_arrival_s": 0.2505841855236026,
+          "included_weight": 0.08533139023672418
+        },
+        {
+          "path": [
+            -9,
+            5,
+            -1,
+            1
+          ],
+          "point_arrival_s": 0.250243712745733,
+          "min_eight_pair_arrival_s": 0.24973978026207974,
+          "max_eight_pair_arrival_s": 0.2505841855236026,
+          "included_weight": 0.08533139023672418
+        },
+        {
+          "path": [
+            10,
+            -5,
+            -1,
+            1
+          ],
+          "point_arrival_s": 0.250243712745733,
+          "min_eight_pair_arrival_s": 0.24990355592008773,
+          "max_eight_pair_arrival_s": 0.2507478708380539,
+          "included_weight": 0.049646976611172254
+        },
+        {
+          "path": [
+            10,
+            5,
+            -1,
+            1
+          ],
+          "point_arrival_s": 0.250243712745733,
+          "min_eight_pair_arrival_s": 0.24990355592008773,
+          "max_eight_pair_arrival_s": 0.2507478708380539,
+          "included_weight": 0.049646976611172254
+        },
+        {
+          "path": [
+            -10,
+            -3,
+            1,
+            -1
+          ],
+          "point_arrival_s": 0.24971729441801666,
+          "min_eight_pair_arrival_s": 0.249296026423791,
+          "max_eight_pair_arrival_s": 0.25009149066037695,
+          "included_weight": 0.9908781760832801
+        },
+        {
+          "path": [
+            -7,
+            -8,
+            1,
+            1
+          ],
+          "point_arrival_s": 0.24971729441801666,
+          "min_eight_pair_arrival_s": 0.24920876881485032,
+          "max_eight_pair_arrival_s": 0.2500913566529768,
+          "included_weight": 0.9474956434399835
+        },
+        {
+          "path": [
+            -7,
+            8,
+            1,
+            1
+          ],
+          "point_arrival_s": 0.24971729441801666,
+          "min_eight_pair_arrival_s": 0.24920876881485032,
+          "max_eight_pair_arrival_s": 0.25009135665297677,
+          "included_weight": 0.9474956434399835
+        },
+        {
+          "path": [
+            -2,
+            -10,
+            1,
+            -1
+          ],
+          "point_arrival_s": 0.24971729441801666,
+          "min_eight_pair_arrival_s": 0.24954484957223919,
+          "max_eight_pair_arrival_s": 0.25028132037555617,
+          "included_weight": 0.9780904798387308
+        },
+        {
+          "path": [
+            9,
+            -6,
+            1,
+            1
+          ],
+          "point_arrival_s": 0.24971729441801666,
+          "min_eight_pair_arrival_s": 0.24936730485002784,
+          "max_eight_pair_arrival_s": 0.25023528467520256,
+          "included_weight": 0.9193124949462264
+        },
+        {
+          "path": [
+            9,
+            6,
+            1,
+            1
+          ],
+          "point_arrival_s": 0.24971729441801666,
+          "min_eight_pair_arrival_s": 0.24936730485002784,
+          "max_eight_pair_arrival_s": 0.25023528467520256,
+          "included_weight": 0.9193124949462264
+        },
+        {
+          "path": [
+            7,
+            -8,
+            -1,
+            -1
+          ],
+          "point_arrival_s": 0.24942814171366778,
+          "min_eight_pair_arrival_s": 0.24922105060964606,
+          "max_eight_pair_arrival_s": 0.25009734761746005,
+          "included_weight": 0.9978606369806828
+        },
+        {
+          "path": [
+            9,
+            -6,
+            -1,
+            -1
+          ],
+          "point_arrival_s": 0.24942814171366778,
+          "min_eight_pair_arrival_s": 0.2491972032919237,
+          "max_eight_pair_arrival_s": 0.2500735838644884,
+          "included_weight": 0.9978606369806828
+        }
+      ],
+      "signed_partial_image_sum_40_80": {
+        "native": [
+          [
+            3.9504025280671407,
+            1.1195155151404883
+          ],
+          [
+            8.51949865278857,
+            -73.70629657877487
+          ]
+        ],
+        "fixed_250ms": [
+          [
+            3.9504025280671407,
+            1.1195155151404883
+          ],
+          [
+            8.51949865278857,
+            -73.70629657877487
+          ]
+        ]
+      },
+      "signed_exact_point_partial_image_sum_40_80": {
+        "native": [
+          [
+            3.973869921457652,
+            0.609897878961096
+          ],
+          [
+            8.620970479177217,
+            -74.98621807217796
+          ]
+        ],
+        "fixed_250ms": [
+          [
+            3.973869921457652,
+            0.609897878961096
+          ],
+          [
+            8.620970479177217,
+            -74.98621807217796
+          ]
+        ]
+      }
+    },
+    {
+      "ppw": 36,
+      "native_dt_s": 0.00016021469970012116,
+      "Nt": 1561,
+      "last_pressure_time_s": 0.24993493153218901,
+      "nominal_half_open_record_endpoint_s": 0.2500951462318891,
+      "gap_last_sample_from_250ms_us": -65.06846781098585,
+      "native_edge_straddling_path_count": 16,
+      "straddling_paths": [
+        {
+          "path": [
+            -8,
+            -7,
+            1,
+            1
+          ],
+          "point_arrival_s": 0.24998913262006586,
+          "min_eight_pair_arrival_s": 0.24949436887614815,
+          "max_eight_pair_arrival_s": 0.2502780535117987,
+          "included_weight": 0.48899110702299914
+        },
+        {
+          "path": [
+            -8,
+            7,
+            1,
+            1
+          ],
+          "point_arrival_s": 0.24998913262006586,
+          "min_eight_pair_arrival_s": 0.24949436887614815,
+          "max_eight_pair_arrival_s": 0.2502780535117987,
+          "included_weight": 0.488991107022999
+        },
+        {
+          "path": [
+            4,
+            -10,
+            1,
+            1
+          ],
+          "point_arrival_s": 0.24998913262006586,
+          "min_eight_pair_arrival_s": 0.24967888685219364,
+          "max_eight_pair_arrival_s": 0.25039795854417746,
+          "included_weight": 0.24955988067876186
+        },
+        {
+          "path": [
+            4,
+            10,
+            1,
+            1
+          ],
+          "point_arrival_s": 0.24998913262006586,
+          "min_eight_pair_arrival_s": 0.24967888685219364,
+          "max_eight_pair_arrival_s": 0.25039795854417746,
+          "included_weight": 0.24955988067876184
+        },
+        {
+          "path": [
+            -9,
+            -5,
+            -1,
+            1
+          ],
+          "point_arrival_s": 0.250243712745733,
+          "min_eight_pair_arrival_s": 0.24987887156798186,
+          "max_eight_pair_arrival_s": 0.25062938962169845,
+          "included_weight": 0.05278541121354612
+        },
+        {
+          "path": [
+            -9,
+            5,
+            -1,
+            1
+          ],
+          "point_arrival_s": 0.250243712745733,
+          "min_eight_pair_arrival_s": 0.24987887156798186,
+          "max_eight_pair_arrival_s": 0.25062938962169845,
+          "included_weight": 0.052785411213546116
+        },
+        {
+          "path": [
+            10,
+            -5,
+            -1,
+            1
+          ],
+          "point_arrival_s": 0.250243712745733,
+          "min_eight_pair_arrival_s": 0.2498582390467711,
+          "max_eight_pair_arrival_s": 0.2506087672161224,
+          "included_weight": 0.04231436726898341
+        },
+        {
+          "path": [
+            10,
+            5,
+            -1,
+            1
+          ],
+          "point_arrival_s": 0.250243712745733,
+          "min_eight_pair_arrival_s": 0.2498582390467711,
+          "max_eight_pair_arrival_s": 0.2506087672161224,
+          "included_weight": 0.0423143672689834
+        },
+        {
+          "path": [
+            -10,
+            -3,
+            1,
+            -1
+          ],
+          "point_arrival_s": 0.24971729441801666,
+          "min_eight_pair_arrival_s": 0.24923932855848352,
+          "max_eight_pair_arrival_s": 0.2499461337572436,
+          "included_weight": 0.8728280115024228
+        },
+        {
+          "path": [
+            -10,
+            4,
+            1,
+            -1
+          ],
+          "point_arrival_s": 0.24971729441801666,
+          "min_eight_pair_arrival_s": 0.24923172420458364,
+          "max_eight_pair_arrival_s": 0.24993849909502527,
+          "included_weight": 0.8495740147778423
+        },
+        {
+          "path": [
+            -7,
+            -8,
+            1,
+            1
+          ],
+          "point_arrival_s": 0.24971729441801666,
+          "min_eight_pair_arrival_s": 0.24923470860096378,
+          "max_eight_pair_arrival_s": 0.2500192071424806,
+          "included_weight": 0.8616888592252636
+        },
+        {
+          "path": [
+            -7,
+            8,
+            1,
+            1
+          ],
+          "point_arrival_s": 0.24971729441801666,
+          "min_eight_pair_arrival_s": 0.24923470860096378,
+          "max_eight_pair_arrival_s": 0.2500192071424806,
+          "included_weight": 0.8616888592252635
+        },
+        {
+          "path": [
+            -2,
+            -10,
+            1,
+            -1
+          ],
+          "point_arrival_s": 0.24971729441801666,
+          "min_eight_pair_arrival_s": 0.24937463734503423,
+          "max_eight_pair_arrival_s": 0.25002927149631404,
+          "included_weight": 0.7853872755822441
+        },
+        {
+          "path": [
+            -2,
+            11,
+            1,
+            -1
+          ],
+          "point_arrival_s": 0.24971729441801666,
+          "min_eight_pair_arrival_s": 0.24935178403223687,
+          "max_eight_pair_arrival_s": 0.25000642622549435,
+          "included_weight": 0.7461443286910043
+        },
+        {
+          "path": [
+            9,
+            -6,
+            1,
+            1
+          ],
+          "point_arrival_s": 0.24971729441801666,
+          "min_eight_pair_arrival_s": 0.2494442885014882,
+          "max_eight_pair_arrival_s": 0.25021579525532517,
+          "included_weight": 0.8563394171802502
+        },
+        {
+          "path": [
+            9,
+            6,
+            1,
+            1
+          ],
+          "point_arrival_s": 0.24971729441801666,
+          "min_eight_pair_arrival_s": 0.2494442885014882,
+          "max_eight_pair_arrival_s": 0.25021579525532517,
+          "included_weight": 0.85633941718025
+        }
+      ],
+      "signed_partial_image_sum_40_80": {
+        "native": [
+          [
+            3.948632310450625,
+            1.6540216946282662
+          ],
+          [
+            8.493243641449553,
+            -72.55174019081637
+          ]
+        ],
+        "fixed_250ms": [
+          [
+            3.9442266216326995,
+            1.2669279045521158
+          ],
+          [
+            8.475622677716927,
+            -73.32574526452935
+          ]
+        ]
+      },
+      "signed_exact_point_partial_image_sum_40_80": {
+        "native": [
+          [
+            3.9769260174726675,
+            1.72882346366643
+          ],
+          [
+            8.63319481764134,
+            -72.74839194379503
+          ]
+        ],
+        "fixed_250ms": [
+          [
+            3.973869921457652,
+            0.609897878961096
+          ],
+          [
+            8.620970479177217,
+            -74.98621807217796
+          ]
+        ]
+      }
+    },
+    {
+      "ppw": 40,
+      "native_dt_s": 0.00014419322973010905,
+      "Nt": 1734,
+      "last_pressure_time_s": 0.24988686712227898,
+      "nominal_half_open_record_endpoint_s": 0.2500310603520091,
+      "gap_last_sample_from_250ms_us": -113.13287772102277,
+      "native_edge_straddling_path_count": 15,
+      "straddling_paths": [
+        {
+          "path": [
+            -8,
+            -7,
+            1,
+            1
+          ],
+          "point_arrival_s": 0.24998913262006586,
+          "min_eight_pair_arrival_s": 0.24970190836819559,
+          "max_eight_pair_arrival_s": 0.25040718019331853,
+          "included_weight": 0.3013300900653549
+        },
+        {
+          "path": [
+            -8,
+            7,
+            1,
+            1
+          ],
+          "point_arrival_s": 0.24998913262006586,
+          "min_eight_pair_arrival_s": 0.24970190836819559,
+          "max_eight_pair_arrival_s": 0.25040718019331853,
+          "included_weight": 0.3013300900653549
+        },
+        {
+          "path": [
+            4,
+            -10,
+            1,
+            1
+          ],
+          "point_arrival_s": 0.24998913262006586,
+          "min_eight_pair_arrival_s": 0.24963462888027688,
+          "max_eight_pair_arrival_s": 0.25028154299215494,
+          "included_weight": 0.16160086362516632
+        },
+        {
+          "path": [
+            4,
+            10,
+            1,
+            1
+          ],
+          "point_arrival_s": 0.24998913262006586,
+          "min_eight_pair_arrival_s": 0.24963462888027688,
+          "max_eight_pair_arrival_s": 0.25028154299215494,
+          "included_weight": 0.1616008636251663
+        },
+        {
+          "path": [
+            -9,
+            -5,
+            -1,
+            1
+          ],
+          "point_arrival_s": 0.250243712745733,
+          "min_eight_pair_arrival_s": 0.24976887607080003,
+          "max_eight_pair_arrival_s": 0.2504443935886986,
+          "included_weight": 0.005361745374828588
+        },
+        {
+          "path": [
+            -9,
+            5,
+            -1,
+            1
+          ],
+          "point_arrival_s": 0.250243712745733,
+          "min_eight_pair_arrival_s": 0.24976887607080003,
+          "max_eight_pair_arrival_s": 0.2504443935886986,
+          "included_weight": 0.005361745374828588
+        },
+        {
+          "path": [
+            -10,
+            -3,
+            1,
+            -1
+          ],
+          "point_arrival_s": 0.24971729441801666,
+          "min_eight_pair_arrival_s": 0.2494304235799742,
+          "max_eight_pair_arrival_s": 0.250066249242707,
+          "included_weight": 0.988854385707532
+        },
+        {
+          "path": [
+            -10,
+            4,
+            1,
+            -1
+          ],
+          "point_arrival_s": 0.24971729441801666,
+          "min_eight_pair_arrival_s": 0.2495314965083835,
+          "max_eight_pair_arrival_s": 0.25016768491564556,
+          "included_weight": 0.9660187824863313
+        },
+        {
+          "path": [
+            -7,
+            -8,
+            1,
+            1
+          ],
+          "point_arrival_s": 0.24971729441801666,
+          "min_eight_pair_arrival_s": 0.2494216969368515,
+          "max_eight_pair_arrival_s": 0.2501277588603651,
+          "included_weight": 0.8932030055902899
+        },
+        {
+          "path": [
+            -7,
+            8,
+            1,
+            1
+          ],
+          "point_arrival_s": 0.24971729441801666,
+          "min_eight_pair_arrival_s": 0.2494216969368515,
+          "max_eight_pair_arrival_s": 0.25012775886036515,
+          "included_weight": 0.8932030055902898
+        },
+        {
+          "path": [
+            -2,
+            11,
+            1,
+            -1
+          ],
+          "point_arrival_s": 0.24971729441801666,
+          "min_eight_pair_arrival_s": 0.2495917518068215,
+          "max_eight_pair_arrival_s": 0.25018120507549785,
+          "included_weight": 0.9604785593560059
+        },
+        {
+          "path": [
+            9,
+            -6,
+            1,
+            1
+          ],
+          "point_arrival_s": 0.24971729441801666,
+          "min_eight_pair_arrival_s": 0.2492987152232271,
+          "max_eight_pair_arrival_s": 0.24999312442865712,
+          "included_weight": 0.9451961307845438
+        },
+        {
+          "path": [
+            9,
+            6,
+            1,
+            1
+          ],
+          "point_arrival_s": 0.24971729441801666,
+          "min_eight_pair_arrival_s": 0.2492987152232271,
+          "max_eight_pair_arrival_s": 0.24999312442865712,
+          "included_weight": 0.9451961307845438
+        },
+        {
+          "path": [
+            7,
+            9,
+            -1,
+            -1
+          ],
+          "point_arrival_s": 0.24942814171366778,
+          "min_eight_pair_arrival_s": 0.24929498692959942,
+          "max_eight_pair_arrival_s": 0.2499960267308053,
+          "included_weight": 0.9997712939224732
+        },
+        {
+          "path": [
+            9,
+            7,
+            -1,
+            -1
+          ],
+          "point_arrival_s": 0.24942814171366778,
+          "min_eight_pair_arrival_s": 0.24929498692959945,
+          "max_eight_pair_arrival_s": 0.2499960267308053,
+          "included_weight": 0.9997712939224732
+        }
+      ],
+      "signed_partial_image_sum_40_80": {
+        "native": [
+          [
+            3.9619796260189535,
+            1.591633414268557
+          ],
+          [
+            8.56047408754727,
+            -72.84873415383589
+          ]
+        ],
+        "fixed_250ms": [
+          [
+            3.957051595270295,
+            1.162481821029342
+          ],
+          [
+            8.540764957844026,
+            -73.70680812878528
+          ]
+        ]
+      },
+      "signed_exact_point_partial_image_sum_40_80": {
+        "native": [
+          [
+            3.9769260174726675,
+            1.72882346366643
+          ],
+          [
+            8.63319481764134,
+            -72.74839194379503
+          ]
+        ],
+        "fixed_250ms": [
+          [
+            3.973869921457652,
+            0.609897878961096
+          ],
+          [
+            8.620970479177217,
+            -74.98621807217796
+          ]
+        ]
+      }
+    },
+    {
+      "ppw": 44,
+      "native_dt_s": 0.00013108475430009911,
+      "Nt": 1908,
+      "last_pressure_time_s": 0.249978626450289,
+      "nominal_half_open_record_endpoint_s": 0.25010971120458914,
+      "gap_last_sample_from_250ms_us": -21.373549710990147,
+      "native_edge_straddling_path_count": 13,
+      "straddling_paths": [
+        {
+          "path": [
+            -8,
+            -7,
+            1,
+            1
+          ],
+          "point_arrival_s": 0.24998913262006586,
+          "min_eight_pair_arrival_s": 0.24969951574968288,
+          "max_eight_pair_arrival_s": 0.2503406673378489,
+          "included_weight": 0.3516230530625146
+        },
+        {
+          "path": [
+            -8,
+            7,
+            1,
+            1
+          ],
+          "point_arrival_s": 0.24998913262006586,
+          "min_eight_pair_arrival_s": 0.24969951574968288,
+          "max_eight_pair_arrival_s": 0.2503406673378489,
+          "included_weight": 0.3516230530625147
+        },
+        {
+          "path": [
+            4,
+            -10,
+            1,
+            1
+          ],
+          "point_arrival_s": 0.24998913262006586,
+          "min_eight_pair_arrival_s": 0.24968041288683082,
+          "max_eight_pair_arrival_s": 0.2502685503729212,
+          "included_weight": 0.6303974793392189
+        },
+        {
+          "path": [
+            4,
+            10,
+            1,
+            1
+          ],
+          "point_arrival_s": 0.24998913262006586,
+          "min_eight_pair_arrival_s": 0.24968041288683082,
+          "max_eight_pair_arrival_s": 0.2502685503729212,
+          "included_weight": 0.6303974793392189
+        },
+        {
+          "path": [
+            -9,
+            -5,
+            -1,
+            1
+          ],
+          "point_arrival_s": 0.250243712745733,
+          "min_eight_pair_arrival_s": 0.24988002654008337,
+          "max_eight_pair_arrival_s": 0.25049409080973095,
+          "included_weight": 0.014634450370681708
+        },
+        {
+          "path": [
+            -9,
+            5,
+            -1,
+            1
+          ],
+          "point_arrival_s": 0.250243712745733,
+          "min_eight_pair_arrival_s": 0.24988002654008337,
+          "max_eight_pair_arrival_s": 0.25049409080973095,
+          "included_weight": 0.014634450370681711
+        },
+        {
+          "path": [
+            -10,
+            -3,
+            1,
+            -1
+          ],
+          "point_arrival_s": 0.24971729441801666,
+          "min_eight_pair_arrival_s": 0.24952010445124695,
+          "max_eight_pair_arrival_s": 0.2500984726542403,
+          "included_weight": 0.9610892119141994
+        },
+        {
+          "path": [
+            -10,
+            4,
+            1,
+            -1
+          ],
+          "point_arrival_s": 0.24971729441801666,
+          "min_eight_pair_arrival_s": 0.2494136761638688,
+          "max_eight_pair_arrival_s": 0.24999169722847572,
+          "included_weight": 0.8904886973560169
+        },
+        {
+          "path": [
+            -7,
+            -8,
+            1,
+            1
+          ],
+          "point_arrival_s": 0.24971729441801666,
+          "min_eight_pair_arrival_s": 0.24942354964757074,
+          "max_eight_pair_arrival_s": 0.2500654087960339,
+          "included_weight": 0.9820205324017335
+        },
+        {
+          "path": [
+            -7,
+            8,
+            1,
+            1
+          ],
+          "point_arrival_s": 0.24971729441801666,
+          "min_eight_pair_arrival_s": 0.24942354964757074,
+          "max_eight_pair_arrival_s": 0.2500654087960339,
+          "included_weight": 0.9820205324017335
+        },
+        {
+          "path": [
+            -2,
+            -10,
+            1,
+            -1
+          ],
+          "point_arrival_s": 0.24971729441801666,
+          "min_eight_pair_arrival_s": 0.2496175334257834,
+          "max_eight_pair_arrival_s": 0.2501533241072619,
+          "included_weight": 0.9801117685733061
+        },
+        {
+          "path": [
+            9,
+            -6,
+            1,
+            1
+          ],
+          "point_arrival_s": 0.24971729441801666,
+          "min_eight_pair_arrival_s": 0.24936793111134287,
+          "max_eight_pair_arrival_s": 0.2499991894456028,
+          "included_weight": 0.960277920422435
+        },
+        {
+          "path": [
+            9,
+            6,
+            1,
+            1
+          ],
+          "point_arrival_s": 0.24971729441801666,
+          "min_eight_pair_arrival_s": 0.24936793111134287,
+          "max_eight_pair_arrival_s": 0.2499991894456028,
+          "included_weight": 0.960277920422435
+        }
+      ],
+      "signed_partial_image_sum_40_80": {
+        "native": [
+          [
+            3.9609542185131232,
+            1.2167626706845347
+          ],
+          [
+            8.566840360954693,
+            -73.63541214313013
+          ]
+        ],
+        "fixed_250ms": [
+          [
+            3.9606390784122354,
+            1.0631687182139338
+          ],
+          [
+            8.565579805920741,
+            -73.94259744445124
+          ]
+        ]
+      },
+      "signed_exact_point_partial_image_sum_40_80": {
+        "native": [
+          [
+            3.9769260174726675,
+            1.72882346366643
+          ],
+          [
+            8.63319481764134,
+            -72.74839194379503
+          ]
+        ],
+        "fixed_250ms": [
+          [
+            3.973869921457652,
+            0.609897878961096
+          ],
+          [
+            8.620970479177217,
+            -74.98621807217796
+          ]
+        ]
+      }
+    }
+  ]
+}

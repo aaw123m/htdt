@@ -1,0 +1,19 @@
+{
+  "scope": "New numerically qualified instantaneous Dirac-source solver with weak pressure observation; cannot qualify archived original rectangular PFFDTD",
+  "source": "q(t)=A delta(t), discrete q[0]=1 and q[n>0]=0, A=dt cancels in P/Q; no Gaussian pulse, no source lowpass",
+  "positions": "fixed physical source (1.5,2,2), receiver (2.5,2,2), exact point functionals, replaces moving original eight HDF5 points",
+  "room": "original 56m3 Neumann sloped prism, c343.2 rho1.2",
+  "observer": "C2 quintic start ramp 1ms, terminal ramp 10ms, full exact 250ms record, signed 40 and 80Hz; all modes retained",
+  "sem_ppw": [28,32,36,40,44],
+  "spatial_gates": {"complex_rms_relative":0.02,"magnitude_max_relative":0.04,"phase_max_deg":2},
+  "spatial_condition": "all four adjacent pairs under explicit error thresholds; strict monotonicity is not asserted for this changed contract",
+  "time_steps": [1000,2000,4000,8000],
+  "time_condition": "all complex errors decrease; final two orders 1.7 to2.3; finest relative error <=0.005",
+  "mfem_refinements": [2,3,4],
+  "mfem_steps": 8000,
+  "independent_fine_pair_limits": {"complex_rms_relative":0.03,"magnitude_max_relative":0.05,"phase_max_deg":3},
+  "independent_cross_limits": {"complex_rms_relative":0.03,"magnitude_max_relative":0.05,"phase_max_deg":3},
+  "linear_solver": {"rtol":1e-11,"atol":0,"maxiter":350,"residual_max":1e-8},
+  "excluded_claims": ["old original gate solved", "zero terminal-ramp limit", "ordinary pointwise pressure converges", "measured-room validation"],
+  "prospective": "record hash before any new physical-Dirac weak-observer numerical execution"
+}
