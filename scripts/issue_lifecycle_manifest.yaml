@@ -246,10 +246,12 @@ entries:
     prs:
     - 843
     - 1
-    commits: [75476ada]
+    - 119
+    - 120
+    commits: [75476ada, 9e6572aa, 86913a4e]
   remaining_gates:
   - kind: structural
-    description: 'Action 2–6: BRAS importer・メトリクス・修飾実行（コーパス権威着地済み）'
+    description: 'Action 4–6: BRAS 修飾実行（コーパス権威+importer+メトリクス manifests 着地済み）'
   evidence_refs:
   - docs/issues/issue-836-external-corpus-manifest.md
   close_when_gates_clear: true
