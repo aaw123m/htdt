@@ -21,7 +21,7 @@ def sha(path):return hashlib.sha256(path.read_bytes()).hexdigest()
 
 def assemble_case(degree,folder,cloud,cache):
     path=folder/f'mfem-p{degree}-r2.json'
-    doc=json.loads(path.read_bytes());n={2:729,3:2197,4:4913}[degree]
+    doc=json.loads(path.read_bytes());n={2:729,3:2197,4:4913,5:9261}[degree]
     if doc['ndofs']!=n or doc['order']!=degree or doc['uniform_refinements']!=2 or doc['elements']!=384:
         raise ValueError('independent mesh changed')
     if doc['boundary_model']!='natural_neumann_rigid' or doc['sound_speed_m_s']!=343.2 or doc['base_volume_m3']!=56:
@@ -51,8 +51,11 @@ def assemble_case(degree,folder,cloud,cache):
     else:
         print('HP_EIGH_START',degree,n,flush=True);start=time.perf_counter()
         # Generalized QR avoids the extra dense divide-and-conquer workspace.
-        A=np.asarray(K.toarray(),order='F');B=np.asarray(M.toarray(),order='F')
-        lam,V=eigh(A,B,driver='gv',overwrite_a=True,overwrite_b=True,check_finite=False)
+        A=K.toarray(order='F');B=M.toarray(order='F')
+        # P5 belongs only to the supplementary prospectively registered plan.
+        # Its full GVD basis retains all modes and uses more bounded workspace.
+        driver='gvd' if degree==5 else 'gv'
+        lam,V=eigh(A,B,driver=driver,overwrite_a=True,overwrite_b=True,check_finite=False)
         del A,B
         if abs(lam[0])/max(lam[-1],1.)>1e-10 or lam[1]<=0:raise ValueError('invalid rigid eigenmode')
         original_zero=float(lam[0]);lam[0]=0.;V[:,0]=1./np.sqrt(M.sum())
@@ -88,8 +91,15 @@ def main():
     raw=(ROOT/'benchmarks/acoustics/r130d_independent_hp_impulse_plan_2026-10-10.json').read_bytes().replace(b'\r\n',b'\n')
     if hashlib.sha256(raw).hexdigest()!=PLAN_SHA:raise ValueError('prospective hp plan changed')
     plan=json.loads(raw);cloud=json.loads((args.exports/'cloud_provenance.json').read_text(encoding='utf8'))
+    build=json.loads((args.exports/'build_provenance.json').read_text(encoding='utf-8-sig'))
+    if build['mfem_pin']!=plan['mfem_pin'] or sha(args.exports/'cloud_provenance.json')!=build['cloud_provenance_sha256'] or sha(args.exports/'points.txt')!=build['point_cloud_sha256']:
+        raise ValueError('independent build/cloud provenance drift')
+    if cloud['exporter_sha256_lf']!='eb3a82cbdafec0a8ae4386d87b3f381b0957ad38aac233519a7825e6a0e965f4':raise ValueError('independent exporter changed')
+    for case in cloud['cases']:
+        if sha(ROOT/f"scratch/boundary-fitted-sem/ppw{case['ppw']}.npz")!=case['cache_sha256']:raise ValueError('original native clouds changed')
     dest=ROOT/'benchmarks/acoustics/r130d_independent_hp_impulse_evidence_2026-10-10.json'
     result=json.loads(dest.read_text(encoding='utf8')) if dest.exists() else {'plan_sha256':PLAN_SHA,'plan':plan,'cases':[],'qualification':'INCOMPLETE'}
+    result['independent_build']=build
     for degree in ([args.degree] if args.degree else plan['orders']):
         row=assemble_case(degree,args.exports,cloud,ROOT/'scratch/independent-hp-impulse')
         result['cases']=[r for r in result['cases'] if r['order']!=degree]+[row];result['cases'].sort(key=lambda r:r['order'])

@@ -1,0 +1,456 @@
+{
+  "plan_sha256": "c6b9c42cb4cc459b8b3496c4e4b38efba6ee42f7fb82b1363aa80588ede85faf",
+  "plan": {
+    "purpose": "Independent high-order spatial validation of unchanged original q0+rectangular observer with mesh-vanishing numerical viscosity, and of prior failed physical-Dirac weak observer",
+    "mfem_pin": "d964264cdb9a13e94a201b6c236c7721e0c8765f",
+    "exporter_base": "benchmarks/acoustics/r130d_mfem_reference/sloped_tet_system.cpp",
+    "exporter_change": "point-functional cloud only; base mesh, integration, boundary, wave equation and coefficient metadata unchanged; build locally and record source/binary hashes",
+    "orders": [
+      2,
+      3,
+      4
+    ],
+    "uniform_refinements": 2,
+    "complete_dofs_expected": [
+      729,
+      2197,
+      4913
+    ],
+    "memory_cap": "max5000 DOFs; full generalized dense QR eigenbasis with overwritten Fortran matrices; do not change numerical result to fit memory",
+    "point_cloud": "fixed physical source/receiver plus all80 SHA-pinned original eight source/receiver positions; original weights retained separately",
+    "dynamics": "exact continuous impulse velocity jump; all eigenmodes; original native clocks/gradient/rectangular signed40/80 for viscosity arms; no fixed source bandwidth or modal cut",
+    "viscosity_control": "kappa1 nu_h=h^3/c^3 for original PPW44, same numerical operator function in every independent spatial degree",
+    "independent_fine_pair_limits": {
+      "complex_rms_relative": 0.03,
+      "magnitude_max_relative": 0.05,
+      "phase_max_deg": 3
+    },
+    "independent_cross_limits": {
+      "complex_rms_relative": 0.03,
+      "magnitude_max_relative": 0.05,
+      "phase_max_deg": 3
+    },
+    "rigid_mode": "only exact constant Neumann mode can be replaced to remove eigensolver roundoff; no positive-mode flooring/deletion",
+    "retained_old_failures": [
+      "all archived original PFFDTD",
+      "prior weak Dirac MFEM P2r3tor4 failure",
+      "kappa0 native q0 failure"
+    ],
+    "qualifications_excluded": [
+      "original pinned PFFDTD retrospective PASS",
+      "five-grid self agreement proves physical undamped full-record limit",
+      "measured room validation"
+    ],
+    "prospective": "hash before assembling or observing any new high-order MFEM numeric matrices"
+  },
+  "cases": [
+    {
+      "order": 2,
+      "dofs": 729,
+      "matrix_sha256": "5c120fbce936c2103da1041ba5805541dac1d646f0ae24830a54e4d2d492c2b9",
+      "volume_m3": 56.0,
+      "rigid_stiffness_max": 4.677076503867283e-10,
+      "original_matrix_reproduction_max": {
+        "mass_matrix": 0.0,
+        "stiffness_c2_matrix": 0.0
+      },
+      "all_modes": 729,
+      "zero_roundoff_before_exact_constant": -1.3365940525442375e-08,
+      "max_operator_scaled_eigen_residual": 8.774000927753476e-17,
+      "mass_norm_max_error_all_modes": 7.105427357601002e-15,
+      "mass_orthogonality_128_sample_max_error": 1.4516166046973922e-14,
+      "eigh_elapsed_s": 1.1821448998525739,
+      "cache_sha256": "60c70b35ebbab180aa83f62b98af876f429eb87b2da8b1f8809645017b5a0551",
+      "native_viscosity_cases": [
+        {
+          "ppw": 28,
+          "signed_40_80": [
+            [
+              19.039828945990234,
+              2.041299625312697
+            ],
+            [
+              -5.958748765918396,
+              -175.1788573450316
+            ]
+          ]
+        },
+        {
+          "ppw": 32,
+          "signed_40_80": [
+            [
+              21.781578163357057,
+              0.6960392321111911
+            ],
+            [
+              -5.7373398251929535,
+              -188.33200948621558
+            ]
+          ]
+        },
+        {
+          "ppw": 36,
+          "signed_40_80": [
+            [
+              25.884075019878843,
+              0.42316319486377363
+            ],
+            [
+              -3.0852085952224186,
+              -194.78699870465417
+            ]
+          ]
+        },
+        {
+          "ppw": 40,
+          "signed_40_80": [
+            [
+              30.512071332720947,
+              0.11890156815106454
+            ],
+            [
+              0.779083709639903,
+              -200.99196440488873
+            ]
+          ]
+        },
+        {
+          "ppw": 44,
+          "signed_40_80": [
+            [
+              31.97561311824897,
+              -0.34097384120595314
+            ],
+            [
+              1.8326865455689292,
+              -205.43261762239345
+            ]
+          ]
+        }
+      ],
+      "physical_point_weak_signed_40_80": [
+        [
+          34.44698180539972,
+          16.7049666878634
+        ],
+        [
+          14.091685713410588,
+          -197.00893845317188
+        ]
+      ]
+    },
+    {
+      "order": 3,
+      "dofs": 2197,
+      "matrix_sha256": "9becdc323216c3844b73fbbd34119b149953fe7aae5b3b4cf005982e84b785a6",
+      "volume_m3": 55.99999999999996,
+      "rigid_stiffness_max": 7.639755494892597e-10,
+      "all_modes": 2197,
+      "zero_roundoff_before_exact_constant": 3.3759112817970963e-09,
+      "max_operator_scaled_eigen_residual": 5.810199925204169e-17,
+      "mass_norm_max_error_all_modes": 1.6653345369377348e-14,
+      "mass_orthogonality_128_sample_max_error": 1.3513495877859327e-14,
+      "eigh_elapsed_s": 21.507905300240964,
+      "cache_sha256": "877d30d01194a6872aef321bd74a7543c4ad687c8d125c91d70ebcf4e06c74f7",
+      "native_viscosity_cases": [
+        {
+          "ppw": 28,
+          "signed_40_80": [
+            [
+              29.5458752511478,
+              3.333986083464986
+            ],
+            [
+              33.94762100279169,
+              -176.49823225871563
+            ]
+          ]
+        },
+        {
+          "ppw": 32,
+          "signed_40_80": [
+            [
+              30.408516338823794,
+              2.0335236128113343
+            ],
+            [
+              37.1201885612063,
+              -189.49016620900758
+            ]
+          ]
+        },
+        {
+          "ppw": 36,
+          "signed_40_80": [
+            [
+              32.589131682018184,
+              0.9688674786084678
+            ],
+            [
+              40.96970928288939,
+              -198.66840594802684
+            ]
+          ]
+        },
+        {
+          "ppw": 40,
+          "signed_40_80": [
+            [
+              36.25348411409127,
+              -0.06480232230765672
+            ],
+            [
+              45.99340014503846,
+              -206.23728620037474
+            ]
+          ]
+        },
+        {
+          "ppw": 44,
+          "signed_40_80": [
+            [
+              36.929561677384534,
+              -0.6164523863164884
+            ],
+            [
+              47.71499885093584,
+              -210.94164909902017
+            ]
+          ]
+        }
+      ],
+      "physical_point_weak_signed_40_80": [
+        [
+          12.132226369245364,
+          28.060538915414728
+        ],
+        [
+          62.29523398852476,
+          -197.27977095563065
+        ]
+      ]
+    },
+    {
+      "order": 4,
+      "dofs": 4913,
+      "matrix_sha256": "d288447c8b3178a81d95a1e15b13a564fb0043c5df759e80ed8728edf13e5f8f",
+      "volume_m3": 55.99999999999999,
+      "rigid_stiffness_max": 1.0810481398948468e-09,
+      "all_modes": 4913,
+      "zero_roundoff_before_exact_constant": 5.550682461400861e-07,
+      "max_operator_scaled_eigen_residual": 7.08248687229027e-17,
+      "mass_norm_max_error_all_modes": 4.8960835385969403e-14,
+      "mass_orthogonality_128_sample_max_error": 2.708944180085382e-14,
+      "eigh_elapsed_s": 147.4659051001072,
+      "cache_sha256": "f93e6575f6baabe93f08f92a265c0824312d328deb676e24b70e8e322802d549",
+      "native_viscosity_cases": [
+        {
+          "ppw": 28,
+          "signed_40_80": [
+            [
+              30.04565666577205,
+              3.5061662436063608
+            ],
+            [
+              34.79245485390345,
+              -175.87085339936516
+            ]
+          ]
+        },
+        {
+          "ppw": 32,
+          "signed_40_80": [
+            [
+              30.2546446568253,
+              2.1417157480765114
+            ],
+            [
+              37.53984071887067,
+              -188.93102206697594
+            ]
+          ]
+        },
+        {
+          "ppw": 36,
+          "signed_40_80": [
+            [
+              31.478504159802938,
+              1.2207828432653878
+            ],
+            [
+              40.58692603234827,
+              -197.67711336785342
+            ]
+          ]
+        },
+        {
+          "ppw": 40,
+          "signed_40_80": [
+            [
+              33.897443764154076,
+              0.47365565088779293
+            ],
+            [
+              44.47215259848728,
+              -204.57260035576752
+            ]
+          ]
+        },
+        {
+          "ppw": 44,
+          "signed_40_80": [
+            [
+              34.99299742326404,
+              -0.03977908310153814
+            ],
+            [
+              46.6794153663776,
+              -209.14495657532652
+            ]
+          ]
+        }
+      ],
+      "physical_point_weak_signed_40_80": [
+        [
+          17.801185868886375,
+          26.87406412873271
+        ],
+        [
+          64.22931334272208,
+          -201.64511867589792
+        ]
+      ]
+    }
+  ],
+  "qualification": "FAIL_NEW_VANISHING_VISCOSITY_Q0_NUMERICAL_METHOD",
+  "independent_build": {
+    "compiler": "clang version 22.1.8 (https://github.com/llvm/llvm-project.git ca7933e47d3a3451d81e72ac174dcb5aa28b59d1)",
+    "cmake": "3.31.6",
+    "configure_source": "CMakeLists.txt",
+    "build_options": "serial Release MFEM; MPI/METIS/LAPACK/ZLIB/OpenMP disabled",
+    "executable_sha256": "97a884770d48d4b357e9d848171509713939a87b6f85661e24d4e8764b397740",
+    "point_cloud_sha256": "b2b244f7fe26edfe247d463dbba50d9638d627be421635c9be8042331eed5359",
+    "mfem_pin": "d964264cdb9a13e94a201b6c236c7721e0c8765f",
+    "cloud_provenance_sha256": "d016bae660c75606fd6bf90211764a01a709e6b3d69e900030b0596ee69820fd"
+  },
+  "independent_p3_p4": {
+    "metrics": {
+      "complex_rms_relative": 0.013334940515390123,
+      "magnitude_max_relative": 0.05548782006116232,
+      "magnitude_max_db": 0.4690645214997953,
+      "phase_max_deg": 0.8911975419079567,
+      "mask_floor": 0.6776472583862642,
+      "compared_frequency_count": 2,
+      "frequency_metrics": [
+        {
+          "frequency_hz": 40.0,
+          "masked_in": true,
+          "magnitude_absolute": 1.941686398995735,
+          "magnitude_relative": 0.05548782006116232,
+          "magnitude_db": 0.4690645214997953,
+          "phase_deg": 0.8911975419079567,
+          "complex_relative": 0.057743006684638526
+        },
+        {
+          "frequency_hz": 80.0,
+          "masked_in": true,
+          "magnitude_absolute": 1.980017294505103,
+          "magnitude_relative": 0.00923985802299446,
+          "magnitude_db": 0.07988787649905374,
+          "phase_deg": 0.1640789794880675,
+          "complex_relative": 0.009677377167664791
+        }
+      ]
+    },
+    "pass": false
+  },
+  "cross_sem44_mfem_p4": {
+    "metrics": {
+      "complex_rms_relative": 0.0014673830012833819,
+      "magnitude_max_relative": 0.0062124162378724675,
+      "magnitude_max_db": 0.05412867137661921,
+      "phase_max_deg": 0.05414601215431958,
+      "mask_floor": 0.6776472583862642,
+      "compared_frequency_count": 2,
+      "frequency_metrics": [
+        {
+          "frequency_hz": 40.0,
+          "masked_in": true,
+          "magnitude_absolute": 0.21739120586610028,
+          "magnitude_relative": 0.0062124162378724675,
+          "magnitude_db": 0.05412867137661921,
+          "phase_deg": 0.01624956010442702,
+          "complex_relative": 0.006218846316400313
+        },
+        {
+          "frequency_hz": 80.0,
+          "masked_in": true,
+          "magnitude_absolute": 0.11475219957787886,
+          "magnitude_relative": 0.0005354973589717768,
+          "magnitude_db": 0.004652516777935804,
+          "phase_deg": 0.05414601215431958,
+          "complex_relative": 0.0010859804849728354
+        }
+      ]
+    },
+    "pass": true
+  },
+  "weak_observer_hp_control": {
+    "p3_p4_metrics": {
+      "complex_rms_relative": 0.03506410091404027,
+      "magnitude_max_relative": 0.05162261540895528,
+      "magnitude_max_db": 0.4603762188120611,
+      "phase_max_deg": 10.138527267081514,
+      "mask_floor": 0.6692246153444636,
+      "compared_frequency_count": 2,
+      "frequency_metrics": [
+        {
+          "frequency_hz": 40.0,
+          "masked_in": true,
+          "magnitude_absolute": 1.664056862288433,
+          "magnitude_relative": 0.05162261540895528,
+          "magnitude_db": 0.4603762188120611,
+          "phase_deg": 10.138527267081514,
+          "complex_relative": 0.17967373741528117
+        },
+        {
+          "frequency_hz": 80.0,
+          "masked_in": true,
+          "magnitude_absolute": 4.745786252872875,
+          "magnitude_relative": 0.02242519701650459,
+          "magnitude_db": 0.19700001818128404,
+          "phase_deg": 0.14344875482726138,
+          "complex_relative": 0.022561408851965115
+        }
+      ]
+    },
+    "sem44_p4_metrics": {
+      "complex_rms_relative": 0.049198637869915365,
+      "magnitude_max_relative": 0.13685725223082323,
+      "magnitude_max_db": 1.114118731566095,
+      "phase_max_deg": 8.757030141511422,
+      "mask_floor": 0.6692246153444636,
+      "compared_frequency_count": 2,
+      "frequency_metrics": [
+        {
+          "frequency_hz": 40.0,
+          "masked_in": true,
+          "magnitude_absolute": 4.4115984423589225,
+          "magnitude_relative": 0.13685725223082323,
+          "magnitude_db": 1.114118731566095,
+          "phase_deg": 8.757030141511422,
+          "complex_relative": 0.21268513503769051
+        },
+        {
+          "frequency_hz": 80.0,
+          "masked_in": true,
+          "magnitude_absolute": 1.625312394751404,
+          "magnitude_relative": 0.007680065793861501,
+          "magnitude_db": 0.06645334625169723,
+          "phase_deg": 2.1113297138591065,
+          "complex_relative": 0.03777769713115064
+        }
+      ]
+    }
+  }
+}

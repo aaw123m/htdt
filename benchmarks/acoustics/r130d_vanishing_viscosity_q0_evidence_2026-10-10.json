@@ -1,0 +1,804 @@
+{
+  "plan_sha256": "45d9518eb59fa8e4aef18d0fb494e7fdf25cbe1515385840422ac708215c96d2",
+  "plan": {
+    "scope": "New consistent spatial stabilization of original instantaneous source and original rectangular sampled-pressure observer; archived pinned PFFDTD is never relabelled",
+    "original_controls": "same original eight-node source/receiver functionals, native h/dt/Nt, q[0]=1 later zero, full 250ms signed 40/80Hz, original centered and second-order one-sided pressure stencil",
+    "ppw": [
+      28,
+      32,
+      36,
+      40,
+      44
+    ],
+    "spatial_operator": "true-roof degree4 positive-mass SEM, unchanged cached all modes",
+    "modified_equation": "phi_tt + nu_h L_h^2 phi_t + L_h phi = c^2 b q; nu_h=kappa*h^3/c^3; this IS numerical damping at finite h, vanishes for every fixed spatial frequency as h->0",
+    "primary_kappa": 1.0,
+    "sensitivity_kappa": [
+      0.5,
+      1.0,
+      2.0
+    ],
+    "primary_gates": {
+      "complex_rms_relative": 0.2,
+      "magnitude_max_relative": 0.25,
+      "phase_max_deg": 15
+    },
+    "require_all_four_pairs_and_strict_decrease_all_three": true,
+    "verification": [
+      "kappa0 reproduces frozen exact-time native sampled q0",
+      "closed modal observer versus independent matrix exponential and gradient",
+      "zero mode exact",
+      "nonincreasing energy",
+      "nu_h goes to0 with cubic rate"
+    ],
+    "no_mode_deletion_no_source_waveform_change_no_observer_window_change": true,
+    "qualifications_excluded": [
+      "old pinned solver repaired",
+      "physical undamped convergence proven by five pairs alone",
+      "measured room validation"
+    ],
+    "publish_all_arms_and_failures": true,
+    "prospective": "hash this plan before numerical execution"
+  },
+  "archived_original_pffdtd": "SELF_CONVERGENCE_FAILED",
+  "arms": [
+    {
+      "kappa": 0.5,
+      "cases": [
+        {
+          "ppw": 28,
+          "all_modes": 50653,
+          "native_h_m": 0.12257142857142857,
+          "cache_sha256": "ce9245616e2f2799bfae40d71219fc4ab3d3c4a830e02fdb85e9039978fd1ae0",
+          "native_dt_s": 0.00020599032818587005,
+          "native_Nt": 1214,
+          "nu_h": 2.2776967930029156e-11,
+          "signed_40_80": [
+            [
+              32.19963846985388,
+              1.3710290443710462
+            ],
+            [
+              40.96320095154909,
+              -196.06825393659807
+            ]
+          ],
+          "kappa0_reproduction_error": 4.225562766007772e-14,
+          "source_and_observer_original": true,
+          "numerical_damping_added": true
+        },
+        {
+          "ppw": 32,
+          "all_modes": 68921,
+          "native_h_m": 0.10725,
+          "cache_sha256": "a18f61095dd4de95f714d3125767ed2757563bdcc9049f6860487ed218199983",
+          "native_dt_s": 0.0001802415371626363,
+          "native_Nt": 1388,
+          "nu_h": 1.52587890625e-11,
+          "signed_40_80": [
+            [
+              33.432937203601064,
+              0.38911026327855663
+            ],
+            [
+              44.067330108513175,
+              -204.6098484530157
+            ]
+          ],
+          "kappa0_reproduction_error": 1.107343347326333e-13,
+          "source_and_observer_original": true,
+          "numerical_damping_added": true
+        },
+        {
+          "ppw": 36,
+          "all_modes": 91125,
+          "native_h_m": 0.09533333333333333,
+          "cache_sha256": "94218e7d695f81ac6ebb7d9d6956f9e4b4252ab4ec7fbe7ed11cb3070fb323ef",
+          "native_dt_s": 0.00016021469970012116,
+          "native_Nt": 1561,
+          "nu_h": 1.0716735253772288e-11,
+          "signed_40_80": [
+            [
+              35.24920930187243,
+              -0.055049442152865176
+            ],
+            [
+              47.09061393755274,
+              -209.45848957903897
+            ]
+          ],
+          "kappa0_reproduction_error": 1.0137505874237488e-13,
+          "source_and_observer_original": true,
+          "numerical_damping_added": true
+        },
+        {
+          "ppw": 40,
+          "all_modes": 117649,
+          "native_h_m": 0.0858,
+          "cache_sha256": "e031c69baccf75a177f1dca69608ac533351f7285846a8031b14758857017ba2",
+          "native_dt_s": 0.00014419322973010905,
+          "native_Nt": 1734,
+          "nu_h": 7.812500000000002e-12,
+          "signed_40_80": [
+            [
+              36.690998802400614,
+              -0.37479697030192977
+            ],
+            [
+              49.52825834264996,
+              -213.31442295963996
+            ]
+          ],
+          "kappa0_reproduction_error": 1.905726493486832e-13,
+          "source_and_observer_original": true,
+          "numerical_damping_added": true
+        },
+        {
+          "ppw": 44,
+          "all_modes": 148877,
+          "native_h_m": 0.078,
+          "cache_sha256": "00792d5eda602a705caeece2f80569aec43d77ad595418838cd260d2c2cff47b",
+          "native_dt_s": 0.00013108475430009911,
+          "native_Nt": 1908,
+          "nu_h": 5.8696468820435766e-12,
+          "signed_40_80": [
+            [
+              37.14120077730243,
+              -0.5417394419675254
+            ],
+            [
+              50.674961671814174,
+              -215.58554737151462
+            ]
+          ],
+          "kappa0_reproduction_error": 1.3876828260713173e-13,
+          "source_and_observer_original": true,
+          "numerical_damping_added": true
+        }
+      ],
+      "pairs": [
+        {
+          "coarse": 28,
+          "fine": 32,
+          "metrics": {
+            "complex_rms_relative": 0.043517970670448325,
+            "magnitude_max_relative": 0.04299955521081665,
+            "magnitude_max_db": 0.38175720748417274,
+            "phase_max_deg": 1.7713168466730451,
+            "mask_floor": 0.6618694710202211,
+            "compared_frequency_count": 2,
+            "frequency_metrics": [
+              {
+                "frequency_hz": 40.0,
+                "masked_in": true,
+                "magnitude_absolute": 1.206387674035362,
+                "magnitude_relative": 0.036081363989332725,
+                "magnitude_db": 0.319192463497261,
+                "phase_deg": 1.7713168466730451,
+                "complex_relative": 0.047149368136347874
+              },
+              {
+                "frequency_hz": 80.0,
+                "masked_in": true,
+                "magnitude_absolute": 8.999871586220081,
+                "magnitude_relative": 0.04299955521081665,
+                "magnitude_db": 0.38175720748417274,
+                "phase_deg": 0.3536026892342079,
+                "complex_relative": 0.04342132737839559
+              }
+            ]
+          },
+          "pass": true
+        },
+        {
+          "coarse": 32,
+          "fine": 36,
+          "metrics": {
+            "complex_rms_relative": 0.02763418853260041,
+            "magnitude_max_relative": 0.05146352638053419,
+            "magnitude_max_db": 0.4589192947237569,
+            "phase_max_deg": 0.7562885460341704,
+            "mask_floor": 0.6788989967421369,
+            "compared_frequency_count": 2,
+            "frequency_metrics": [
+              {
+                "frequency_hz": 40.0,
+                "masked_in": true,
+                "magnitude_absolute": 1.8140508250068024,
+                "magnitude_relative": 0.05146352638053419,
+                "magnitude_db": 0.4589192947237569,
+                "phase_deg": 0.7562885460341704,
+                "complex_relative": 0.05304487027437019
+              },
+              {
+                "frequency_hz": 80.0,
+                "masked_in": true,
+                "magnitude_absolute": 5.385208875367766,
+                "magnitude_relative": 0.02508403430206294,
+                "magnitude_db": 0.22065634667600223,
+                "phase_deg": 0.5163304114905714,
+                "complex_relative": 0.026615433163909463
+              }
+            ]
+          },
+          "pass": true
+        },
+        {
+          "coarse": 36,
+          "fine": 40,
+          "metrics": {
+            "complex_rms_relative": 0.02159472747200702,
+            "magnitude_max_relative": 0.03934440231923597,
+            "magnitude_max_db": 0.34864564589961394,
+            "phase_max_deg": 0.4957735925585496,
+            "mask_floor": 0.6925033676240171,
+            "compared_frequency_count": 2,
+            "frequency_metrics": [
+              {
+                "frequency_hz": 40.0,
+                "masked_in": true,
+                "magnitude_absolute": 1.4436607321200796,
+                "magnitude_relative": 0.03934440231923597,
+                "magnitude_db": 0.34864564589961394,
+                "phase_deg": 0.4957735925585496,
+                "complex_relative": 0.04024808188877452
+              },
+              {
+                "frequency_hz": 80.0,
+                "masked_in": true,
+                "magnitude_absolute": 4.302079812041455,
+                "magnitude_relative": 0.019645205377927254,
+                "magnitude_db": 0.17233445633100608,
+                "phase_deg": 0.40096301804814516,
+                "complex_relative": 0.02083135978095004
+              }
+            ]
+          },
+          "pass": true
+        },
+        {
+          "coarse": 40,
+          "fine": 44,
+          "metrics": {
+            "complex_rms_relative": 0.011529967590980046,
+            "magnitude_max_relative": 0.012174898200026823,
+            "magnitude_max_db": 0.1063988419931148,
+            "phase_max_deg": 0.25040016169270984,
+            "mask_floor": 0.7003219258020944,
+            "compared_frequency_count": 2,
+            "frequency_metrics": [
+              {
+                "frequency_hz": 40.0,
+                "masked_in": true,
+                "magnitude_absolute": 0.4522384376200108,
+                "magnitude_relative": 0.012174898200026823,
+                "magnitude_db": 0.1063988419931148,
+                "phase_deg": 0.25040016169270984,
+                "complex_relative": 0.012926529552319993
+              },
+              {
+                "frequency_hz": 80.0,
+                "masked_in": true,
+                "magnitude_absolute": 2.472445186126066,
+                "magnitude_relative": 0.011164234461347958,
+                "magnitude_db": 0.09751667651355432,
+                "phase_deg": 0.15609309782513492,
+                "complex_relative": 0.011488223780855247
+              }
+            ]
+          },
+          "pass": true
+        }
+      ],
+      "all_four_pairs_pass": true,
+      "strict_monotone_all_three": false,
+      "gate_pass": false
+    },
+    {
+      "kappa": 1.0,
+      "cases": [
+        {
+          "ppw": 28,
+          "all_modes": 50653,
+          "native_h_m": 0.12257142857142857,
+          "cache_sha256": "ce9245616e2f2799bfae40d71219fc4ab3d3c4a830e02fdb85e9039978fd1ae0",
+          "native_dt_s": 0.00020599032818587005,
+          "native_Nt": 1214,
+          "nu_h": 4.555393586005831e-11,
+          "signed_40_80": [
+            [
+              29.347696499674008,
+              3.535061042733704
+            ],
+            [
+              34.06264916621362,
+              -175.83278786778342
+            ]
+          ],
+          "kappa0_reproduction_error": 4.225562766007772e-14,
+          "source_and_observer_original": true,
+          "numerical_damping_added": true
+        },
+        {
+          "ppw": 32,
+          "all_modes": 68921,
+          "native_h_m": 0.10725,
+          "cache_sha256": "a18f61095dd4de95f714d3125767ed2757563bdcc9049f6860487ed218199983",
+          "native_dt_s": 0.0001802415371626363,
+          "native_Nt": 1388,
+          "nu_h": 3.0517578125e-11,
+          "signed_40_80": [
+            [
+              30.443816160520818,
+              2.138165171811325
+            ],
+            [
+              37.69935910514979,
+              -188.92148728423402
+            ]
+          ],
+          "kappa0_reproduction_error": 1.107343347326333e-13,
+          "source_and_observer_original": true,
+          "numerical_damping_added": true
+        },
+        {
+          "ppw": 36,
+          "all_modes": 91125,
+          "native_h_m": 0.09533333333333333,
+          "cache_sha256": "94218e7d695f81ac6ebb7d9d6956f9e4b4252ab4ec7fbe7ed11cb3070fb323ef",
+          "native_dt_s": 0.00016021469970012116,
+          "native_Nt": 1561,
+          "nu_h": 2.1433470507544576e-11,
+          "signed_40_80": [
+            [
+              32.52054550263419,
+              1.234439774456797
+            ],
+            [
+              41.60565883408007,
+              -197.60959546003724
+            ]
+          ],
+          "kappa0_reproduction_error": 1.0137505874237488e-13,
+          "source_and_observer_original": true,
+          "numerical_damping_added": true
+        },
+        {
+          "ppw": 40,
+          "all_modes": 117649,
+          "native_h_m": 0.0858,
+          "cache_sha256": "e031c69baccf75a177f1dca69608ac533351f7285846a8031b14758857017ba2",
+          "native_dt_s": 0.00014419322973010905,
+          "native_Nt": 1734,
+          "nu_h": 1.5625000000000004e-11,
+          "signed_40_80": [
+            [
+              34.354556971340465,
+              0.4932929830809244
+            ],
+            [
+              44.939762973838675,
+              -204.471722227404
+            ]
+          ],
+          "kappa0_reproduction_error": 1.905726493486832e-13,
+          "source_and_observer_original": true,
+          "numerical_damping_added": true
+        },
+        {
+          "ppw": 44,
+          "all_modes": 148877,
+          "native_h_m": 0.078,
+          "cache_sha256": "00792d5eda602a705caeece2f80569aec43d77ad595418838cd260d2c2cff47b",
+          "native_dt_s": 0.00013108475430009911,
+          "native_Nt": 1908,
+          "nu_h": 1.1739293764087153e-11,
+          "signed_40_80": [
+            [
+              34.775616170887425,
+              -0.029669305923488508
+            ],
+            [
+              46.45685623764932,
+              -209.07695630334467
+            ]
+          ],
+          "kappa0_reproduction_error": 1.3876828260713173e-13,
+          "source_and_observer_original": true,
+          "numerical_damping_added": true
+        }
+      ],
+      "pairs": [
+        {
+          "coarse": 28,
+          "fine": 32,
+          "metrics": {
+            "complex_rms_relative": 0.07023936334522533,
+            "magnitude_max_relative": 0.07030757883548014,
+            "magnitude_max_db": 0.6332141877447035,
+            "phase_max_deg": 2.85097502682612,
+            "mask_floor": 0.6092008702770052,
+            "compared_frequency_count": 2,
+            "frequency_metrics": [
+              {
+                "frequency_hz": 40.0,
+                "masked_in": true,
+                "magnitude_absolute": 0.9589721236294118,
+                "magnitude_relative": 0.031422331350113214,
+                "magnitude_db": 0.2773109637687094,
+                "phase_deg": 2.85097502682612,
+                "complex_relative": 0.058180893035904305
+              },
+              {
+                "frequency_hz": 80.0,
+                "masked_in": true,
+                "magnitude_absolute": 13.544490021588729,
+                "magnitude_relative": 0.07030757883548014,
+                "magnitude_db": 0.6332141877447035,
+                "phase_deg": 0.3215201803532466,
+                "complex_relative": 0.07051546980170084
+              }
+            ]
+          },
+          "pass": true
+        },
+        {
+          "coarse": 32,
+          "fine": 36,
+          "metrics": {
+            "complex_rms_relative": 0.047868683292912856,
+            "magnitude_max_relative": 0.0622283449062308,
+            "magnitude_max_db": 0.5580579660104525,
+            "phase_max_deg": 1.8436328045689834,
+            "mask_floor": 0.6385967668638594,
+            "compared_frequency_count": 2,
+            "frequency_metrics": [
+              {
+                "frequency_hz": 40.0,
+                "masked_in": true,
+                "magnitude_absolute": 2.025157139274242,
+                "magnitude_relative": 0.0622283449062308,
+                "magnitude_db": 0.5580579660104525,
+                "phase_deg": 1.8436328045689834,
+                "complex_relative": 0.06959340261584769
+              },
+              {
+                "frequency_hz": 80.0,
+                "masked_in": true,
+                "magnitude_absolute": 9.295798707722923,
+                "magnitude_relative": 0.04603201599534709,
+                "magnitude_db": 0.40932400703823735,
+                "phase_deg": 0.6045071451957256,
+                "complex_relative": 0.04717136225038074
+              }
+            ]
+          },
+          "pass": true
+        },
+        {
+          "coarse": 36,
+          "fine": 40,
+          "metrics": {
+            "complex_rms_relative": 0.037150103823971284,
+            "magnitude_max_relative": 0.05280072148018166,
+            "magnitude_max_db": 0.4711728284488908,
+            "phase_max_deg": 1.3511866895054254,
+            "mask_floor": 0.6620292099808396,
+            "compared_frequency_count": 2,
+            "frequency_metrics": [
+              {
+                "frequency_hz": 40.0,
+                "masked_in": true,
+                "magnitude_absolute": 1.8141323819020272,
+                "magnitude_relative": 0.05280072148018166,
+                "magnitude_db": 0.4711728284488908,
+                "phase_deg": 1.3511866895054254,
+                "complex_relative": 0.057573160264169164
+              },
+              {
+                "frequency_hz": 80.0,
+                "masked_in": true,
+                "magnitude_absolute": 7.4099891391992685,
+                "magnitude_relative": 0.03539487799587942,
+                "magnitude_db": 0.3130087265282139,
+                "phase_deg": 0.5059852418255559,
+                "complex_relative": 0.03644207709568876
+              }
+            ]
+          },
+          "pass": true
+        },
+        {
+          "coarse": 40,
+          "fine": 44,
+          "metrics": {
+            "complex_rms_relative": 0.02255934670949579,
+            "magnitude_max_relative": 0.022524024674374157,
+            "magnitude_max_db": 0.1978781602118634,
+            "phase_max_deg": 0.8715294134715919,
+            "mask_floor": 0.6772843800690839,
+            "compared_frequency_count": 2,
+            "frequency_metrics": [
+              {
+                "frequency_hz": 40.0,
+                "masked_in": true,
+                "magnitude_absolute": 0.4175304709335137,
+                "magnitude_relative": 0.012006410380306252,
+                "magnitude_db": 0.10491746455969571,
+                "phase_deg": 0.8715294134715919,
+                "complex_relative": 0.019306676648062637
+              },
+              {
+                "frequency_hz": 80.0,
+                "masked_in": true,
+                "magnitude_absolute": 4.824108357212367,
+                "magnitude_relative": 0.022524024674374157,
+                "magnitude_db": 0.1978781602118634,
+                "phase_deg": 0.13192950037048945,
+                "complex_relative": 0.022638777553280143
+              }
+            ]
+          },
+          "pass": true
+        }
+      ],
+      "all_four_pairs_pass": true,
+      "strict_monotone_all_three": true,
+      "gate_pass": true
+    },
+    {
+      "kappa": 2.0,
+      "cases": [
+        {
+          "ppw": 28,
+          "all_modes": 50653,
+          "native_h_m": 0.12257142857142857,
+          "cache_sha256": "ce9245616e2f2799bfae40d71219fc4ab3d3c4a830e02fdb85e9039978fd1ae0",
+          "native_dt_s": 0.00020599032818587005,
+          "native_Nt": 1214,
+          "nu_h": 9.110787172011662e-11,
+          "signed_40_80": [
+            [
+              26.190277156465218,
+              6.064741795442973
+            ],
+            [
+              26.876744329052897,
+              -148.84005857122966
+            ]
+          ],
+          "kappa0_reproduction_error": 4.225562766007772e-14,
+          "source_and_observer_original": true,
+          "numerical_damping_added": true
+        },
+        {
+          "ppw": 32,
+          "all_modes": 68921,
+          "native_h_m": 0.10725,
+          "cache_sha256": "a18f61095dd4de95f714d3125767ed2757563bdcc9049f6860487ed218199983",
+          "native_dt_s": 0.0001802415371626363,
+          "native_Nt": 1388,
+          "nu_h": 6.103515625e-11,
+          "signed_40_80": [
+            [
+              27.661215050568543,
+              4.5223194708092995
+            ],
+            [
+              30.53715597355453,
+              -165.4343952511518
+            ]
+          ],
+          "kappa0_reproduction_error": 1.107343347326333e-13,
+          "source_and_observer_original": true,
+          "numerical_damping_added": true
+        },
+        {
+          "ppw": 36,
+          "all_modes": 91125,
+          "native_h_m": 0.09533333333333333,
+          "cache_sha256": "94218e7d695f81ac6ebb7d9d6956f9e4b4252ab4ec7fbe7ed11cb3070fb323ef",
+          "native_dt_s": 0.00016021469970012116,
+          "native_Nt": 1561,
+          "nu_h": 4.286694101508915e-11,
+          "signed_40_80": [
+            [
+              29.261950983372387,
+              3.3480643748586685
+            ],
+            [
+              34.38810894858341,
+              -178.04058673738658
+            ]
+          ],
+          "kappa0_reproduction_error": 1.0137505874237488e-13,
+          "source_and_observer_original": true,
+          "numerical_damping_added": true
+        },
+        {
+          "ppw": 40,
+          "all_modes": 117649,
+          "native_h_m": 0.0858,
+          "cache_sha256": "e031c69baccf75a177f1dca69608ac533351f7285846a8031b14758857017ba2",
+          "native_dt_s": 0.00014419322973010905,
+          "native_Nt": 1734,
+          "nu_h": 3.125000000000001e-11,
+          "signed_40_80": [
+            [
+              31.117945147078757,
+              2.2740958686373234
+            ],
+            [
+              38.273608410414404,
+              -188.47857257104576
+            ]
+          ],
+          "kappa0_reproduction_error": 1.905726493486832e-13,
+          "source_and_observer_original": true,
+          "numerical_damping_added": true
+        },
+        {
+          "ppw": 44,
+          "all_modes": 148877,
+          "native_h_m": 0.078,
+          "cache_sha256": "00792d5eda602a705caeece2f80569aec43d77ad595418838cd260d2c2cff47b",
+          "native_dt_s": 0.00013108475430009911,
+          "native_Nt": 1908,
+          "nu_h": 2.3478587528174306e-11,
+          "signed_40_80": [
+            [
+              32.09593587920404,
+              1.3861739151941552
+            ],
+            [
+              40.850603572346834,
+              -196.23473569573278
+            ]
+          ],
+          "kappa0_reproduction_error": 1.3876828260713173e-13,
+          "source_and_observer_original": true,
+          "numerical_damping_added": true
+        }
+      ],
+      "pairs": [
+        {
+          "coarse": 28,
+          "fine": 32,
+          "metrics": {
+            "complex_rms_relative": 0.10041973062832951,
+            "magnitude_max_relative": 0.10094537230990938,
+            "magnitude_max_db": 0.9242783837206192,
+            "phase_max_deg": 3.7527622075962768,
+            "mask_floor": 0.531987377924209,
+            "compared_frequency_count": 2,
+            "frequency_metrics": [
+              {
+                "frequency_hz": 40.0,
+                "masked_in": true,
+                "magnitude_absolute": 1.1451552623901478,
+                "magnitude_relative": 0.040856883976494084,
+                "magnitude_db": 0.3623317176515952,
+                "phase_deg": 3.7527622075962768,
+                "complex_relative": 0.07604297296326172
+              },
+              {
+                "frequency_hz": 80.0,
+                "masked_in": true,
+                "magnitude_absolute": 16.98195721556985,
+                "magnitude_relative": 0.10094537230990938,
+                "magnitude_db": 0.9242783837206192,
+                "phase_deg": 0.2225123287770998,
+                "complex_relative": 0.10101251328017126
+              }
+            ]
+          },
+          "pass": true
+        },
+        {
+          "coarse": 32,
+          "fine": 36,
+          "metrics": {
+            "complex_rms_relative": 0.07256062005832731,
+            "magnitude_max_relative": 0.07225447376333838,
+            "magnitude_max_db": 0.6514226244753301,
+            "phase_max_deg": 2.75788945666892,
+            "mask_floor": 0.5734195023091954,
+            "compared_frequency_count": 2,
+            "frequency_metrics": [
+              {
+                "frequency_hz": 40.0,
+                "masked_in": true,
+                "magnitude_absolute": 1.424412663778849,
+                "magnitude_relative": 0.048362446902456106,
+                "magnitude_db": 0.4305685672215687,
+                "phase_deg": 2.75788945666892,
+                "complex_relative": 0.06740441757673821
+              },
+              {
+                "frequency_hz": 80.0,
+                "masked_in": true,
+                "magnitude_absolute": 13.101988135595974,
+                "magnitude_relative": 0.07225447376333838,
+                "magnitude_db": 0.6514226244753301,
+                "phase_deg": 0.4735501530532531,
+                "complex_relative": 0.0726917001245214
+              }
+            ]
+          },
+          "pass": true
+        },
+        {
+          "coarse": 36,
+          "fine": 40,
+          "metrics": {
+            "complex_rms_relative": 0.058213247428159975,
+            "magnitude_max_relative": 0.057164511353611724,
+            "magnitude_max_db": 0.5112815769800143,
+            "phase_max_deg": 2.347487547559382,
+            "mask_floor": 0.6081861673794686,
+            "compared_frequency_count": 2,
+            "frequency_metrics": [
+              {
+                "frequency_hz": 40.0,
+                "masked_in": true,
+                "magnitude_absolute": 1.7480639173534094,
+                "magnitude_relative": 0.056026019959402075,
+                "magnitude_db": 0.5007995309989778,
+                "phase_deg": 2.347487547559382,
+                "complex_relative": 0.0687262647440298
+              },
+              {
+                "frequency_hz": 80.0,
+                "masked_in": true,
+                "magnitude_absolute": 10.994184827028164,
+                "magnitude_relative": 0.057164511353611724,
+                "magnitude_db": 0.5112815769800143,
+                "phase_deg": 0.546824450214416,
+                "complex_relative": 0.05791079012596343
+              }
+            ]
+          },
+          "pass": true
+        },
+        {
+          "coarse": 40,
+          "fine": 44,
+          "metrics": {
+            "complex_rms_relative": 0.04078388907636866,
+            "magnitude_max_relative": 0.040491927932028146,
+            "magnitude_max_db": 0.35902734634858524,
+            "phase_max_deg": 1.7067592578790425,
+            "mask_floor": 0.6338520592835456,
+            "compared_frequency_count": 2,
+            "frequency_metrics": [
+              {
+                "frequency_hz": 40.0,
+                "masked_in": true,
+                "magnitude_absolute": 0.9249254605156949,
+                "magnitude_relative": 0.02879068750635065,
+                "magnitude_db": 0.2537432398488647,
+                "phase_deg": 1.7067592578790425,
+                "complex_relative": 0.041117528003511254
+              },
+              {
+                "frequency_hz": 80.0,
+                "masked_in": true,
+                "magnitude_absolute": 8.116267659655875,
+                "magnitude_relative": 0.040491927932028146,
+                "magnitude_db": 0.35902734634858524,
+                "phase_deg": 0.2806865217609129,
+                "complex_relative": 0.04077528253001084
+              }
+            ]
+          },
+          "pass": true
+        }
+      ],
+      "all_four_pairs_pass": true,
+      "strict_monotone_all_three": true,
+      "gate_pass": true
+    }
+  ],
+  "primary_gate_pass": true,
+  "physical_undamped_validation": "NOT_ESTABLISHED"
+}

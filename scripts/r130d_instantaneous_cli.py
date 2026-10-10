@@ -19,7 +19,7 @@ def main():
     p.add_argument('--output-dir',type=Path,default=Path('r130d_instantaneous_results'))
     args=p.parse_args()
     evidence=json.loads((ROOT/'benchmarks/acoustics/r130d_vanishing_viscosity_q0_evidence_2026-10-10.json').read_text(encoding='utf8'))
-    hp=json.loads((ROOT/'benchmarks/acoustics/r130d_independent_hp_impulse_evidence_2026-10-10.json').read_text(encoding='utf8'))
+    hp=json.loads((ROOT/'benchmarks/acoustics/r130d_independent_hp_p5_impulse_evidence_2026-10-10.json').read_text(encoding='utf8'))
     arm=next(r for r in evidence['arms'] if r['kappa']==1.)
     case=next(r for r in arm['cases'] if r['ppw']==args.ppw)
     path=args.cache_root/f'ppw{args.ppw}.npz'

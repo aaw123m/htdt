@@ -39,3 +39,16 @@ def test_exact_rigid_mode_critical_mode_and_cubic_vanishing_damping():
     assert np.max(r1.real)<=0 and np.max(r2.real)<=0
     a2=viscous_roots(np.array([0.,100.,10000.]),nu/8.)[2]
     np.testing.assert_allclose(a2[1:]/a[1:],1/8.)
+
+
+def test_fixed_physical_modes_recover_undamped_original_observer_at_cubic_order():
+    # This checks consistency, not point-source continuum qualification.
+    lam=(2*np.pi*np.array([0.,40.,80.,150.]))**2
+    cp=np.array([.5,1.,-.3,.02]);dt,nt=.0001,600
+    exact=viscous_original_q0_transfer(lam,cp,dt,nt,.12,kappa=0.)
+    errors=[]
+    for h in (.12,.06,.03,.015):
+        value=viscous_original_q0_transfer(lam,cp,dt,nt,h)
+        errors.append(np.linalg.norm(value-exact)/np.linalg.norm(exact))
+    orders=np.log2(np.array(errors[:-1])/errors[1:])
+    assert min(orders)>2.9 and max(orders)<3.1

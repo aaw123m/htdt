@@ -1,0 +1,18 @@
+{
+  "purpose": "Continue independent spatial refinement after retained P3-P4 magnitude failure 5.548782 percent against unchanged 5 percent cap",
+  "prior_evidence": "r130d_independent_hp_impulse_evidence_2026-10-10.json remains FAIL_NEW_VANISHING_VISCOSITY_Q0_NUMERICAL_METHOD; never overwrite its verdict",
+  "mfem_pin": "d964264cdb9a13e94a201b6c236c7721e0c8765f",
+  "exporter_sha256_lf": "eb3a82cbdafec0a8ae4386d87b3f381b0957ad38aac233519a7825e6a0e965f4",
+  "independent_spatial_orders": [4,5],
+  "uniform_refinements": 2,
+  "complete_dofs_expected": [4913,9261],
+  "memory": "New supplementary cap9261 complete DOFs; GVD full generalized symmetric eigensystem, expected dense peak under4GB against observed free virtual10GB; no spectral truncation; original cap5000 and original failure remain retained",
+  "point_cloud": "identical82 points, immutable original5-grid8-point source/receiver positions and weights",
+  "dynamics": "identical nu=h44^3/c^3; original native dt/Nt; causal q0 area dt; full original pressure gradient and rectangular signed40/80; all modes",
+  "independent_fine_pair_limits": {"complex_rms_relative":0.03,"magnitude_max_relative":0.05,"phase_max_deg":3},
+  "independent_cross_limits": {"complex_rms_relative":0.03,"magnitude_max_relative":0.05,"phase_max_deg":3},
+  "require_all_original_four_pairs_strict_three_error_decrease": true,
+  "rigid_mode": "only exact constant Neumann mode replacement; no positive spectral flooring or removal",
+  "qualifications_excluded": ["old archived PFFDTD retroactive PASS", "physical undamped point-source continuum proven", "measured-room validation"],
+  "prospective": "save and hash, commit and push before assembling P5 or observing its results"
+}
