@@ -1,0 +1,113 @@
+{
+ "schema_version": "htdt.r130d.residual-tail-mechanism-separation-plan-1",
+ "date_jst": "2026-10-11",
+ "issue": 938,
+ "kind": "reproduction-isolation residual-tail mechanism separation axis",
+ "hypothesis": "The two remaining UNRESOLVED issue-938 reproduction-isolation hypotheses are decided by partitioning the exact-geometry hybrid eigensystem's residual non-convergent >200 Hz modal tail per mode into conditioning-polluted (sliver-localized) versus ordinary-spectrum classes, projecting each class's signed contribution onto every failing adjacent-pair observable delta, and rescoring the frozen gates on a sliver-excluded counterfactual. A mass-floor conditioning-controlled eigensystem variant independently tests whether the inflated tail eigenvalues are causally produced by tiny cut-cell nodal masses. A Weyl modal-density descriptor bounds whether the surviving ordinary-spectrum tail content is physical room resonance or discretization-realization content.",
+ "preregistration": "Commit and push this fixed diagnostic plan to the feature branch before any new eigensystem census, attribution, subset rescoring, or conditioning-variant numeric execution.",
+ "original": {
+  "upstream_PFFDTD_sha": "aa319f6c86517cb95aabfae8656277da62c3ead5",
+  "ppw": [28, 32, 36, 40, 44],
+  "original_source_xyz_m": [1.5, 2.0, 2.0],
+  "original_receiver_xyz_m": [2.5, 2.0, 2.0],
+  "source_receiver": "exact original SHA-pinned vox_out.h5/comms_out.h5 native 8x8 indices and weights; assets are provisioned by upstream sim_setup on the frozen sloped fixture (8-vertex rigid wedge, rh=50, Tc=20, fmax=100, impulse insig, duration 0.25 s, Nprocs=1, fcc_flag=0, draw_vox=0) identical to scripts/run_rev71_other_nonconvergence_diagnostic.py and are accepted only when both pinned SHA-256 values match the frozen records",
+  "q0": "exact original 8 sample native impulse in_sigs[:,0]; all later samples 0",
+  "native_dt_h_Nt_unchanged": true,
+  "record_length_s": 0.25,
+  "c_m_s": 343.2,
+  "rho_kg_m3": 1.2,
+  "signed_bins_hz": [40, 80],
+  "three_gates": {
+   "complex_rms_relative": 0.2,
+   "magnitude_max_relative": 0.25,
+   "phase_max_deg": 15
+  },
+  "native_evidence": "benchmarks/acoustics/r130d_original_point_quadratic_pffdtd_evidence_2026-10-09.json",
+  "hybrid_evidence": "benchmarks/acoustics/r130d_original_q0_cartesian_flux_true_roof_hybrid_evidence_2026-10-10.json",
+  "reproduction_isolation_summary": "benchmarks/acoustics/r130d_reproduction_isolation_diagnostic_summary.json",
+  "mfem_self_convergence_thresholds": {
+   "complex_rms_relative_max": 0.05,
+   "magnitude_max_relative": 0.08,
+   "phase_max_deg": 5,
+   "pair": "MFEM refinement 2 to refinement 3, frozen in benchmarks/acoustics/r130d_general3d_validation_plan.json acceptance.reference_self_convergence"
+  }
+ },
+ "method": {
+  "fixed_operator": "same symmetric conservative Cartesian full wet 5point + physical roof cut-Q1 flux, full consistent mass, x conforming-roof P1 tensor operators, no changes; identical construction to the frozen endpoint-attribution axis",
+  "axis_l1_full_mode_localization_census": "per grid, recompute the complete generalized hybrid eigensystem; for every yz factor mode record eigenfrequency and M-mass fractions on each frozen support set: nodal support area < {0.01,0.05,0.10,0.50}*h^2 and true-roof distance <= {1,2}*h (same support-set definitions as the committed CFL eigenvector localization axis)",
+  "axis_l1_mode_classes": "ordered first-match classification of every yz factor mode: sliver_lt010 iff M-mass fraction on area<0.10*h^2 nodes >0.5; else sliver_lt050 iff fraction on area<0.50*h^2 nodes >0.5; else roof_le1h iff fraction on roof<=1h nodes >0.5; else bulk. Every 3-D mode inherits its yz factor's class (x factors are bulk conforming-P1 by construction)",
+  "axis_l1_band_census": "per frequency band x class: mode count and summed absolute signed 40/80 modal contribution, same frozen band edges [0,100,200,400,800,1600,3200,inf)",
+  "axis_l2_signed_delta_attribution": "for each of the four adjacent pairs, partition every mode of each grid into the four classes and apply the committed signed real projection Re(conj(D)*d_j)/|D|^2 so the per-class fractions sum to exactly 1; report fractions per class per signed bin per pair",
+  "axis_l3_non_sliver_counterfactual": "reconstruct each grid's signed 40/80 transfer with sliver-class modes removed (terms masked to zero, never deleted from the operator), rescore all four adjacent pairs x all three frozen gates, and also report the sliver-only reconstruction; the unmodified full reconstruction must re-bind to the frozen signed transfer at relative tolerance 2e-8 before any subset is scored",
+  "axis_l4_mass_floor_mechanism_check": "for each grid, floor the positive diagonal yz mass at 0.01*h^2, recompute the complete yz generalized spectrum only, and report post-floor yz lambda_max, the collapse factor versus the unmodified yz lambda_max, and the median/max relative eigenfrequency shift of band <=200 Hz modes (index-matched, ordering-preserving); spectrum-level mechanism check only: no observable reconstruction, transfer, or gate is computed on the floored system",
+  "axis_l5_weyl_descriptor": "per band x grid, report non-sliver mode count versus the Weyl asymptotic Neumann count N=(4*pi/3)*V*(hi^3-lo^3)/c^3 for V=56 m^3 (half-open bands, the open top band reports count only), as a physicality descriptor of the ordinary-spectrum tail",
+  "axis_l6_mfem_gate_reevaluation": "evaluation-only on the committed mfem_manifest of r130d_reproduction_isolation_diagnostic_summary.json: compute the MFEM refinement 2 to 3 signed 40/80 transfer metrics against the frozen reference_self_convergence thresholds, restate the canonical PFFDTD side, and re-issue the mfem_pffdtd_cross_solver_gate status with its precise blocker; no new MFEM runs are required by this axis, but if the WSL2 MFEM toolchain is executable the three refinement legs may be re-executed for an execution_freshness flag and any numeric difference versus the committed manifest fails closed",
+  "all_mode_frozen_signed_reference": "previously committed unchanged full hybrid 40/80Hz signed values; require relative agreement 2e-8 before any class partition is scored",
+  "pair_signed_difference_projection": "Re(conj(full coarse-fine difference)*one class coarse-fine difference)/abs(full coarse-fine difference)^2; signed and can exceed 1 or be negative; all class fractions must sum to 1 per pair per bin",
+  "report_all_classes_all_grids_all_bands_both_signed_bins": true,
+  "no_high_mode_cut_no_source_smoothing_no_extra_window_no_amplitude_phase_fitting": true,
+  "no_operator_or_contract_modification": "the sliver-excluded counterfactual and the mass-floor variant are diagnostic decompositions of the unchanged committed eigensystem; neither redefines any acceptance contract"
+ },
+ "decision_semantics": {
+  "failing_pairs": "adjacent pairs whose full-spectrum three-gate result fails under the frozen thresholds (the residual non-convergent tail under test)",
+  "sliver_delta_share": "sum over the two sliver classes' signed projected delta-fractions, aggregated over all failing pairs and both signed bins as sum(Re(conj(D)*d_sliver))/sum(|D|^2)",
+  "non_sliver_delta_share": "same aggregation over roof_le1h and bulk classes",
+  "fem_conditioning_pollution_verdicts": {
+   "SUPPORTED_DRIVER": "sliver_delta_share >= 0.8, OR the non-sliver counterfactual turns every failing gate of at least one previously failing pair to PASS",
+   "SUPPORTED_PRESENT_NOT_DRIVER": "sliver-dominated tail modes demonstrably exist (enrichment of top tail modes on sliver sets >= 10x baseline) but sliver_delta_share < 0.2 and no counterfactual gate flips to PASS",
+   "BOTH_SEPARABLY": "0.2 <= sliver_delta_share < 0.8",
+   "REJECTED": "no sliver-dominated tail modes exist (enrichment < 3x) AND mass-floor collapse factor < 2",
+   "UNRESOLVED": "asset binding, eigensystem caps, or reference re-binding fails"
+  },
+  "true_physical_resonance_verdicts": {
+   "SUPPORTED_PHYSICAL_UNDER_RESOLVED": "non_sliver_delta_share >= 0.8 AND the bulk class band counts in the failing pairs' delta-carrying bands are within the declared Weyl window [0.25,4] of the asymptotic count (modes a real room must carry, rendered under dispersion)",
+   "SUPPORTED_UNRESOLVED_PHYSICALITY": "non_sliver_delta_share >= 0.8 but the Weyl descriptor is outside the window; recorded honestly as non-sliver realization-dependent content",
+   "BOTH_SEPARABLY": "0.2 <= non_sliver_delta_share < 0.8",
+   "REJECTED_AS_PRINCIPAL": "non_sliver_delta_share < 0.2",
+   "UNRESOLVED": "asset binding, eigensystem caps, or reference re-binding fails"
+  },
+  "mfem_pffdtd_cross_solver_gate_verdicts": {
+   "BLOCKED": "self-convergence has not re-passed on both solvers (status quo unless new evidence changes either side)",
+   "BLOCKED_BOTH_SIDES_NONCONVERGENT": "PFFDTD canonical side remains SELF_CONVERGENCE_FAILED AND the MFEM refinement 2 to 3 committed metrics fail the frozen reference thresholds",
+   "ELIGIBLE": "both sides' frozen self-convergence re-pass (not reachable on this axis; canonical PFFDTD state is unchanged)"
+  }
+ },
+ "verdict_vocabulary": [
+  "SUPPORTED_DRIVER",
+  "SUPPORTED_PRESENT_NOT_DRIVER",
+  "SUPPORTED_PHYSICAL_UNDER_RESOLVED",
+  "SUPPORTED_UNRESOLVED_PHYSICALITY",
+  "BOTH_SEPARABLY",
+  "REJECTED_AS_PRINCIPAL",
+  "REJECTED",
+  "UNRESOLVED",
+  "UNRESOLVED_ENVIRONMENT_BLOCKED",
+  "BLOCKED",
+  "BLOCKED_BOTH_SIDES_NONCONVERGENT",
+  "ELIGIBLE"
+ ],
+ "caps": {
+  "max_active_yz_nodes": 3300,
+  "max_modes": 180000,
+  "max_ppw_cases": 5,
+  "new_native_PFFDTD_wave_runs": 0,
+  "new_mfem_runs": 0,
+  "new_GitHub_Actions_runs": 0,
+  "retain_scratch": true
+ },
+ "authority": {
+  "original_PFFDTD": "SELF_CONVERGENCE_FAILED",
+  "independent_physics": "NOT_VALIDATED",
+  "product": "NO_GO",
+  "PR_draft": true,
+  "issue_open": true
+ },
+ "honesty": "This axis decomposes and rescores the unchanged committed hybrid eigensystem; it does not amend or rescale the canonical original outcome: original staircase contract remains SELF_CONVERGENCE_FAILED, product remains NO_GO for the original observable. A class-attribution counterfactual is evidence about mechanism, not a requalified acceptance contract; the mass-floor variant is a spectrum-level conditioning check and is never scored as a solver. UNRESOLVED with the precise blocker recorded is an acceptable terminal outcome; fabricated resolution is not.",
+ "limits": {
+  "no_new_solver_wave_runs": true,
+  "no_new_github_actions": true,
+  "original_authority_unchanged": true,
+  "no_contract_changes": true
+ },
+ "expected_runtime": "under 25 minutes on the Windows box once the SHA-pinned original sim setups are provisioned; the optional MFEM leg adds about 5 minutes when the WSL2 toolchain is already built"
+}
