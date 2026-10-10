@@ -1,0 +1,118 @@
+{
+  "schema_version": "htdt.r130d.original-q0-boundary-fitted-uniform-x-true-roof-plan-1",
+  "date_jst": "2026-10-10",
+  "repo": "aaw123m/htdt",
+  "issue": 53,
+  "draft_pr": 118,
+  "question": "Can deterministic exact [0,4] boundary-fitted uniform x-P1 spatial discretization eliminate the physical x-endpoint short-support CFL outliers and improve original full-point q0 convergence without any cut-roof node removal?",
+  "preregistration": "Before opening original five-grid native HDF5 or computing this new arm, commit identical plan on GitHub feature branch; live remote branch-head/plan byte ancestry guard mandatory.",
+  "original": {
+    "pffdtd_sha": "aa319f6c86517cb95aabfae8656277da62c3ead5",
+    "native_ppw": [
+      28,
+      32,
+      36,
+      40,
+      44
+    ],
+    "source_xyz_m": [
+      1.5,
+      2,
+      2
+    ],
+    "receiver_xyz_m": [
+      2.5,
+      2,
+      2
+    ],
+    "native_eight_source_receiver_source_signal": "SHA original 8 in_ixyz/in_sigs[:,0] and 8 out_ixyz/out_alpha; no modification of those HDF5 entries",
+    "native_h_Ts_Nt_each_grid": true,
+    "full_record_s": 0.25,
+    "frequencies_signed_hz": [
+      40,
+      80
+    ],
+    "c_m_s": 343.2,
+    "rho": 1.2,
+    "acceptance": {
+      "complex_rms_relative": 0.2,
+      "magnitude_max_relative": 0.25,
+      "phase_max_deg": 15
+    },
+    "all_four_ppw_pairs": [
+      [
+        28,
+        32
+      ],
+      [
+        32,
+        36
+      ],
+      [
+        36,
+        40
+      ],
+      [
+        40,
+        44
+      ]
+    ],
+    "strict_monotone_all_three": true,
+    "original_runnable_wave_file_SHA_required": true
+  },
+  "new_operator": {
+    "name": "fixed_uniform_boundary_fitted_P1_x_plus_exact_original_native_true_roof_cut_Q1_5point_yz_positive_mass",
+    "x_segments_rule": "N=ceil(4/native_h), no adjustment by results; x nodes exactly linspace(0,4,N+1), positive exact physical P1 row lumped segment masses endpoints dx/2, interior dx.",
+    "x_mass": "physical P1 exact positive diagonal rowsums; no floors or missing physical x nodes",
+    "x_stiffness": "exact conservative physical P1 Neumann boundary (c²/dx)*edge graph, with 0 and 4 endpoints; Kx 1 = 0.",
+    "yz": "EXACT previously preregistered Cartesian fully wet 5point yz + true inclined Neumann physical cut-Q1 y/z and positive row-sum Myz; original y/z DOF basis untouched including all positive sliver nodes",
+    "tensor": "M=diag(Mx physical row sums)⊗diag(Myz original), K=Kx⊗diag(Myz)+diag(Mx)⊗Kyz; all modes retained",
+    "source_observer_reprojection": "original native 8 HDF5 nodes/weights projected from their exact physical original x positions onto deterministic fitted P1 x hat functions (piecewise linear; preserve weighted zeroth + first physical x moment), yz native indices and individual original weights remain unchanged; verify rank1 tensor <=1e-12. This is experimental discrete representation change, NOT identical original 8-node spatial operator.",
+    "native_q0_normalization": "same original sum in_sigs[:,0] = l2/h and native Ts,Nt; original continuous source/receiver centroid and original 8 original discrete point weights cannot be modified.",
+    "time": "implicit Newmark beta=1/4 same original fixed complete 250ms pressure observer, all modes; in parallel calculate native explicit leapfrog full eigenvalue CFL without truncation; score Newmark all five even if explicit unstable",
+    "roof_volume_m3": 56,
+    "manufactured_neumann_constant": true,
+    "exact_affine_x_and_roof_weak_energy": true,
+    "forbidden": [
+      "high_mode_cut",
+      "mass_floor",
+      "rooftop_sliver_dropping",
+      "original_signal_edit",
+      "original_native_HDF5_edit",
+      "time_window_edit",
+      "phase_fit",
+      "level_fit",
+      "grid_specific_x_N_tuning",
+      "post_hoc_better_grid_select"
+    ]
+  },
+  "predeclared_checks": {
+    "all_five_native_spectrum_including_positive_slivers": true,
+    "compare_CFL_vs_previous_all_five_7pt": true,
+    "uniform_x_min_endpoint_support_dx_over_2": true,
+    "full_physical_volume_true_56": true,
+    "x_and_yz_neumann_constant": true,
+    "x_linear_stiffness_c2_over_dx_discrete": true,
+    "x_physical_first_moment_of_each_source_and_receiver": true,
+    "unchanged_yz_Q1_exact_flux_and_neumann_roof": true,
+    "fully_mapped_8_original_native_discrete_point_weights": true,
+    "all_five_Newmark_original_full_signed_40_80": true,
+    "all_original_3_gates_and_strict_monotonicity": true,
+    "all_five_independent_early_analytic_roof_3width_witnesses": true,
+    "original_full_8node_q0_not_qualified_by_experimental_result": true
+  },
+  "resource": {
+    "max_yz_modes": 3300,
+    "max_total_modes": 180000,
+    "new_upstream_PFFDTD_waves": 0,
+    "github_actions": 0,
+    "retain_scratch": true
+  },
+  "authority": {
+    "original_PFFDTD": "SELF_CONVERGENCE_FAILED",
+    "independent_physics": "NOT_VALIDATED",
+    "product": "NO_GO",
+    "issue_open": true,
+    "PR_draft": true
+  }
+}
