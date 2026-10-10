@@ -39,7 +39,7 @@ import zipfile
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from .canonical_json import canonical_sha256 as _hash
 from .cad_benchmark import BenchmarkCase, BenchmarkPoint, BenchmarkSourceAsset
@@ -99,7 +99,7 @@ class GeneralFirMeasurement(BaseModel):
 def _dataset_attr(node: Any, name: str) -> str | None:
     try:
         value = node.attrs.get(name)
-    except Exception:  # noqa: BLE001 - attribute reads must not guess
+    except Exception:  # error-boundary: attribute probe — an unreadable HDF5 attribute returns absent honestly; import then fails closed on the missing declaration (noqa: BLE001)
         return None
     if value is None:
         return None
@@ -117,7 +117,7 @@ def _dataset_attr(node: Any, name: str) -> str | None:
 def _scalar_attr(handle: Any, name: str) -> str | None:
     try:
         value = handle.attrs.get(name)
-    except Exception:  # noqa: BLE001
+    except Exception:  # error-boundary: attribute probe — an unreadable HDF5 attribute returns absent honestly; import then fails closed on the missing declaration (noqa: BLE001)
         return None
     if value is None:
         return None
@@ -536,7 +536,7 @@ def read_bras_material_csv(
             **{**probe.model_dump(mode='python'),
                'table_sha256': _hash(probe.identity_payload())}
         )
-    except Exception as exc:
+    except (ValidationError, TypeError) as exc:
         raise BrasImportError(
             f'{display_name}: invalid material table — {exc}'
         ) from exc
