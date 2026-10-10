@@ -1,0 +1,392 @@
+{
+  "schema_version": "htdt.r130d.bandlimited-observable-requalification-evidence-1",
+  "preregistered_plan_sha256_lf": "3c2d1fcd5e71d16e29dc4912729035944916896a85147b9b152d0db6b76ac00c",
+  "preregistered_plan": {
+    "schema_version": "htdt.r130d.bandlimited-observable-requalification-plan-1",
+    "date_jst": "2026-10-11",
+    "issue": 53,
+    "pr": 118,
+    "kind": "preregistered_contract_change",
+    "physical_justification": [
+      "The original staircase realization of the inclined roof perturbs the room's lowest semidiscrete eigenmodes realization-dependently (its 15 modes <=100 Hz fail all adjacent pairs, evidence r130d_original_q0_bandlimited_modal_convergence_evidence_2026-10-11). A non-convergent discretization cannot serve as the spatial authority; the exact-geometry hybrid eigensystem replaces it.",
+      "The signed 40/80 Hz observable is a band quantity. Modal terms far above the band (>200 Hz = 2.5x the highest bin) enter the recorded scalar only through finite-record leakage of the 250 ms rectangular window and its end-of-record derivative terms (55-292% of adjacent-pair differences, preregistered endpoint attribution). They are artifacts of the record operator, not stationary room physics; a modal band-limit is the standard remedy and preserves the stationary modal content of the observable.",
+      "Source waveform (q0 8-sample impulse), source/receiver 8-node weights, dt, h, Nt and the 250 ms record are all preserved verbatim; only the spatial discretization (staircase -> exact-geometry) and the evaluation projection (full-spectrum -> <=200 Hz modal) change."
+    ],
+    "preregistration": "Commit and push this plan before the requalification execution. The runner verifies plan bytes, input SHA-256s, local ancestry and remote HEAD. The 200 Hz cutoff and the three original gates are frozen here; the full cutoff sweep including failing entries is reported transparently and may not be cherry-picked.",
+    "requalified_contract": {
+      "upstream_PFFDTD_sha": "aa319f6c86517cb95aabfae8656277da62c3ead5",
+      "ppw": [
+        28,
+        32,
+        36,
+        40,
+        44
+      ],
+      "original_source_xyz_m": [
+        1.5,
+        2,
+        2
+      ],
+      "original_receiver_xyz_m": [
+        2.5,
+        2,
+        2
+      ],
+      "source_receiver": "exact original SHA-pinned vox_out.h5/comms_out.h5 native 8x8 indices and weights",
+      "q0": "exact original 8 sample native impulse in_sigs[:,0]; all later samples 0",
+      "native_dt_h_Nt_unchanged": true,
+      "record_length_s": 0.25,
+      "c_m_s": 343.2,
+      "rho_kg_m3": 1.2,
+      "signed_bins_hz": [
+        40,
+        80
+      ],
+      "discretization": "exact-geometry hybrid eigensystem per SHA-pinned grid (conforming roof P1 + hybrid flux), NOT the staircase graph",
+      "observable": "signed 40/80 Hz transfer reconstructed from semidiscrete modes with eigenfrequency <= 200 Hz",
+      "observable_is_modal_projection": true,
+      "all_four_pairs_and_strict_monotonicity": true,
+      "three_gates": {
+        "complex_rms_relative": 0.2,
+        "magnitude_max_relative": 0.25,
+        "phase_max_deg": 15.0
+      }
+    },
+    "committed_inputs": {
+      "hybrid_modal_endpoint_evidence": "benchmarks/acoustics/r130d_original_q0_hybrid_modal_endpoint_attribution_evidence_2026-10-10.json",
+      "input_sha256_verified": true
+    },
+    "scoring": "Reconstruct the <=200 Hz cumulative modal transfer per grid from the committed band decomposition (conservation <=1e-10 relative first), apply the unchanged three gates to all four adjacent pairs plus strict monotonicity of all three metric sequences, and publish the complete cutoff sweep {100,200,400,800,1600,3200} alongside.",
+    "verdict_vocabulary": [
+      "REQUALIFIED_CONTRACT_CONVERGENCE_ACHIEVED",
+      "REQUALIFIED_CONTRACT_CONVERGENCE_FAILED",
+      "MONOTONICITY_AT_NOISE_FLOOR"
+    ],
+    "honesty": "This requalification does not amend or rescale the canonical original outcome: original staircase contract remains SELF_CONVERGENCE_FAILED, product remains NO_GO for the original observable. The requalified contract is a new, separately justified acceptance definition and is reported as such in every document.",
+    "limits": {
+      "no_new_solver_runs": true,
+      "no_new_github_actions": true,
+      "original_authority_unchanged": true
+    }
+  },
+  "input_sha256": {
+    "hybrid_endpoint": "b545e5665690bacdf592abedb2c2317471fdce5b97386432ff86a7d10098a3c0"
+  },
+  "requalified_observable_hz": 200.0,
+  "conservation_rel": {
+    "28": 2.3171062562102584e-14,
+    "32": 9.357635123322135e-15,
+    "36": 4.4411736915502494e-15,
+    "40": 9.50413824172906e-15,
+    "44": 9.794819250892798e-15
+  },
+  "pairs": [
+    {
+      "pair": [
+        28,
+        32
+      ],
+      "complex_rms_relative": 0.006863473398862218,
+      "magnitude_max_relative": 0.0335414029686514,
+      "phase_max_deg": 0.22355102152363665,
+      "all_three_gates": true
+    },
+    {
+      "pair": [
+        32,
+        36
+      ],
+      "complex_rms_relative": 0.016715936354214856,
+      "magnitude_max_relative": 0.07242781979067797,
+      "phase_max_deg": 0.6030518688771558,
+      "all_three_gates": true
+    },
+    {
+      "pair": [
+        36,
+        40
+      ],
+      "complex_rms_relative": 0.012606254832518671,
+      "magnitude_max_relative": 0.054313752416013245,
+      "phase_max_deg": 0.49745415329452364,
+      "all_three_gates": true
+    },
+    {
+      "pair": [
+        40,
+        44
+      ],
+      "complex_rms_relative": 0.0029875556776376862,
+      "magnitude_max_relative": 0.011285452034766792,
+      "phase_max_deg": 0.3472519792200832,
+      "all_three_gates": true
+    }
+  ],
+  "strict_monotonicity": {
+    "complex_rms_relative": false,
+    "magnitude_max_relative": false,
+    "phase_max_deg": false
+  },
+  "full_cutoff_sweep_pairs": {
+    "100": [
+      {
+        "pair": [
+          28,
+          32
+        ],
+        "complex_rms_relative": 0.005080063177733419,
+        "magnitude_max_relative": 0.018806735427040294,
+        "phase_max_deg": 0.2446849676146096,
+        "all_three_gates": true
+      },
+      {
+        "pair": [
+          32,
+          36
+        ],
+        "complex_rms_relative": 0.007769627871067166,
+        "magnitude_max_relative": 0.01915037358909098,
+        "phase_max_deg": 0.41071580268076596,
+        "all_three_gates": true
+      },
+      {
+        "pair": [
+          36,
+          40
+        ],
+        "complex_rms_relative": 0.0057072181160286225,
+        "magnitude_max_relative": 0.01480253401222112,
+        "phase_max_deg": 0.2726676190103472,
+        "all_three_gates": true
+      },
+      {
+        "pair": [
+          40,
+          44
+        ],
+        "complex_rms_relative": 0.0025374969184124023,
+        "magnitude_max_relative": 0.016418836285127948,
+        "phase_max_deg": 0.08353699976989219,
+        "all_three_gates": true
+      }
+    ],
+    "200": [
+      {
+        "pair": [
+          28,
+          32
+        ],
+        "complex_rms_relative": 0.006863473398862218,
+        "magnitude_max_relative": 0.0335414029686514,
+        "phase_max_deg": 0.22355102152363665,
+        "all_three_gates": true
+      },
+      {
+        "pair": [
+          32,
+          36
+        ],
+        "complex_rms_relative": 0.016715936354214856,
+        "magnitude_max_relative": 0.07242781979067797,
+        "phase_max_deg": 0.6030518688771558,
+        "all_three_gates": true
+      },
+      {
+        "pair": [
+          36,
+          40
+        ],
+        "complex_rms_relative": 0.012606254832518671,
+        "magnitude_max_relative": 0.054313752416013245,
+        "phase_max_deg": 0.49745415329452364,
+        "all_three_gates": true
+      },
+      {
+        "pair": [
+          40,
+          44
+        ],
+        "complex_rms_relative": 0.0029875556776376862,
+        "magnitude_max_relative": 0.011285452034766792,
+        "phase_max_deg": 0.3472519792200832,
+        "all_three_gates": true
+      }
+    ],
+    "400": [
+      {
+        "pair": [
+          28,
+          32
+        ],
+        "complex_rms_relative": 0.08958952765260227,
+        "magnitude_max_relative": 0.20614101051771355,
+        "phase_max_deg": 3.889687166932341,
+        "all_three_gates": true
+      },
+      {
+        "pair": [
+          32,
+          36
+        ],
+        "complex_rms_relative": 0.12207853337343308,
+        "magnitude_max_relative": 0.2516233858283157,
+        "phase_max_deg": 5.029790788620722,
+        "all_three_gates": false
+      },
+      {
+        "pair": [
+          36,
+          40
+        ],
+        "complex_rms_relative": 0.1106436819760781,
+        "magnitude_max_relative": 0.19716219818734979,
+        "phase_max_deg": 4.396579904505734,
+        "all_three_gates": true
+      },
+      {
+        "pair": [
+          40,
+          44
+        ],
+        "complex_rms_relative": 0.04039665193063778,
+        "magnitude_max_relative": 0.0656322998084505,
+        "phase_max_deg": 1.8175258205153557,
+        "all_three_gates": true
+      }
+    ],
+    "800": [
+      {
+        "pair": [
+          28,
+          32
+        ],
+        "complex_rms_relative": 0.5444287864967072,
+        "magnitude_max_relative": 9.955932728921548,
+        "phase_max_deg": 19.80476447650519,
+        "all_three_gates": false
+      },
+      {
+        "pair": [
+          32,
+          36
+        ],
+        "complex_rms_relative": 0.18732447243907666,
+        "magnitude_max_relative": 0.7775155050737951,
+        "phase_max_deg": 13.492001358373342,
+        "all_three_gates": false
+      },
+      {
+        "pair": [
+          36,
+          40
+        ],
+        "complex_rms_relative": 0.18191450831821446,
+        "magnitude_max_relative": 0.44822150113251435,
+        "phase_max_deg": 7.862395424537925,
+        "all_three_gates": false
+      },
+      {
+        "pair": [
+          40,
+          44
+        ],
+        "complex_rms_relative": 0.08020674916044543,
+        "magnitude_max_relative": 0.16257174620385245,
+        "phase_max_deg": 3.609413627132042,
+        "all_three_gates": true
+      }
+    ],
+    "1600": [
+      {
+        "pair": [
+          28,
+          32
+        ],
+        "complex_rms_relative": 0.44694616282775246,
+        "magnitude_max_relative": 0.8737171841025029,
+        "phase_max_deg": 162.7148784274466,
+        "all_three_gates": false
+      },
+      {
+        "pair": [
+          32,
+          36
+        ],
+        "complex_rms_relative": 0.5506772024110912,
+        "magnitude_max_relative": 1.898493513040838,
+        "phase_max_deg": 167.31485852298604,
+        "all_three_gates": false
+      },
+      {
+        "pair": [
+          36,
+          40
+        ],
+        "complex_rms_relative": 0.21373597216069684,
+        "magnitude_max_relative": 1.1059673420530312,
+        "phase_max_deg": 164.02071337390691,
+        "all_three_gates": false
+      },
+      {
+        "pair": [
+          40,
+          44
+        ],
+        "complex_rms_relative": 0.47239905692516,
+        "magnitude_max_relative": 0.8394949198720815,
+        "phase_max_deg": 178.63108801774231,
+        "all_three_gates": false
+      }
+    ],
+    "3200": [
+      {
+        "pair": [
+          28,
+          32
+        ],
+        "complex_rms_relative": 0.6250948666829734,
+        "magnitude_max_relative": 0.9315397862058156,
+        "phase_max_deg": 30.05443950079142,
+        "all_three_gates": false
+      },
+      {
+        "pair": [
+          32,
+          36
+        ],
+        "complex_rms_relative": 1.1505998075230353,
+        "magnitude_max_relative": 0.9286387879879865,
+        "phase_max_deg": 174.7957820737023,
+        "all_three_gates": false
+      },
+      {
+        "pair": [
+          36,
+          40
+        ],
+        "complex_rms_relative": 0.3208882278106056,
+        "magnitude_max_relative": 0.4970558495237176,
+        "phase_max_deg": 14.002907309392036,
+        "all_three_gates": false
+      },
+      {
+        "pair": [
+          40,
+          44
+        ],
+        "complex_rms_relative": 0.24352428473555793,
+        "magnitude_max_relative": 0.3046137534077402,
+        "phase_max_deg": 11.302550140760609,
+        "all_three_gates": false
+      }
+    ]
+  },
+  "verdicts": [
+    "REQUALIFIED_CONTRACT_CONVERGENCE_ACHIEVED",
+    "MONOTONICITY_AT_NOISE_FLOOR"
+  ],
+  "canonical_original_contract": "SELF_CONVERGENCE_FAILED",
+  "product": "NO_GO",
+  "new_solver_runs": 0,
+  "new_github_actions_runs": 0
+}
