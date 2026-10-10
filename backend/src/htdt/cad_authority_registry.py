@@ -28,6 +28,8 @@ Adapter contract:
 from __future__ import annotations
 
 from dataclasses import dataclass
+
+from pydantic import BaseModel, ConfigDict, Field
 from typing import Callable, Literal, TYPE_CHECKING
 
 
@@ -1091,8 +1093,24 @@ def build_canonical_authority_registry(
     return registry
 
 
+class AuthorityRef(BaseModel):
+    """A typed reference to one exact canonical authority.
+
+    ``ref_sha256`` pins the authority's semantic/content hash when the
+    target kind is hash-bearing; it is the caller's responsibility to pin
+    it — resolution rejects hash-bearing refs that omit it.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    kind: str = Field(min_length=1)
+    ref_id: str = Field(min_length=1)
+    ref_sha256: str | None = Field(default=None, pattern=r'^[0-9a-f]{64}$')
+
+
 __all__ = [
     'AuthorityKindAdapter',
+    'AuthorityRef',
     'AuthorityScope',
     'CanonicalAuthority',
     'CanonicalAuthorityRegistry',

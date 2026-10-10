@@ -20,9 +20,13 @@ from htdt.cad_measurement_runner import (
     RunnerCellSpec,
     build_runner_plan_from_cells,
 )
-from htdt.cad_measurement_target_pattern import (
+from htdt.cad_target_pattern_repository import (
     CadTargetPatternRepository,
+)
+from htdt.cad_measurement_target_pattern import (
     TargetPatternOffset,
+)
+from htdt.measurement_target_service import (
     build_target_pattern,
     materialize_target_pattern,
 )

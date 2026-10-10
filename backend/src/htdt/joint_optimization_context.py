@@ -63,7 +63,7 @@ from .cad_prerun_estimate import (
 from .optimization_objectives import ObjectiveDefinition
 from .optimization_robustness import RobustnessSpec
 from .perf_budget import _total_memory_bytes
-from .perf_harness import process_rss_bytes
+from .process_memory_probe import process_rss_bytes
 
 DspParameterName = Literal[
     'gain_db',

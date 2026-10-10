@@ -87,6 +87,7 @@ from .cad_repository import SceneRepository
 from .user_facing_error import operation_error_message
 from .error_boundary import EXPECTED_OPERATION_ERRORS
 from .ui_theme import (
+    qcolor,
     ACCENT,
     SCIENTIFIC,
     SEMANTIC,
@@ -425,18 +426,18 @@ class RackElevationView(QFrame):
 
     def _status_color(self, status: str) -> QColor:
         if status == 'FAIL':
-            return SEMANTIC.error.qcolor()
+            return qcolor(SEMANTIC.error)
         if status == 'UNKNOWN':
-            return SEMANTIC.unsupported.qcolor()
-        return SEMANTIC.success.qcolor()
+            return qcolor(SEMANTIC.unsupported)
+        return qcolor(SEMANTIC.success)
 
     def paintEvent(self, event) -> None:  # noqa: N802 - Qt naming
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, False)
-        painter.fillRect(self.rect(), SURFACES.canvas.qcolor())
+        painter.fillRect(self.rect(), qcolor(SURFACES.canvas))
         try:
             if self._rack is None:
-                painter.setPen(TEXT.muted.qcolor())
+                qcolor(painter.setPen(TEXT.muted))
                 painter.drawText(
                     self.rect(), Qt.AlignmentFlag.AlignCenter,
                     'ラック定義が保存されていません'
@@ -453,7 +454,7 @@ class RackElevationView(QFrame):
         assert self._rack is not None
         top = self._top_row()
         header_y = self._PAD + 4
-        painter.setPen(TEXT.secondary.qcolor())
+        qcolor(painter.setPen(TEXT.secondary))
         for face, label in ((0, '前面'), (1, '背面')):
             rect = self._face_rect(face)
             painter.drawText(
@@ -461,11 +462,11 @@ class RackElevationView(QFrame):
                 Qt.AlignmentFlag.AlignCenter, label,
             )
         # RU grid + 1-based numbers, bottom row = RU 1.
-        grid_pen = QPen(VIEWPORT.grid_major.qcolor(), 1)
-        grid_minor = QPen(VIEWPORT.grid_minor.qcolor(), 1)
+        grid_pen = qcolor(QPen(VIEWPORT.grid_major), 1)
+        grid_minor = qcolor(QPen(VIEWPORT.grid_minor), 1)
         for ru in range(1, top + 1):
             y = self._row_y(ru)
-            painter.setPen(TEXT.secondary.qcolor())
+            qcolor(painter.setPen(TEXT.secondary))
             painter.drawText(
                 QRect(self._PAD, y, self._GUTTER_W - 6, self._ROW_H),
                 Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
@@ -476,13 +477,13 @@ class RackElevationView(QFrame):
                 painter.setPen(grid_pen if ru == 1 or ru == top else grid_minor)
                 painter.drawRect(row)
         if not self._capacity_declared():
-            painter.setPen(SEMANTIC.unsupported.qcolor())
+            qcolor(painter.setPen(SEMANTIC.unsupported))
             painter.drawText(
                 self._face_rect(0).adjusted(0, -18, self._FACE_GAP, 0),
                 Qt.AlignmentFlag.AlignCenter, 'RU容量 未宣言',
             )
         if self._layout is None:
-            painter.setPen(TEXT.muted.qcolor())
+            qcolor(painter.setPen(TEXT.muted))
             painter.drawText(
                 self._face_rect(0).adjusted(0, 4, self._FACE_W + self._FACE_GAP, -4),
                 Qt.AlignmentFlag.AlignCenter | Qt.TextFlag.TextWordWrap,
@@ -519,10 +520,10 @@ class RackElevationView(QFrame):
             painter.setPen(pen)
             painter.drawRect(rect)
             if device_id == self._selected_device_id:
-                sel = QPen(ACCENT.focus_ring.qcolor(), 1)
+                sel = qcolor(QPen(ACCENT.focus_ring), 1)
                 painter.setPen(sel)
                 painter.drawRect(rect.adjusted(-2, -2, 2, 2))
-            painter.setPen(TEXT.primary.qcolor())
+            qcolor(painter.setPen(TEXT.primary))
             label = device_id
             if span is None:
                 label += '（高さ未宣言）'
@@ -539,13 +540,13 @@ class RackElevationView(QFrame):
         if not items:
             return
         shelf = self._shelf_rect()
-        painter.setPen(TEXT.secondary.qcolor())
+        qcolor(painter.setPen(TEXT.secondary))
         painter.drawText(
             QRect(shelf.left(), shelf.top() - 14, 60, 14),
             Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
             '棚',
         )
-        painter.setPen(QPen(VIEWPORT.grid_major.qcolor(), 1))
+        qcolor(painter.setPen(QPen(VIEWPORT.grid_major), 1))
         painter.drawRect(shelf)
         for index, placement in enumerate(items):
             rect = QRect(
@@ -553,13 +554,13 @@ class RackElevationView(QFrame):
                 shelf.top() + 3, 80, self._SHELF_LANE_H - 6,
             )
             painter.fillRect(rect, QColor(SURFACES.overlay.hex))
-            edge = SEMANTIC.unsupported.qcolor()
+            edge = qcolor(SEMANTIC.unsupported)
             result = self._results.get(placement.device_id)
             if result is not None:
                 edge = self._status_color(_worst_status(result))
             painter.setPen(QPen(edge, 1))
             painter.drawRect(rect)
-            painter.setPen(TEXT.primary.qcolor())
+            qcolor(painter.setPen(TEXT.primary))
             painter.drawText(
                 rect.adjusted(2, 0, -2, 0),
                 Qt.AlignmentFlag.AlignCenter,
@@ -573,7 +574,7 @@ class RackElevationView(QFrame):
         if self._layout is None or self._rack is None:
             return
         top = self._depth_top()
-        painter.setPen(TEXT.secondary.qcolor())
+        qcolor(painter.setPen(TEXT.secondary))
         painter.drawText(
             QRect(self._PAD, top, 200, 16),
             Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
@@ -596,9 +597,9 @@ class RackElevationView(QFrame):
         # Rack usable depth is the reference bar.
         usable_w = int(bar_w * self._rack.usable_depth_m / scale_max)
         painter.fillRect(
-            QRect(bar_x, y, usable_w, 10), VIEWPORT.grid_major.qcolor()
+            QRect(bar_x, y, usable_w, 10), qcolor(VIEWPORT.grid_major)
         )
-        painter.setPen(TEXT.secondary.qcolor())
+        qcolor(painter.setPen(TEXT.secondary))
         painter.drawText(
             QRect(self._PAD, y - 1, self._DEPTH_LABEL_W - 6, 14),
             Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
@@ -608,7 +609,7 @@ class RackElevationView(QFrame):
         for placement in self._layout.placements:
             profile = self._devices.get(placement.device_id)
             depth = None if profile is None else profile.chassis_depth_m
-            painter.setPen(TEXT.primary.qcolor())
+            qcolor(painter.setPen(TEXT.primary))
             painter.drawText(
                 QRect(self._PAD, y - 1, self._DEPTH_LABEL_W - 6, 14),
                 Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
@@ -618,7 +619,7 @@ class RackElevationView(QFrame):
                 ),
             )
             if depth is None:
-                painter.setPen(SEMANTIC.unsupported.qcolor())
+                qcolor(painter.setPen(SEMANTIC.unsupported))
                 painter.drawText(
                     QRect(bar_x, y - 1, bar_w + 40, 14),
                     Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
@@ -629,11 +630,11 @@ class RackElevationView(QFrame):
                 w = int(bar_w * depth / scale_max)
                 painter.fillRect(
                     QRect(bar_x, y, min(w, bar_w), 10),
-                    SEMANTIC.error.qcolor() if over
-                    else SCIENTIFIC.measured.qcolor(),
+                    qcolor(SEMANTIC.error) if over
+                    else qcolor(SCIENTIFIC.measured),
                 )
                 painter.setPen(
-                    SEMANTIC.error.qcolor() if over else TEXT.secondary.qcolor()
+                    qcolor(SEMANTIC.error) if over else qcolor(TEXT.secondary)
                 )
                 painter.drawText(
                     QRect(bar_x + min(w, bar_w) + 4, y - 1, 120, 14),
@@ -659,7 +660,7 @@ class RackElevationView(QFrame):
         fill = QColor(ACCENT.primary.hex)
         fill.setAlpha(80)
         painter.fillRect(ghost, fill)
-        painter.setPen(QPen(ACCENT.primary.qcolor(), 1, Qt.PenStyle.DashLine))
+        qcolor(painter.setPen(QPen(ACCENT.primary), 1, Qt.PenStyle.DashLine))
         painter.drawRect(ghost)
 
     # -- mouse / keyboard --------------------------------------------------
@@ -892,9 +893,9 @@ class _LoadBarWidget(QWidget):
     def paintEvent(self, event) -> None:  # noqa: N802
         painter = QPainter(self)
         try:
-            painter.fillRect(self.rect(), SURFACES.base.qcolor())
+            painter.fillRect(self.rect(), qcolor(SURFACES.base))
             if not self._segments or self._total <= 0:
-                painter.setPen(TEXT.muted.qcolor())
+                qcolor(painter.setPen(TEXT.muted))
                 painter.drawText(
                     self.rect(), Qt.AlignmentFlag.AlignCenter,
                     '集計可能な宣言値がありません',
@@ -1309,13 +1310,13 @@ class RackWorkspacePanel(QFrame):
                 item.setData(0, Qt.ItemDataRole.UserRole, placement.device_id)
                 for column in range(6):
                     if result is None:
-                        item.setForeground(column, SEMANTIC.unsupported.qcolor())
+                        item.setForeground(column, qcolor(SEMANTIC.unsupported))
                     elif result.ru_occupancy == 'FAIL' and column == 2:
-                        item.setForeground(column, SEMANTIC.error.qcolor())
+                        item.setForeground(column, qcolor(SEMANTIC.error))
                     elif result.depth_fit == 'FAIL' and column == 3:
-                        item.setForeground(column, SEMANTIC.error.qcolor())
+                        item.setForeground(column, qcolor(SEMANTIC.error))
                     elif result.clearance_fit == 'FAIL' and column == 4:
-                        item.setForeground(column, SEMANTIC.error.qcolor())
+                        item.setForeground(column, qcolor(SEMANTIC.error))
                 # Both parties of a conflict are highlighted, not just the
                 # later placement.
                 if conflict:
@@ -1526,7 +1527,7 @@ class RackWorkspacePanel(QFrame):
             ])
             if summary.exceeds_declared_rating:
                 for column in range(4):
-                    row.setForeground(column, SEMANTIC.error.qcolor())
+                    row.setForeground(column, qcolor(SEMANTIC.error))
             self.endpoint_tree.addTopLevelItem(row)
 
     # -- move preview / commit ------------------------------------------------

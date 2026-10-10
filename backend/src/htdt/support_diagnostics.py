@@ -49,7 +49,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from . import __version__
 from .ingress import IngressTooLargeError, read_file_bounded
 from .managed_assets import MANAGED_ASSETS_DIRNAME
-from .native_diagnostics import (
+from .diagnostics_support import (
     BuildIdentity,
     DIAGNOSTICS_DIRNAME,
     LOG_FILENAME,

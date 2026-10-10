@@ -328,8 +328,8 @@ from .user_facing_error import (
     log_operation_error,
     operation_error_message,
     to_user_facing_error,
-    warn_user,
 )
+from .operation_error_dialog import warn_user
 from .window_state import WorkspaceViewState
 from .workflow_shell import WorkspaceMount
 from .workflow_navigation import WorkspaceDeepLink, WorkspaceId

@@ -119,7 +119,8 @@ PACKAGE_LAYERS: dict[str, dict[str, tuple[str, ...]]] = {
             'cad_adaptive_measurement_design', 'cad_impedance_measurement',
             'cad_measurement_authorities', 'cad_measurement_disposition',
             'cad_measurement_ir', 'cad_measurement_jobs',
-            'cad_measurement_models', 'cad_measurement_pose',
+            'cad_measurement_models', 'cad_measurement_plan',
+            'cad_measurement_pose',
             'cad_measurement_quality', 'cad_measurement_runner',
             'cad_measurement_session', 'cad_measurement_state',
             'cad_measurement_stimulus', 'cad_measurement_target_pattern',
@@ -134,7 +135,7 @@ PACKAGE_LAYERS: dict[str, dict[str, tuple[str, ...]]] = {
             'measurement_playback_safety',
         ),
         'services': (
-            'cad_measurement_effective', 'cad_measurement_loop',
+            'cad_measurement_loop',
             'cad_measurement_quality_producer',
             'cad_prediction_measurement_service',
             'cad_remeasure_queue_service',
@@ -143,10 +144,13 @@ PACKAGE_LAYERS: dict[str, dict[str, tuple[str, ...]]] = {
         ),
         'persistence': (
             'cad_measurement_evidence_repository',
+            'cad_measurement_effective',
+            'cad_measurement_pose_observation_repository',
             'cad_measurement_quality_repository',
             'cad_measurement_repository',
             'cad_measurement_runner_repository',
             'cad_measurement_setup_repository',
+            'cad_target_pattern_repository',
             'cad_prediction_measurement_registration_repository',
             'cad_remeasure_queue_repository',
         ),
@@ -179,10 +183,29 @@ PACKAGE_LAYERS: dict[str, dict[str, tuple[str, ...]]] = {
             'capture_retention_ui', 'capture_watch_runner',
         ),
     },
+    'calibration': {
+        'domain': (
+            'cad_calibration', 'cad_calibration_deployment',
+            'cad_calibration_lifecycle', 'cad_external_calibration',
+            'cad_mic_response_calibration', 'cad_model_calibration',
+        ),
+        'services': (
+            'cad_calibration_wizard', 'cad_calibration_workflow',
+        ),
+        'persistence': (
+            'cad_calibration_deployment_repository',
+            'cad_calibration_lifecycle_repository',
+            'cad_calibration_repository',
+            'cad_calibration_wizard_repository',
+            'cad_calibration_workflow_repository',
+            'cad_model_calibration_repository',
+        ),
+    },
 }
 PACKAGE_DIRECTION = {
     'measurement': 'ui -> services -> persistence -> domain',
     'capture': 'ui -> services -> persistence -> domain',
+    'calibration': 'ui -> services -> persistence -> domain',
 }
 """Documented import direction per package."""
 
@@ -228,7 +251,6 @@ SIZE_EXEMPTIONS: dict[str, str] = {
     'room_workspace': 'workspace composition; extract per-stage controllers',
     'measurement_page_workspace': '#815 catch-boundary cleanup precedes split',
     'measurement_evidence_display': 'display composition; split per panel',
-    'capture_ingestion_transaction': 'transaction pipeline; stage modules',
     'workflow_application': 'composition root; keep wiring, move widgets',
     'application_pages': 'page composition root; extract per-destination panels',
     'room_viewport': '3D viewport; split overlays from the canvas core',
@@ -385,11 +407,11 @@ def _touches_upper_layer(component: tuple[str, ...], layers: dict[str, str]) -> 
 
 #: Known small cycles — debt recorded for the #807 decomposition plan;
 #: each must shrink or be split, but none may grow members.
-KNOWN_CYCLES: frozenset[tuple[str, ...]] = frozenset({
-    ('dirty_state_dialog', 'workflow_shell'),
-    ('project_bundle', 'project_library_repository'),
-    ('cad_project_template', 'project_setup_intent'),
-})
+# All three previously pinned pairs were resolved by the #807 refactor slice:
+# dirty_state_dialog takes a structural _MountLike Protocol (shell keeps its
+# lazy import), project_bundle reads the htdt_project_documents row directly,
+# and the template-brief materializers moved into cad_project_template.
+KNOWN_CYCLES: frozenset[tuple[str, ...]] = frozenset()
 
 
 def _violation(rule: str, module: str, detail: str) -> dict[str, str]:

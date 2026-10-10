@@ -13,8 +13,8 @@ from ...cad_ambient_noise import (
     CadAmbientNoiseRepository,
     check_ambient_measurement_compatibility,
 )
+from ...cad_authority_registry import AuthorityRef
 from ...cad_authority_resolver import (
-    AuthorityRef,
     ExactAuthorityResolver,
     KindResolver,
     ResolvedAuthority,

@@ -12,17 +12,21 @@ import threading
 from types import TracebackType
 
 from . import __version__
+from .diagnostics_support import (
+    DIAGNOSTICS_DIRNAME,
+    LOG_BACKUP_COUNT,
+    LOG_DATE_FORMAT,
+    LOG_FILENAME,
+    LOG_FORMAT,
+    MAX_LOG_BYTES,
+    BuildIdentity,
+    build_identity,
+    concise_reason,
+    diagnostics_dir,
+)
 
 
 LOGGER_NAME = 'htdt.native'
-DIAGNOSTICS_DIRNAME = 'diagnostics'
-LOG_FILENAME = 'htdt-native.log'
-LOG_FORMAT = '%(asctime)sZ %(levelname)s %(name)s: %(message)s'
-LOG_DATE_FORMAT = '%Y-%m-%dT%H:%M:%S'
-
-# Rotation keeps on-disk diagnostics bounded even if a runtime fault loops.
-MAX_LOG_BYTES = 1024 * 1024
-LOG_BACKUP_COUNT = 4
 
 # Records carry concise lifecycle/error metadata only. The per-record bound and
 # the credential scrubber keep raw measurement payloads and secrets out of the
@@ -76,10 +80,6 @@ def push_uncaught_sink(sink: UncaughtSink) -> Callable[[], None]:
     return _pop
 
 
-def diagnostics_dir(data_dir: Path) -> Path:
-    return Path(data_dir) / DIAGNOSTICS_DIRNAME
-
-
 def _sanitize(text: str) -> str:
     text = _BEARER_PATTERN.sub(f'Bearer {REDACTED}', text)
     text = _SECRET_KEY_PATTERN.sub(lambda match: f'{match.group(1)}{match.group(2)}{REDACTED}', text)
@@ -93,45 +93,6 @@ class _DiagnosticsFormatter(logging.Formatter):
 
     def format(self, record: logging.LogRecord) -> str:
         return _sanitize(super().format(record))
-
-
-@dataclass(frozen=True)
-class BuildIdentity:
-    """Source build identity attached to diagnostics records."""
-
-    version: str
-    python: str
-    platform: str
-    frozen: bool
-    qt: str | None
-
-    def describe(self) -> str:
-        parts = [
-            f'version={self.version}',
-            f'python={self.python}',
-            f'platform={self.platform}',
-            f'frozen={self.frozen}',
-        ]
-        if self.qt:
-            parts.append(f'qt={self.qt}')
-        return ' '.join(parts)
-
-
-def build_identity() -> BuildIdentity:
-    qt_version: str | None = None
-    try:
-        import PySide6
-
-        qt_version = PySide6.__version__
-    except ImportError:  # error-boundary: optional-dependency probe — absent Qt is recorded as qt=None; a broken import propagates
-        qt_version = None
-    return BuildIdentity(
-        version=__version__,
-        python=platform.python_version(),
-        platform=platform.platform(),
-        frozen=bool(getattr(sys, 'frozen', False)),
-        qt=qt_version,
-    )
 
 
 def write_stderr(message: str) -> None:
@@ -458,18 +419,6 @@ def _post_uncaught_to_sink(
         _uncaught_sinks[-1](diagnostics, exc, window)
     except Exception:  # error-boundary: sink dispatch — a broken Activity Center sink must not break the uncaught path; identity is logged (noqa: BLE001)
         _LOGGER.exception('uncaught-exception sink failed')
-
-
-def concise_reason(exc: BaseException, *, max_chars: int = 300) -> str:
-    """One-line, user-safe summary of an exception for the failure dialog."""
-
-    text = str(exc).strip()
-    if not text:
-        return type(exc).__name__
-    first_line = text.splitlines()[0].strip() or type(exc).__name__
-    if len(first_line) > max_chars:
-        first_line = first_line[:max_chars].rstrip() + '…'
-    return f'{type(exc).__name__}: {first_line}'
 
 
 def report_launch_failure(

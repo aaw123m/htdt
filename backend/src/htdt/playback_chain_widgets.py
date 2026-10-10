@@ -57,7 +57,7 @@ from .cad_equipment_repository import CadEquipmentRepository
 from .cad_repository import SceneRepository
 from .cad_system_variant_repository import CadSystemVariantRepository
 from .field_tooltips import apply_field_tooltip
-from .user_facing_error import warn_user
+from .operation_error_dialog import warn_user
 
 
 def _provenance(

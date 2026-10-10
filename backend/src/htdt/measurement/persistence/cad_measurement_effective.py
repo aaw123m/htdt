@@ -34,8 +34,8 @@ from ..domain.cad_measurement_models import (
     RoutingEvidence,
 )
 from ..domain.cad_measurement_quality import CadMeasurementQualityReport
-from ..persistence.cad_measurement_repository import CadMeasurementRepository
-from ..persistence.cad_measurement_quality_repository import CadMeasurementQualityRepository
+from .cad_measurement_repository import CadMeasurementRepository
+from .cad_measurement_quality_repository import CadMeasurementQualityRepository
 
 
 @dataclass(frozen=True, slots=True)

@@ -62,7 +62,7 @@ from ..persistence.cad_remeasure_queue_repository import (
     CadRemeasureQueueRepository,
     RemeasureQueueError,
 )
-from .cad_measurement_effective import CadEffectiveMeasurementResolver
+from ..persistence.cad_measurement_effective import CadEffectiveMeasurementResolver
 from .cad_measurement_quality_producer import (
     CadMeasurementQualityProducer,
     QualityProductionResult,

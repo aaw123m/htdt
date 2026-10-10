@@ -33,7 +33,7 @@ from .cad_measurement_runner import (
     RunnerCellState,
     guided_step,
 )
-from ...cad_repository import SceneRevision
+from ...cad_scene_revisions import SceneRevision
 
 
 SessionContextState = Literal['current', 'stale', 'unknown']

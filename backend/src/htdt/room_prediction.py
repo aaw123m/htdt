@@ -117,7 +117,7 @@ from .native_worker import (
     WorkerShutdownReport,
 )
 from .perf_budget import _total_memory_bytes
-from .perf_harness import process_rss_bytes
+from .process_memory_probe import process_rss_bytes
 from .r120_geometry_compiler import ExactExternalAuthorityRef
 from .user_facing_error import operation_error_message
 from .error_boundary import (

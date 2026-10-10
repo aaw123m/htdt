@@ -16,7 +16,7 @@ from PySide6.QtWidgets import (
 
 from .cad_repository import SceneRepository
 from .cad_scene import SceneDocument
-from .user_facing_error import warn_user
+from .operation_error_dialog import warn_user
 from .cad_seat_priority import (
     CadSeatPriorityProfileRepository,
     SeatPriorityMember,
