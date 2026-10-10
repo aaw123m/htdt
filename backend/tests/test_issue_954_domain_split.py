@@ -1,10 +1,12 @@
 """#954 domain-split — declared-package contracts.
 
 Phase 1 split the ``measurement`` domain, phase 2 the ``capture``
-domain, and phase 3 the ``calibration`` domain into layered packages
+domain, phase 3 the ``calibration`` domain, and phase 4 the
+``acoustics`` domain into layered packages
 (``domain/services/persistence/ui`` under ``htdt.<pkg>`` — calibration
 ships no ui layer: its user-facing surfaces live in the shared
-application pages, so services is its highest layer).  These tests pin
+application pages, so services is its highest layer; acoustics ships
+all four layers).  These tests pin
 the migration's contracts for every declared package:
 
 - every old ``htdt.<stem>`` import path still resolves — and resolves to
@@ -139,6 +141,34 @@ def test_calibration_attribute_writes_through_flat_path():
         canonical._utc_now = original  # noqa: SLF001
 
 
+def test_acoustics_attribute_writes_through_flat_path():
+    flat = _import('htdt.cad_acoustic_snapshot_repository')
+    canonical = _import(
+        'htdt.acoustics.persistence.cad_acoustic_snapshot_repository')
+    sentinel = object()
+    original = flat._utc_now
+    try:
+        flat._utc_now = sentinel  # noqa: SLF001 — monkeypatch parity
+        assert canonical._utc_now is sentinel  # noqa: SLF001
+    finally:
+        canonical._utc_now = original  # noqa: SLF001
+
+
+def test_acoustics_package_name_reexports_old_flat_module_api():
+    """``htdt.acoustics`` is now the package; the old flat ``acoustics``
+    module moved to ``acoustics.domain.acoustics`` — the package
+    ``__init__`` must keep the old ``from htdt.acoustics import X``
+    surface working."""
+    pkg = _import('htdt.acoustics')
+    canonical = _import('htdt.acoustics.domain.acoustics')
+    for name in (
+        'ACOUSTICS_ALGORITHM_VERSION', 'RoomMode', 'ReflectionCandidate',
+        'rectangular_room_modes', 'first_order_reflections',
+        'analyze_rectangular_context',
+    ):
+        assert getattr(pkg, name) is getattr(canonical, name)
+
+
 def test_registry_is_exhaustive():
     """Every .py under each htdt.<pkg> is classified — nothing unlayered."""
     for pkg, layers in PACKAGES.items():
@@ -250,6 +280,31 @@ def test_calibration_profile_hash_identically_via_old_and_new_paths():
     assert len(profile_a.profile_sha256) == 64
 
 
+def test_acoustics_threshold_policy_hash_identically_via_old_and_new_paths():
+    """Hash-pinned validation threshold policy: identical sha."""
+    old = _import('htdt.acoustic_validation_envelope')
+    new = _import('htdt.acoustics.domain.acoustic_validation_envelope')
+    assert old.build_threshold_policy is new.build_threshold_policy
+    kwargs = dict(
+        policy_id='acoustic-split-check',
+        policy_revision=1,
+        rules=(
+            {
+                'observable': 'modal_frequency_hz',
+                'scope': 'synthetic_fixture',
+                'metric': 'max_abs',
+                'limit': 1e-9,
+                'unit': 'Hz',
+                'rationale': 'split-probe threshold',
+            },
+        ),
+    )
+    policy_a = old.build_threshold_policy(**kwargs)
+    policy_b = new.build_threshold_policy(**kwargs)
+    assert policy_a == policy_b
+    assert len(policy_a.policy_sha256) == 64
+
+
 def _fresh_audit_report():
     return audit_mod.audit(audit_mod.ROOT)
 
@@ -309,4 +364,6 @@ def test_importing_flat_path_does_not_pull_qt_for_domain_modules():
     _import('htdt.cad_measurements')
     _import('htdt.capture_bundle')
     _import('htdt.cad_calibration_lifecycle')
+    _import('htdt.acoustic_benchmark')
+    _import('htdt.cad_acoustic_snapshot')
     assert 'PySide6' not in sys.modules
