@@ -1,0 +1,16 @@
+{
+  "scope": "New consistent spatial stabilization of original instantaneous source and original rectangular sampled-pressure observer; archived pinned PFFDTD is never relabelled",
+  "original_controls": "same original eight-node source/receiver functionals, native h/dt/Nt, q[0]=1 later zero, full 250ms signed 40/80Hz, original centered and second-order one-sided pressure stencil",
+  "ppw": [28,32,36,40,44],
+  "spatial_operator": "true-roof degree4 positive-mass SEM, unchanged cached all modes",
+  "modified_equation": "phi_tt + nu_h L_h^2 phi_t + L_h phi = c^2 b q; nu_h=kappa*h^3/c^3; this IS numerical damping at finite h, vanishes for every fixed spatial frequency as h->0",
+  "primary_kappa": 1.0,
+  "sensitivity_kappa": [0.5,1.0,2.0],
+  "primary_gates": {"complex_rms_relative":0.2,"magnitude_max_relative":0.25,"phase_max_deg":15},
+  "require_all_four_pairs_and_strict_decrease_all_three": true,
+  "verification": ["kappa0 reproduces frozen exact-time native sampled q0", "closed modal observer versus independent matrix exponential and gradient", "zero mode exact", "nonincreasing energy", "nu_h goes to0 with cubic rate"],
+  "no_mode_deletion_no_source_waveform_change_no_observer_window_change": true,
+  "qualifications_excluded": ["old pinned solver repaired", "physical undamped convergence proven by five pairs alone", "measured room validation"],
+  "publish_all_arms_and_failures": true,
+  "prospective": "hash this plan before numerical execution"
+}

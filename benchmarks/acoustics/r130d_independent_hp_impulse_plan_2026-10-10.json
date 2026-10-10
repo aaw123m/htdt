@@ -1,0 +1,19 @@
+{
+  "purpose": "Independent high-order spatial validation of unchanged original q0+rectangular observer with mesh-vanishing numerical viscosity, and of prior failed physical-Dirac weak observer",
+  "mfem_pin": "d964264cdb9a13e94a201b6c236c7721e0c8765f",
+  "exporter_base": "benchmarks/acoustics/r130d_mfem_reference/sloped_tet_system.cpp",
+  "exporter_change": "point-functional cloud only; base mesh, integration, boundary, wave equation and coefficient metadata unchanged; build locally and record source/binary hashes",
+  "orders": [2,3,4],
+  "uniform_refinements": 2,
+  "complete_dofs_expected": [729,2197,4913],
+  "memory_cap": "max5000 DOFs; full generalized dense QR eigenbasis with overwritten Fortran matrices; do not change numerical result to fit memory",
+  "point_cloud": "fixed physical source/receiver plus all80 SHA-pinned original eight source/receiver positions; original weights retained separately",
+  "dynamics": "exact continuous impulse velocity jump; all eigenmodes; original native clocks/gradient/rectangular signed40/80 for viscosity arms; no fixed source bandwidth or modal cut",
+  "viscosity_control": "kappa1 nu_h=h^3/c^3 for original PPW44, same numerical operator function in every independent spatial degree",
+  "independent_fine_pair_limits": {"complex_rms_relative":0.03,"magnitude_max_relative":0.05,"phase_max_deg":3},
+  "independent_cross_limits": {"complex_rms_relative":0.03,"magnitude_max_relative":0.05,"phase_max_deg":3},
+  "rigid_mode": "only exact constant Neumann mode can be replaced to remove eigensolver roundoff; no positive-mode flooring/deletion",
+  "retained_old_failures": ["all archived original PFFDTD", "prior weak Dirac MFEM P2r3tor4 failure", "kappa0 native q0 failure"],
+  "qualifications_excluded": ["original pinned PFFDTD retrospective PASS", "five-grid self agreement proves physical undamped full-record limit", "measured room validation"],
+  "prospective": "hash before assembling or observing any new high-order MFEM numeric matrices"
+}
