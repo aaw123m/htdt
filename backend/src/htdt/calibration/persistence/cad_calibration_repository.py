@@ -19,7 +19,7 @@ from ..domain.cad_calibration import (
     evaluate_calibration_support,
     exact_verification_plan_registration,
 )
-from ...measurement.services.cad_measurement_effective import CadEffectiveMeasurementResolver
+from ...measurement.persistence.cad_measurement_effective import CadEffectiveMeasurementResolver
 from ...measurement.domain.cad_measurement_quality import dataset_sha256, measurement_sha256
 from ...measurement.persistence.cad_measurement_quality_repository import CadMeasurementQualityRepository
 from ...measurement.persistence.cad_measurement_repository import CadMeasurementRepository

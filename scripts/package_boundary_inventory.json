@@ -626,6 +626,7 @@
     "package_import_direction|calibration.domain.cad_calibration_deployment|calibration.domain module imports cad_authority_resolver (flat persistence)",
     "package_import_direction|calibration.domain.cad_calibration_lifecycle|calibration.domain module imports cad_authority_resolver (flat persistence)",
     "package_import_direction|calibration.domain.cad_calibration|calibration.domain module imports cad_repository (flat persistence)",
+    "package_import_direction|calibration.domain.cad_calibration|calibration.domain module imports measurement.persistence.cad_measurement_effective (measurement.persistence)",
     "package_import_direction|calibration.domain.cad_calibration|calibration.domain module imports measurement.persistence.cad_measurement_quality_repository (measurement.persistence)",
     "package_import_direction|calibration.domain.cad_calibration|calibration.domain module imports measurement.persistence.cad_measurement_repository (measurement.persistence)",
     "package_import_direction|calibration.persistence.cad_calibration_wizard_repository|calibration.persistence module imports calibration.services.cad_calibration_wizard (calibration.services)",

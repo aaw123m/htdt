@@ -12,7 +12,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from ...measurement.services.cad_measurement_effective import CadEffectiveMeasurementResolver
+from ...measurement.persistence.cad_measurement_effective import CadEffectiveMeasurementResolver
 from ...measurement.domain.cad_measurement_models import (
     CadFrequencyResponseDataset,
     CadMeasurementComparison,
