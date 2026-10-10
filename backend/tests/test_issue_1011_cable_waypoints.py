@@ -770,6 +770,40 @@ class WaypointDraftOverlayTests(unittest.TestCase):
         self.assertEqual(viewport.plotter.label_calls, [])
         self.assertEqual(viewport.plotter.render_calls, 1)
 
+    def test_draft_repush_drops_stale_named_actors(self):
+        """A repush replaces the whole draft set.
+
+        The stale-index actors (``point-2``, ``line-1``…) from a longer
+        prior draft must be removed, and the empty teardown push must
+        leave no ``cable-route-draft-*`` actors at all — otherwise the
+        ghosted preview survives cancel/undo until a full scene rebuild.
+        """
+        viewport = self._viewport()
+        viewport.plotter = _ActorStorePlotter()
+        viewport.render_cable_route_draft(
+            ((0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (1.0, 1.0, 0.0)), ()
+        )
+        names = set(viewport.plotter.actors)
+        self.assertTrue(
+            all(name.startswith('cable-route-draft-') for name in names)
+        )
+
+        # Undo down to one point: only point-0 (+ its label) may remain.
+        viewport.render_cable_route_draft(((0.0, 0.0, 0.0),), ())
+        names = set(viewport.plotter.actors)
+        self.assertEqual(
+            names,
+            {'cable-route-draft-point-0',
+             'cable-route-draft-point-label-0'},
+        )
+
+        # Teardown push empties the namespace entirely.
+        viewport.render_cable_route_draft(
+            ((0.0, 0.0, 0.0), (1.0, 0.0, 0.0)), ()
+        )
+        viewport.render_cable_route_draft((), ())
+        self.assertEqual(viewport.plotter.actors, {})
+
     def test_rendered_polyline_uses_domain_to_render_axis_flip(self):
         """Draft points land at (x, -y, z) — the render-space contract."""
         viewport = self._viewport()
@@ -846,6 +880,33 @@ class _RecordingPlotter:
 
     def remove_actor(self, *_args, **_kwargs) -> None:
         pass
+
+
+class _ActorStorePlotter:
+    """Name-keyed actor store — honours ``remove_actor`` like pyvista."""
+
+    def __init__(self) -> None:
+        self.actors: dict = {}
+        self.label_calls: list = []
+        self.render_calls = 0
+        self.renderer = SimpleNamespace(actors=self.actors)
+
+    def add_mesh(self, *args, **kwargs):
+        name = kwargs.get('name')
+        self.actors[name] = (args, kwargs)
+        return object()
+
+    def add_point_labels(self, *args, **kwargs):
+        name = kwargs.get('name')
+        self.actors[name] = (args, kwargs)
+        self.label_calls.append((args, kwargs))
+        return object()
+
+    def remove_actor(self, name, *_args, **_kwargs) -> None:
+        self.actors.pop(name, None)
+
+    def render(self) -> None:
+        self.render_calls += 1
 
 
 class WaypointWorkspaceTests(unittest.TestCase):
@@ -937,6 +998,75 @@ class WaypointWorkspaceTests(unittest.TestCase):
             self.assertFalse(controller.is_active)
             self.assertFalse(workspace.viewport.armed)
 
+    def test_state_render_repushes_live_draft_after_sweep(self):
+        """``render_document`` sweeps every ``cable-route-*`` actor —
+        draft actors included — so the workspace compositor must re-push
+        the live recording draft after each document render. Otherwise
+        the in-progress preview is swept away by the very stateChanged
+        the recorded point emits: invisible from click one."""
+        with tempfile.TemporaryDirectory(
+            dir='C:/t', ignore_cleanup_errors=True
+        ) as _tmp:
+            workspace, repository = self._workspace(Path(_tmp))
+            self.addCleanup(repository.close)
+            run = self._seed_run(repository)
+            workspace.cable_run_panel.refresh()
+            workspace._begin_cable_waypoint_recording(run.run_id)
+            workspace.viewport.events.clear()
+
+            workspace.viewport.waypointPicked.emit((1.0, 1.0, 0.0))
+
+            # The event tail must be document-render (sweep) → draft
+            # re-push; an unpatched compositor ends on the sweep and the
+            # draft actors never survive a single state change.
+            self.assertEqual(
+                workspace.viewport.events[-2:],
+                ['document', 'draft'],
+            )
+            # Every render keeps repushing the draft — a second point
+            # shows the same ordering, not a stale invisible preview.
+            workspace.viewport.waypointPicked.emit((2.0, 1.0, 0.0))
+            self.assertEqual(
+                workspace.viewport.events[-2:],
+                ['document', 'draft'],
+            )
+            self.assertEqual(
+                workspace.viewport.drafts[-1][0],
+                ((1.0, 1.0, 0.0), (2.0, 1.0, 0.0)),
+            )
+
+    def test_journey_grid_drops_stale_column_stretch(self):
+        """``QGridLayout.setColumnStretch`` survives ``takeAt`` — a
+        compact↔wide reflow must clear the previously stretched column
+        or the old column keeps absorbing space and squeezes the
+        journey buttons mid-row."""
+        with tempfile.TemporaryDirectory(
+            dir='C:/t', ignore_cleanup_errors=True
+        ) as _tmp:
+            workspace, repository = self._workspace(Path(_tmp))
+            self.addCleanup(repository.close)
+            workspace._refresh()
+            step_count = len(workspace._journey_steps)
+            self.assertGreater(step_count, 3)
+            grid = workspace.journey_steps_grid
+
+            # Wide layout: stretch lives on the trailing column.
+            workspace._responsive_compact = False
+            workspace._layout_journey_steps()
+            self.assertEqual(grid.columnStretch(step_count), 1)
+
+            # Compact: stretch moves to column 3 AND leaves the old one.
+            workspace._responsive_compact = True
+            workspace._layout_journey_steps()
+            self.assertEqual(grid.columnStretch(3), 1)
+            self.assertEqual(grid.columnStretch(step_count), 0)
+
+            # Back to wide: the compact column's stretch is gone too.
+            workspace._responsive_compact = False
+            workspace._layout_journey_steps()
+            self.assertEqual(grid.columnStretch(step_count), 1)
+            self.assertEqual(grid.columnStretch(3), 0)
+
     def test_panel_mounts_under_cable_run_panel_with_a11y(self):
         with tempfile.TemporaryDirectory(
             dir='C:/t', ignore_cleanup_errors=True
@@ -988,10 +1118,15 @@ class _WaypointViewport(__import__('PySide6.QtWidgets', fromlist=['QFrame']).QFr
         self.render_calls: list = []
         self.armed = False
         self.drafts: list = []
+        self.events: list = []
         self.waypoint_pick = (1.0, 0.0, 0.5)
 
     def render_document(self, document, **kwargs) -> None:
         self.render_calls.append(kwargs)
+        # The real render_document sweeps every ``cable-route-*`` actor;
+        # recording the event lets tests assert the compositor re-pushes
+        # the live draft *after* that sweep.
+        self.events.append('document')
 
     def fit_scene(self) -> None:
         pass
@@ -1007,6 +1142,7 @@ class _WaypointViewport(__import__('PySide6.QtWidgets', fromlist=['QFrame']).QFr
 
     def render_cable_route_draft(self, points, staged=()) -> None:
         self.drafts.append((tuple(points), tuple(staged)))
+        self.events.append('draft')
 
     def pick_waypoint_domain(self, position):
         return self.waypoint_pick
