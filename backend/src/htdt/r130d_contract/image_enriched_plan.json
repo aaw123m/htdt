@@ -1,0 +1,403 @@
+{
+  "native_cases": [
+    {
+      "ppw": 28,
+      "cache_sha256": "ce9245616e2f2799bfae40d71219fc4ab3d3c4a830e02fdb85e9039978fd1ae0",
+      "source_cloud_indices": [
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9
+      ],
+      "receiver_cloud_indices": [
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17
+      ],
+      "sw": [
+        0.4924678487383246,
+        0.175047813532579,
+        0.1102959375918945,
+        0.1102959375918945,
+        0.03920471715351681,
+        0.03920471715351682,
+        0.02470251384012508,
+        0.008780514398148682
+      ],
+      "rw": [
+        0.5982745271402378,
+        0.06924113513066585,
+        0.13399301107135328,
+        0.13399301107135328,
+        0.015507643674058047,
+        0.015507643674058047,
+        0.03000984698745044,
+        0.00347318125082332
+      ],
+      "dt": 0.00020599032818587005,
+      "Nt": 1214
+    },
+    {
+      "ppw": 32,
+      "cache_sha256": "a18f61095dd4de95f714d3125767ed2757563bdcc9049f6860487ed218199983",
+      "source_cloud_indices": [
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25
+      ],
+      "receiver_cloud_indices": [
+        26,
+        27,
+        28,
+        29,
+        30,
+        31,
+        32,
+        33
+      ],
+      "sw": [
+        0.010648333225232204,
+        0.01126118693603688,
+        0.0612907999027134,
+        0.0612907999027134,
+        0.0648183279546678,
+        0.0648183279546678,
+        0.3527840529833282,
+        0.37308817114064025
+      ],
+      "rw": [
+        0.01774722204205362,
+        0.004162298119215461,
+        0.1021513331711887,
+        0.1021513331711887,
+        0.023957794686192503,
+        0.023957794686192503,
+        0.5879734216388787,
+        0.13789880248508982
+      ],
+      "dt": 0.0001802415371626363,
+      "Nt": 1388
+    },
+    {
+      "ppw": 36,
+      "cache_sha256": "94218e7d695f81ac6ebb7d9d6956f9e4b4252ab4ec7fbe7ed11cb3070fb323ef",
+      "source_cloud_indices": [
+        34,
+        35,
+        36,
+        37,
+        38,
+        39,
+        40,
+        41
+      ],
+      "receiver_cloud_indices": [
+        42,
+        43,
+        44,
+        45,
+        46,
+        47,
+        48,
+        49
+      ],
+      "sw": [
+        0.05375487268856183,
+        0.17570622565365687,
+        0.058463328690479294,
+        0.0584633286904793,
+        0.1910965519882826,
+        0.1910965519882826,
+        0.06358420419621431,
+        0.20783493610404333
+      ],
+      "rw": [
+        0.1660784872616763,
+        0.06338261108054234,
+        0.18062550804371985,
+        0.18062550804371985,
+        0.068934372635042,
+        0.068934372635042,
+        0.1964467204271102,
+        0.07497241987314741
+      ],
+      "dt": 0.00016021469970012116,
+      "Nt": 1561
+    },
+    {
+      "ppw": 40,
+      "cache_sha256": "e031c69baccf75a177f1dca69608ac533351f7285846a8031b14758857017ba2",
+      "source_cloud_indices": [
+        50,
+        51,
+        52,
+        53,
+        54,
+        55,
+        56,
+        57
+      ],
+      "receiver_cloud_indices": [
+        58,
+        59,
+        60,
+        61,
+        62,
+        63,
+        64,
+        65
+      ],
+      "sw": [
+        0.6446668228723544,
+        0.0114709399087612,
+        0.15119524047222357,
+        0.15119524047222357,
+        0.002690306769968495,
+        0.002690306769968495,
+        0.03546017870068032,
+        0.0006309640338199589
+      ],
+      "rw": [
+        0.41830694200614316,
+        0.2378308207749724,
+        0.09810652021151423,
+        0.09810652021151423,
+        0.055779027030677844,
+        0.05577902703067784,
+        0.023009155099967,
+        0.013081987634533278
+      ],
+      "dt": 0.00014419322973010905,
+      "Nt": 1734
+    },
+    {
+      "ppw": 44,
+      "cache_sha256": "00792d5eda602a705caeece2f80569aec43d77ad595418838cd260d2c2cff47b",
+      "source_cloud_indices": [
+        66,
+        67,
+        68,
+        69,
+        70,
+        71,
+        72,
+        73
+      ],
+      "receiver_cloud_indices": [
+        74,
+        75,
+        76,
+        77,
+        78,
+        79,
+        80,
+        81
+      ],
+      "sw": [
+        0.014533707581045602,
+        0.005354523845648348,
+        0.08852349163000249,
+        0.08852349163000248,
+        0.03261391796894809,
+        0.03261391796894809,
+        0.5391885399281814,
+        0.19864840944722353
+      ],
+      "rw": [
+        0.010964025017280075,
+        0.008924206409413877,
+        0.06678087965070398,
+        0.06678087965070399,
+        0.05435652994824658,
+        0.054356529948246586,
+        0.40675626696336703,
+        0.3310806824120378
+      ],
+      "dt": 0.00013108475430009911,
+      "Nt": 1908
+    }
+  ],
+  "contract_sha256": "2f14da4c7310149a99ccc5bfc01e3f22fd1c67c3c2bbd1c481ca127d35618357",
+  "source": "original eight-point q[0]=1 area c^2*dt, no renormalization",
+  "observer": "original rho*gradient(edge_order=2), rectangular positive-exponent signed P/Q at 40 and 80 Hz",
+  "viscosity": 0.0,
+  "modal_truncation": false,
+  "native_substeps": 1,
+  "original_pair_limits": [
+    0.2,
+    0.25,
+    15.0
+  ],
+  "strict_decrease_in_all_three_metrics": true,
+  "spatial_fine_limits": [
+    0.03,
+    0.05,
+    3.0
+  ],
+  "quadrature_limits": [
+    0.03,
+    0.05,
+    3.0
+  ],
+  "cg_rtol": 1e-13,
+  "energy_work_defect_limit": 2e-10,
+  "backward_error_limit": 5e-13,
+  "total_point_field_finite_energy_claim": false,
+  "mfem_pin": "d964264cdb9a13e94a201b6c236c7721e0c8765f",
+  "point_exporter_sha256": "bb4db18131d55dd7b02dd3ef63784ab208657e3909edea4a5a4c9b220d2522ad",
+  "boundary_exporter_sha256": "757d737b34de083c5f5b4bbe030d10e97bbaeb73d50effb0aabc8957c7574e28",
+  "points_sha256": "b2b244f7fe26edfe247d463dbba50d9638d627be421635c9be8042331eed5359",
+  "schema_version": "htdt.r130d.image-enrichment-plan-1",
+  "source_sha256_lf": {
+    "backend/src/htdt/r130d_image_enrichment.py": "97384be3a9405d5f459ac326a95c684c2d992d04796f7669767e93824c33ad8d",
+    "backend/src/htdt/r130d_newmark_point_green.py": "ca455c6a3a3780c076ca2d3b9add7500be410682f46c9a09d4eea1679a31ed6a",
+    "backend/src/htdt/r130d_boundary_enrichment.py": "e320ee31ccd844edaf305dd690b9a471b261c715d17684b21b1f01e4ca4a84bb",
+    "backend/src/htdt/r130d_mfem_binary.py": "9d0d5c1f96c220a1b12912e642c803f10876a4ad06e84f54c56ba240ec4eca96"
+  },
+  "inputs_sha256": {
+    "mfem-p2-r3.bin": "4642120d613f925998f236635ce6e13eb3baaa1ae3b6e90bc806bd85a3ec0060",
+    "mfem-p3-r3.bin": "86ea4529e9828bf0bad7e5b852ae5291157270a8740cc084e5d37e1f85e9c48d",
+    "mfem-p4-r3.bin": "2a943ca3455245a273fe9a0520f6ce29549883b3b9a47a9cb00a0b1bf07bff22",
+    "boundary-p2-r3-q16.bin": "a7a928d02e4ec1e092e939da30092698b872eefe5a3537ec3d363bfb1accfd9f",
+    "boundary-p3-r3-q16.bin": "192ef2c6e5372411529f925ca299187f8e8df7bab6768e82f56406facb41f063",
+    "boundary-p4-r3-q16.bin": "4f0378fb5c5c42107594b06a87dc28216068b18b470dec7852c29313ad544434",
+    "boundary-p4-r3-q20.bin": "b67a34f36a25a6b29dd34c3298a02d98c80a7648b1239c94d3b45a947b74c9ce",
+    "mfem-p2-r2.bin": "cd9328e54a9a52dd01f8e710e972339166de9ce7f5376e71e97402bb750a8520",
+    "boundary-p2-r2-q16.bin": "50021074524bb5d38ecb8e44c33b88a881ac6c6632facb5ea91819968e3c40b4"
+  },
+  "analytic_source_groups": 7,
+  "planes_unit_normal_and_offset": [
+    [
+      -1.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    [
+      1.0,
+      0.0,
+      0.0,
+      4.0
+    ],
+    [
+      0.0,
+      -1.0,
+      0.0,
+      0.0
+    ],
+    [
+      0.0,
+      1.0,
+      0.0,
+      4.0
+    ],
+    [
+      0.0,
+      0.0,
+      -1.0,
+      0.0
+    ],
+    [
+      0.0,
+      0.24253562503633297,
+      0.9701425001453319,
+      3.8805700005813275
+    ]
+  ],
+  "images": "exact first reflection across every one of six physical planes; all exterior; Neumann sign +1",
+  "source_weights": "keep original weights on each group; no global renormalization",
+  "all_boundaries_corrected": true,
+  "finite_images_alone_claimed_closed_room": false,
+  "execution_order": [
+    [
+      44,
+      2,
+      2,
+      16
+    ],
+    [
+      44,
+      2,
+      3,
+      16
+    ],
+    [
+      44,
+      3,
+      3,
+      16
+    ],
+    [
+      44,
+      4,
+      3,
+      16
+    ],
+    [
+      44,
+      4,
+      3,
+      20
+    ],
+    [
+      28,
+      4,
+      3,
+      16
+    ],
+    [
+      32,
+      4,
+      3,
+      16
+    ],
+    [
+      36,
+      4,
+      3,
+      16
+    ],
+    [
+      40,
+      4,
+      3,
+      16
+    ]
+  ],
+  "memory_budget_bytes": 805306368,
+  "allocation_guard_before_green_generator": true,
+  "fine_reference": "native44 P3r3/P4r3 q16",
+  "hp_direct_only_cross_limits": [
+    0.03,
+    0.05,
+    3.0
+  ],
+  "direct_only_hp_plan_sha256_lf": "bd3399c26da9b79e247cd30cf49204993d8e052d8ffc4dd08c209832114c7387",
+  "reference_no_outcome_selection": "compare to all prospectively registered direct-only HP cases",
+  "distinct_from_archived_fdtd": true,
+  "fixed_mesh_native_observers_only": true,
+  "no_qualification_from_five_native_observers_on_one_fixed_mesh": true,
+  "physical_limit": "NOT_ESTABLISHED",
+  "product_go": false,
+  "mathematical_basis": "radial Neumann mirror cancellation; exterior image fields solve the homogeneous equation inside the convex room",
+  "references": [
+    "https://math.arizona.edu/~kglasner/math456/greens.pdf",
+    "https://web.mit.edu/6.013_book/www/chapter12/12.7.html"
+  ],
+  "native_clock_phase_conditional_on_spatial_quadrature_and_cross_gates": true,
+  "conditional_rule": "after five native44 spatial/quadrature cases, run PPW28/32/36/40 only if P3/P4, q16/q20 and direct-only P4 cross all pass; otherwise save NOT_RUN_SPATIAL_GATE_FAILED"
+}
