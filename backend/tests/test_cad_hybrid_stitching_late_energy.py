@@ -21,7 +21,6 @@ from htdt.cad_hybrid_grid_reconciliation import (
     build_hybrid_crossover_configuration_authority,
 )
 from htdt.cad_hybrid_late_energy import (
-    CadLateEnergyDecayRepository,
     LateFieldBandDecay,
     LateFieldSurfaceCapability,
     R160_LATE_ENERGY_ARTIFACT_SCHEMA_REF,
@@ -37,7 +36,6 @@ from htdt.cad_hybrid_numerical_composition import (
     compute_native_wave_transfer,
 )
 from htdt.cad_hybrid_stitching import (
-    CadStitchedHybridResponseRepository,
     build_automatic_crossover_selection,
     build_hybrid_band_stitch_plan,
     build_stitched_hybrid_composition_spec,
@@ -59,6 +57,8 @@ from test_cad_hybrid_numerical_composition import (  # noqa: E402
     _ref,
     _solver_result,
 )
+from htdt.acoustics.persistence.cad_late_energy_decay_repository import CadLateEnergyDecayRepository
+from htdt.acoustics.persistence.cad_stitched_hybrid_response_repository import CadStitchedHybridResponseRepository
 
 
 def _union_fixture():

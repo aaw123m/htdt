@@ -44,19 +44,14 @@ is :data:`R160_LATE_ENERGY_ARTIFACT_SCHEMA_REF` — any other encoding fails
 closed rather than filling the decay slot with non-decay semantics.
 """
 
-from __future__ import annotations
-
 from collections.abc import Mapping, Sequence
-from contextlib import closing
 from math import exp, isclose, isfinite
-from pathlib import Path
-import sqlite3
 from typing import Any, Callable, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .cad_acoustic_snapshot import AcousticPredictionRequest
-from ..services.cad_acoustic_solver_adapter import AcousticSolverDispatchBinding
+from .cad_acoustic_solver_adapter import AcousticSolverDispatchBinding
 from .cad_acoustic_solver_result import (
     AcousticSolverArtifactManifest,
     AcousticSolverObservableArtifact,
@@ -64,7 +59,7 @@ from .cad_acoustic_solver_result import (
     build_acoustic_solver_result_envelope,
 )
 from ...cad_equipment import FrequencyDomain
-from ..services.cad_geometric_acoustics_adapter import (
+from .cad_geometric_acoustics_contracts import (
     BoundaryMaterialContribution,
     DeterministicPathArtifact,
 )
@@ -72,20 +67,13 @@ from .cad_hybrid_grid_reconciliation import (
     HybridNumericalCompositionError,
     HybridNumericalFailureCode,
 )
-from ...cad_repository import SceneRepository
-from ...cad_schema import (
-    connect_sqlite,
-    ensure_native_schema,
-    require_native_tables,
-)
 from .cad_surface_scattering import (
     SurfaceScatteringEvidence,
     ga_scatter_fraction,
     solver_scattering_representation,
 )
 from ...r120_geometry_compiler import ExactExternalAuthorityRef
-from ...canonical_json import canonical_json as _canonical_json, canonical_sha256 as _semantic_hash
-
+from ...canonical_json import canonical_sha256 as _semantic_hash
 
 R160_LATE_FIELD_INPUT_VERSION = 'r160-late-field-input-1'
 R160_LATE_DECAY_LAW_VERSION = 'r160-late-energy-decay-law-1'
@@ -121,7 +109,6 @@ R160_LATE_ENERGY_ARTIFACT_SCHEMA_REF = ExactExternalAuthorityRef(
     ),
 )
 
-
 R160_LATE_ENERGY_DECAY_SOLVER_ROLE = 'r160-late-energy-decay'
 R160_LATE_ENERGY_DECAY_ADAPTER_ID = 'htdt.r160.late-energy-decay'
 R160_LATE_ENERGY_DECAY_SOLVER_IMPLEMENTATION_REF = ExactExternalAuthorityRef(
@@ -142,7 +129,6 @@ R160_LATE_ENERGY_DECAY_SOLVER_IMPLEMENTATION_REF = ExactExternalAuthorityRef(
     ),
 )
 
-
 def surface_scattering_evidence_ref(
     evidence: SurfaceScatteringEvidence,
 ) -> ExactExternalAuthorityRef:
@@ -154,7 +140,6 @@ def surface_scattering_evidence_ref(
         semantic_hash_sha256=evidence.evidence_sha256,
     )
 
-
 class LateFieldBandEnergy(BaseModel):
     """Late-field energy for one band (declared or computed injection)."""
 
@@ -162,7 +147,6 @@ class LateFieldBandEnergy(BaseModel):
 
     center_hz: float = Field(gt=0.0)
     late_energy_per_m2: float = Field(ge=0.0)
-
 
 class LateFieldSurfaceCapability(BaseModel):
     """Declared late-field capability of one boundary surface."""
@@ -220,7 +204,6 @@ class LateFieldSurfaceCapability(BaseModel):
                 )
         return self
 
-
 class LateFieldInputAuthority(BaseModel):
     """Versioned binding of late-field capability evidence per surface."""
 
@@ -270,7 +253,6 @@ class LateFieldInputAuthority(BaseModel):
                 return item
         return None
 
-
 def build_late_field_input_authority(
     *,
     path_artifact: DeterministicPathArtifact,
@@ -300,7 +282,6 @@ def build_late_field_input_authority(
         **core,
     )
 
-
 class LateFieldBandDecay(BaseModel):
     """Declared decay time constant for one band."""
 
@@ -309,7 +290,6 @@ class LateFieldBandDecay(BaseModel):
     center_hz: float = Field(gt=0.0)
     decay_time_s: float = Field(gt=0.0)
     provenance: LateDecayProvenance
-
 
 class LateEnergyDecayLaw(BaseModel):
     """Versioned declared decay law — a bounded exponential model."""
@@ -370,7 +350,6 @@ class LateEnergyDecayLaw(BaseModel):
                 return band.decay_time_s
         return None
 
-
 def build_late_energy_decay_law(
     *,
     bands: Sequence[LateFieldBandDecay],
@@ -401,7 +380,6 @@ def build_late_energy_decay_law(
         **core,
     )
 
-
 def _provenance_band_decays(
     band_decay_times: Mapping[float, float] | Sequence[tuple[float, float]],
     *,
@@ -420,7 +398,6 @@ def _provenance_band_decays(
         )
         for center_hz, decay_time_s in items
     )
-
 
 def declared_late_decay_law(
     *,
@@ -445,7 +422,6 @@ def declared_late_decay_law(
         evidence_ref=evidence_ref,
         rationale=rationale,
     )
-
 
 def measured_late_decay_law(
     *,
@@ -477,7 +453,6 @@ def measured_late_decay_law(
         rationale=rationale,
     )
 
-
 class LateEnergyDecaySample(BaseModel):
     model_config = ConfigDict(frozen=True, extra='forbid')
 
@@ -492,7 +467,6 @@ class LateEnergyDecaySample(BaseModel):
             raise ValueError('R160 late-energy sample must be finite')
         return self
 
-
 class LatePathContribution(BaseModel):
     """Audited per-path late-energy injection record."""
 
@@ -501,7 +475,6 @@ class LatePathContribution(BaseModel):
     deterministic_path_id: str = Field(min_length=1)
     path_type: str = Field(min_length=1)
     injected_late_energy: tuple[LateFieldBandEnergy, ...] = ()
-
 
 class LateEnergyBandResult(BaseModel):
     """Computed late-energy decay for one exact band."""
@@ -527,7 +500,6 @@ class LateEnergyBandResult(BaseModel):
             if not isfinite(float(value)):
                 raise ValueError('R160 late-energy band values must be finite')
         return self
-
 
 class LateEnergyDecayArtifact(BaseModel):
     """Bounded late-energy decay artifact (observable ``late_energy_decay``)."""
@@ -678,13 +650,11 @@ class LateEnergyDecayArtifact(BaseModel):
             semantic_hash_sha256=digest,
         )
 
-
 def late_energy_decay_observable_manifest(
     artifact: LateEnergyDecayArtifact,
 ) -> AcousticSolverObservableArtifact:
     """Expose a persisted decay artifact as the R160 late-energy observable."""
     return artifact.as_solver_observable()
-
 
 def build_late_energy_decay_result_envelope(
     *,
@@ -752,7 +722,6 @@ def build_late_energy_decay_result_envelope(
         ),
     )
 
-
 def _band_materials(
     band: Any,
 ) -> tuple[BoundaryMaterialContribution, ...]:
@@ -764,7 +733,6 @@ def _band_materials(
     elif band.boundary_material is not None:
         materials.append(band.boundary_material)
     return tuple(materials)
-
 
 def solve_late_energy_decay(
     *,
@@ -1081,130 +1049,13 @@ def solve_late_energy_decay(
         **core,
     )
 
-
 PathArtifactResolver = Callable[[str], DeterministicPathArtifact | None]
 ScatteringEvidenceResolver = Callable[
     [str], SurfaceScatteringEvidence | None
 ]
 
-
-class CadLateEnergyDecayRepository:
-    """Append-only late-energy persistence with exact stale rejection."""
-
-    def __init__(
-        self,
-        scene_repository: SceneRepository,
-        *,
-        path_artifact_resolver: PathArtifactResolver,
-        scattering_evidence_resolver: ScatteringEvidenceResolver,
-    ) -> None:
-        self.scene_repository = scene_repository
-        self.path = Path(scene_repository.path)
-        self.path_artifact_resolver = path_artifact_resolver
-        self.scattering_evidence_resolver = scattering_evidence_resolver
-        ensure_native_schema(self.path)
-        self._initialize()
-
-    def _connect(self) -> sqlite3.Connection:
-        ensure_native_schema(self.path)
-        return connect_sqlite(self.path)
-
-    def _initialize(self) -> None:
-        with closing(self._connect()) as connection, connection:
-            require_native_tables(connection, 'r160_late_energy_decay_artifacts')
-
-    def _rebuild(
-        self,
-        artifact: LateEnergyDecayArtifact,
-    ) -> LateEnergyDecayArtifact:
-        artifact = LateEnergyDecayArtifact.model_validate(
-            artifact.model_dump(mode='python')
-        )
-        path_artifact = self.path_artifact_resolver(
-            artifact.deterministic_path_artifact_ref.authority_id
-        )
-        if (
-            path_artifact is None
-            or path_artifact.as_external_ref()
-            != artifact.deterministic_path_artifact_ref
-        ):
-            raise ValueError(
-                'R160 late-energy deterministic path artifact is missing/stale'
-            )
-        evidences: dict[str, SurfaceScatteringEvidence] = {}
-        for capability in artifact.late_field_input.surface_capabilities:
-            if capability.evidence_ref is None:
-                continue
-            evidence = self.scattering_evidence_resolver(
-                capability.evidence_ref.authority_id
-            )
-            if evidence is None or (
-                surface_scattering_evidence_ref(evidence)
-                != capability.evidence_ref
-            ):
-                raise ValueError(
-                    'R160 late-energy scattering evidence is missing/stale'
-                )
-            evidences[capability.evidence_ref.authority_id] = evidence
-        rebuilt = solve_late_energy_decay(
-            path_artifact=path_artifact,
-            late_field_input=artifact.late_field_input,
-            decay_law=artifact.decay_law,
-            scattering_evidence=evidences,
-        )
-        if rebuilt != artifact:
-            raise ValueError(
-                'R160 persisted late-energy artifact no longer reproduces exactly'
-            )
-        return rebuilt
-
-    def save(self, artifact: LateEnergyDecayArtifact) -> LateEnergyDecayArtifact:
-        artifact = self._rebuild(artifact)
-        payload = _canonical_json(artifact.model_dump(mode='json'))
-        with closing(self._connect()) as connection, connection:
-            existing = connection.execute(
-                'SELECT semantic_sha256, payload_json '
-                'FROM r160_late_energy_decay_artifacts WHERE artifact_id=?',
-                (artifact.artifact_id,),
-            ).fetchone()
-            if existing is not None:
-                if (
-                    existing['semantic_sha256'] != artifact.semantic_sha256
-                    or existing['payload_json'] != payload
-                ):
-                    raise ValueError(
-                        'R160 late-energy artifact identity collision'
-                    )
-                return artifact
-            connection.execute(
-                'INSERT INTO r160_late_energy_decay_artifacts '
-                '(artifact_id, semantic_sha256, late_field_input_id, '
-                'payload_json) VALUES (?, ?, ?, ?)',
-                (
-                    artifact.artifact_id,
-                    artifact.semantic_sha256,
-                    artifact.late_field_input.input_id,
-                    payload,
-                ),
-            )
-        return artifact
-
-    def get(self, artifact_id: str) -> LateEnergyDecayArtifact | None:
-        with closing(self._connect()) as connection:
-            row = connection.execute(
-                'SELECT payload_json FROM r160_late_energy_decay_artifacts '
-                'WHERE artifact_id=?',
-                (artifact_id,),
-            ).fetchone()
-        if row is None:
-            return None
-        return self._rebuild(
-            LateEnergyDecayArtifact.model_validate_json(row['payload_json'])
-        )
-
-
 __all__ = [
-    'CadLateEnergyDecayRepository',
+    '',
     'LATE_ENERGY_DECAY_MODEL',
     'LATE_ENERGY_DECAY_OBSERVABLE',
     'LateDecayProvenance',

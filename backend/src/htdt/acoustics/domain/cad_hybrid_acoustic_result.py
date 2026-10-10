@@ -1,9 +1,6 @@
-from __future__ import annotations
 
 from collections.abc import Callable, Sequence
-from contextlib import closing
 from pathlib import Path
-import sqlite3
 from typing import Any, Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -14,18 +11,10 @@ from .cad_acoustic_solver_result import (
     AcousticSolverResultEnvelope,
 )
 from ...cad_equipment import FrequencyDomain
-from ..services.cad_geometric_acoustics_adapter import DeterministicPathArtifact
+from .cad_geometric_acoustics_contracts import DeterministicPathArtifact
 from .cad_hybrid_late_energy import R160_LATE_ENERGY_ARTIFACT_SCHEMA_REF
-from ...cad_repository import SceneRepository
-from ...cad_schema import (
-    ensure_native_schema,
-    require_native_tables,
-    connect_sqlite,
-)
 from ...r120_geometry_compiler import ExactExternalAuthorityRef
 from ...canonical_json import canonical_sha256 as _semantic_hash
-from ...clock import utc_now_iso as _utc_now
-
 
 HYBRID_RESULT_SCHEMA_VERSION = 1
 HYBRID_RESULT_AUTHORITY_VERSION = 'r160-hybrid-result-1'
@@ -84,7 +73,6 @@ HYBRID_COMPOSITION_SPEC_AUTHORITY_VERSION = 'r160-hybrid-composition-spec-1'
 
 ExternalPayloadResolver = Callable[[ExactExternalAuthorityRef], Any]
 
-
 class SnapshotRequestResolver(Protocol):
     path: Path
 
@@ -97,13 +85,11 @@ class SnapshotRequestResolver(Protocol):
     ) -> AcousticPredictionRequest | None:
         ...
 
-
 class SolverResultResolver(Protocol):
     path: Path
 
     def get(self, result_id: str) -> AcousticSolverResultEnvelope | None:
         ...
-
 
 class DeterministicPathResolver(Protocol):
     path: Path
@@ -111,10 +97,8 @@ class DeterministicPathResolver(Protocol):
     def get(self, artifact_id: str) -> DeterministicPathArtifact | None:
         ...
 
-
 def _model_hash(model: BaseModel) -> str:
     return _semantic_hash(model.model_dump(mode='json'))
-
 
 def _domain_contains(
     container: FrequencyDomain,
@@ -125,13 +109,11 @@ def _domain_contains(
         and float(requested.maximum_hz) <= float(container.maximum_hz)
     )
 
-
 def _domains_overlap(first: FrequencyDomain, second: FrequencyDomain) -> bool:
     return (
         max(float(first.minimum_hz), float(second.minimum_hz))
         <= min(float(first.maximum_hz), float(second.maximum_hz))
     )
-
 
 def _domain_intersection(
     first: FrequencyDomain,
@@ -142,7 +124,6 @@ def _domain_intersection(
     if maximum <= minimum:
         return None
     return FrequencyDomain(minimum_hz=minimum, maximum_hz=maximum)
-
 
 def _gap_within_requested_domain(
     first: FrequencyDomain,
@@ -165,7 +146,6 @@ def _gap_within_requested_domain(
             maximum_hz=gap_maximum,
         ),
     )
-
 
 def _composition_requirements(
     observable: HybridCompositionObservable,
@@ -198,7 +178,6 @@ def _composition_requirements(
     }
     return mapping[observable]
 
-
 class HybridSourceIdentity(BaseModel):
     model_config = ConfigDict(frozen=True, extra='forbid')
 
@@ -212,14 +191,12 @@ class HybridSourceIdentity(BaseModel):
         pattern=r'^[0-9a-f]{64}$',
     )
 
-
 class HybridReceiverIdentity(BaseModel):
     model_config = ConfigDict(frozen=True, extra='forbid')
 
     receiver_id: str = Field(min_length=1)
     entity_id: str = Field(min_length=1)
     receiver_binding_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
-
 
 class HybridEnvironmentIdentity(BaseModel):
     model_config = ConfigDict(frozen=True, extra='forbid')
@@ -239,7 +216,6 @@ class HybridEnvironmentIdentity(BaseModel):
             )
         return self
 
-
 class HybridPredictionRequestRef(BaseModel):
     model_config = ConfigDict(frozen=True, extra='forbid')
 
@@ -251,7 +227,6 @@ class HybridPredictionRequestRef(BaseModel):
     model_solver_role_id: str = Field(min_length=1)
     requested_frequency_domain: FrequencyDomain
     requested_observables: tuple[str, ...]
-
 
 class HybridSolverResultRef(BaseModel):
     model_config = ConfigDict(frozen=True, extra='forbid')
@@ -275,7 +250,6 @@ class HybridSolverResultRef(BaseModel):
     solver_implementation_ref: ExactExternalAuthorityRef
     solver_configuration_ref: ExactExternalAuthorityRef
     artifacts: tuple[AcousticSolverObservableArtifact, ...]
-
 
 class HybridObservableValidity(BaseModel):
     model_config = ConfigDict(frozen=True, extra='forbid')
@@ -303,7 +277,6 @@ class HybridObservableValidity(BaseModel):
     @property
     def maximum_frequency_hz(self) -> float:
         return float(self.frequency_domain.maximum_hz)
-
 
 class CoherentTransfer(BaseModel):
     """Exact ref to phase-bearing complex transfer evidence; never copied data."""
@@ -333,7 +306,6 @@ class CoherentTransfer(BaseModel):
             raise ValueError('CoherentTransfer requires explicit complex phase')
         return self
 
-
 class DeterministicPathSet(BaseModel):
     """Exact ref to R150 typed paths; path payload remains owned by R150."""
 
@@ -362,7 +334,6 @@ class DeterministicPathSet(BaseModel):
         if self.validity.phase_capability != 'UNAVAILABLE_NOT_SYNTHESIZED':
             raise ValueError('DeterministicPathSet cannot claim coherent phase')
         return self
-
 
 class LateEnergyDecay(BaseModel):
     """R160 late-tail slot. No synthetic decay is generated by this authority."""
@@ -409,13 +380,11 @@ class LateEnergyDecay(BaseModel):
                 )
         return self
 
-
 class HybridFrequencyPartition(BaseModel):
     model_config = ConfigDict(frozen=True, extra='forbid')
 
     component: HybridObservableType
     frequency_domain: FrequencyDomain
-
 
 class HybridStitchingPolicy(BaseModel):
     """Versioned non-blending policy. All unsafe synthesis flags are fixed false."""
@@ -487,7 +456,6 @@ class HybridStitchingPolicy(BaseModel):
             semantic_hash_sha256=self.semantic_sha256,
         )
 
-
 def build_hybrid_stitching_policy(
     *,
     mode: StitchingMode,
@@ -526,7 +494,6 @@ def build_hybrid_stitching_policy(
         **core,
     )
 
-
 class HybridCompositionArtifactIdentity(BaseModel):
     """Exact participating artifact identity and physical component semantics."""
 
@@ -542,7 +509,6 @@ class HybridCompositionArtifactIdentity(BaseModel):
     units: str = Field(min_length=1)
     reference: str = Field(min_length=1)
     component_semantics: tuple[HybridPhysicalComponent, ...] = Field(min_length=1)
-
 
 class HybridCrossoverPolicy(BaseModel):
     """Explicit overlap/crossover behavior. There is intentionally no default."""
@@ -570,7 +536,6 @@ class HybridCrossoverPolicy(BaseModel):
             )
         return self
 
-
 class HybridNormalizationReferenceConvention(BaseModel):
     """Exact native quantity/reference convention; no hidden unit conversion."""
 
@@ -590,7 +555,6 @@ class HybridNormalizationReferenceConvention(BaseModel):
         'solver_native_relative_energy_transport'
     ] = 'solver_native_relative_energy_transport'
 
-
 class HybridDoubleCountExclusionPolicy(BaseModel):
     """Explicit policy for overlapping physical components."""
 
@@ -601,7 +565,6 @@ class HybridDoubleCountExclusionPolicy(BaseModel):
         'require_disjoint_component_ownership',
     ]
     subtraction_authority_ref: None = None
-
 
 class HybridCompositionSpec(BaseModel):
     """Immutable authority for one bounded wave/GA composition request."""
@@ -694,7 +657,6 @@ class HybridCompositionSpec(BaseModel):
             semantic_hash_sha256=self.semantic_sha256,
         )
 
-
 class HybridUnsupportedObservable(BaseModel):
     model_config = ConfigDict(frozen=True, extra='forbid')
 
@@ -709,7 +671,6 @@ class HybridUnsupportedObservable(BaseModel):
     ]
     detail: str = Field(min_length=1)
 
-
 class HybridApproximationErrorMetadata(BaseModel):
     model_config = ConfigDict(frozen=True, extra='forbid')
 
@@ -721,7 +682,6 @@ class HybridApproximationErrorMetadata(BaseModel):
         'UNAVAILABLE_NO_CROSS_BACKEND_NUMERIC_OPERATION'
     ] = 'UNAVAILABLE_NO_CROSS_BACKEND_NUMERIC_OPERATION'
     note: str = Field(min_length=1)
-
 
 class HybridCompositionDecision(BaseModel):
     """Auditable result of capability, overlap, and double-count gates."""
@@ -761,7 +721,6 @@ class HybridCompositionDecision(BaseModel):
                 'composition observable cannot be both supported and unsupported'
             )
         return self
-
 
 class HybridAcousticResult(BaseModel):
     """Solver-neutral R160 authority containing refs, not copied solver truth."""
@@ -979,7 +938,6 @@ class HybridAcousticResult(BaseModel):
     def numerical_blend_permitted(self) -> bool:
         return False
 
-
 def _source_identities(
     snapshot: AcousticSceneSnapshot,
 ) -> tuple[HybridSourceIdentity, ...]:
@@ -995,7 +953,6 @@ def _source_identities(
         for item in snapshot.sources
     )
 
-
 def _receiver_identities(
     snapshot: AcousticSceneSnapshot,
 ) -> tuple[HybridReceiverIdentity, ...]:
@@ -1007,7 +964,6 @@ def _receiver_identities(
         )
         for item in snapshot.receivers
     )
-
 
 def _environment_identity(
     snapshot: AcousticSceneSnapshot,
@@ -1025,7 +981,6 @@ def _environment_identity(
         ),
     )
 
-
 def _request_ref(
     request: AcousticPredictionRequest,
 ) -> HybridPredictionRequestRef:
@@ -1037,7 +992,6 @@ def _request_ref(
         requested_frequency_domain=request.requested_frequency_domain,
         requested_observables=request.requested_observables,
     )
-
 
 def _result_ref(
     result: AcousticSolverResultEnvelope,
@@ -1064,8 +1018,6 @@ def _result_ref(
         artifacts=result.artifacts,
     )
 
-
-
 def _validity(
     *,
     result: AcousticSolverResultEnvelope,
@@ -1090,7 +1042,6 @@ def _validity(
         evidence_state=evidence_state,
     )
 
-
 def _read_payload(
     resolver: ExternalPayloadResolver,
     ref: ExactExternalAuthorityRef,
@@ -1104,7 +1055,6 @@ def _read_payload(
     if payload is None:
         raise ValueError(f'{label} exact external artifact is unavailable')
     return payload
-
 
 def _coherent_component(
     *,
@@ -1246,7 +1196,6 @@ def _coherent_component(
         ),
     )
 
-
 def _path_component(
     *,
     snapshot: AcousticSceneSnapshot,
@@ -1324,7 +1273,6 @@ def _path_component(
         ),
     )
 
-
 def _late_component(
     *,
     result: AcousticSolverResultEnvelope,
@@ -1351,7 +1299,6 @@ def _late_component(
             evidence_state=evidence_state,
         ),
     )
-
 
 def _validate_partition_policy(
     *,
@@ -1385,7 +1332,6 @@ def _validate_partition_policy(
             raise ValueError(
                 'hybrid frequency partition exceeds component validity domain'
             )
-
 
 def build_hybrid_acoustic_result(
     *,
@@ -1639,7 +1585,6 @@ def build_hybrid_acoustic_result(
         **core,
     )
 
-
 def _composition_result_ref(
     hybrid: HybridAcousticResult,
     result_id: str,
@@ -1648,7 +1593,6 @@ def _composition_result_ref(
         if item.result_id == result_id:
             return item
     raise ValueError('hybrid composition references non-participating result')
-
 
 def _composition_artifact_semantics(
     path_artifact: DeterministicPathArtifact,
@@ -1663,7 +1607,6 @@ def _composition_artifact_semantics(
             'hybrid composition requires at least one deterministic GA path'
         )
     return tuple(semantics)
-
 
 def build_hybrid_composition_spec(
     *,
@@ -1832,7 +1775,6 @@ def build_hybrid_composition_spec(
         **core,
     )
 
-
 _COMPOSITION_OBSERVABLE_ORDER: tuple[HybridCompositionObservable, ...] = (
     'magnitude_energy',
     'coherent_phase',
@@ -1840,7 +1782,6 @@ _COMPOSITION_OBSERVABLE_ORDER: tuple[HybridCompositionObservable, ...] = (
     'deterministic_path_identity',
     'late_decay',
 )
-
 
 def _composition_capabilities(
     *,
@@ -1950,7 +1891,6 @@ def _composition_capabilities(
         )
     )
     return ordered_supported, ordered_unsupported, reflection_orders
-
 
 def compose_hybrid_acoustic_result(
     *,
@@ -2068,307 +2008,3 @@ def compose_hybrid_acoustic_result(
         **core,
     )
 
-
-class CadHybridAcousticResultRepository:
-    """Append-only R160 persistence with exact source re-resolution."""
-
-    def __init__(
-        self,
-        scene_repository: SceneRepository,
-        *,
-        snapshot_request_resolver: SnapshotRequestResolver,
-        solver_result_resolver: SolverResultResolver,
-        deterministic_path_resolver: DeterministicPathResolver,
-        external_payload_resolver: ExternalPayloadResolver,
-    ) -> None:
-        self.scene_repository = scene_repository
-        self.snapshot_request_resolver = snapshot_request_resolver
-        self.solver_result_resolver = solver_result_resolver
-        self.deterministic_path_resolver = deterministic_path_resolver
-        self.external_payload_resolver = external_payload_resolver
-        self.path = Path(scene_repository.path)
-        for label, resolver in (
-            ('snapshot/request', snapshot_request_resolver),
-            ('solver result', solver_result_resolver),
-            ('deterministic path', deterministic_path_resolver),
-        ):
-            if Path(resolver.path) != self.path:
-                raise ValueError(
-                    f'R160 hybrid and {label} repositories must share one '
-                    'native CAD database'
-                )
-        ensure_native_schema(self.path)
-        self._initialize()
-
-    def _connect(self) -> sqlite3.Connection:
-        ensure_native_schema(self.path)
-        return connect_sqlite(self.path)
-
-    def _initialize(self) -> None:
-        with closing(self._connect()) as connection, connection:
-            require_native_tables(connection, 'cad_hybrid_stitching_policies', 'cad_hybrid_acoustic_results')
-
-    def get_policy(
-        self,
-        policy_id: str,
-    ) -> HybridStitchingPolicy | None:
-        with closing(self._connect()) as connection, connection:
-            row = connection.execute(
-                """
-                SELECT payload_json
-                FROM cad_hybrid_stitching_policies
-                WHERE policy_id=?
-                """,
-                (policy_id,),
-            ).fetchone()
-        if row is None:
-            return None
-        return HybridStitchingPolicy.model_validate_json(row['payload_json'])
-
-    def _resolve_result(
-        self,
-        ref: HybridSolverResultRef,
-    ) -> AcousticSolverResultEnvelope:
-        result = self.solver_result_resolver.get(ref.result_id)
-        if result is None:
-            raise ValueError(
-                'R160 references missing/stale AcousticSolverResultEnvelope'
-            )
-        if _result_ref(result) != ref:
-            raise ValueError(
-                'R160 solver result exact identity/provenance mismatch'
-            )
-        return result
-
-    def _validate(
-        self,
-        hybrid: HybridAcousticResult,
-        *,
-        policy: HybridStitchingPolicy | None = None,
-    ) -> HybridAcousticResult:
-        hybrid = HybridAcousticResult.model_validate(
-            hybrid.model_dump(mode='python')
-        )
-        snapshot = self.snapshot_request_resolver.get_snapshot(
-            hybrid.acoustic_scene_snapshot_id
-        )
-        if (
-            snapshot is None
-            or snapshot.semantic_sha256
-            != hybrid.acoustic_scene_snapshot_sha256
-            or snapshot.scene_revision_id != hybrid.scene_revision_id
-            or snapshot.scene_content_hash != hybrid.scene_content_hash
-            or snapshot.semantic_geometry_id != hybrid.semantic_geometry_id
-            or snapshot.semantic_geometry_sha256
-            != hybrid.semantic_geometry_sha256
-            or _source_identities(snapshot) != hybrid.source_identities
-            or _receiver_identities(snapshot) != hybrid.receiver_identity_order
-            or _environment_identity(snapshot) != hybrid.environment_identity
-        ):
-            raise ValueError(
-                'R160 exact snapshot/geometry/source/receiver/environment '
-                'compatibility failed'
-            )
-
-        requests: list[AcousticPredictionRequest] = []
-        for ref in hybrid.prediction_requests:
-            request = self.snapshot_request_resolver.get_prediction_request(
-                ref.request_id
-            )
-            if request is None or _request_ref(request) != ref:
-                raise ValueError(
-                    'R160 references missing/stale AcousticPredictionRequest'
-                )
-            if (
-                request.acoustic_scene_snapshot_id != snapshot.snapshot_id
-                or request.acoustic_scene_snapshot_sha256
-                != snapshot.semantic_sha256
-            ):
-                raise ValueError(
-                    'R160 request no longer resolves to exact snapshot'
-                )
-            requests.append(request)
-
-        results = [
-            self._resolve_result(ref)
-            for ref in hybrid.participating_solver_results
-        ]
-
-        if policy is None:
-            policy = self.get_policy(hybrid.stitching_policy_ref.authority_id)
-        if policy is None or policy.as_external_ref() != hybrid.stitching_policy_ref:
-            raise ValueError(
-                'R160 references missing/mismatched stitching policy authority'
-            )
-
-        path_artifacts: list[DeterministicPathArtifact] = []
-        if hybrid.deterministic_path_set is not None:
-            path_ref = hybrid.deterministic_path_set.artifact_authority
-            path = self.deterministic_path_resolver.get(path_ref.authority_id)
-            if path is None or path.as_external_ref() != path_ref:
-                raise ValueError(
-                    'R160 references missing/stale R150 DeterministicPathArtifact'
-                )
-            path_artifacts.append(path)
-
-        regenerated = build_hybrid_acoustic_result(
-            snapshot=snapshot,
-            prediction_requests=requests,
-            solver_results=results,
-            stitching_policy=policy,
-            deterministic_path_artifacts=path_artifacts,
-            external_payload_resolver=self.external_payload_resolver,
-            late_energy_decay_state=(
-                'NOT_PROVIDED'
-                if hybrid.late_energy_decay.state == 'AVAILABLE'
-                else hybrid.late_energy_decay.state
-            ),
-            late_energy_decay_reason=hybrid.late_energy_decay.reason,
-        )
-        if hybrid.composition_spec is not None:
-            if len(path_artifacts) != 1:
-                raise ValueError(
-                    'R160 bounded composition requires exact persisted R150 artifact'
-                )
-            regenerated = compose_hybrid_acoustic_result(
-                hybrid=regenerated,
-                composition_spec=hybrid.composition_spec,
-                deterministic_path_artifact=path_artifacts[0],
-            )
-        if regenerated != hybrid:
-            raise ValueError(
-                'R160 hybrid result does not reproduce from exact persisted '
-                'authorities'
-            )
-        return hybrid
-
-    def save(
-        self,
-        hybrid: HybridAcousticResult,
-        *,
-        policy: HybridStitchingPolicy,
-    ) -> HybridAcousticResult:
-        policy = HybridStitchingPolicy.model_validate(
-            policy.model_dump(mode='python')
-        )
-        if policy.as_external_ref() != hybrid.stitching_policy_ref:
-            raise ValueError(
-                'R160 save policy does not match hybrid policy identity'
-            )
-        hybrid = self._validate(hybrid, policy=policy)
-
-        with closing(self._connect()) as connection:
-            connection.execute('BEGIN IMMEDIATE')
-            try:
-                existing_policy = connection.execute(
-                    """
-                    SELECT payload_json
-                    FROM cad_hybrid_stitching_policies
-                    WHERE policy_id=?
-                    """,
-                    (policy.policy_id,),
-                ).fetchone()
-                if existing_policy is not None:
-                    persisted_policy = HybridStitchingPolicy.model_validate_json(
-                        existing_policy['payload_json']
-                    )
-                    if persisted_policy != policy:
-                        raise ValueError(
-                            'hybrid stitching policy id exists with '
-                            'different semantics'
-                        )
-                else:
-                    connection.execute(
-                        """
-                        INSERT INTO cad_hybrid_stitching_policies(
-                            policy_id,
-                            semantic_sha256,
-                            mode,
-                            payload_json,
-                            recorded_at_utc
-                        ) VALUES (?, ?, ?, ?, ?)
-                        """,
-                        (
-                            policy.policy_id,
-                            policy.semantic_sha256,
-                            policy.mode,
-                            policy.model_dump_json(),
-                            _utc_now(),
-                        ),
-                    )
-
-                existing = connection.execute(
-                    """
-                    SELECT payload_json
-                    FROM cad_hybrid_acoustic_results
-                    WHERE hybrid_result_id=?
-                    """,
-                    (hybrid.hybrid_result_id,),
-                ).fetchone()
-                if existing is not None:
-                    persisted = HybridAcousticResult.model_validate_json(
-                        existing['payload_json']
-                    )
-                    if persisted != hybrid:
-                        raise ValueError(
-                            'HybridAcousticResult id exists with '
-                            'different semantics'
-                        )
-                else:
-                    connection.execute(
-                        """
-                        INSERT INTO cad_hybrid_acoustic_results(
-                            hybrid_result_id,
-                            semantic_sha256,
-                            acoustic_scene_snapshot_id,
-                            scene_revision_id,
-                            stitching_policy_id,
-                            payload_json,
-                            recorded_at_utc
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?)
-                        """,
-                        (
-                            hybrid.hybrid_result_id,
-                            hybrid.semantic_sha256,
-                            hybrid.acoustic_scene_snapshot_id,
-                            hybrid.scene_revision_id,
-                            policy.policy_id,
-                            hybrid.model_dump_json(),
-                            _utc_now(),
-                        ),
-                    )
-                connection.commit()
-            except Exception:  # error-boundary: rollback before re-raise — any commit failure rolls the transaction back so a partial hybrid record never persists (noqa: BLE001)
-                connection.rollback()
-                raise
-        return hybrid
-
-    def get(
-        self,
-        hybrid_result_id: str,
-        *,
-        expected_composition_spec: HybridCompositionSpec | None = None,
-    ) -> HybridAcousticResult | None:
-        with closing(self._connect()) as connection, connection:
-            row = connection.execute(
-                """
-                SELECT payload_json
-                FROM cad_hybrid_acoustic_results
-                WHERE hybrid_result_id=?
-                """,
-                (hybrid_result_id,),
-            ).fetchone()
-        if row is None:
-            return None
-        hybrid = self._validate(
-            HybridAcousticResult.model_validate_json(row['payload_json'])
-        )
-        if expected_composition_spec is not None:
-            if (
-                hybrid.composition_spec is None
-                or hybrid.composition_spec != expected_composition_spec
-            ):
-                raise ValueError(
-                    'R160 persisted hybrid composition is stale for expected spec'
-                )
-        return hybrid

@@ -8,22 +8,17 @@ carry transmission evidence; an opaque wall must not silently admit a
 behind-screen LCR layout.
 """
 
-from __future__ import annotations
-
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from ...cad_authority_resolver import AuthorityRef
+from ...cad_authority_registry import AuthorityRef
 from ...canonical_json import canonical_sha256 as _hash, canonicalize_payload
-
 
 _SHA256_PATTERN = r'^[0-9a-f]{64}$'
 
-
 def _semantic_id(prefix: str, digest: str) -> str:
     return f'{prefix}-{digest[:24]}'
-
 
 def _seal(
     model: type[BaseModel],
@@ -41,12 +36,10 @@ def _seal(
         **{sha_field: digest, id_field: _semantic_id(prefix, digest)},
     )
 
-
 def _require_refs(*refs: AuthorityRef) -> None:
     for ref in refs:
         if ref.ref_sha256 is None:
             raise ValueError(f'{ref.kind} reference must pin its sha256')
-
 
 BoundaryTransmission = Literal[
     'opaque', 'acoustically_transparent', 'micro_perforated',
@@ -60,7 +53,6 @@ FrontStageVerdict = Literal[
     'placement_supported', 'placement_blocked',
     'transmission_evidence_required', 'insufficient_evidence',
 ]
-
 
 TRANSMISSION_LABELS: dict[str, str] = {
     'opaque': '不透過',
@@ -84,7 +76,6 @@ VERDICT_LABELS: dict[str, str] = {
     'transmission_evidence_required': '透過証拠が必要',
     'insufficient_evidence': '証拠不足',
 }
-
 
 class DisplayAcousticBoundaryProfile(BaseModel):
     """Declared acoustic behavior of a display surface region.
@@ -134,7 +125,6 @@ class DisplayAcousticBoundaryProfile(BaseModel):
             cls, payload, 'profile_id', 'profile_sha256', 'dab'
         )
 
-
 class FrontStageVariantRecord(BaseModel):
     """Sealed front-stage loudspeaker placement variant vs a display
     boundary."""
@@ -176,7 +166,6 @@ class FrontStageVariantRecord(BaseModel):
         return _seal(
             cls, payload, 'variant_id', 'variant_sha256', 'fsv'
         )
-
 
 def evaluate_frontstage_claim(
     boundary: DisplayAcousticBoundaryProfile | None,

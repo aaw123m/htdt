@@ -1,18 +1,16 @@
-from __future__ import annotations
 
 from collections.abc import Callable
 from typing import Any, Literal, Sequence
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from ..domain.cad_acoustic_snapshot import (
+from .cad_acoustic_snapshot import (
     AcousticPredictionRequest,
     AcousticSceneSnapshot,
 )
 from ...cad_equipment import FrequencyDomain
 from ...r120_geometry_compiler import ExactExternalAuthorityRef
-from ...canonical_json import canonical_json as _canonical_json, canonical_sha256 as _semantic_hash
-
+from ...canonical_json import canonical_sha256 as _semantic_hash
 
 ACOUSTIC_SOLVER_ADAPTER_SCHEMA_VERSION = 1
 ACOUSTIC_SOLVER_ADAPTER_AUTHORITY_VERSION = '1'
@@ -21,11 +19,6 @@ ACOUSTIC_SOLVER_DISPATCH_AUTHORITY_VERSION = '2'
 
 AcousticSolverDomain = Literal['wave', 'geometric']
 SolverDispatchState = Literal['READY', 'BLOCKED', 'UNSUPPORTED']
-
-
-
-
-
 
 def _domain_contains(
     container: FrequencyDomain,
@@ -36,10 +29,8 @@ def _domain_contains(
         and float(requested.maximum_hz) <= float(container.maximum_hz)
     )
 
-
 def _unique(values: Sequence[str]) -> tuple[str, ...]:
     return tuple(dict.fromkeys(values))
-
 
 class AcousticSolverAdapterDescriptor(BaseModel):
     """Exact solver-adapter capability authority.
@@ -100,7 +91,6 @@ class AcousticSolverAdapterDescriptor(BaseModel):
             exclude={'descriptor_id', 'semantic_sha256'},
         )
 
-
 class AcousticNumericalFidelityPolicy(BaseModel):
     """Resolved numerical-fidelity policy authority.
 
@@ -137,12 +127,10 @@ class AcousticNumericalFidelityPolicy(BaseModel):
             )
         return self
 
-
 NumericalFidelityPolicyResolver = Callable[
     [ExactExternalAuthorityRef],
     AcousticNumericalFidelityPolicy | None,
 ]
-
 
 def numerical_fidelity_policy_request_reasons(
     *,
@@ -166,7 +154,6 @@ def numerical_fidelity_policy_request_reasons(
             'numerical_fidelity_policy_frequency_domain_not_supported'
         )
     return tuple(reasons)
-
 
 class AcousticSolverDispatchBinding(BaseModel):
     """Exact request-to-adapter dispatch evaluation.
@@ -286,7 +273,6 @@ class AcousticSolverDispatchBinding(BaseModel):
             'deterministic_solver_input_hash': self.deterministic_solver_input_hash,
         }
 
-
 def build_acoustic_solver_adapter_descriptor(
     *,
     adapter_id: str,
@@ -338,7 +324,6 @@ def build_acoustic_solver_adapter_descriptor(
         supported_observables=observables,
         valid_frequency_domain=valid_frequency_domain,
     )
-
 
 def bind_prediction_request_to_solver_adapter(
     *,

@@ -70,10 +70,7 @@ from htdt.acoustic_pffdtd_adapter import (
     pffdtd_velocity_potential_to_pressure_trace,
     recombine_pffdtd_receiver_traces,
 )
-from htdt.acoustic_pffdtd_polyhedral_geometry import (
-    PffdtdPolyhedralCandidateWaveExecutor,
-    register_r120b_polyhedral_authorities,
-)
+from htdt.acoustic_pffdtd_polyhedral_geometry import register_r120b_polyhedral_authorities
 from htdt.r130d_general3d_validation import (
     VOXEL_STAIRCASE_SENSITIVITY_CANONICAL_CELL_ID,
     VOXEL_STAIRCASE_SENSITIVITY_VARIANT_IDS,
@@ -98,6 +95,7 @@ from htdt.r130d_general3d_validation import (
     validate_voxel_staircase_sensitivity_diagnostic_binding,
     voxel_staircase_boundary_variant,
 )
+from htdt.acoustics.services.acoustic_pffdtd_polyhedral_executor import PffdtdPolyhedralCandidateWaveExecutor
 
 
 EVIDENCE_SCHEMA = (

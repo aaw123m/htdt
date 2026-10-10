@@ -12,22 +12,17 @@ Basis: Terashima et al. 2021 (holder-band response deviation);
 measurement-fixture scattering literature.
 """
 
-from __future__ import annotations
-
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from ...cad_authority_resolver import AuthorityRef
+from ...cad_authority_registry import AuthorityRef
 from ...canonical_json import canonical_sha256 as _hash, canonicalize_payload
-
 
 _SHA256_PATTERN = r'^[0-9a-f]{64}$'
 
-
 def _semantic_id(prefix: str, digest: str) -> str:
     return f'{prefix}-{digest[:24]}'
-
 
 def _seal(
     model: type[BaseModel],
@@ -45,7 +40,6 @@ def _seal(
         **{sha_field: digest, id_field: _semantic_id(prefix, digest)},
     )
 
-
 _FIXTURE_KINDS = (
     'clip_holder', 'boom_arm', 'stand_tripod', 'array_frame',
     'cable_near_capsule', 'speaker_stand', 'laptop_table_cart',
@@ -58,7 +52,6 @@ FixtureVerdict = Literal[
     'scattering_unbounded',
     'calibrated_mic_is_not_setup',
 ]
-
 
 class MeasurementFixture(BaseModel):
     """Declared fixture in the acoustic path (#743) — each object near
@@ -95,7 +88,6 @@ class MeasurementFixture(BaseModel):
         return _seal(
             cls, payload, 'fixture_id', 'fixture_sha256', 'mfx'
         )
-
 
 class FixtureScatteringEvidence(BaseModel):
     """Bounded scattering contribution of the fixture set (#743) —
@@ -143,7 +135,6 @@ class FixtureScatteringEvidence(BaseModel):
             cls, payload, 'evidence_id', 'evidence_sha256', 'fsx'
         )
 
-
 def evaluate_fixture_claim(
     fixtures: tuple[MeasurementFixture, ...] | None,
     scattering: FixtureScatteringEvidence | None,
@@ -187,7 +178,6 @@ def evaluate_fixture_claim(
         'fixture_qualified',
         'fixtures registered and scattering bounded',
     )
-
 
 FIXTURE_LABELS: dict[str, str] = {
     'fixture_qualified': '治具適格',

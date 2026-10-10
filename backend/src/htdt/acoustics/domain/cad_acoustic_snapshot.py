@@ -1,4 +1,3 @@
-from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -9,7 +8,7 @@ from pydantic import (
     model_serializer,
     model_validator,
 )
-from ...canonical_json import canonical_json as _canonical, canonical_sha256 as _digest
+from ...canonical_json import canonical_sha256 as _digest
 
 if TYPE_CHECKING:
     from ...cad_listener_pose import ListenerPoseAuthority
@@ -20,7 +19,7 @@ from ...cad_equipment import DirectivityCapabilityTier, FrequencyDomain
 from ...cad_listener_pose import resolve_listener_receiver
 from ...cad_prediction_models import canonical_prediction_json, prediction_input_hash
 from ...cad_r110_source import R110CompiledSourceModel
-from ...cad_repository import SceneRevision
+from ...cad_scene_revisions import SceneRevision
 from ...cad_scene import (
     Direction3,
     Position3,
@@ -41,7 +40,6 @@ from ...treatment_boundary_overlay import (
     TreatmentBoundaryTarget,
     adapt_treatment_boundary_composition_to_r120,
 )
-
 
 ACOUSTIC_SCENE_SNAPSHOT_SCHEMA_VERSION = 3
 ACOUSTIC_SCENE_SNAPSHOT_AUTHORITY_VERSION = '3'
@@ -72,14 +70,8 @@ ReceiverReferenceSemantics = Literal[
     'selected_listener_pose',
 ]
 
-
-
-
-
-
 def _unique(values: tuple[str, ...]) -> tuple[str, ...]:
     return tuple(dict.fromkeys(values))
-
 
 class SnapshotEnvironmentAuthorityRef(BaseModel):
     """Exact external environment authority without synthesizing defaults.
@@ -141,7 +133,6 @@ class SnapshotEnvironmentAuthorityRef(BaseModel):
                 )
         return self
 
-
 class AcousticReceiverBinding(BaseModel):
     model_config = ConfigDict(frozen=True, extra='forbid')
 
@@ -187,7 +178,6 @@ class AcousticReceiverBinding(BaseModel):
             )
         return self
 
-
 class ReceiverMeasurementAuthority(BaseModel):
     """Canonical external measurement record bound to an exact receiver pose.
 
@@ -203,7 +193,6 @@ class ReceiverMeasurementAuthority(BaseModel):
     entity_id: str = Field(min_length=1)
     world_position: Position3
     orientation: Quaternion4 | None = None
-
 
 class AcousticSceneSourceBinding(BaseModel):
     model_config = ConfigDict(frozen=True, extra='forbid')
@@ -253,14 +242,12 @@ class AcousticSceneSourceBinding(BaseModel):
             )
         return self
 
-
 class SurfaceBoundaryConfiguration(BaseModel):
     model_config = ConfigDict(frozen=True, extra='forbid')
 
     source_surface_id: str = Field(pattern=r'^semantic-surface:[0-9a-f]{64}$')
     material_authority: ExactExternalAuthorityRef | None = None
     boundary_physics_authority: ExactExternalAuthorityRef | None = None
-
 
 class TreatmentBoundaryOverlaySnapshotRef(BaseModel):
     """Exact attached-treatment lineage retained without flattening base construction."""
@@ -282,7 +269,6 @@ class TreatmentBoundaryOverlaySnapshotRef(BaseModel):
     surface_binding_evaluation_hash_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
     wave_capability_state: Literal['AVAILABLE', 'UNKNOWN']
     geometric_capability_state: Literal['AVAILABLE', 'UNKNOWN']
-
 
 class TreatmentBoundarySnapshotBinding(BaseModel):
     """Snapshot binding to composition authority; blocked results never masquerade as input."""
@@ -349,7 +335,6 @@ class TreatmentBoundarySnapshotBinding(BaseModel):
             raise ValueError('blocked treatment binding requires a reason')
         return self
 
-
 class ScreenTransferSnapshotBinding(BaseModel):
     """Exact screen-transfer authority bound into the snapshot (#940).
 
@@ -362,7 +347,6 @@ class ScreenTransferSnapshotBinding(BaseModel):
 
     screen_entity_id: str = Field(min_length=1)
     screen_transfer_ref: ExactExternalAuthorityRef
-
 
 class ObservableReadiness(BaseModel):
     model_config = ConfigDict(frozen=True, extra='forbid')
@@ -381,7 +365,6 @@ class ObservableReadiness(BaseModel):
             raise ValueError('blocked/unsupported observable requires a reason')
         return self
 
-
 class AcousticSceneReadiness(BaseModel):
     """Purpose-specific snapshot readiness; intentionally no solver_ready flag."""
 
@@ -396,7 +379,6 @@ class AcousticSceneReadiness(BaseModel):
     receiver_ready: bool
     requested_observable_ready: bool
     observable_readiness: tuple[ObservableReadiness, ...]
-
 
 class AcousticSceneSnapshot(BaseModel):
     model_config = ConfigDict(frozen=True, extra='forbid')
@@ -605,7 +587,6 @@ class AcousticSceneSnapshot(BaseModel):
                 readiness.pop('geometric_boundary_ready', None)
         return payload
 
-
 class AcousticPredictionRequest(BaseModel):
     model_config = ConfigDict(frozen=True, extra='forbid')
 
@@ -654,7 +635,6 @@ class AcousticPredictionRequest(BaseModel):
             ),
         }
 
-
 def source_binding_from_r110(
     source: R110CompiledSourceModel,
 ) -> AcousticSceneSourceBinding:
@@ -682,7 +662,6 @@ def source_binding_from_r110(
         wave_excitation_state=source.use_case_states.wave_excitation,
         valid_frequency_domain=source.valid_frequency_domain,
     )
-
 
 def receiver_binding_from_scene(
     *,
@@ -743,7 +722,6 @@ def receiver_binding_from_scene(
         requested_output_capabilities=_unique(requested_output_capabilities),
     )
 
-
 def _surface_configuration(
     compiled: R120CompiledGeometry,
 ) -> tuple[SurfaceBoundaryConfiguration, ...]:
@@ -759,13 +737,11 @@ def _surface_configuration(
         )
     )
 
-
 _FREQUENCY_DOMAIN_REASONS = {
     'requested_frequency_outside_snapshot_valid_domain',
     'source_directivity_domain_incomplete',
     'wave_excitation_domain_incomplete',
 }
-
 
 def _covers_requested(
     domain: FrequencyDomain | None,
@@ -778,7 +754,6 @@ def _covers_requested(
         domain.contains(requested.minimum_hz)
         and domain.contains(requested.maximum_hz)
     )
-
 
 def _observable_readiness(
     observable: str,
@@ -912,7 +887,6 @@ def _observable_readiness(
         reasons=('observable_not_defined_by_snapshot_contract_v1',),
     )
 
-
 def _snapshot_schema_version(
     *,
     compiled: R120CompiledGeometry,
@@ -932,7 +906,6 @@ def _snapshot_schema_version(
         # readiness independently from wave boundary readiness.
         return ACOUSTIC_SCENE_SNAPSHOT_V2_SCHEMA_VERSION
     return ACOUSTIC_SCENE_SNAPSHOT_V1_SCHEMA_VERSION
-
 
 def _derive_readiness(
     *,
@@ -1105,7 +1078,6 @@ def _derive_readiness(
         observable_readiness=statuses,
     )
 
-
 def _derive_unresolved_conditions(
     *,
     compiled: R120CompiledGeometry,
@@ -1202,7 +1174,6 @@ def _derive_unresolved_conditions(
             unresolved.append('treatment_geometric_boundary_capability_unknown')
     return tuple(dict.fromkeys(unresolved))
 
-
 def _require_geometric_topology_preflight_authority(
     *,
     preflight_ref: ExactExternalAuthorityRef,
@@ -1252,7 +1223,6 @@ def _require_geometric_topology_preflight_authority(
             'R150 Portal graph topology preflight requires exact R120 geometry authorities'
         )
 
-
 def _treatment_overlay_snapshot_ref(
     overlay: TreatmentBoundaryOverlay,
 ) -> TreatmentBoundaryOverlaySnapshotRef:
@@ -1273,7 +1243,6 @@ def _treatment_overlay_snapshot_ref(
         wave_capability_state=overlay.wave_capability_state,
         geometric_capability_state=overlay.geometric_capability_state,
     )
-
 
 def _treatment_binding_from_result(
     result: TreatmentBoundaryCompilationResult,
@@ -1415,7 +1384,6 @@ def _treatment_binding_from_result(
         base_boundary_physics_authority=base_mapping.boundary_physics_authority,
         reasons=result.reasons,
     )
-
 
 def build_acoustic_scene_snapshot(
     *,
@@ -1779,7 +1747,6 @@ def build_acoustic_scene_snapshot(
         semantic_sha256=digest,
         **core,
     )
-
 
 def build_acoustic_prediction_request(
     *,

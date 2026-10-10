@@ -56,24 +56,20 @@ Literature basis
   low-frequency decay estimation.
 """
 
-from __future__ import annotations
-
 from datetime import datetime
 from math import isfinite
 from typing import Any, Literal, Sequence
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from ...cad_authority_resolver import AuthorityRef
+from ...cad_authority_registry import AuthorityRef
 from ...canonical_json import canonical_sha256 as _hash, canonicalize_payload
 from ...clock import utc_now_iso as _utc_now
-
 
 MODAL_DECAY_SCHEMA_VERSION = 'modal-decay-view-1'
 MODAL_DECAY_EVALUATION_VERSION = 'modal-decay-view-eval-1'
 
 _SHA256_PATTERN = r'^[0-9a-f]{64}$'
-
 
 def _require_iso8601(value: str, label: str) -> None:
     try:
@@ -83,15 +79,12 @@ def _require_iso8601(value: str, label: str) -> None:
     if parsed.tzinfo is None:
         raise ValueError(f'{label} must be timezone-aware')
 
-
 def _require_finite(value: float, label: str) -> None:
     if not isfinite(float(value)):
         raise ValueError(f'{label} must be finite')
 
-
 def _semantic_id(prefix: str, digest: str) -> str:
     return f'{prefix}-{digest[:24]}'
-
 
 def _seal(
     model: type[BaseModel],
@@ -112,11 +105,9 @@ def _seal(
         },
     )
 
-
 def _require_ref_sha(ref: AuthorityRef | None, label: str) -> None:
     if ref is not None and ref.ref_sha256 is None:
         raise ValueError(f'{label} must pin its sha256')
-
 
 # ----------------------------------------------------------------------
 # Taxonomies
@@ -179,7 +170,6 @@ modes (overlap), MDT30 ridge crossing, MDT40 noise-floor limited
 (#676), MDT50 transform-parameter sensitivity, MDT60 multi-position
 roles, MDT70 window-resolution misread, MDT80 beating / multi-
 component (compose #671)."""
-
 
 # ----------------------------------------------------------------------
 # Transform identity
@@ -263,7 +253,6 @@ class TimeFrequencyDecayTransform(BaseModel):
             )
         return self
 
-
 def transform_binding(
     transform: TimeFrequencyDecayTransform,
 ) -> AuthorityRef:
@@ -276,7 +265,6 @@ def transform_binding(
         ref_id=_semantic_id('tfx', digest),
         ref_sha256=digest,
     )
-
 
 # ----------------------------------------------------------------------
 # Observation
@@ -385,7 +373,6 @@ class ModalDecayObservation(BaseModel):
             )
         return self
 
-
 def build_modal_decay_observation(
     *,
     document_id: str,
@@ -433,7 +420,6 @@ def build_modal_decay_observation(
         'mdtobs',
     )
 
-
 def modal_decay_observation_binding(
     observation: ModalDecayObservation,
 ) -> AuthorityRef:
@@ -442,7 +428,6 @@ def modal_decay_observation_binding(
         ref_id=observation.observation_id,
         ref_sha256=observation.observation_sha256,
     )
-
 
 # ----------------------------------------------------------------------
 # Qualification
@@ -502,7 +487,6 @@ class ModalDecayQualification(BaseModel):
             )
         return self
 
-
 def modal_decay_qualification_binding(
     qualification: ModalDecayQualification,
 ) -> AuthorityRef:
@@ -511,7 +495,6 @@ def modal_decay_qualification_binding(
         ref_id=qualification.qualification_id,
         ref_sha256=qualification.qualification_sha256,
     )
-
 
 def evaluate_modal_decay_qualification(
     document_id: str,

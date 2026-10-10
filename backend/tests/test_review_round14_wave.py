@@ -16,7 +16,6 @@ from threading import Event
 import pytest
 
 import htdt.room_prediction as room_prediction
-from htdt.cad_acoustic_solver_result import CadAcousticSolverResultRepository
 from htdt.cad_candidate_wave_execution import (
     CandidateWaveExecutionError,
     ExactJsonAuthorityStore,
@@ -27,7 +26,6 @@ from htdt.cad_provider_response import (
     PROVIDER_RESPONSE_MODEL_ID,
 )
 from htdt.cad_r110_source_repository import CadR110SourceRepository
-from htdt.cad_wave_excitation import CadWaveExcitationRepository
 from htdt.cad_predictions import RECTANGULAR_GEOMETRY_MODEL_ID
 from htdt.r120_geometry_compiler import ExactExternalAuthorityRef
 from htdt.r120_geometry_compiler_repository import R120GeometryCompilerRepository
@@ -43,6 +41,8 @@ from htdt.room_workspace import RoomWorkspaceController
 
 from test_cad_geometric_acoustics_adapter import _fixture as _ga_fixture  # noqa: E402
 from test_cad_hybrid_prediction_provider import _build_bundle  # noqa: E402
+from htdt.acoustics.persistence.cad_acoustic_solver_result_repository import CadAcousticSolverResultRepository
+from htdt.acoustics.persistence.cad_wave_excitation_repository import CadWaveExcitationRepository
 
 
 RECEIVER_ENTITY = 'receiver-1'

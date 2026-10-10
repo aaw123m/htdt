@@ -39,8 +39,6 @@ band quantities reject the affected estimates (fail closed), and policy/
 topology violations raise typed errors.
 """
 
-from __future__ import annotations
-
 from collections.abc import Callable, Sequence
 from contextlib import closing
 from dataclasses import dataclass
@@ -54,10 +52,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from ..domain.cad_acoustic_snapshot import AcousticPredictionRequest
 from ..persistence.cad_acoustic_snapshot_repository import CadAcousticSnapshotRepository
-from .cad_acoustic_solver_adapter import (
-    AcousticSolverAdapterDescriptor,
-    AcousticSolverDispatchBinding,
-)
+from ..domain.cad_acoustic_solver_adapter import AcousticSolverDispatchBinding
 from ..persistence.cad_acoustic_solver_dispatch_repository import (
     CadAcousticSolverDispatchRepository,
 )
@@ -73,7 +68,6 @@ from .cad_geometric_acoustics_adapter import (
     ConfigurationResolver,
     DeterministicGaExecutionInput,
     DeterministicGaUnsupportedError,
-    GeometricMaterialAuthority,
     GeometricSurfacePlane,
     GeometryAuthorityResolver,
     MaterialAuthorityResolver,
@@ -98,7 +92,6 @@ from ..domain.cad_geometric_acoustics_portal import (
     point_in_portal_aperture,
 )
 from ...cad_repository import SceneRepository
-from ...cad_scene import Position3
 from ...cad_schema import (
     connect_sqlite,
     ensure_native_schema,
@@ -113,7 +106,6 @@ from ...r120_geometry_compiler import (
 )
 from ...canonical_json import canonical_sha256 as _semantic_hash
 from ...clock import utc_now_iso as _utc_now
-
 
 STOCHASTIC_RAY_SCHEMA_VERSION = 1
 STOCHASTIC_RAY_AUTHORITY_VERSION = 'r150-stochastic-ray-1'
@@ -156,7 +148,6 @@ StochasticUnsupportedReason = Literal[
     'CAPTURE_RADIUS_OUT_OF_BOUNDS',
 ]
 
-
 class StochasticRayUnsupportedError(ValueError):
     """Typed fail-closed capability error for the stochastic estimator lane."""
 
@@ -167,7 +158,6 @@ class StochasticRayUnsupportedError(ValueError):
     ) -> None:
         super().__init__(message)
         self.reason_code = reason_code
-
 
 HTDT_STOCHASTIC_RAY_RECEIVER_IMPLEMENTATION_REF = ExactExternalAuthorityRef(
     authority_id='adapter-kernel:htdt-r150-stochastic-ray-receiver-estimate',
@@ -218,7 +208,6 @@ STOCHASTIC_RECEIVER_ESTIMATE_SCHEMA_REF = ExactExternalAuthorityRef(
     ),
 )
 
-
 class HtdtStochasticRayReceiverEngine:
     """Exact engine marker for the bounded R150 stochastic-ray kernel.
 
@@ -236,7 +225,6 @@ class HtdtStochasticRayReceiverEngine:
     receiver_capture_model = 'first_leg_closest_approach_within_radius_v1'
     coherent_phase = 'not_applicable_energy_domain'
     energy_semantics = 'monte_carlo_point_estimate_not_upper_bound'
-
 
 class StochasticRayEstimationPolicy(BaseModel):
     """Versioned bounded sampling policy authority for estimator execution."""
@@ -304,7 +292,6 @@ class StochasticRayEstimationPolicy(BaseModel):
             semantic_hash_sha256=self.semantic_sha256,
         )
 
-
 def build_stochastic_ray_estimation_policy(
     *,
     sampling_seed: int,
@@ -335,7 +322,6 @@ def build_stochastic_ray_estimation_policy(
         semantic_sha256=digest,
         **core,
     )
-
 
 class StochasticRayCapabilityRecord(BaseModel):
     """Explicit bounded-capability disclosure persisted inside the artifact."""
@@ -380,7 +366,6 @@ class StochasticRayCapabilityRecord(BaseModel):
         'phase authority',
     )
 
-
 class StochasticEstimateLevelEvidence(BaseModel):
     """Per-budget-level convergence sample for one estimate."""
 
@@ -389,7 +374,6 @@ class StochasticEstimateLevelEvidence(BaseModel):
     ray_budget: int = Field(gt=0)
     captured_ray_count: int = Field(ge=0)
     estimate_per_m2: float = Field(ge=0.0)
-
 
 class StochasticReceiverBandEstimate(BaseModel):
     """One (source, receiver, band) receiver estimate with convergence proof."""
@@ -435,7 +419,6 @@ class StochasticReceiverBandEstimate(BaseModel):
             exclude={'estimate_id', 'semantic_sha256'},
         )
 
-
 class StochasticEstimateRejectedCandidate(BaseModel):
     """Typed rejection record for a contaminated (source, receiver, band)."""
 
@@ -447,7 +430,6 @@ class StochasticEstimateRejectedCandidate(BaseModel):
     interaction_surface_id: str | None = None
     decision: StochasticEstimateDecision
     reason: str = Field(min_length=1)
-
 
 class StochasticReceiverEstimateArtifact(BaseModel):
     """Immutable energy-domain stochastic receiver estimate authority."""
@@ -648,11 +630,9 @@ class StochasticReceiverEstimateArtifact(BaseModel):
             semantic_hash_sha256=digest,
         )
 
-
 # ---------------------------------------------------------------------------
 # Deterministic sampling + tracing internals
 # ---------------------------------------------------------------------------
-
 
 def _sha256_unit_interval(seed: int, index: int, lane: int) -> float:
     """Deterministic uniform(0,1) draw from (seed, ray index, draw lane).
@@ -667,7 +647,6 @@ def _sha256_unit_interval(seed: int, index: int, lane: int) -> float:
     value = int.from_bytes(digest[:8], 'big')
     return (value + 0.5) / 18446744073709551616.0
 
-
 def _ray_direction(seed: int, index: int) -> tuple[float, float, float]:
     """Uniform spherical direction for ray ``index`` under ``seed``."""
 
@@ -677,7 +656,6 @@ def _ray_direction(seed: int, index: int) -> tuple[float, float, float]:
     azimuth = 2.0 * pi * u2
     radius_xy = sqrt(max(0.0, 1.0 - z * z))
     return (radius_xy * cos(azimuth), radius_xy * sin(azimuth), z)
-
 
 def _ray_triangle_intersection(
     start: Sequence[float],
@@ -713,13 +691,11 @@ def _ray_triangle_intersection(
         return None
     return t
 
-
 @dataclass(frozen=True)
 class _RayHit:
     kind: Literal['boundary', 'occluder']
     distance_m: float
     plane: GeometricSurfacePlane | None
-
 
 def _nearest_ray_hit(
     start: Sequence[float],
@@ -744,7 +720,6 @@ def _nearest_ray_hit(
             best = _RayHit('occluder', hit, None)
     return best
 
-
 def _aperture_at_point(
     apertures: Sequence[GeometricPortalAperture] | None,
     point: Sequence[float],
@@ -757,7 +732,6 @@ def _aperture_at_point(
         if point_in_portal_aperture(aperture, point, tolerance_m=tolerance):
             return aperture
     return None
-
 
 def _reflect(
     direction: Sequence[float],
@@ -784,7 +758,6 @@ def _reflect(
         )
     )
 
-
 def _segment_receiver_capture(
     start: Sequence[float],
     direction: Sequence[float],
@@ -805,7 +778,6 @@ def _segment_receiver_capture(
     if distance <= capture_radius_m:
         return parameter
     return None
-
 
 def _triangle_shell_point_membership(
     compiled: R120CompiledGeometry,
@@ -871,11 +843,9 @@ def _triangle_shell_point_membership(
         return 'ambiguous'
     return 'inside' if decisions[0] else 'outside'
 
-
 # ---------------------------------------------------------------------------
 # Execution
 # ---------------------------------------------------------------------------
-
 
 def execute_stochastic_ray_receiver_estimate(
     *,
@@ -1560,7 +1530,6 @@ def execute_stochastic_ray_receiver_estimate(
         **artifact_core,
     )
 
-
 def stochastic_receiver_estimate_observable_manifest(
     artifact: StochasticReceiverEstimateArtifact,
 ) -> AcousticSolverObservableArtifact:
@@ -1572,7 +1541,6 @@ def stochastic_receiver_estimate_observable_manifest(
         encoding_schema_ref=STOCHASTIC_RECEIVER_ESTIMATE_SCHEMA_REF,
         valid_frequency_domain=artifact.frequency_domain,
     )
-
 
 def build_stochastic_receiver_estimate_result_envelope(
     *,
@@ -1626,11 +1594,9 @@ def build_stochastic_receiver_estimate_result_envelope(
         ),
     )
 
-
 StochasticPolicyResolver = Callable[
     [ExactExternalAuthorityRef], StochasticRayEstimationPolicy | None
 ]
-
 
 class CadStochasticReceiverEstimateRepository:
     """Persisted estimate artifact store with full stale revalidation.

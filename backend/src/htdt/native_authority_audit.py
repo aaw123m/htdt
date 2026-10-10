@@ -580,7 +580,7 @@ class _RepositoryChain:
                 r120_repository=self.repo('r120'),
             )
         if name == 'wave':
-            from .cad_wave_excitation import CadWaveExcitationRepository
+            from .acoustics.persistence.cad_wave_excitation_repository import CadWaveExcitationRepository
 
             return CadWaveExcitationRepository(
                 scene,

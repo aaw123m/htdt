@@ -21,22 +21,17 @@ capability and evidence — it never asserts audibility, tactile, or
 health effects from levels alone.
 """
 
-from __future__ import annotations
-
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from ...cad_authority_resolver import AuthorityRef
+from ...cad_authority_registry import AuthorityRef
 from ...canonical_json import canonical_sha256 as _hash, canonicalize_payload
-
 
 _SHA256_PATTERN = r'^[0-9a-f]{64}$'
 
-
 def _semantic_id(prefix: str, digest: str) -> str:
     return f'{prefix}-{digest[:24]}'
-
 
 def _seal(
     model: type[BaseModel],
@@ -54,12 +49,10 @@ def _seal(
         **{sha_field: digest, id_field: _semantic_id(prefix, digest)},
     )
 
-
 def _require_refs(*refs: AuthorityRef) -> None:
     for ref in refs:
         if ref.ref_sha256 is None:
             raise ValueError(f'{ref.kind} reference must pin its sha256')
-
 
 ULFQuantityKind = Literal[
     'complex_pressure', 'linear_spl_unweighted', 'g_weighted_level',
@@ -104,7 +97,6 @@ ULF_LABELS: dict[str, str] = {
     'stale_after_room_change': '室状態変更により陳腐化',
     'unknown': '不明',
 }
-
 
 class UltraLowFrequencyAcousticProfile(BaseModel):
     """Declared sub-20 Hz scope for one document (ulfap- prefix).
@@ -182,7 +174,6 @@ class UltraLowFrequencyAcousticProfile(BaseModel):
         return _seal(
             cls, payload, 'profile_id', 'profile_sha256', 'ulfap')
 
-
 class InfrasonicMeasurementCapability(BaseModel):
     """One measurement chain's eligibility for sub-20 Hz work
     (imc- prefix). The chain's own calibrated floor, interface states
@@ -251,7 +242,6 @@ class InfrasonicMeasurementCapability(BaseModel):
     ) -> 'InfrasonicMeasurementCapability':
         return _seal(
             cls, payload, 'capability_id', 'capability_sha256', 'imc')
-
 
 class ULFAcousticObservation(BaseModel):
     """One measured/observed sub-20 Hz quantity (ulfo- prefix). Pins the
@@ -332,7 +322,6 @@ class ULFAcousticObservation(BaseModel):
             cls, payload, 'observation_id', 'observation_sha256',
             'ulfo')
 
-
 class ULFSystemQualification(BaseModel):
     """The verdict record for one requested ULF band (ulfq- prefix).
 
@@ -400,7 +389,6 @@ class ULFSystemQualification(BaseModel):
         return _seal(
             cls, payload, 'qualification_id',
             'qualification_sha256', 'ulfq')
-
 
 def evaluate_ulf_claim(
     profile: UltraLowFrequencyAcousticProfile | None,

@@ -1,10 +1,6 @@
-from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
-from contextlib import closing
 from math import acos, atan2, cos, degrees, isfinite, pi, sin, sqrt
-from pathlib import Path
-import sqlite3
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -12,18 +8,15 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from .acoustic_benchmark import AcousticMaterial
 from ...cad_directivity import DirectivityDataset, evaluate_directivity
 from ...cad_equipment import EquipmentDefinition, FrequencyDomain
-from ..services.cad_geometric_acoustics_adapter import (
+from .cad_geometric_acoustics_contracts import (
     DeterministicAcousticPath,
     DeterministicGaExecutionInput,
     DeterministicPathArtifact,
     GeometricSurfacePlane,
 )
-from ...cad_repository import SceneRepository
 from ...cad_scene import Position3
-from ...cad_schema import require_native_tables, connect_sqlite
 from ...r120_geometry_compiler import ExactExternalAuthorityRef
-from ...canonical_json import canonical_json as _canonical_json, canonical_sha256 as _semantic_hash
-
+from ...canonical_json import canonical_sha256 as _semantic_hash
 
 R150_PATH_RESPONSE_SCHEMA_VERSION = 1
 R150_PATH_RESPONSE_AUTHORITY_VERSION = 'r150-complex-path-response-1'
@@ -53,26 +46,17 @@ ReflectionIncidenceCondition = Literal[
 ]
 _INCIDENCE_COSINE_MATCH_TOLERANCE = 1e-9
 
-
-
-
-
-
 def _finite(value: float, *, name: str) -> float:
     result = float(value)
     if not isfinite(result):
         raise ValueError(f'{name} must be finite')
     return result
 
-
 def _phase(value: complex) -> float:
     return atan2(value.imag, value.real)
 
-
-
 def _ref_payload(ref: ExactExternalAuthorityRef) -> tuple[str, str, str]:
     return (ref.authority_id, ref.authority_version, ref.semantic_hash_sha256)
-
 
 def _identity_ref(
     *,
@@ -86,7 +70,6 @@ def _identity_ref(
         semantic_hash_sha256=semantic_hash_sha256,
     )
 
-
 def _execution_input_ref(
     execution_input: DeterministicGaExecutionInput,
 ) -> ExactExternalAuthorityRef:
@@ -95,7 +78,6 @@ def _execution_input_ref(
         authority_version=execution_input.authority_version,
         semantic_hash_sha256=execution_input.semantic_sha256,
     )
-
 
 class ComplexTransferSample(BaseModel):
     model_config = ConfigDict(frozen=True, extra='forbid')
@@ -151,7 +133,6 @@ class ComplexTransferSample(BaseModel):
             return None
         return complex(self.real, self.imag)
 
-
 class AcousticEnvironmentAuthority(BaseModel):
     model_config = ConfigDict(frozen=True, extra='forbid')
 
@@ -197,7 +178,6 @@ class AcousticEnvironmentAuthority(BaseModel):
             semantic_hash_sha256=self.semantic_hash_sha256,
         )
 
-
 def build_acoustic_environment_authority(
     *,
     density_kg_m3: float,
@@ -222,7 +202,6 @@ def build_acoustic_environment_authority(
         semantic_hash_sha256=digest,
         **core,
     )
-
 
 class FrequencyGridAuthority(BaseModel):
     model_config = ConfigDict(frozen=True, extra='forbid')
@@ -270,7 +249,6 @@ class FrequencyGridAuthority(BaseModel):
             semantic_hash_sha256=self.semantic_hash_sha256,
         )
 
-
 def build_frequency_grid_authority(
     frequencies_hz: Sequence[float],
 ) -> FrequencyGridAuthority:
@@ -295,7 +273,6 @@ def build_frequency_grid_authority(
         semantic_hash_sha256=digest,
         **core,
     )
-
 
 class PathResponseConfiguration(BaseModel):
     model_config = ConfigDict(frozen=True, extra='forbid')
@@ -346,7 +323,6 @@ class PathResponseConfiguration(BaseModel):
             semantic_hash_sha256=self.semantic_hash_sha256,
         )
 
-
 def build_path_response_configuration(
     *,
     minimum_path_length_m: float = 1e-6,
@@ -372,7 +348,6 @@ def build_path_response_configuration(
         semantic_hash_sha256=digest,
         **core,
     )
-
 
 class PointSourceNormalizationAuthority(BaseModel):
     model_config = ConfigDict(frozen=True, extra='forbid')
@@ -409,7 +384,6 @@ class PointSourceNormalizationAuthority(BaseModel):
             semantic_hash_sha256=self.semantic_hash_sha256,
         )
 
-
 def build_point_source_normalization_authority(
     *,
     valid_frequency_domain: FrequencyDomain,
@@ -433,7 +407,6 @@ def build_point_source_normalization_authority(
         semantic_hash_sha256=digest,
         **core,
     )
-
 
 class SourceResponseAuthority(BaseModel):
     model_config = ConfigDict(frozen=True, extra='forbid')
@@ -483,7 +456,6 @@ class SourceResponseAuthority(BaseModel):
             authority_version=self.authority_version,
             semantic_hash_sha256=self.semantic_hash_sha256,
         )
-
 
 def build_source_response_authority(
     *,
@@ -584,7 +556,6 @@ def build_source_response_authority(
         **core,
     )
 
-
 class ReceiverResponseAuthority(BaseModel):
     model_config = ConfigDict(frozen=True, extra='forbid')
 
@@ -616,7 +587,6 @@ class ReceiverResponseAuthority(BaseModel):
             semantic_hash_sha256=self.semantic_hash_sha256,
         )
 
-
 def build_receiver_response_authority(
     *,
     receiver_id: str,
@@ -638,7 +608,6 @@ def build_receiver_response_authority(
         semantic_hash_sha256=digest,
         **core,
     )
-
 
 class SurfaceReflectionTransferAuthority(BaseModel):
     model_config = ConfigDict(frozen=True, extra='forbid')
@@ -715,7 +684,6 @@ class SurfaceReflectionTransferAuthority(BaseModel):
             semantic_hash_sha256=self.semantic_hash_sha256,
         )
 
-
 def _domain_from_samples(samples: Sequence[ComplexTransferSample]) -> FrequencyDomain:
     if not samples:
         raise ValueError('transfer authority requires at least one frequency sample')
@@ -726,7 +694,6 @@ def _domain_from_samples(samples: Sequence[ComplexTransferSample]) -> FrequencyD
             maximum_hz=frequencies[0] * (1.0 + 1e-12),
         )
     return FrequencyDomain(minimum_hz=min(frequencies), maximum_hz=max(frequencies))
-
 
 def _build_surface_reflection(
     *,
@@ -771,7 +738,6 @@ def _build_surface_reflection(
         **core,
     )
 
-
 def build_rigid_surface_reflection_authority(
     *,
     source_surface_id: str,
@@ -797,7 +763,6 @@ def build_rigid_surface_reflection_authority(
         provenance=f'{material.material_id}@{material.version}: exact rigid pressure reflection +1',
         incidence_condition='angle_independent',
     )
-
 
 def build_specific_impedance_surface_reflection_authority(
     *,
@@ -849,7 +814,6 @@ def build_specific_impedance_surface_reflection_authority(
         ),
     )
 
-
 def build_explicit_complex_surface_reflection_authority(
     *,
     source_surface_id: str,
@@ -877,7 +841,6 @@ def build_explicit_complex_surface_reflection_authority(
         incidence_condition=incidence_condition,
         incidence_angle_deg=incidence_angle_deg,
     )
-
 
 def build_magnitude_only_surface_reflection_authority(
     *,
@@ -928,7 +891,6 @@ def build_magnitude_only_surface_reflection_authority(
         incidence_condition=incidence_condition,
         incidence_angle_deg=incidence_angle_deg,
     )
-
 
 class PortalAcousticTransferAuthority(BaseModel):
     model_config = ConfigDict(frozen=True, extra='forbid')
@@ -983,7 +945,6 @@ class PortalAcousticTransferAuthority(BaseModel):
             semantic_hash_sha256=self.semantic_hash_sha256,
         )
 
-
 def build_portal_acoustic_transfer_authority(
     *,
     portal_id: str,
@@ -1024,7 +985,6 @@ def build_portal_acoustic_transfer_authority(
         **core,
     )
 
-
 def build_open_aperture_unity_transfer_authority(
     *,
     portal_id: str,
@@ -1050,7 +1010,6 @@ def build_open_aperture_unity_transfer_authority(
         approximation_version=approximation_version,
         approximation_tolerance=approximation_tolerance,
     )
-
 
 class PathFrequencyResponseSample(BaseModel):
     model_config = ConfigDict(frozen=True, extra='forbid')
@@ -1099,7 +1058,6 @@ class PathFrequencyResponseSample(BaseModel):
             if abs(phase_error) > 1e-10:
                 raise ValueError('path response phase does not match real/imag')
         return self
-
 
 class DeterministicPathFrequencyResponseArtifact(BaseModel):
     model_config = ConfigDict(frozen=True, extra='forbid')
@@ -1217,22 +1175,18 @@ class DeterministicPathFrequencyResponseArtifact(BaseModel):
             semantic_hash_sha256=self.semantic_sha256,
         )
 
-
 def _sample_at(
     samples: Sequence[ComplexTransferSample],
     frequency_hz: float,
 ) -> ComplexTransferSample | None:
     return next((item for item in samples if item.frequency_hz == frequency_hz), None)
 
-
 def _path_band(path: DeterministicAcousticPath, frequency_hz: float):
     return next((item for item in path.bands if item.center_hz == frequency_hz), None)
-
 
 def _sorted_unique_refs(refs: Sequence[ExactExternalAuthorityRef]) -> tuple[ExactExternalAuthorityRef, ...]:
     by_key = {_ref_payload(item): item for item in refs}
     return tuple(by_key[key] for key in sorted(by_key))
-
 
 def _response_artifact(
     *,
@@ -1295,7 +1249,6 @@ def _response_artifact(
         **core,
     )
 
-
 def _plane_unit_normal(plane: GeometricSurfacePlane) -> tuple[float, float, float] | None:
     if plane.point_m is not None and plane.normal is not None:
         normal = (
@@ -1317,7 +1270,6 @@ def _plane_unit_normal(plane: GeometricSurfacePlane) -> tuple[float, float, floa
     normal[{'x': 0, 'y': 1, 'z': 2}[plane.axis]] = 1.0
     return (normal[0], normal[1], normal[2])
 
-
 def _incidence_from_direction(
     incoming: tuple[float, float, float],
     normal: tuple[float, float, float],
@@ -1330,7 +1282,6 @@ def _incidence_from_direction(
     ) / length
     cosine = min(1.0, max(0.0, cosine))
     return (degrees(acos(cosine)), cosine)
-
 
 def _path_reflection_incidences(
     path: DeterministicAcousticPath,
@@ -1409,7 +1360,6 @@ def _path_reflection_incidences(
     if len(incidences) != len(surface_ids):
         return None
     return tuple(incidences)
-
 
 def build_deterministic_path_frequency_response(
     *,
@@ -1931,7 +1881,6 @@ def build_deterministic_path_frequency_response(
         samples=response_samples,
     )
 
-
 ResponseDependency = (
     AcousticEnvironmentAuthority
     | FrequencyGridAuthority
@@ -1948,7 +1897,6 @@ ResponseDependency = (
 PathArtifactResolver = Callable[[str], DeterministicPathArtifact | None]
 ResponseDependencyResolver = Callable[[ExactExternalAuthorityRef], ResponseDependency | None]
 
-
 def _dependency_ref(value: ResponseDependency) -> ExactExternalAuthorityRef:
     if isinstance(value, ExactExternalAuthorityRef):
         return value
@@ -1962,208 +1910,3 @@ def _dependency_ref(value: ResponseDependency) -> ExactExternalAuthorityRef:
         return _execution_input_ref(value)
     return value.as_external_ref()
 
-
-class CadPathFrequencyResponseRepository:
-    """Append-only per-path response persistence with exact dependency re-resolution."""
-
-    def __init__(
-        self,
-        scene_repository: SceneRepository,
-        *,
-        path_artifact_resolver: PathArtifactResolver,
-        dependency_resolver: ResponseDependencyResolver,
-    ) -> None:
-        self.scene_repository = scene_repository
-        self.path = Path(scene_repository.path)
-        self.path_artifact_resolver = path_artifact_resolver
-        self.dependency_resolver = dependency_resolver
-        self._initialize()
-
-    def _connect(self) -> sqlite3.Connection:
-        return connect_sqlite(self.path)
-
-    def _initialize(self) -> None:
-        with closing(self._connect()) as connection, connection:
-            require_native_tables(connection, 'r150_path_frequency_response_artifacts')
-
-    def _resolve_dependency(
-        self,
-        ref: ExactExternalAuthorityRef,
-    ) -> ResponseDependency:
-        value = self.dependency_resolver(ref)
-        if value is None:
-            raise ValueError(
-                f'path response dependency is missing/stale: {ref.authority_id}'
-            )
-        if _dependency_ref(value) != ref:
-            raise ValueError(
-                f'path response dependency exact identity mismatch: {ref.authority_id}'
-            )
-        return value
-
-    def _rebuild(
-        self,
-        artifact: DeterministicPathFrequencyResponseArtifact,
-    ) -> DeterministicPathFrequencyResponseArtifact:
-        path_artifact = self.path_artifact_resolver(
-            artifact.deterministic_path_artifact_id
-        )
-        if path_artifact is None:
-            raise ValueError('deterministic path artifact is missing/stale')
-        if path_artifact.semantic_sha256 != artifact.deterministic_path_artifact_sha256:
-            raise ValueError('deterministic path artifact exact identity mismatch')
-        path = next(
-            (
-                item
-                for item in path_artifact.paths
-                if item.path_id == artifact.deterministic_path_id
-            ),
-            None,
-        )
-        if path is None or path.semantic_sha256 != artifact.deterministic_path_sha256:
-            raise ValueError('deterministic path exact identity mismatch')
-
-        resolved = {
-            _ref_payload(ref): self._resolve_dependency(ref)
-            for ref in artifact.dependency_refs
-        }
-
-        def typed(cls):
-            matches = [value for value in resolved.values() if isinstance(value, cls)]
-            if len(matches) != 1:
-                raise ValueError(
-                    f'path response requires exactly one resolved {cls.__name__} authority'
-                )
-            return matches[0]
-
-        execution_input = typed(DeterministicGaExecutionInput)
-        source = typed(SourceResponseAuthority)
-        receiver = typed(ReceiverResponseAuthority)
-        environment = typed(AcousticEnvironmentAuthority)
-        grid = typed(FrequencyGridAuthority)
-        configuration = typed(PathResponseConfiguration)
-
-        normalizations = [
-            value
-            for value in resolved.values()
-            if isinstance(value, PointSourceNormalizationAuthority)
-        ]
-        normalization = normalizations[0] if len(normalizations) == 1 else None
-        if len(normalizations) > 1:
-            raise ValueError('multiple point-source normalization authorities resolved')
-
-        datasets = [
-            value for value in resolved.values() if isinstance(value, DirectivityDataset)
-        ]
-        dataset = datasets[0] if len(datasets) == 1 else None
-        if len(datasets) > 1:
-            raise ValueError('multiple directivity datasets resolved for one source')
-
-        reflections = {
-            value.source_surface_id: value
-            for value in resolved.values()
-            if isinstance(value, SurfaceReflectionTransferAuthority)
-        }
-        portals = {
-            (value.portal_id, value.from_region_id, value.to_region_id): value
-            for value in resolved.values()
-            if isinstance(value, PortalAcousticTransferAuthority)
-        }
-
-        r120_ref = next(
-            (
-                ref
-                for ref in artifact.dependency_refs
-                if ref.authority_id == path_artifact.r120_compiled_geometry_id
-                and ref.semantic_hash_sha256
-                == path_artifact.r120_compiled_geometry_sha256
-            ),
-            None,
-        )
-        if r120_ref is None:
-            raise ValueError('R120 compiled geometry dependency is missing/stale')
-
-        portal_interactions = tuple(
-            item
-            for item in (path.ordered_interactions or ())
-            if item.kind == 'portal_crossing'
-        )
-        portal_ref: ExactExternalAuthorityRef | None = None
-        if portal_interactions:
-            portal_transfer_values = tuple(portals.values())
-            if portal_transfer_values:
-                candidate = portal_transfer_values[0].portal_geometry_authority_ref
-                if any(
-                    item.portal_geometry_authority_ref != candidate
-                    for item in portal_transfer_values
-                ):
-                    raise ValueError('Portal transfer authorities bind different Portal geometry')
-                portal_ref = candidate
-            else:
-                portal_refs = [
-                    ref
-                    for ref in artifact.dependency_refs
-                    if ref.authority_id.startswith('r120-portals:')
-                ]
-                portal_ref = portal_refs[0] if len(portal_refs) == 1 else None
-
-        rebuilt = build_deterministic_path_frequency_response(
-            path_artifact=path_artifact,
-            execution_input=execution_input,
-            path_id=artifact.deterministic_path_id,
-            r120_geometry_ref=r120_ref,
-            source_authority=source,
-            point_source_normalization=normalization,
-            receiver_authority=receiver,
-            environment=environment,
-            frequency_grid=grid,
-            configuration=configuration,
-            surface_reflections=reflections,
-            portal_geometry_authority_ref=portal_ref,
-            portal_transfers=portals,
-            directivity_dataset=dataset,
-        )
-        if rebuilt != artifact:
-            raise ValueError(
-                'persisted path response no longer reproduces from current exact authorities'
-            )
-        return rebuilt
-
-    def save(self, artifact: DeterministicPathFrequencyResponseArtifact) -> None:
-        self._rebuild(artifact)
-        payload = _canonical_json(artifact.model_dump(mode='json'))
-        with closing(self._connect()) as connection, connection:
-            existing = connection.execute(
-                'SELECT semantic_sha256, payload_json '
-                'FROM r150_path_frequency_response_artifacts WHERE artifact_id = ?',
-                (artifact.artifact_id,),
-            ).fetchone()
-            if existing is not None:
-                if (
-                    existing['semantic_sha256'] != artifact.semantic_sha256
-                    or existing['payload_json'] != payload
-                ):
-                    raise ValueError('immutable path response artifact identity collision')
-                return
-            connection.execute(
-                'INSERT INTO r150_path_frequency_response_artifacts '
-                '(artifact_id, semantic_sha256, payload_json) VALUES (?, ?, ?)',
-                (artifact.artifact_id, artifact.semantic_sha256, payload),
-            )
-
-    def get(
-        self,
-        artifact_id: str,
-    ) -> DeterministicPathFrequencyResponseArtifact | None:
-        with closing(self._connect()) as connection:
-            row = connection.execute(
-                'SELECT payload_json FROM r150_path_frequency_response_artifacts '
-                'WHERE artifact_id = ?',
-                (artifact_id,),
-            ).fetchone()
-        if row is None:
-            return None
-        artifact = DeterministicPathFrequencyResponseArtifact.model_validate_json(
-            row['payload_json']
-        )
-        return self._rebuild(artifact)

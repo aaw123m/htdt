@@ -66,24 +66,20 @@ Literature basis
   ``common_free_field_reference`` normalization declarations.
 """
 
-from __future__ import annotations
-
 from datetime import datetime
 from math import isfinite
 from typing import Any, Literal, Sequence
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from ...cad_authority_resolver import AuthorityRef
+from ...cad_authority_registry import AuthorityRef
 from ...canonical_json import canonical_sha256 as _hash, canonicalize_payload
 from ...clock import utc_now_iso as _utc_now
-
 
 HYBRID_HANDOFF_SCHEMA_VERSION = 'hybrid-handoff-1'
 HYBRID_HANDOFF_EVALUATION_VERSION = 'hybrid-handoff-eval-1'
 
 _SHA256_PATTERN = r'^[0-9a-f]{64}$'
-
 
 def _require_iso8601(value: str, label: str) -> None:
     try:
@@ -93,15 +89,12 @@ def _require_iso8601(value: str, label: str) -> None:
     if parsed.tzinfo is None:
         raise ValueError(f'{label} must be timezone-aware')
 
-
 def _require_finite(value: float, label: str) -> None:
     if not isfinite(float(value)):
         raise ValueError(f'{label} must be finite')
 
-
 def _semantic_id(prefix: str, digest: str) -> str:
     return f'{prefix}-{digest[:24]}'
-
 
 def _seal(
     model: type[BaseModel],
@@ -121,7 +114,6 @@ def _seal(
             id_field: _semantic_id(prefix, digest),
         },
     )
-
 
 # ----------------------------------------------------------------------
 # Taxonomies
@@ -220,10 +212,8 @@ HybridObservable = Literal[
     'other_declared',
 ]
 
-
 # ----------------------------------------------------------------------
 # Component & composition declarations
-
 
 class HybridComponentPin(BaseModel):
     """One branch of the composition, pinned to its prediction and its
@@ -273,7 +263,6 @@ class HybridComponentPin(BaseModel):
                 )
         return self
 
-
 class SourceNormalizationSpec(BaseModel):
     """How the two branches are brought onto a common scale (#687 §3).
 
@@ -308,7 +297,6 @@ class SourceNormalizationSpec(BaseModel):
             )
         return self
 
-
 class TimeAlignmentSpec(BaseModel):
     """How the two branches' time axes are reconciled (#687 §5)."""
 
@@ -327,7 +315,6 @@ class TimeAlignmentSpec(BaseModel):
         'uncompensated',
         'unknown',
     ] = 'unknown'
-
 
 class CrossoverFilterSpec(BaseModel):
     """The crossover filter authority (#687 §6).
@@ -363,7 +350,6 @@ class CrossoverFilterSpec(BaseModel):
         if self.sample_rate_hz is not None:
             _require_finite(self.sample_rate_hz, 'sample_rate_hz')
         return self
-
 
 class TransitionBandSpec(BaseModel):
     """The declared transition band (#687 §2).
@@ -411,7 +397,6 @@ class TransitionBandSpec(BaseModel):
             )
         return self
 
-
 class PhenomenonDeclaration(BaseModel):
     """The mechanisms a branch carries inside the overlap (#687 §7).
 
@@ -435,7 +420,6 @@ class PhenomenonDeclaration(BaseModel):
         if len(set(self.phenomena)) != len(self.phenomena):
             raise ValueError('phenomena must be unique per branch')
         return self
-
 
 class ContinuityEvidence(BaseModel):
     """Measured transition continuity (#687 §11).
@@ -477,7 +461,6 @@ class ContinuityEvidence(BaseModel):
                 )
         return self
 
-
 class ObservableValidity(BaseModel):
     """Per-observable validity of the composed result (#687 §10)."""
 
@@ -501,7 +484,6 @@ class ObservableValidity(BaseModel):
                     'observable valid_band_hz must be low < high'
                 )
         return self
-
 
 class CalibrationDiscipline(BaseModel):
     """Whether the handoff was tuned against the validation set
@@ -528,7 +510,6 @@ class CalibrationDiscipline(BaseModel):
                 raise ValueError('holdout_refs must pin their sha256')
         return self
 
-
 class MetricProvenance(BaseModel):
     """Which branch or composition produced a reported metric
     (#687 §18)."""
@@ -544,10 +525,8 @@ class MetricProvenance(BaseModel):
         'mixed_band_aggregation',
     ]
 
-
 # ----------------------------------------------------------------------
 # Sealed records
-
 
 class HybridCompositionProfile(BaseModel):
     """The sealed declaration of one wave↔GA composition (#687).
@@ -701,7 +680,6 @@ class HybridCompositionProfile(BaseModel):
             )
         return self
 
-
 def hybrid_profile_binding(
     profile: HybridCompositionProfile,
 ) -> AuthorityRef:
@@ -710,7 +688,6 @@ def hybrid_profile_binding(
         ref_id=profile.profile_id,
         ref_sha256=profile.profile_sha256,
     )
-
 
 class HybridTransitionQualification(BaseModel):
     """The sealed fail-closed verdict on a hybrid handoff (#687 §8–§14).
@@ -814,7 +791,6 @@ class HybridTransitionQualification(BaseModel):
             )
         return self
 
-
 def hybrid_qualification_binding(
     qualification: HybridTransitionQualification,
 ) -> AuthorityRef:
@@ -824,10 +800,8 @@ def hybrid_qualification_binding(
         ref_sha256=qualification.qualification_sha256,
     )
 
-
 # ----------------------------------------------------------------------
 # Evaluation
-
 
 def evaluate_hybrid_handoff(
     document_id: str,
@@ -1051,10 +1025,8 @@ def evaluate_hybrid_handoff(
         'hybqual',
     )
 
-
 # ----------------------------------------------------------------------
 # Builders
-
 
 def build_hybrid_composition_profile(
     document_id: str,

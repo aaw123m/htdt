@@ -41,10 +41,7 @@ from .cad_display_labels import (
     solver_reason_label,
     state_token_label,
 )
-from .cad_acoustic_environment import (
-    AcousticEnvironmentProfile,
-    CadAcousticEnvironmentRepository,
-)
+from .cad_acoustic_environment import AcousticEnvironmentProfile
 from .cad_authority_resolver import AuthorityRef
 from .cad_compute_budget import ComputeObservation
 from .cad_constraint_repository import CadConstraintRepository
@@ -166,6 +163,7 @@ from .ui_theme import (
     set_surface_role,
     set_typography_role,
 )
+from .acoustics.persistence.cad_acoustic_environment_repository import CadAcousticEnvironmentRepository
 
 _LOGGER = logging.getLogger(__name__)
 

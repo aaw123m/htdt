@@ -1,26 +1,22 @@
-from __future__ import annotations
 
 from collections.abc import Callable, Sequence
-from contextlib import closing
 from math import atan2, cos, isclose, isfinite, sin
-from pathlib import Path
-import sqlite3
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from ..domain.cad_acoustic_solver_result import AcousticSolverResultEnvelope
-from .cad_candidate_wave_execution import (
+from .cad_acoustic_solver_result import AcousticSolverResultEnvelope
+from .cad_candidate_wave_contracts import (
     COMPLEX_PRESSURE_ARTIFACT_SCHEMA_VERSION,
     CandidateWaveExecutionInput,
 )
-from ..domain.cad_geometric_acoustics_response import (
+from .cad_geometric_acoustics_response import (
     DeterministicPathFrequencyResponseArtifact,
     PHASOR_CONVENTION as R150_PHASOR_CONVENTION,
     TRANSFER_QUANTITY,
     TRANSFER_UNIT,
 )
-from ..domain.cad_hybrid_grid_reconciliation import (
+from .cad_hybrid_grid_reconciliation import (
     FrequencyGridReconciliationAuthority,
     HybridCrossoverConfigurationAuthority,
     HybridNumericalCompositionError,
@@ -31,17 +27,10 @@ from ..domain.cad_hybrid_grid_reconciliation import (
     reconcile_complex_series_with_method,
     validate_frequency_grid,
 )
-from ...cad_repository import SceneRepository
-from ...cad_schema import (
-    ensure_native_schema,
-    require_native_tables,
-    connect_sqlite,
-)
-from ..domain.cad_wave_excitation import AcousticWaveExcitationAuthority
-from ..domain.cad_wave_source_model import WaveSourceModelCompatibility
+from .cad_wave_excitation import AcousticWaveExcitationAuthority
+from .cad_wave_source_model import WaveSourceModelCompatibility
 from ...r120_geometry_compiler import ExactExternalAuthorityRef
-from ...canonical_json import canonical_json as _canonical_json, canonical_sha256 as _semantic_hash
-
+from ...canonical_json import canonical_sha256 as _semantic_hash
 
 R160_NUMERICAL_SPEC_AUTHORITY_VERSION = 'r160-numerical-hybrid-composition-spec-1'
 R160_CONVENTION_AUTHORITY_VERSION = 'r160-complex-convention-normalization-1'
@@ -68,14 +57,8 @@ R130_PRESSURE_REFERENCE = (
 HybridNumericalCapability = Literal['COMPLEX_SUPPORTED', 'UNSUPPORTED']
 HybridWeightLaw = Literal['linear_frequency_complementary_v1']
 
-
-
-
-
-
 def _phase(value: complex) -> float:
     return atan2(value.imag, value.real)
-
 
 def _finite(value: float, *, label: str) -> float:
     result = float(value)
@@ -83,14 +66,12 @@ def _finite(value: float, *, label: str) -> float:
         raise ValueError(f'{label} must be finite')
     return result
 
-
 def _ref_key(ref: ExactExternalAuthorityRef) -> tuple[str, str, str]:
     return (
         ref.authority_id,
         ref.authority_version,
         ref.semantic_hash_sha256,
     )
-
 
 def _excitation_ref(
     excitation: AcousticWaveExcitationAuthority,
@@ -101,12 +82,10 @@ def _excitation_ref(
         semantic_hash_sha256=excitation.semantic_sha256,
     )
 
-
 def _response_ref(
     response: DeterministicPathFrequencyResponseArtifact,
 ) -> ExactExternalAuthorityRef:
     return response.as_external_ref()
-
 
 def convert_complex_phasor(
     value: complex,
@@ -126,13 +105,11 @@ def convert_complex_phasor(
         f'{input_convention!r} -> {output_convention!r}'
     )
 
-
 class ExactSolverResultIdentity(BaseModel):
     model_config = ConfigDict(frozen=True, extra='forbid')
 
     result_id: str = Field(pattern=r'^acoustic-solver-result:[0-9a-f]{64}$')
     semantic_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
-
 
 class ExactCandidateInputIdentity(BaseModel):
     model_config = ConfigDict(frozen=True, extra='forbid')
@@ -140,7 +117,6 @@ class ExactCandidateInputIdentity(BaseModel):
     execution_input_id: str = Field(min_length=1)
     authority_version: str = Field(min_length=1)
     semantic_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
-
 
 class HybridConventionNormalizationAuthority(BaseModel):
     """Versioned R130 absolute-pressure -> common p/Q conversion authority."""
@@ -237,7 +213,6 @@ class HybridConventionNormalizationAuthority(BaseModel):
             semantic_hash_sha256=self.semantic_sha256,
         )
 
-
 def build_hybrid_convention_normalization_authority(
 ) -> HybridConventionNormalizationAuthority:
     core = {
@@ -276,7 +251,6 @@ def build_hybrid_convention_normalization_authority(
         semantic_sha256=digest,
         **core,
     )
-
 
 class NumericalHybridCompositionSpec(BaseModel):
     """Numerical composition request over an explicit, authority-bound output grid."""
@@ -404,7 +378,6 @@ class NumericalHybridCompositionSpec(BaseModel):
             semantic_hash_sha256=self.semantic_sha256,
         )
 
-
 class AggregatedGaComplexSample(BaseModel):
     model_config = ConfigDict(frozen=True, extra='forbid')
 
@@ -431,7 +404,6 @@ class AggregatedGaComplexSample(BaseModel):
         if abs(atan2(sin(delta), cos(delta))) > 1e-10:
             raise ValueError('R160 GA aggregate phase mismatch')
         return self
-
 
 class AggregatedGaComplexResponse(BaseModel):
     model_config = ConfigDict(frozen=True, extra='forbid')
@@ -496,7 +468,6 @@ class AggregatedGaComplexResponse(BaseModel):
             semantic_hash_sha256=self.semantic_sha256,
         )
 
-
 class NumericalHybridResponseSample(BaseModel):
     model_config = ConfigDict(frozen=True, extra='forbid')
 
@@ -548,7 +519,6 @@ class NumericalHybridResponseSample(BaseModel):
         if abs(atan2(sin(delta), cos(delta))) > 1e-10:
             raise ValueError('R160 hybrid phase mismatch')
         return self
-
 
 class NumericalHybridResponseArtifact(BaseModel):
     model_config = ConfigDict(frozen=True, extra='forbid')
@@ -693,13 +663,11 @@ class NumericalHybridResponseArtifact(BaseModel):
             semantic_hash_sha256=self.semantic_sha256,
         )
 
-
 def _complex_pressure_manifest(result: AcousticSolverResultEnvelope):
     matches = [item for item in result.artifacts if item.observable == 'complex_pressure']
     if len(matches) != 1:
         raise ValueError('R160 requires exactly one R130 complex_pressure artifact')
     return matches[0]
-
 
 def _validate_wave_inputs(
     *,
@@ -822,7 +790,6 @@ def _validate_wave_inputs(
             raise ValueError('R130 complex-pressure frequency dimension mismatch')
     return receiver_indices[0], frequencies
 
-
 def _weights(
     frequency_hz: float,
     *,
@@ -835,7 +802,6 @@ def _weights(
         return 0.0, 1.0
     high = (frequency_hz - start_hz) / (end_hz - start_hz)
     return 1.0 - high, high
-
 
 def build_numerical_hybrid_composition_spec(
     *,
@@ -1055,7 +1021,6 @@ def build_numerical_hybrid_composition_spec(
         **core,
     )
 
-
 def aggregate_ga_paths_on_grid(
     *,
     responses: Sequence[DeterministicPathFrequencyResponseArtifact],
@@ -1164,7 +1129,6 @@ def aggregate_ga_paths_on_grid(
         **core,
     )
 
-
 def aggregate_r150_complex_paths(
     *,
     spec: NumericalHybridCompositionSpec,
@@ -1181,7 +1145,6 @@ def aggregate_r150_complex_paths(
         reconciliation_method=spec.grid_reconciliation.reconciliation_method,
         tolerance_hz=spec.grid_reconciliation.tolerance_hz,
     )
-
 
 def compute_native_wave_transfer(
     *,
@@ -1231,7 +1194,6 @@ def compute_native_wave_transfer(
         )
     return frequencies, tuple(native)
 
-
 def _normalized_wave_transfer(
     *,
     spec: NumericalHybridCompositionSpec,
@@ -1250,7 +1212,6 @@ def _normalized_wave_transfer(
         authority=spec.grid_reconciliation,
         label='R160 wave transfer',
     )
-
 
 def compose_numerical_hybrid_response(
     *,
@@ -1413,7 +1374,6 @@ def compose_numerical_hybrid_response(
         **core,
     )
 
-
 WaveResultResolver = Callable[[str], AcousticSolverResultEnvelope | None]
 WaveArtifactPayloadResolver = Callable[[ExactExternalAuthorityRef], Any]
 CandidateInputResolver = Callable[[str], CandidateWaveExecutionInput | None]
@@ -1428,161 +1388,3 @@ ConventionAuthorityResolver = Callable[
     [ExactExternalAuthorityRef], HybridConventionNormalizationAuthority | None
 ]
 
-
-class CadNumericalHybridResponseRepository:
-    """Append-only R160 numerical artifact persistence with exact stale rejection."""
-
-    def __init__(
-        self,
-        scene_repository: SceneRepository,
-        *,
-        wave_result_resolver: WaveResultResolver,
-        wave_artifact_payload_resolver: WaveArtifactPayloadResolver,
-        candidate_input_resolver: CandidateInputResolver,
-        wave_excitation_resolver: WaveExcitationResolver,
-        r150_response_resolver: R150ResponseResolver,
-        composition_spec_resolver: NumericalCompositionSpecResolver,
-        convention_authority_resolver: ConventionAuthorityResolver,
-    ) -> None:
-        self.scene_repository = scene_repository
-        self.path = Path(scene_repository.path)
-        self.wave_result_resolver = wave_result_resolver
-        self.wave_artifact_payload_resolver = wave_artifact_payload_resolver
-        self.candidate_input_resolver = candidate_input_resolver
-        self.wave_excitation_resolver = wave_excitation_resolver
-        self.r150_response_resolver = r150_response_resolver
-        self.composition_spec_resolver = composition_spec_resolver
-        self.convention_authority_resolver = convention_authority_resolver
-        ensure_native_schema(self.path)
-        self._initialize()
-
-    def _connect(self) -> sqlite3.Connection:
-        ensure_native_schema(self.path)
-        return connect_sqlite(self.path)
-
-    def _initialize(self) -> None:
-        with closing(self._connect()) as connection, connection:
-            require_native_tables(connection, 'r160_numerical_hybrid_responses')
-
-    def _rebuild(
-        self,
-        artifact: NumericalHybridResponseArtifact,
-    ) -> NumericalHybridResponseArtifact:
-        artifact = NumericalHybridResponseArtifact.model_validate(
-            artifact.model_dump(mode='python')
-        )
-        spec = self.composition_spec_resolver(
-            artifact.composition_spec.composition_spec_id
-        )
-        if spec is None or spec != artifact.composition_spec:
-            raise ValueError('R160 numerical composition authority is missing/stale')
-        normalization = self.convention_authority_resolver(
-            spec.normalization_authority_ref
-        )
-        if (
-            normalization is None
-            or normalization.as_external_ref() != spec.normalization_authority_ref
-        ):
-            raise ValueError('R160 convention normalization authority is missing/stale')
-
-        result = self.wave_result_resolver(spec.r130_result.result_id)
-        if (
-            result is None
-            or result.semantic_sha256 != spec.r130_result.semantic_sha256
-        ):
-            raise ValueError('R160 exact R130 result dependency is missing/stale')
-        manifest = _complex_pressure_manifest(result)
-        if manifest.artifact_authority != spec.r130_complex_pressure_artifact_ref:
-            raise ValueError('R160 exact R130 artifact dependency changed')
-        payload = self.wave_artifact_payload_resolver(
-            spec.r130_complex_pressure_artifact_ref
-        )
-
-        candidate = self.candidate_input_resolver(
-            spec.r130_candidate_input.execution_input_id
-        )
-        if (
-            candidate is None
-            or candidate.semantic_sha256 != spec.r130_candidate_input.semantic_sha256
-            or candidate.authority_version
-            != spec.r130_candidate_input.authority_version
-        ):
-            raise ValueError('R160 exact R130 candidate input is missing/stale')
-
-        excitation = self.wave_excitation_resolver(
-            spec.wave_excitation_ref.authority_id
-        )
-        if (
-            excitation is None
-            or _excitation_ref(excitation) != spec.wave_excitation_ref
-        ):
-            raise ValueError('R160 exact wave excitation is missing/stale')
-
-        responses: list[DeterministicPathFrequencyResponseArtifact] = []
-        for ref in spec.r150_response_refs:
-            response = self.r150_response_resolver(ref.authority_id)
-            if response is None or _response_ref(response) != ref:
-                raise ValueError(
-                    f'R160 exact R150 response is missing/stale: {ref.authority_id}'
-                )
-            responses.append(response)
-
-        rebuilt = compose_numerical_hybrid_response(
-            spec=spec,
-            r130_result=result,
-            r130_artifact_payload=payload,
-            r130_candidate_input=candidate,
-            wave_excitation=excitation,
-            r150_responses=responses,
-            normalization_authority=normalization,
-        )
-        if rebuilt != artifact:
-            raise ValueError(
-                'R160 persisted numerical response no longer reproduces exactly'
-            )
-        return rebuilt
-
-    def save(self, artifact: NumericalHybridResponseArtifact) -> None:
-        artifact = self._rebuild(artifact)
-        payload = _canonical_json(artifact.model_dump(mode='json'))
-        with closing(self._connect()) as connection, connection:
-            existing = connection.execute(
-                'SELECT semantic_sha256, payload_json '
-                'FROM r160_numerical_hybrid_responses WHERE artifact_id=?',
-                (artifact.artifact_id,),
-            ).fetchone()
-            if existing is not None:
-                if (
-                    existing['semantic_sha256'] != artifact.semantic_sha256
-                    or existing['payload_json'] != payload
-                ):
-                    raise ValueError('R160 numerical artifact identity collision')
-                return
-            connection.execute(
-                'INSERT INTO r160_numerical_hybrid_responses '
-                '(artifact_id, semantic_sha256, composition_spec_id, payload_json) '
-                'VALUES (?, ?, ?, ?)',
-                (
-                    artifact.artifact_id,
-                    artifact.semantic_sha256,
-                    artifact.composition_spec.composition_spec_id,
-                    payload,
-                ),
-            )
-
-    def get(
-        self,
-        artifact_id: str,
-    ) -> NumericalHybridResponseArtifact | None:
-        with closing(self._connect()) as connection:
-            row = connection.execute(
-                'SELECT payload_json FROM r160_numerical_hybrid_responses '
-                'WHERE artifact_id=?',
-                (artifact_id,),
-            ).fetchone()
-        if row is None:
-            return None
-        artifact = NumericalHybridResponseArtifact.model_validate_json(
-            row['payload_json']
-        )
-        return self._rebuild(artifact)

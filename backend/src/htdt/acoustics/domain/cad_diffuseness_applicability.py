@@ -63,24 +63,20 @@ Literature basis
   inhomogeneous stochastic process — decay consistency ≠ diffuseness.
 """
 
-from __future__ import annotations
-
 from datetime import datetime
 from math import isfinite
 from typing import Any, Literal, Sequence
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from ...cad_authority_resolver import AuthorityRef
+from ...cad_authority_registry import AuthorityRef
 from ...canonical_json import canonical_sha256 as _hash, canonicalize_payload
 from ...clock import utc_now_iso as _utc_now
-
 
 DIFFUSENESS_SCHEMA_VERSION = 'diffuseness-applicability-1'
 DIFFUSENESS_EVALUATION_VERSION = 'diffuseness-applicability-eval-1'
 
 _SHA256_PATTERN = r'^[0-9a-f]{64}$'
-
 
 def _require_iso8601(value: str, label: str) -> None:
     try:
@@ -90,15 +86,12 @@ def _require_iso8601(value: str, label: str) -> None:
     if parsed.tzinfo is None:
         raise ValueError(f'{label} must be timezone-aware')
 
-
 def _require_finite(value: float, label: str) -> None:
     if not isfinite(float(value)):
         raise ValueError(f'{label} must be finite')
 
-
 def _semantic_id(prefix: str, digest: str) -> str:
     return f'{prefix}-{digest[:24]}'
-
 
 def _seal(
     model: type[BaseModel],
@@ -119,11 +112,9 @@ def _seal(
         },
     )
 
-
 def _require_ref_sha(ref: AuthorityRef | None, label: str) -> None:
     if ref is not None and ref.ref_sha256 is None:
         raise ValueError(f'{label} must pin its sha256')
-
 
 # ----------------------------------------------------------------------
 # Taxonomies
@@ -204,7 +195,6 @@ live/end-long-room transition, DFF50 intensity evidence, DFF60
 spatial-coherence evidence, DFF70 ensemble RIR uniformity, DFF80
 material #570 intervention."""
 
-
 # ----------------------------------------------------------------------
 # Records
 
@@ -249,7 +239,6 @@ class DiffuseFieldDomainPin(BaseModel):
             _require_ref_sha(ref, 'sample_position_refs')
         return self
 
-
 class DiffusenessEvidenceRef(BaseModel):
     """A pinned evidence object with explicit provenance (#673 §10)."""
 
@@ -263,7 +252,6 @@ class DiffusenessEvidenceRef(BaseModel):
     def _check(self) -> 'DiffusenessEvidenceRef':
         _require_ref_sha(self.evidence_ref, 'evidence_ref')
         return self
-
 
 class FieldUniformityProfile(BaseModel):
     """One declared estimator run over a pinned domain (#673 §4/§5).
@@ -307,7 +295,6 @@ class FieldUniformityProfile(BaseModel):
                 'pinned evidence'
             )
         return self
-
 
 class SoundFieldDiffusenessAssessment(BaseModel):
     """The sealed diffuseness eligibility assessment (#673 §5/§6).
@@ -386,7 +373,6 @@ class SoundFieldDiffusenessAssessment(BaseModel):
             )
         return self
 
-
 def build_diffuseness_assessment(
     *,
     document_id: str,
@@ -422,7 +408,6 @@ def build_diffuseness_assessment(
         'diffassess',
     )
 
-
 def diffuseness_assessment_binding(
     assessment: SoundFieldDiffusenessAssessment,
 ) -> AuthorityRef:
@@ -431,7 +416,6 @@ def diffuseness_assessment_binding(
         ref_id=assessment.assessment_id,
         ref_sha256=assessment.assessment_sha256,
     )
-
 
 # ----------------------------------------------------------------------
 # Applicability declaration
@@ -520,7 +504,6 @@ class StatisticalModelApplicabilityDeclaration(BaseModel):
             )
         return self
 
-
 def diffuseness_declaration_binding(
     declaration: StatisticalModelApplicabilityDeclaration,
 ) -> AuthorityRef:
@@ -529,7 +512,6 @@ def diffuseness_declaration_binding(
         ref_id=declaration.declaration_id,
         ref_sha256=declaration.declaration_sha256,
     )
-
 
 def evaluate_diffuseness_applicability(
     document_id: str,

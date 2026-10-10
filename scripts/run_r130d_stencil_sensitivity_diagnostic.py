@@ -69,10 +69,7 @@ from htdt.acoustic_pffdtd_adapter import (
     pffdtd_velocity_potential_to_pressure_trace,
     recombine_pffdtd_receiver_traces,
 )
-from htdt.acoustic_pffdtd_polyhedral_geometry import (
-    PffdtdPolyhedralCandidateWaveExecutor,
-    register_r120b_polyhedral_authorities,
-)
+from htdt.acoustic_pffdtd_polyhedral_geometry import register_r120b_polyhedral_authorities
 from htdt.r130d_general3d_validation import (
     STENCIL_SENSITIVITY_CANONICAL_CELL_ID,
     STENCIL_SENSITIVITY_VARIANT_IDS,
@@ -94,6 +91,7 @@ from htdt.r130d_general3d_validation import (
     validate_spatial_representation_diagnostic_binding,
     validate_stencil_sensitivity_diagnostic_binding,
 )
+from htdt.acoustics.services.acoustic_pffdtd_polyhedral_executor import PffdtdPolyhedralCandidateWaveExecutor
 
 
 EVIDENCE_SCHEMA = 'htdt.r130d.stencil-sensitivity-diagnostic-committed-evidence-1'

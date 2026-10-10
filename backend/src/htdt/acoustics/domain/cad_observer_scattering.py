@@ -12,22 +12,17 @@ measurement-state stability; #581 spatial campaign design; #564
 prediction↔measurement registration; #566 solver validation.
 """
 
-from __future__ import annotations
-
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from ...cad_authority_resolver import AuthorityRef
+from ...cad_authority_registry import AuthorityRef
 from ...canonical_json import canonical_sha256 as _hash, canonicalize_payload
-
 
 _SHA256_PATTERN = r'^[0-9a-f]{64}$'
 
-
 def _semantic_id(prefix: str, digest: str) -> str:
     return f'{prefix}-{digest[:24]}'
-
 
 def _seal(
     model: type[BaseModel],
@@ -45,12 +40,10 @@ def _seal(
         **{sha_field: digest, id_field: _semantic_id(prefix, digest)},
     )
 
-
 def _require_refs(*refs: AuthorityRef) -> None:
     for ref in refs:
         if ref.ref_sha256 is None:
             raise ValueError(f'{ref.kind} reference must pin its sha256')
-
 
 FIXTURE_LABELS: dict[str, str] = {
     'fixture_transparent': '測定治具は透明と評価済み',
@@ -58,7 +51,6 @@ FIXTURE_LABELS: dict[str, str] = {
     'calibration_is_not_transparency': '校正は透明性の証明ではない',
     'insufficient_evidence': '証拠不足',
 }
-
 
 class MeasurementFixtureProfile(BaseModel):
     """Declared physical measurement fixture (fxp- prefix)."""
@@ -94,7 +86,6 @@ class MeasurementFixtureProfile(BaseModel):
     def create(cls, **payload: Any) -> 'MeasurementFixtureProfile':
         return _seal(cls, payload, 'profile_id', 'profile_sha256', 'fxp')
 
-
 class FixtureScatteringObservation(BaseModel):
     """Scattering/contamination observation bound to a fixture
     profile (fxo- prefix)."""
@@ -126,7 +117,6 @@ class FixtureScatteringObservation(BaseModel):
         return _seal(
             cls, payload, 'observation_id',
             'observation_sha256', 'fxo')
-
 
 def evaluate_transparency_claim(
     profile: MeasurementFixtureProfile | None,

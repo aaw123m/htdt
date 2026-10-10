@@ -27,9 +27,6 @@ from PySide6.QtWidgets import (  # noqa: E402
     QMessageBox,
 )
 
-from htdt.cad_acoustic_treatment_comparison import (  # noqa: E402
-    CadAcousticTreatmentComparisonRepository,
-)
 from htdt.cad_acoustic_treatment_repository import (  # noqa: E402
     CadAcousticTreatmentRepository,
 )
@@ -61,6 +58,7 @@ from htdt.room_acoustics_panel import (  # noqa: E402
     TreatmentDefinitionDialog,
 )
 from htdt.room_workspace import RoomWorkspaceController  # noqa: E402
+from htdt.acoustics.persistence.cad_acoustic_treatment_comparison_repository import CadAcousticTreatmentComparisonRepository
 
 
 def _app() -> QApplication:

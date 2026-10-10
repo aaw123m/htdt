@@ -23,10 +23,7 @@ from htdt.acoustic_pffdtd_adapter import (
     pffdtd_velocity_potential_to_pressure_trace,
     recombine_pffdtd_receiver_traces,
 )
-from htdt.acoustic_pffdtd_polyhedral_geometry import (
-    PffdtdPolyhedralCandidateWaveExecutor,
-    register_r120b_polyhedral_authorities,
-)
+from htdt.acoustic_pffdtd_polyhedral_geometry import register_r120b_polyhedral_authorities
 from htdt.cad_acoustic_solver_adapter import bind_prediction_request_to_solver_adapter
 from htdt.cad_candidate_wave_execution import (
     CandidateResourceConfiguration,
@@ -73,6 +70,7 @@ from run_r130d_polyhedral_candidate_wave_execution import (
     _result_evidence,
     _sloped_same_bbox_fixture,
 )
+from htdt.acoustics.services.acoustic_pffdtd_polyhedral_executor import PffdtdPolyhedralCandidateWaveExecutor
 
 
 SYSTEM_SCHEMA = 'htdt.r130d.mfem-sloped-system-1'

@@ -85,10 +85,7 @@ from htdt.acoustic_pffdtd_adapter import (
     pffdtd_velocity_potential_to_pressure_trace,
     recombine_pffdtd_receiver_traces,
 )
-from htdt.acoustic_pffdtd_polyhedral_geometry import (
-    PffdtdPolyhedralCandidateWaveExecutor,
-    register_r120b_polyhedral_authorities,
-)
+from htdt.acoustic_pffdtd_polyhedral_geometry import register_r120b_polyhedral_authorities
 from htdt.r130d_general3d_validation import (
     build_reproduction_hypothesis_table,
     classify_dense_bin_cause,
@@ -113,6 +110,7 @@ from htdt.r130d_general3d_validation import (
     validate_reproduction_isolation_diagnostic_binding,
     validate_spatial_representation_diagnostic_binding,
 )
+from htdt.acoustics.services.acoustic_pffdtd_polyhedral_executor import PffdtdPolyhedralCandidateWaveExecutor
 
 
 EVIDENCE_SCHEMA = (

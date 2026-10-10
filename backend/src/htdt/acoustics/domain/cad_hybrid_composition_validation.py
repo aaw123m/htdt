@@ -42,14 +42,12 @@ itself a model requiring V&V); HTDT R160 stitching conventions
 (cad_hybrid_stitching.py) for region and gap identity.
 """
 
-from __future__ import annotations
-
 from collections.abc import Sequence
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from ...cad_authority_resolver import AuthorityRef
+from ...cad_authority_registry import AuthorityRef
 from .cad_hybrid_grid_reconciliation import GridReconciliationMethod
 from .cad_hybrid_stitching import HybridStitchGap, HybridStitchRegionKind
 from .cad_solver_confidence_bound import ClaimClass
@@ -63,10 +61,8 @@ HYBRID_VALIDATION_VERDICT_VERSION = 'r160-hybrid-validation-verdict-1'
 HYBRID_VALIDATION_EVALUATOR_VERSION = (
     'r160-hybrid-composition-validation-1')
 
-
 def _semantic_id(prefix: str, digest: str) -> str:
     return f'{prefix}-{digest[:24]}'
-
 
 def _seal(
     model: type[BaseModel],
@@ -84,17 +80,14 @@ def _seal(
         **{sha_field: digest, id_field: _semantic_id(prefix, digest)},
     )
 
-
 def _require_refs(*refs: AuthorityRef) -> None:
     for ref in refs:
         if ref.ref_sha256 is None:
             raise HybridCompositionValidationIntegrityError(
                 f'{ref.kind} reference must pin its sha256')
 
-
 class HybridCompositionValidationIntegrityError(ValueError):
     """A sealed hybrid-validation record failed integrity checks."""
-
 
 # --------------------------------------------------------------------------
 # Vocabulary — reuses R160 stitching region identities rather than
@@ -312,11 +305,9 @@ HYBRID_VALIDATION_LABELS: dict[str, str] = {
     'bounded_separate': '分離済みの限界あり',
 }
 
-
 # --------------------------------------------------------------------------
 # Embedded records
 # --------------------------------------------------------------------------
-
 
 class ContributionOwnerEntry(BaseModel):
     """One declared contribution owner inside one region — the disjoint-
@@ -328,7 +319,6 @@ class ContributionOwnerEntry(BaseModel):
     contribution: HybridContributionKind
     owner: ContributionOwner
 
-
 class CrossoverRuleSpec(BaseModel):
     """The versioned crossover-selection rule the spec requires and the
     agreement evidence kinds that must be on record (issue #812 §1)."""
@@ -338,7 +328,6 @@ class CrossoverRuleSpec(BaseModel):
     rule_id: str = Field(min_length=1)
     rule_version: str = Field(min_length=1)
     required_agreement_evidence: tuple[CrossoverAgreementKind, ...]
-
 
 class SensitivityRequirement(BaseModel):
     """Preregistered admissible crossover range plus the observables the
@@ -363,7 +352,6 @@ class SensitivityRequirement(BaseModel):
                 'duplicate sensitivity observables')
         return self
 
-
 class ApplicabilityEnvelope(BaseModel):
     """The explicit boundary of what a pass verdict means: frequency band,
     claim phenomena, and deployment contexts (issue #812 §8)."""
@@ -387,7 +375,6 @@ class ApplicabilityEnvelope(BaseModel):
                 'duplicate applicability phenomena')
         return self
 
-
 class SensitivityPoint(BaseModel):
     """One evaluated crossover position inside the swept admissible
     range (issue #812 §5)."""
@@ -399,7 +386,6 @@ class SensitivityPoint(BaseModel):
     material_change: bool = False
     detail: str = ''
 
-
 class PhaseTimeCheck(BaseModel):
     """One phase/time-alignment check outcome — the gate a coherent
     (complex-valued) composition claim must pass (issue #812 §4)."""
@@ -409,7 +395,6 @@ class PhaseTimeCheck(BaseModel):
     check: PhaseTimeCheckKind
     outcome: EvidenceOutcome
     detail: str = ''
-
 
 class LateContribution(BaseModel):
     """One late-field contribution kind with its declared owner — lets
@@ -424,7 +409,6 @@ class LateContribution(BaseModel):
     energy_share: float | None = Field(default=None, ge=0.0, le=1.0)
     provenance_ref: AuthorityRef | None = None
 
-
 class HybridMetricValue(BaseModel):
     """One measured/derived metric an evidence row records against its
     own tolerance — never normalized into a universal score."""
@@ -436,7 +420,6 @@ class HybridMetricValue(BaseModel):
     tolerance: float | None = Field(default=None, gt=0.0)
     within_tolerance: bool | None = None
     unit: str | None = None
-
 
 class HybridRegionResult(BaseModel):
     """Embedded per-region inspection row on the verdict — wave-only,
@@ -464,11 +447,9 @@ class HybridRegionResult(BaseModel):
                 "only 'gap' domain rows may carry 'gap_preserved'")
         return self
 
-
 # --------------------------------------------------------------------------
 # Sealed records
 # --------------------------------------------------------------------------
-
 
 class HybridCompositionValidationSpec(BaseModel):
     """Pinned verification/validation contract for one composed hybrid
@@ -572,7 +553,6 @@ class HybridCompositionValidationSpec(BaseModel):
     def create(cls, **payload: Any) -> 'HybridCompositionValidationSpec':
         return _seal(
             cls, payload, 'spec_id', 'spec_sha256', 'hvspec')
-
 
 class HybridValidationEvidence(BaseModel):
     """One sealed evidence row bound to a spec (hve- prefix).
@@ -770,7 +750,6 @@ class HybridValidationEvidence(BaseModel):
         return _seal(
             cls, payload, 'evidence_id', 'evidence_sha256', 'hve')
 
-
 class HybridValidationVerdict(BaseModel):
     """Sealed per-spec verdict (hvv- prefix).
 
@@ -878,7 +857,6 @@ class HybridValidationVerdict(BaseModel):
         return _seal(
             cls, payload, 'verdict_id', 'verdict_sha256', 'hvv')
 
-
 # --------------------------------------------------------------------------
 # Evaluator — fail closed; unknown/insufficient evidence never reads as
 # success, and component-solver passes alone can never validate the hybrid.
@@ -911,13 +889,11 @@ _PHASE_CHECK_KINDS = (
     'group_delay_consistency',
 )
 
-
 def _rows(
     evidence: Sequence[HybridValidationEvidence],
     kind: HybridEvidenceKind,
 ) -> list[HybridValidationEvidence]:
     return [row for row in evidence if row.evidence_kind == kind]
-
 
 def _satisfied(
     evidence: Sequence[HybridValidationEvidence],
@@ -928,7 +904,6 @@ def _satisfied(
         for row in evidence
         if row.evidence_kind == kind and row.outcome == 'satisfied'
     ]
-
 
 def evaluate_hybrid_validation(
     spec: HybridCompositionValidationSpec,
@@ -1398,7 +1373,6 @@ def evaluate_hybrid_validation(
         'composition is not production validated',
     )
 
-
 def _verdict(
     *,
     spec: HybridCompositionValidationSpec,
@@ -1451,7 +1425,6 @@ def _verdict(
         applicability=spec.applicability,
         rationale=rationale,
     )
-
 
 __all__ = [
     'ApplicabilityEnvelope',

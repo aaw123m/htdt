@@ -71,24 +71,20 @@ Literature basis
   Basis for per-band qualification on modal/presssure observables.
 """
 
-from __future__ import annotations
-
 from datetime import datetime
 from math import isfinite
 from typing import Any, Literal, Sequence
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from ...cad_authority_resolver import AuthorityRef
+from ...cad_authority_registry import AuthorityRef
 from ...canonical_json import canonical_sha256 as _hash, canonicalize_payload
 from ...clock import utc_now_iso as _utc_now
-
 
 WAVE_FIDELITY_SCHEMA_VERSION = 'wave-numerical-fidelity-1'
 WAVE_FIDELITY_EVALUATION_VERSION = 'wave-fidelity-eval-1'
 
 _SHA256_PATTERN = r'^[0-9a-f]{64}$'
-
 
 def _require_iso8601(value: str, label: str) -> None:
     try:
@@ -98,15 +94,12 @@ def _require_iso8601(value: str, label: str) -> None:
     if parsed.tzinfo is None:
         raise ValueError(f'{label} must be timezone-aware')
 
-
 def _require_finite(value: float, label: str) -> None:
     if not isfinite(float(value)):
         raise ValueError(f'{label} must be finite')
 
-
 def _semantic_id(prefix: str, digest: str) -> str:
     return f'{prefix}-{digest[:24]}'
-
 
 def _seal(
     model: type[BaseModel],
@@ -126,7 +119,6 @@ def _seal(
             id_field: _semantic_id(prefix, digest),
         },
     )
-
 
 # ----------------------------------------------------------------------
 # Taxonomies
@@ -226,10 +218,8 @@ ReferenceKind = Literal[
     'not_applicable',
 ]
 
-
 # ----------------------------------------------------------------------
 # Declared solver formulation & discretization
-
 
 class WaveSolverFormulation(BaseModel):
     """Which solver, solving which equation, with which basis (#683 §1).
@@ -260,7 +250,6 @@ class WaveSolverFormulation(BaseModel):
     boundary_update_scheme: str | None = None
     source_discretization: str = Field(min_length=1)
     receiver_interpolation: str = Field(min_length=1)
-
 
 class WaveDiscretization(BaseModel):
     """The spatial discretization identity (#683 §2).
@@ -296,7 +285,6 @@ class WaveDiscretization(BaseModel):
             raise ValueError('resolution_min_m must not exceed max')
         return self
 
-
 class FdtdTimeStepping(BaseModel):
     """FDTD-specific numerical declarations (#683 §4)."""
 
@@ -323,7 +311,6 @@ class FdtdTimeStepping(BaseModel):
         if self.duration_s is not None:
             _require_finite(self.duration_s, 'fdtd duration_s')
         return self
-
 
 class FemNumerics(BaseModel):
     """FEM-specific numerical declarations (#683 §5).
@@ -356,7 +343,6 @@ class FemNumerics(BaseModel):
             )
         return self
 
-
 class BemNumerics(BaseModel):
     """BEM/FMBEM-specific numerical declarations (#683 §6)."""
 
@@ -381,7 +367,6 @@ class BemNumerics(BaseModel):
             if value is not None:
                 _require_finite(value, f'bem {label}')
         return self
-
 
 class WaveBoundaryReflectionEvidence(BaseModel):
     """Measured boundary performance on a controlled outgoing-wave
@@ -418,7 +403,6 @@ class WaveBoundaryReflectionEvidence(BaseModel):
                 'boundary evidence fixture_ref must pin its sha256'
             )
         return self
-
 
 class ArtificialBoundarySpec(BaseModel):
     """The computational boundary treatment (#683 §7).
@@ -480,7 +464,6 @@ class ArtificialBoundarySpec(BaseModel):
                 )
         return self
 
-
 class AdjacentTerminationSpec(BaseModel):
     """What lies physically beyond the modeled region (#683 §8).
 
@@ -508,7 +491,6 @@ class AdjacentTerminationSpec(BaseModel):
             raise ValueError('termination_ref must pin its sha256')
         return self
 
-
 class LinearSolveEvidence(BaseModel):
     """Algebraic-solver outcome (#683 §12).
 
@@ -535,7 +517,6 @@ class LinearSolveEvidence(BaseModel):
             )
         return self
 
-
 class WaveSourceDiscretization(BaseModel):
     """How the source enters the discrete system (#683 §10)."""
 
@@ -547,7 +528,6 @@ class WaveSourceDiscretization(BaseModel):
     """Grid smearing / band-limiting applied to a point source."""
     directivity_coupling: str | None = None
     near_field_limitation: str | None = None
-
 
 class WaveReceiverDiscretization(BaseModel):
     """How the response is extracted from the grid (#683 §11)."""
@@ -563,7 +543,6 @@ class WaveReceiverDiscretization(BaseModel):
     ]
     interpolation_order: int | None = Field(default=None, ge=0)
     detail: str | None = None
-
 
 class WaveDispersionEvidence(BaseModel):
     """Numerical-dispersion measurement on a controlled fixture
@@ -610,7 +589,6 @@ class WaveDispersionEvidence(BaseModel):
             )
         return self
 
-
 class WaveUncertaintyBudget(BaseModel):
     """Contribution split by error class (#683 §17).
 
@@ -644,7 +622,6 @@ class WaveUncertaintyBudget(BaseModel):
                 _require_finite(value, f'budget {label}')
         return self
 
-
 class WaveRefinementLevel(BaseModel):
     """One mesh/grid level of a refinement study (#683 §13)."""
 
@@ -661,7 +638,6 @@ class WaveRefinementLevel(BaseModel):
         ):
             raise ValueError('refinement result_ref must pin sha256')
         return self
-
 
 class WaveRefinementComparison(BaseModel):
     """One observable compared between two refinement levels."""
@@ -685,7 +661,6 @@ class WaveRefinementComparison(BaseModel):
             )
         return self
 
-
 class WaveFixtureResult(BaseModel):
     """Outcome on one #683 fixture (WNV10–WNV80)."""
 
@@ -705,7 +680,6 @@ class WaveFixtureResult(BaseModel):
             raise ValueError('fixture evidence_ref must pin sha256')
         return self
 
-
 class WaveErrorClassDeclaration(BaseModel):
     """Per-error-class state inside a qualification."""
 
@@ -722,7 +696,6 @@ class WaveErrorClassDeclaration(BaseModel):
                 'a qualified error class must cite its evidence'
             )
         return self
-
 
 class WaveBandQualification(BaseModel):
     """One observable qualified over a declared band (#683 §14)."""
@@ -750,10 +723,8 @@ class WaveBandQualification(BaseModel):
             )
         return self
 
-
 # ----------------------------------------------------------------------
 # Sealed records
-
 
 class WaveNumericalFidelityProfile(BaseModel):
     """The sealed declaration of one wave-solver configuration's
@@ -909,7 +880,6 @@ class WaveNumericalFidelityProfile(BaseModel):
             )
         return self
 
-
 def wave_profile_binding(
     profile: WaveNumericalFidelityProfile,
 ) -> AuthorityRef:
@@ -918,7 +888,6 @@ def wave_profile_binding(
         ref_id=profile.profile_id,
         ref_sha256=profile.profile_sha256,
     )
-
 
 class NumericalConvergenceRecord(BaseModel):
     """A sealed convergence study against a
@@ -1029,7 +998,6 @@ class NumericalConvergenceRecord(BaseModel):
             )
         return self
 
-
 def wave_convergence_binding(
     record: NumericalConvergenceRecord,
 ) -> AuthorityRef:
@@ -1038,7 +1006,6 @@ def wave_convergence_binding(
         ref_id=record.convergence_id,
         ref_sha256=record.convergence_sha256,
     )
-
 
 class WaveFidelityQualification(BaseModel):
     """The sealed fail-closed verdict on a wave profile (#683 §14).
@@ -1122,7 +1089,6 @@ class WaveFidelityQualification(BaseModel):
             )
         return self
 
-
 def wave_qualification_binding(
     qualification: WaveFidelityQualification,
 ) -> AuthorityRef:
@@ -1132,10 +1098,8 @@ def wave_qualification_binding(
         ref_sha256=qualification.qualification_sha256,
     )
 
-
 # ----------------------------------------------------------------------
 # Evaluation
-
 
 def _class_state(
     error_class: WaveErrorClass,
@@ -1145,7 +1109,6 @@ def _class_state(
     return WaveErrorClassDeclaration(
         error_class=error_class, state=state, evidence=evidence
     )
-
 
 def evaluate_wave_fidelity(
     document_id: str,
@@ -1502,10 +1465,8 @@ def evaluate_wave_fidelity(
         'wnfqual',
     )
 
-
 # ----------------------------------------------------------------------
 # Builders
-
 
 def build_wave_fidelity_profile(
     document_id: str,
@@ -1588,7 +1549,6 @@ def build_wave_fidelity_profile(
         'profile_sha256',
         'wnfprof',
     )
-
 
 def build_numerical_convergence_record(
     document_id: str,

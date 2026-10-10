@@ -27,7 +27,6 @@ from htdt.cad_acoustic_solver_adapter import (
 from htdt.cad_acoustic_solver_dispatch_repository import (
     CadAcousticSolverDispatchRepository,
 )
-from htdt.cad_acoustic_solver_result import CadAcousticSolverResultRepository
 from htdt.cad_directivity import NORMALIZED_JSON_DIRECTIVITY_ADAPTER
 from htdt.cad_directivity_repository import CadDirectivityRepository
 from htdt.cad_equipment import (
@@ -140,6 +139,7 @@ from htdt.semantic_geometry import (
     make_semantic_geometry_conversion_request,
     raw_triangle_ids,
 )
+from htdt.acoustics.persistence.cad_acoustic_solver_result_repository import CadAcousticSolverResultRepository
 
 
 NOW = '2026-09-20T00:30:00+00:00'

@@ -6,8 +6,6 @@ design comparisons that bind evaluated prediction evidence — never a
 displayed benefit that was never evaluated.
 """
 
-from __future__ import annotations
-
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import time
@@ -20,7 +18,6 @@ from ..domain.cad_acoustic_treatment import (
     TreatmentDimensions,
     TreatmentEvidenceSubject,
     TreatmentLayer,
-    TreatmentProvenance,
     TreatmentType,
     build_acoustic_treatment_definition,
     build_treatment_evidence_authority,
@@ -28,7 +25,6 @@ from ..domain.cad_acoustic_treatment import (
     evaluate_treatment_prediction_capability,
 )
 from ..domain.cad_acoustic_treatment_comparison import (
-    CadAcousticTreatmentComparisonRepository,
     TreatmentCandidateOutcome,
     TreatmentComparisonOutcome,
     TreatmentDesignComparisonSpec,
@@ -45,7 +41,7 @@ from ...cad_scene import Position3
 from ...cad_system_variant_repository import CadSystemVariantRepository
 from ...r120_geometry_compiler import ExactExternalAuthorityRef
 from ...clock import utc_now_iso as _utc_now
-
+from ..persistence.cad_acoustic_treatment_comparison_repository import CadAcousticTreatmentComparisonRepository
 
 TREATMENT_TYPES: tuple[str, ...] = (
     'porous_absorber',
@@ -57,7 +53,6 @@ TREATMENT_TYPES: tuple[str, ...] = (
     'hybrid',
 )
 
-
 @dataclass(frozen=True, slots=True)
 class TreatmentPlacementPresentation:
     instance_id: str
@@ -68,13 +63,11 @@ class TreatmentPlacementPresentation:
     wave_capability: str
     geometric_capability: str
 
-
 @dataclass(frozen=True, slots=True)
 class TreatmentComparisonPresentation:
     comparison_id: str
     name: str
     candidates: tuple[str, ...]
-
 
 class AcousticTreatmentService:
     """Native product surface for AcousticTreatment authoring/A-B (#985)."""

@@ -145,15 +145,8 @@ from .cad_screen_transfer import (
     transfer_capability_label,
 )
 from .cad_equipment import EquipmentDataProvenance, FrequencyDomain
-from .cad_acoustic_environment import (
-    AcousticEnvironmentProfile,
-    CadAcousticEnvironmentRepository,
-)
-from .cad_acoustic_material import CadAcousticMaterialRepository
+from .cad_acoustic_environment import AcousticEnvironmentProfile
 from .cad_acoustic_treatment_repository import CadAcousticTreatmentRepository
-from .cad_acoustic_treatment_comparison import (
-    CadAcousticTreatmentComparisonRepository,
-)
 from .r120_geometry_compiler import ExactExternalAuthorityRef
 from .cad_geometric_constraints import (
     AuthoringConstraint,
@@ -374,6 +367,9 @@ from .room_journey import (
     current_journey_step,
     evaluate_room_journey,
 )
+from .acoustics.persistence.cad_acoustic_environment_repository import CadAcousticEnvironmentRepository
+from .acoustics.persistence.cad_acoustic_material_repository import CadAcousticMaterialRepository
+from .acoustics.persistence.cad_acoustic_treatment_comparison_repository import CadAcousticTreatmentComparisonRepository
 
 
 ROOM_CONTEXT_IDS = (

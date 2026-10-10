@@ -16,22 +16,17 @@ literature (roundoff + non-associativity + nondeterministic
 scheduling; ensemble/CI treatment).
 """
 
-from __future__ import annotations
-
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from ...cad_authority_resolver import AuthorityRef
+from ...cad_authority_registry import AuthorityRef
 from ...canonical_json import canonical_sha256 as _hash, canonicalize_payload
-
 
 _SHA256_PATTERN = r'^[0-9a-f]{64}$'
 
-
 def _semantic_id(prefix: str, digest: str) -> str:
     return f'{prefix}-{digest[:24]}'
-
 
 def _seal(
     model: type[BaseModel],
@@ -48,7 +43,6 @@ def _seal(
         **probe.model_dump(mode='python', exclude={id_field, sha_field}),
         **{sha_field: digest, id_field: _semantic_id(prefix, digest)},
     )
-
 
 _PRECISION_KINDS = (
     'fp32', 'fp64', 'extended', 'mixed', 'unknown',
@@ -77,7 +71,6 @@ NumericalVerdict = Literal[
     'insufficient_realizations',      # variability never characterized
     'not_comparable',                 # no reproducibility basis at all
 ]
-
 
 class NumericalReproducibilityProfile(BaseModel):
     """How a solver run intends to reproduce numerically (#703).
@@ -136,7 +129,6 @@ class NumericalReproducibilityProfile(BaseModel):
             cls, payload, 'profile_id', 'profile_sha256', 'nrep'
         )
 
-
 class StochasticRealizationRecord(BaseModel):
     """One realization of a solver run under a pinned profile.
 
@@ -189,7 +181,6 @@ class StochasticRealizationRecord(BaseModel):
         return _seal(
             cls, payload, 'record_id', 'record_sha256', 'srez'
         )
-
 
 class CrossPlatformNumericalComparison(BaseModel):
     """Measured run-to-run / cross-platform numerical comparison (#703).
@@ -251,12 +242,10 @@ class CrossPlatformNumericalComparison(BaseModel):
             cls, payload, 'comparison_id', 'comparison_sha256', 'nxcmp'
         )
 
-
 def _require_refs(*refs: AuthorityRef | None) -> None:
     for ref in refs:
         if ref is None or ref.ref_sha256 is None:
             raise ValueError('authority references must be sha-pinned')
-
 
 def evaluate_numerical_difference_claim(
     declared_difference: float | None,
@@ -315,7 +304,6 @@ def evaluate_numerical_difference_claim(
         f'difference {declared_difference} exceeds variability band '
         f'{band}',
     )
-
 
 NUMERICAL_LABELS: dict[str, str] = {
     'deterministic_order': '確定的順序（変動帯域を超過）',

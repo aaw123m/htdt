@@ -57,7 +57,6 @@ from .cad_acoustic_solver_dispatch_repository import (
 from .cad_acoustic_solver_result import (
     AcousticSolverArtifactManifestResolver,
     AcousticSolverResultEnvelope,
-    CadAcousticSolverResultRepository,
 )
 from .cad_candidate_wave_execution import ExactJsonAuthorityStore
 from .cad_equipment import FrequencyDomain
@@ -78,6 +77,7 @@ from .cad_prediction_provider import (
 )
 from .cad_repository import SceneRepository
 from .r120_geometry_compiler import ExactExternalAuthorityRef
+from .acoustics.persistence.cad_acoustic_solver_result_repository import CadAcousticSolverResultRepository
 
 DEFAULT_AUTHORITY_ROOT_NAME = 'authorities'
 
