@@ -8,7 +8,7 @@ from htdt.r130d_mfem_binary import load_mfem_binary,cloud_functional
 from htdt.r130d_sparse_undamped import sparse_undamped_q0
 
 PLAN='benchmarks/acoustics/r130d_sparse_spatial_reference_plan_2026-10-10.json'
-PLAN_SHA='b6865f2f44b1668065786008206a1c9dc31f6cb42f5bbef25fc13f1288ef4255'
+PLAN_SHA='a784a22f9c10cd5becbbabe2e313b8cf2a9924a7d15a2524c65ab2387c602553'
 def sha(path):
     with path.open('rb') as stream:return hashlib.file_digest(stream,'sha256').hexdigest()
 def complex_values(a):
