@@ -21,7 +21,7 @@ from ...measurement.domain.cad_measurement_quality import (
     CadMeasurementQualityReport,
     gate_measurement_claim,
 )
-from ...cad_repository import SceneRevision
+from ...cad_scene_revisions import SceneRevision
 from ...cad_scene import SceneDocument
 from ...cad_search_models import CadSearchSpec
 from ...cad_system_variant import SystemVariant, materialize_system_variant

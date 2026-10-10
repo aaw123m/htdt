@@ -21,6 +21,7 @@ from ..domain.cad_objective_models import (
     canonical_objective_json,
 )
 from ...cad_repository import SceneRepository, SceneRevision
+from ...cad_roomsim_repository import CadRoomSimRepository
 from ...cad_search import iter_cad_candidate_pages
 from ...cad_search_models import CadCandidate, CadCandidateSetPage, CadSearchSpec
 from ...cad_search_repository import CadSearchRepository
@@ -301,6 +302,9 @@ class CadObjectiveRepository:
         )
 
         input_kinds = {ref.source_kind for ref in evaluation.input_refs}
+        roomsim_repository = (
+            self._roomsim() if 'cad_roomsim_attempt' in input_kinds else None
+        )
         context = ObjectiveAuthorityContext(
             evaluation=evaluation,
             scene_repository=self.scene_repository,
@@ -311,9 +315,7 @@ class CadObjectiveRepository:
             measurement_repository=(
                 self._measurements() if 'cad_measurement' in input_kinds else None
             ),
-            roomsim_repository=(
-                self._roomsim() if 'cad_roomsim_attempt' in input_kinds else None
-            ),
+            roomsim_repository=roomsim_repository,
             prediction_provider_repository=(
                 self.prediction_provider_repository
                 if 'r170a_prediction_provider' in input_kinds
@@ -326,6 +328,9 @@ class CadObjectiveRepository:
             ),
             spec=spec_payload,
             roomsim_batches=batches,
+            roomsim_batch_memo_capable=isinstance(
+                roomsim_repository, CadRoomSimRepository
+            ),
         )
         resolved = tuple(
             self._resolve_input(context, ref) for ref in evaluation.input_refs

@@ -30,7 +30,7 @@ from PySide6.QtWidgets import (
 )
 
 from ...tree_item_role import ROLE
-from ...native_worker import (
+from ...worker_pool import (
     WORKER_CANCELLED,
     NativeWorkerPool,
     WorkerShutdownReport,

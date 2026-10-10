@@ -16,15 +16,19 @@ their own resolvers/evaluators into ``CadObjectiveRepository``.
 
 from __future__ import annotations
 
-from typing import Any, Callable, Mapping, NamedTuple
+from typing import Any, Callable, Mapping, NamedTuple, Protocol
 
+from ...acoustics.domain.cad_hybrid_prediction_objective_contracts import (
+    build_hybrid_provider_objective_input,
+    hybrid_provider_frequency_response,
+)
 from ...measurement.domain.cad_measurement_quality import dataset_sha256
 from .cad_objective_models import (
     CadObjectiveEvaluation,
     CadObjectiveInputRef,
     canonical_objective_sha256,
 )
-from ...cad_repository import SceneRepository, SceneRevision
+from ...cad_scene_revisions import SceneRevision
 from ...cad_roomsim_results import roomsim_attempt_frequency_response
 from ...cad_scene import scene_content_hash
 from ...cad_search import candidate_preview_document
@@ -53,11 +57,20 @@ class ResolvedObjectiveInput(NamedTuple):
     authority: Any = None
 
 
+class ObjectiveSceneRepository(Protocol):
+    """Domain port: the SceneRevision store the authority replay binds against.
+
+    The concrete ``SceneRepository`` lives at persistence rank; domain code
+    binds against this structural contract instead of importing it."""
+
+    def get(self, revision_id: str) -> SceneRevision | None: ...
+
+
 class ObjectiveAuthorityContext(NamedTuple):
     """Everything an input resolver or vector evaluator may rely on."""
 
     evaluation: CadObjectiveEvaluation
-    scene_repository: SceneRepository
+    scene_repository: ObjectiveSceneRepository
     source_revision: SceneRevision
     search_spec: CadSearchSpec
     candidate: CadCandidate
@@ -74,6 +87,10 @@ class ObjectiveAuthorityContext(NamedTuple):
     # replays keeps one batch validation per batch_run_id instead of two
     # per input reference. None preserves per-read re-validation.
     roomsim_batches: Any = None
+    # Capability flag the wiring layer computes (``CadRoomSimRepository``
+    # accepts a ``batches`` memo; duck-typed doubles do not) — domain code
+    # binds the flag instead of importing the repository class.
+    roomsim_batch_memo_capable: bool = False
 
 
 # Evidence classes that may stay declared-only when their source kind has no
@@ -167,13 +184,11 @@ def _resolve_cad_roomsim_attempt(
     repository = context.roomsim_repository
     if repository is None:
         raise ValueError('objective predicted evidence authority unavailable')
-    # Deferred import: the repository module sits below this authority layer
-    # and callers may substitute duck-typed doubles without the memo kwarg.
-    from ...cad_roomsim_repository import CadRoomSimRepository
-
-    shared = context.roomsim_batches if isinstance(
-        repository, CadRoomSimRepository
-    ) else None
+    # Callers may substitute duck-typed doubles without the memo kwarg; the
+    # wiring layer computed the capability flag at persistence rank.
+    shared = (
+        context.roomsim_batches if context.roomsim_batch_memo_capable else None
+    )
     if shared is not None:
         attempt = repository.get_attempt(ref.source_id, batches=shared)
     else:
@@ -298,12 +313,6 @@ def _resolve_hybrid_prediction_provider(
         raise ValueError('hybrid provider objective spec source_entity_id missing')
     if not isinstance(receiver_id, str) or not receiver_id:
         raise ValueError('hybrid provider objective spec receiver_id missing')
-    # Deferred import: the provider integration module imports the repository
-    # module that owns this authority replay.
-    from ...acoustics.services.cad_hybrid_prediction_provider_integration import (
-        build_hybrid_provider_objective_input,
-    )
-
     objective_input = build_hybrid_provider_objective_input(
         provider,
         source_entity_id=source_entity_id,
@@ -532,9 +541,6 @@ def _evaluate_provider_objective(context: ObjectiveAuthorityContext) -> Objectiv
 def _evaluate_hybrid_provider_objective(
     context: ObjectiveAuthorityContext,
 ) -> ObjectiveVector:
-    # Deferred import: the provider module owns the R170B response contract.
-    from ...acoustics.services.cad_hybrid_prediction_provider import hybrid_provider_frequency_response
-
     assert context.spec is not None
     provider_inputs = [
         item

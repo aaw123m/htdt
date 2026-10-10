@@ -6,10 +6,10 @@ from typing import Any, Literal, Sequence
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from ...measurement.services.cad_measurement_loop import CadMeasurementPlan
+from ...measurement.domain.cad_measurement_plan import CadMeasurementPlan
 from ...measurement.domain.cad_measurement_quality import MeasurementCapabilityClaim
 from ...cad_model_validation import CadModelValidationRecord
-from ...cad_repository import SceneRevision
+from ...cad_scene_revisions import SceneRevision
 from ...cad_scene import Position3, scene_content_hash
 from ...cad_validation_campaign import (
     CadValidationCampaign,
