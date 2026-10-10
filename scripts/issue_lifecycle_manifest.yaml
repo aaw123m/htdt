@@ -105,7 +105,7 @@ entries:
     - 835
     commits: []
   remaining_gates:
-  - kind: acceptance
+  - kind: manual
     description: メイン受理 — ギャップマトリクス権威・builtin 行列・ソースマトリクス (#839) の維持者レビュー
   evidence_refs:
   - docs/issues/issue-805-standards-coverage.md
@@ -127,10 +127,12 @@ entries:
   landed:
     prs:
     - 825
-    commits: []
+    - 123
+    - 122
+    commits: [cb20fb86, c674c9b5]
   remaining_gates:
   - kind: structural
-    description: 監査済みパッケージ境界への実リファクタ（継続作業）
+    description: '監査済みパッケージ境界への実リファクタ — PR#123 で当時の 31 violations/KNOWN_CYCLES を全解消 (0件)。#954 phase3 (calibration split) 以降の残存管理債務は inventory に 8 violations/1 cycle として記録済 (AuthorityRef/SceneRevision 依存 seam)。shim 撤去・acoustics/optimization 移行は #954 フェーズ継続'
   evidence_refs:
   - docs/issues/issue-807-package-boundaries.md
   close_when_gates_clear: true
@@ -766,13 +768,11 @@ entries:
   close_when_gates_clear: true
 
 - issue: 955
-  lifecycle: structural_followup_remaining
+  lifecycle: complete
   landed:
-    prs: [1042, 1103, 116]
-    commits: [e09b6479, 91abfcc8bb55fa61c4b44338774d33e63f08a43c, a0f94102]
-  remaining_gates:
-  - kind: structural
-    description: '残レイヤの broad catch 型付き化 — capture/ingestion/watch/persistence+worker lane (66件) は PR#1103 で全変換、残りは native_cad/他 UI・adapters 等 (docs/issues/issue-955-error-boundaries.md 棚卸し)'
+    prs: [1042, 1103, 116, 121]
+    commits: [e09b6479, 91abfcc8bb55fa61c4b44338774d33e63f08a43c, a0f94102, 1bd96e0a, 2fd6d389]
+  remaining_gates: []
   evidence_refs:
   - docs/issues/issue-955-error-boundaries.md
   - docs/issues/issue-955-capture-boundaries.md
@@ -861,13 +861,14 @@ entries:
 - issue: 954
   lifecycle: structural_followup_remaining
   landed:
-    prs: [1049, 117]
-    commits: [fc0076ed, f05030b9, 35203e91]
+    prs: [1049, 117, 122]
+    commits: [fc0076ed, f05030b9, 35203e91, 316e53aa, c674c9b5]
   remaining_gates:
   - kind: structural
-    description: 'Phase 2 以降 — 残ドメイン (acoustics/calibration 他) のパッケージ化 + package_boundary_inventory.json の 26 violations/4 cycles (managed debt) の逐次解消 — docs/issues/issue-954-domain-split-phase1.md に deferred work 記載'
+    description: 'Phase 4 以降 — calibration ドメインは PR#122 で htdt.calibration{domain,services,persistence} へ着地。残: acoustics/optimization 等の次ドメイン移行、shim 撤去、inventory 8 violations/1 cycle (managed debt) の逐次解消 — docs/issues/issue-954-domain-split-phase3.md deferred work 記載'
   evidence_refs:
   - docs/issues/issue-954-domain-split-phase1.md
+  - docs/issues/issue-954-domain-split-phase3.md
   - backend/tests/test_issue_954_domain_split.py
   - scripts/package_boundary_audit.py
   - scripts/package_boundary_inventory.json
@@ -890,7 +891,7 @@ entries:
   lifecycle: acceptance_remaining
   landed:
     prs: [1048]
-    commits: [30042848, a2a1f225]
+    commits: ['30042848', a2a1f225]
   remaining_gates:
   - kind: manual
     description: 'オペレータ受入 — 複数実プロジェクト環境での表示範囲切替・他案件リンク遷移の実機確認 (子が実GUI 9/9・クラッシュ修正込みで検証済)'
@@ -910,7 +911,7 @@ entries:
   evidence_refs:
   - docs/issues/issue-1019-watch-symlink.md
   - backend/tests/test_issue_1019_capture_watch_links.py
-  - backend/src/htdt/staged_capture_drop.py
+  - backend/src/htdt/capture_watch_guard.py
   close_when_gates_clear: true
 
 - issue: 1017
@@ -1103,7 +1104,7 @@ entries:
   evidence_refs:
   - docs/issues/issue-1001-seat-coverage.md
   - backend/tests/test_issue_1001_seat_coverage.py
-  - backend/src/htdt/room_seat_coverage_overlay.py
+  - backend/src/htdt/room_coverage_overlay.py
   close_when_gates_clear: true
 
 - issue: 1002
@@ -1400,75 +1401,75 @@ entries:
   - backend/tests/test_issue_979_snap_hud.py
   close_when_gates_clear: true
 
-  - issue: 975
-    lifecycle: acceptance_remaining
-    landed:
-      prs: [1090]
-      commits: [73a90e8f98463b9895466f9f7f09cff3f04826f0]
-    remaining_gates:
-      - kind: manual
-        description: Operator acceptance of the dynamic-a11y UX (announcements, disabled-reason Tab reachability); spec decision RESOLVED by operator 2026-10-09: Enter must NOT activate a focused non-dialog button (Space only, Windows standard) — no code change; pre-existing unnamed controls remain outside scope.
-    evidence_refs:
-      - docs/issues/issue-975-dynamic-a11y.md
-      - backend/tests/test_dynamic_a11y.py
-    close_when_gates_clear: true
-  - issue: 992
-    lifecycle: acceptance_remaining
-    landed:
-      prs: [1092]
-      commits: [760655c3d5649c9ea1f02d0e03f26cb1f7f53ee5]
-    remaining_gates:
-      - kind: manual
-        description: Operator runs the drill on real production backups and accepts the verdict; other-PC migration and physical-disaster recovery remain distinct states the drill deliberately does not claim.
-    evidence_refs:
-      - docs/issues/issue-992-restore-drill.md
-      - backend/tests/test_issue_992_restore_drill.py
-    close_when_gates_clear: true
-  - issue: 973
-    lifecycle: acceptance_remaining
-    landed:
-      prs: [1091]
-      commits: [68b6a1a2a2f30b9c5b7b3f0a4c9d4a2715e91302]
-    remaining_gates:
-      - kind: manual
-        description: Operator acceptance of per-workspace view-state restore (scroll/selection/filters/panels/splitters) across navigation and project switches.
-    evidence_refs:
-      - docs/issues/issue-973-view-state.md
-      - backend/tests/test_view_state.py
-    close_when_gates_clear: true
-  - issue: 974
-    lifecycle: acceptance_remaining
-    landed:
-      prs: [1093]
-      commits: [4e2a58f72371d9d4bf00b71a541d18f5df60110d]
-    remaining_gates:
-      - kind: manual
-        description: Operator acceptance of the ActivityCenter strip integration (progress units, cancel/retry affordances, navigation-block reasons) across long-running workspace operations.
-    evidence_refs:
-      - docs/issues/issue-974-activity-center.md
-      - backend/tests/test_issue_974_activity_integration.py
-    close_when_gates_clear: true
-  - issue: 972
-    lifecycle: acceptance_remaining
-    landed:
-      prs: [1099]
-      commits: [15fb55fc09b3f76b8cf3e6f83717759bb8b2434a]
-    remaining_gates:
-      - kind: manual
-        description: Operator acceptance of the standards criterion search/status/domain narrowing (hidden-selection warning leading the result line, checked-but-filtered criteria still blocking the gate) on a dense evaluated profile.
-    evidence_refs:
-      - docs/issues/issue-972-standards-filter.md
-      - backend/tests/test_issue_972_standards_filter.py
-    close_when_gates_clear: true
-  - issue: 970
-    lifecycle: acceptance_remaining
-    landed:
-      prs: [1100]
-      commits: [c11095240d9f1f4813af494be824937c5b61946f]
-    remaining_gates:
-      - kind: manual
-        description: Operator acceptance of the measurement A/B progressive disclosure (basic-3-step strip, 詳細条件 collapse, nearest-resolvable-reason lines, honest phase lane) on real measurement fixtures.
-    evidence_refs:
-      - docs/issues/issue-970-comparison-progressive.md
-      - backend/tests/test_measurement_workspace_composition.py
-    close_when_gates_clear: true
+- issue: 975
+  lifecycle: acceptance_remaining
+  landed:
+    prs: [1090]
+    commits: [73a90e8f98463b9895466f9f7f09cff3f04826f0]
+  remaining_gates:
+    - kind: manual
+      description: 'Operator acceptance of the dynamic-a11y UX (announcements, disabled-reason Tab reachability); spec decision RESOLVED by operator 2026-10-09: Enter must NOT activate a focused non-dialog button (Space only, Windows standard) — no code change; pre-existing unnamed controls remain outside scope.'
+  evidence_refs:
+    - docs/issues/issue-975-dynamic-a11y.md
+    - backend/tests/test_dynamic_a11y.py
+  close_when_gates_clear: true
+- issue: 992
+  lifecycle: acceptance_remaining
+  landed:
+    prs: [1092]
+    commits: [760655c3d5649c9ea1f02d0e03f26cb1f7f53ee5]
+  remaining_gates:
+    - kind: manual
+      description: Operator runs the drill on real production backups and accepts the verdict; other-PC migration and physical-disaster recovery remain distinct states the drill deliberately does not claim.
+  evidence_refs:
+    - docs/issues/issue-992-restore-drill.md
+    - backend/tests/test_issue_992_restore_drill.py
+  close_when_gates_clear: true
+- issue: 973
+  lifecycle: acceptance_remaining
+  landed:
+    prs: [1091]
+    commits: [68b6a1a2a2f30b9c5b7b3f0a4c9d4a2715e91302]
+  remaining_gates:
+    - kind: manual
+      description: Operator acceptance of per-workspace view-state restore (scroll/selection/filters/panels/splitters) across navigation and project switches.
+  evidence_refs:
+    - docs/issues/issue-973-view-state.md
+    - backend/tests/test_view_state.py
+  close_when_gates_clear: true
+- issue: 974
+  lifecycle: acceptance_remaining
+  landed:
+    prs: [1093]
+    commits: [4e2a58f72371d9d4bf00b71a541d18f5df60110d]
+  remaining_gates:
+    - kind: manual
+      description: Operator acceptance of the ActivityCenter strip integration (progress units, cancel/retry affordances, navigation-block reasons) across long-running workspace operations.
+  evidence_refs:
+    - docs/issues/issue-974-activity-center.md
+    - backend/tests/test_issue_974_activity_integration.py
+  close_when_gates_clear: true
+- issue: 972
+  lifecycle: acceptance_remaining
+  landed:
+    prs: [1099]
+    commits: [15fb55fc09b3f76b8cf3e6f83717759bb8b2434a]
+  remaining_gates:
+    - kind: manual
+      description: Operator acceptance of the standards criterion search/status/domain narrowing (hidden-selection warning leading the result line, checked-but-filtered criteria still blocking the gate) on a dense evaluated profile.
+  evidence_refs:
+    - docs/issues/issue-972-standards-filter.md
+    - backend/tests/test_issue_972_standards_filter.py
+  close_when_gates_clear: true
+- issue: 970
+  lifecycle: acceptance_remaining
+  landed:
+    prs: [1100]
+    commits: [c11095240d9f1f4813af494be824937c5b61946f]
+  remaining_gates:
+    - kind: manual
+      description: Operator acceptance of the measurement A/B progressive disclosure (basic-3-step strip, 詳細条件 collapse, nearest-resolvable-reason lines, honest phase lane) on real measurement fixtures.
+  evidence_refs:
+    - docs/issues/issue-970-comparison-progressive.md
+    - backend/tests/test_measurement_workspace_composition.py
+  close_when_gates_clear: true
