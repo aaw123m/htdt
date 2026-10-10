@@ -1,0 +1,74 @@
+{
+  "schema_version": "htdt.r130d.conservative-q0-plan-1",
+  "request": "Resolve original undamped impulse nonconvergence; no finite-mesh viscosity allowed",
+  "ppw": [
+    28,
+    32,
+    36,
+    40,
+    44
+  ],
+  "frequencies_hz": [
+    40,
+    80
+  ],
+  "source": "original q[0]=1 and later samples zero; causal velocity jump c^2*dt*M^-1*b",
+  "source_and_receiver": "all original eight physical coordinates and weights per native grid",
+  "observer": "original rho*np.gradient(phi,dt,edge_order=2), native dt/Nt, full rectangular signed DTFT / q DTFT",
+  "primary_arm": "gauss4",
+  "arms": [
+    "exact",
+    "gauss2",
+    "gauss4",
+    "gauss6",
+    "rational_mass_exact",
+    "hyperstiffness_exact"
+  ],
+  "rational_mass": "lambda_eff=lambda/(1+h^2*lambda/(12*c^2)); labelled spatial modification",
+  "hyperstiffness": "lambda_eff=lambda+h^2*lambda^2/(12*c^2); labelled spatial modification",
+  "all_modes": true,
+  "viscosity": 0,
+  "coefficient_tuning": false,
+  "original_limits": {
+    "complex_rms_relative": 0.2,
+    "magnitude_max_relative": 0.25,
+    "phase_max_deg": 15
+  },
+  "all_four_pairs_and_strict_monotone_all_three": true,
+  "independent_orders_r2": [
+    3,
+    4,
+    5
+  ],
+  "independent_orders_r1": [
+    6,
+    7,
+    8
+  ],
+  "independent_fine_and_cross_limits": {
+    "complex_rms_relative": 0.03,
+    "magnitude_max_relative": 0.05,
+    "phase_max_deg": 3
+  },
+  "independent_rule": "both P4/P5 r2 and P7/P8 r1 fine pairs and both SEM44 cross checks must pass; neither independent family may be selected after observing results",
+  "energy_max_relative_drift": 2e-12,
+  "unit_modulus_max_error": 2e-14,
+  "input_sha256": {
+    "scratch/boundary-fitted-sem/ppw28.npz": "ce9245616e2f2799bfae40d71219fc4ab3d3c4a830e02fdb85e9039978fd1ae0",
+    "scratch/boundary-fitted-sem/ppw32.npz": "a18f61095dd4de95f714d3125767ed2757563bdcc9049f6860487ed218199983",
+    "scratch/boundary-fitted-sem/ppw36.npz": "94218e7d695f81ac6ebb7d9d6956f9e4b4252ab4ec7fbe7ed11cb3070fb323ef",
+    "scratch/boundary-fitted-sem/ppw40.npz": "e031c69baccf75a177f1dca69608ac533351f7285846a8031b14758857017ba2",
+    "scratch/boundary-fitted-sem/ppw44.npz": "00792d5eda602a705caeece2f80569aec43d77ad595418838cd260d2c2cff47b",
+    "scratch/independent-hp-impulse/order3.npz": "877d30d01194a6872aef321bd74a7543c4ad687c8d125c91d70ebcf4e06c74f7",
+    "scratch/independent-hp-impulse/order4.npz": "f93e6575f6baabe93f08f92a265c0824312d328deb676e24b70e8e322802d549",
+    "scratch/independent-hp-impulse/order5.npz": "0ded743027e1ef1dc4a87769c1db199392fa86fd4c10538df00cf61f24c831e0",
+    "scratch/independent-hp-impulse/order6.npz": "8e4df60fd0d8a89f8db78d758ae4457ff3114e96f00d6bfd797b98ce136f0bfc",
+    "scratch/independent-hp-impulse/order7.npz": "fd8c0c344a3fbc4260ddd95ab3e461eb6e9bf9c87f4b31189b719bff8de3fa9a",
+    "scratch/independent-hp-impulse/order8.npz": "7c121e8a4a0ca878899cd8fb0442686779a44f3a43612a759978385d8338db5b"
+  },
+  "cloud_provenance_sha256": "d016bae660c75606fd6bf90211764a01a709e6b3d69e900030b0596ee69820fd",
+  "legacy_archived_pffdtd": "SELF_CONVERGENCE_FAILED",
+  "measured_validation": "NOT_VALIDATED",
+  "do_not_relabel_archived_records": true,
+  "design_informed_by_prior_failed_exact_and_gauss2_controls": true
+}
