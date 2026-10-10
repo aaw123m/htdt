@@ -639,11 +639,11 @@ entries:
 - issue: 938
   lifecycle: structural_followup_remaining
   landed:
-    prs: [945, 998, 127]
+    prs: [945, 998, 127, 118, 134]
     commits: [bf1ba6b3, ecc74ddf]
   remaining_gates:
     - kind: structural
-      description: "fem_conditioning_pollution 軸の機構同定 — PR#127 で MFEM v4.10 (pinned d964264c) を WSL2/gcc で実ビルドし軸を実実行: verdict UNRESOLVED (環境ブロック解除、conditioning 機構は未同定)。残ゲートは実質的な cross-solver 比較と機構同定。boundary_halo_separation は #947 処置適用で HALO_ADJACENCY_NO_LEAK_OBSERVED へ真値更新 (未処置リプレイは 0.00998 ABSORBS を bit-identical 再現)。R130D 元契約の非収束は機構解明済 — 階段形状が最低モードを非収束化 + >200Hz 高モードの有限レコード・リーク。帯域制限観測量 (≤200Hz・真形状) は別途 preregister の再適格契約で全ゲート収束 (PR #118)。元契約の SELF_CONVERGENCE_FAILED は不変"
+      description: "fem_conditioning_pollution 軸の機構同定 — PR#127 で MFEM v4.10 (pinned d964264c) を WSL2/gcc で実ビルドし軸を実実行: verdict UNRESOLVED (環境ブロック解除、conditioning 機構は未同定)。残ゲートは実質的な cross-solver 比較と機構同定。boundary_halo_separation は #947 処置適用で HALO_ADJACENCY_NO_LEAK_OBSERVED へ真値更新 (未処置リプレイは 0.00998 ABSORBS を bit-identical 再現)。R130D 元契約の非収束は機構解明済 — 階段形状が最低モードを非収束化 + >200Hz 高モードの有限レコード・リーク。帯域制限観測量 (≤200Hz・真形状) は別途 preregister の再適格契約で全ゲート収束 (PR #118)。離散 Neumann 演算子スペクトルは rigid-box 解析解に対し独立物理検証済 (PR #134、PHYSICS_VALIDATED_SEMIDISCRETE_SPECTRUM — record-peak 未解像は検出限界確定)。元契約の SELF_CONVERGENCE_FAILED は不変"
   evidence_refs:
     - docs/R130D_GENERAL3D_REPRODUCTION_ISOLATION_RESULT_2026-10-08.md
     - benchmarks/acoustics/r130d_reproduction_isolation_diagnostic_summary.json
@@ -656,6 +656,10 @@ entries:
     - benchmarks/acoustics/r130d_bandlimited_observable_requalification_plan_2026-10-11.json
     - scripts/run_r130d_bandlimited_modal_convergence_diagnostic.py
     - scripts/run_r130d_bandlimited_observable_requalification.py
+    - docs/R130D_RIGID_BOX_SEMIDISCRETE_SPECTRUM_2026-10-11.md
+    - benchmarks/acoustics/r130d_rigid_box_semidiscrete_spectrum_plan_2026-10-11.json
+    - benchmarks/acoustics/r130d_rigid_box_semidiscrete_spectrum_evidence_2026-10-11.json
+    - scripts/run_r130d_rigid_box_semidiscrete_spectrum.py
   close_when_gates_clear: true
 - issue: 947
   lifecycle: complete
