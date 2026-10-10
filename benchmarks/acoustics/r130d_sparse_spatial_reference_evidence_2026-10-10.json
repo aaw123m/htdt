@@ -1,0 +1,284 @@
+{
+  "schema_version": "htdt.r130d.sparse-spatial-reference-evidence-1",
+  "plan_sha256_lf": "a784a22f9c10cd5becbbabe2e313b8cf2a9924a7d15a2524c65ab2387c602553",
+  "plan": {
+    "schema_version": "htdt.r130d.sparse-spatial-reference-plan-1",
+    "source": "original q[0]=1, later zero; velocity jump c^2*dt*M^-1*b",
+    "native_observer": {
+      "ppw": 44,
+      "cache_sha256": "00792d5eda602a705caeece2f80569aec43d77ad595418838cd260d2c2cff47b",
+      "source_cloud_indices": [
+        66,
+        67,
+        68,
+        69,
+        70,
+        71,
+        72,
+        73
+      ],
+      "receiver_cloud_indices": [
+        74,
+        75,
+        76,
+        77,
+        78,
+        79,
+        80,
+        81
+      ],
+      "sw": [
+        0.014533707581045602,
+        0.005354523845648348,
+        0.08852349163000249,
+        0.08852349163000248,
+        0.03261391796894809,
+        0.03261391796894809,
+        0.5391885399281814,
+        0.19864840944722353
+      ],
+      "rw": [
+        0.010964025017280075,
+        0.008924206409413877,
+        0.06678087965070398,
+        0.06678087965070399,
+        0.05435652994824658,
+        0.054356529948246586,
+        0.40675626696336703,
+        0.3310806824120378
+      ],
+      "dt": 0.00013108475430009911,
+      "Nt": 1908
+    },
+    "frequencies_hz": [
+      40,
+      80
+    ],
+    "pressure": "original gradient edge_order=2 and rectangular signed DTFT",
+    "order": 2,
+    "refinements": [
+      2,
+      3,
+      4
+    ],
+    "dofs": [
+      729,
+      4913,
+      35937
+    ],
+    "native_substeps": 1,
+    "linear_solver": "cg",
+    "cg_rtol": 1e-13,
+    "memory_budget_bytes": 536870912,
+    "energy_drift_max": 2e-10,
+    "backward_error_max": 5e-13,
+    "all_dofs": true,
+    "viscosity": 0.0,
+    "primary_fine_pair_limits": [
+      0.03,
+      0.05,
+      3.0
+    ],
+    "sem44_cross_limits": [
+      0.03,
+      0.05,
+      3.0
+    ],
+    "binary_p3_r2_vs_original_json": "all CSR values and all 82 functionals must be exactly equal",
+    "fixed_observer_only": true,
+    "original_five_grid_qualification": "SELF_CONVERGENCE_FAILED",
+    "physical_limit": "NOT_ESTABLISHED",
+    "do_not_qualify_original_from_fixed_observer_study": true,
+    "mfem_pin": "d964264cdb9a13e94a201b6c236c7721e0c8765f",
+    "exporter_source_sha256_lf": "997875a08aa25986d5438aecf82a0fdaf5900d37ce1bb9c37781671969dd6445",
+    "exporter_executable_sha256": "bb4db18131d55dd7b02dd3ef63784ab208657e3909edea4a5a4c9b220d2522ad",
+    "point_cloud_sha256": "b2b244f7fe26edfe247d463dbba50d9638d627be421635c9be8042331eed5359",
+    "binary_baseline_old_cache_sha256": "877d30d01194a6872aef321bd74a7543c4ad687c8d125c91d70ebcf4e06c74f7",
+    "sem_control_sha256": "afad6dfcc248b9cd823f361cdbd825af14c2afa90e35a3c5f012630e65460744"
+  },
+  "binary_json_exact_reproduction": "PASS",
+  "baseline_binary": {
+    "sha256": "d15eb71a4707cf1e1b83dc123b8c29b6c87d51b555189398bf649a2a1287d475",
+    "bytes": 2233916,
+    "all_dofs": 2197,
+    "order": 3,
+    "refinement": 2,
+    "volume_error_m3": 4.263256414560601e-14,
+    "rigid_scaled_residual": 2.6830542416781673e-16,
+    "mass_data_memory_mapped": true,
+    "stiffness_data_memory_mapped": true,
+    "convergence_qualified": false
+  },
+  "cases": [
+    {
+      "order": 2,
+      "refinement": 2,
+      "all_dofs": 729,
+      "matrix": {
+        "sha256": "cd9328e54a9a52dd01f8e710e972339166de9ce7f5376e71e97402bb750a8520",
+        "bytes": 424608,
+        "all_dofs": 729,
+        "order": 2,
+        "refinement": 2,
+        "volume_error_m3": 0.0,
+        "rigid_scaled_residual": 2.8295610872773344e-16,
+        "mass_data_memory_mapped": true,
+        "stiffness_data_memory_mapped": true,
+        "convergence_qualified": false
+      },
+      "execution": {
+        "all_dofs": 729,
+        "modal_truncation": false,
+        "viscosity": 0.0,
+        "energy_audited_at_every_internal_step": true,
+        "max_energy_relative_drift": 9.547918011776346e-14,
+        "max_linear_backward_error": 9.229738966010618e-14,
+        "native_dt_s": 0.00013108475430009911,
+        "internal_substeps": 1,
+        "source_impulse_area_s": 0.00013108475430009911,
+        "allocation_guard_bytes": 4834304,
+        "linear_solver": "cg",
+        "cg_relative_tolerance": 1e-13,
+        "cg_solves": 1908,
+        "cg_iterations_total": 93684,
+        "peak_memory_measured": false,
+        "convergence_qualified": false
+      },
+      "elapsed_s": 2.2084778998978436,
+      "signed_40_80": [
+        [
+          79.76955612256208,
+          3.387234205024386
+        ],
+        [
+          55.04081002803349,
+          -208.5695148030079
+        ]
+      ],
+      "waveform_sha256": "4835009a32affac10e62863d63eb3cd444ea76f4061905151d0fe4c5992940d3"
+    },
+    {
+      "order": 2,
+      "refinement": 3,
+      "all_dofs": 4913,
+      "matrix": {
+        "sha256": "4642120d613f925998f236635ce6e13eb3baaa1ae3b6e90bc806bd85a3ec0060",
+        "bytes": 3081688,
+        "all_dofs": 4913,
+        "order": 2,
+        "refinement": 3,
+        "volume_error_m3": 7.105427357601002e-15,
+        "rigid_scaled_residual": 3.7223103073274016e-16,
+        "mass_data_memory_mapped": true,
+        "stiffness_data_memory_mapped": true,
+        "convergence_qualified": false
+      },
+      "execution": {
+        "all_dofs": 4913,
+        "modal_truncation": false,
+        "viscosity": 0.0,
+        "energy_audited_at_every_internal_step": true,
+        "max_energy_relative_drift": 6.0285110237146e-14,
+        "max_linear_backward_error": 1.169465949737039e-13,
+        "native_dt_s": 0.00013108475430009911,
+        "internal_substeps": 1,
+        "source_impulse_area_s": 0.00013108475430009911,
+        "allocation_guard_bytes": 34961664,
+        "linear_solver": "cg",
+        "cg_relative_tolerance": 1e-13,
+        "cg_solves": 1908,
+        "cg_iterations_total": 91674,
+        "peak_memory_measured": false,
+        "convergence_qualified": false
+      },
+      "elapsed_s": 12.546137900091708,
+      "signed_40_80": [
+        [
+          50.749444162280206,
+          3.035579287088069
+        ],
+        [
+          65.8962477204418,
+          -214.65550351041878
+        ]
+      ],
+      "waveform_sha256": "858b6776be1a15301dc1bfa5be722ff8bdf808fb7b83a4a5a2f7d73686a39e23"
+    },
+    {
+      "order": 2,
+      "refinement": 4,
+      "all_dofs": 35937,
+      "matrix": {
+        "sha256": "277fb86596db753260e06ef18ad84dea2a4d615857dc957de4799ae8bc79fc43",
+        "bytes": 23675808,
+        "all_dofs": 35937,
+        "order": 2,
+        "refinement": 4,
+        "volume_error_m3": 0.0,
+        "rigid_scaled_residual": 4.0276883148021554e-16,
+        "mass_data_memory_mapped": true,
+        "stiffness_data_memory_mapped": true,
+        "convergence_qualified": false
+      },
+      "execution": {
+        "all_dofs": 35937,
+        "modal_truncation": false,
+        "viscosity": 0.0,
+        "energy_audited_at_every_internal_step": true,
+        "max_energy_relative_drift": 1.2878587085651816e-14,
+        "max_linear_backward_error": 1.1183591354855563e-13,
+        "native_dt_s": 0.00013108475430009911,
+        "internal_substeps": 1,
+        "source_impulse_area_s": 0.00013108475430009911,
+        "allocation_guard_bytes": 267869184,
+        "linear_solver": "cg",
+        "cg_relative_tolerance": 1e-13,
+        "cg_solves": 1908,
+        "cg_iterations_total": 76852,
+        "peak_memory_measured": false,
+        "convergence_qualified": false
+      },
+      "elapsed_s": 87.91693909978494,
+      "signed_40_80": [
+        [
+          -60.135882410109126,
+          7.855355173205847
+        ],
+        [
+          -39.01055146815506,
+          -202.4433153934431
+        ]
+      ],
+      "waveform_sha256": "cd5d3c3092995716ec04603e75c09dd57fae3906184f61fc2a6fece26076cf35"
+    }
+  ],
+  "fixed_native44_spatial_reference": "FAIL_FIXED_NATIVE44_SPATIAL_REFERENCE",
+  "original_five_grid_qualification": "SELF_CONVERGENCE_FAILED",
+  "physical_limit": "NOT_ESTABLISHED",
+  "product_go": false,
+  "spatial_pairs": [
+    {
+      "coarse_r": 2,
+      "fine_r": 3,
+      "metrics_complex_mag_phase": [
+        0.13716088122677425,
+        0.5704406810320011,
+        2.2826110973816793
+      ]
+    },
+    {
+      "coarse_r": 3,
+      "fine_r": 4,
+      "metrics_complex_mag_phase": [
+        0.712928297975904,
+        0.16170064748450347,
+        169.13470710011003
+      ]
+    }
+  ],
+  "sem44_cross_metrics_complex_mag_phase": [
+    0.567688353489452,
+    1.020452048008173,
+    173.24981359007035
+  ]
+}

@@ -5,6 +5,14 @@ import numpy as np
 from scipy.sparse import csr_matrix
 
 
+def csr_norm_inf(matrix):
+    """Absolute row norm without SciPy's in-place CSR deduplication/sorting."""
+    starts=matrix.indptr[:-1];nonempty=np.diff(matrix.indptr)>0
+    rows=np.zeros(matrix.shape[0])
+    if np.any(nonempty):rows[nonempty]=np.add.reduceat(np.abs(matrix.data),starts[nonempty])
+    return float(np.max(rows,initial=0.))
+
+
 def load_mfem_binary(path: Path, expected_sha256: str, expected_points, *, max_dofs=40000):
     with path.open('rb') as stream:sha=hashlib.file_digest(stream,'sha256').hexdigest()
     if sha!=expected_sha256:raise ValueError('MFEM binary SHA256 mismatch')
@@ -44,7 +52,7 @@ def load_mfem_binary(path: Path, expected_sha256: str, expected_points, *, max_d
         cloud.append((indices,values))
     if offset!=len(blob):raise ValueError('unexpected MFEM trailing payload')
     M,K=operators;volume_error=float(abs(M.sum()-56.))
-    normK=float(abs(K).sum(axis=1).max());rigid=float(max(abs(K@np.ones(n))))/max(normK,1.)
+    normK=csr_norm_inf(K);rigid=float(max(abs(K@np.ones(n))))/max(normK,1.)
     if volume_error>1e-8 or rigid>1e-12:raise ValueError('MFEM volume or natural Neumann failed')
     return M,K,cloud,{'sha256':sha,'bytes':len(blob),'all_dofs':n,'order':order,
         'refinement':refinement,'volume_error_m3':volume_error,'rigid_scaled_residual':rigid,

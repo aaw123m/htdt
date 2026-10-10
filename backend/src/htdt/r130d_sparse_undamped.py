@@ -7,6 +7,7 @@ successful linear solve is not a convergence qualification.
 import numpy as np
 from scipy import sparse
 from scipy.sparse.linalg import splu,cg,LinearOperator
+from .r130d_mfem_binary import csr_norm_inf
 
 
 def sparse_undamped_q0(mass, stiffness_c2, source, receiver, dt, nt, *,
@@ -31,7 +32,7 @@ def sparse_undamped_q0(mass, stiffness_c2, source, receiver, dt, nt, *,
     if allocation_bound>memory_budget_bytes:
         raise ValueError('complete-DOF solve exceeds declared memory budget')
     for operator in (M,K):
-        scale=max(float(abs(operator).sum(axis=1).max()),1.)
+        scale=max(csr_norm_inf(operator),1.)
         if np.max(abs((operator-operator.T).data),initial=0)>1e-12*scale:
             raise ValueError('energy-conserving propagation requires symmetric operators')
     if np.min(M.diagonal())<=0 or np.min(K.diagonal())<0:
@@ -57,7 +58,7 @@ def sparse_undamped_q0(mass, stiffness_c2, source, receiver, dt, nt, *,
     energy0=float(v@(M@v))
     if not energy0>0:raise ValueError('source has no positive kinetic energy')
     phi=np.zeros(nt);max_drift=0.;max_residual=0.;min_energy=energy0
-    normA=float(abs(A).sum(axis=1).max())
+    normA=csr_norm_inf(A)
     for index in range(1,nt):
         for _ in range(substeps):
             rhs=B@u+step*(M@v);u1=solveA(rhs,initial=u)
