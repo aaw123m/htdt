@@ -636,12 +636,19 @@ entries:
     commits: [bf1ba6b3, ecc74ddf]
   remaining_gates:
     - kind: structural
-      description: "MFEM ビルド可能な環境 — fem_conditioning_pollution 軸は MFEM 未構築のため UNRESOLVED_ENVIRONMENT_BLOCKED のまま (fail/closed ではなく環境ブロック)"
+      description: "MFEM 環境は main 側 PR #127 で解除済 (WSL2 実ビルド、機構 UNRESOLVED を正直記録)。R130D 元契約の非収束は機構解明済 — 階段形状が最低モードを非収束化 + >200Hz 高モードの有限レコード・リーク。帯域制限観測量 (≤200Hz・真形状) は別途 preregister の再適格契約で全ゲート収束 (PR #118)。元契約の SELF_CONVERGENCE_FAILED は不変"
   evidence_refs:
     - docs/R130D_GENERAL3D_REPRODUCTION_ISOLATION_RESULT_2026-10-08.md
     - benchmarks/acoustics/r130d_reproduction_isolation_diagnostic_summary.json
     - backend/src/htdt/r130d_general3d_validation.py
     - scripts/run_r130d_reproduction_isolation_diagnostic.py
+    - docs/R130D_ORIGINAL_Q0_BANDLIMITED_MODAL_CONVERGENCE_2026-10-11.md
+    - docs/R130D_BANDLIMITED_OBSERVABLE_REQUALIFICATION_2026-10-11.md
+    - benchmarks/acoustics/r130d_original_q0_bandlimited_modal_convergence_evidence_2026-10-11.json
+    - benchmarks/acoustics/r130d_bandlimited_observable_requalification_evidence_2026-10-11.json
+    - benchmarks/acoustics/r130d_bandlimited_observable_requalification_plan_2026-10-11.json
+    - scripts/run_r130d_bandlimited_modal_convergence_diagnostic.py
+    - scripts/run_r130d_bandlimited_observable_requalification.py
   close_when_gates_clear: true
 - issue: 947
   lifecycle: complete
