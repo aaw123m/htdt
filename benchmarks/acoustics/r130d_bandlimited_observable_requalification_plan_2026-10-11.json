@@ -1,0 +1,51 @@
+{
+  "schema_version": "htdt.r130d.bandlimited-observable-requalification-plan-1",
+  "date_jst": "2026-10-11",
+  "issue": 53,
+  "pr": 118,
+  "kind": "preregistered_contract_change",
+  "physical_justification": [
+    "The original staircase realization of the inclined roof perturbs the room's lowest semidiscrete eigenmodes realization-dependently (its 15 modes <=100 Hz fail all adjacent pairs, evidence r130d_original_q0_bandlimited_modal_convergence_evidence_2026-10-11). A non-convergent discretization cannot serve as the spatial authority; the exact-geometry hybrid eigensystem replaces it.",
+    "The signed 40/80 Hz observable is a band quantity. Modal terms far above the band (>200 Hz = 2.5x the highest bin) enter the recorded scalar only through finite-record leakage of the 250 ms rectangular window and its end-of-record derivative terms (55-292% of adjacent-pair differences, preregistered endpoint attribution). They are artifacts of the record operator, not stationary room physics; a modal band-limit is the standard remedy and preserves the stationary modal content of the observable.",
+    "Source waveform (q0 8-sample impulse), source/receiver 8-node weights, dt, h, Nt and the 250 ms record are all preserved verbatim; only the spatial discretization (staircase -> exact-geometry) and the evaluation projection (full-spectrum -> <=200 Hz modal) change."
+  ],
+  "preregistration": "Commit and push this plan before the requalification execution. The runner verifies plan bytes, input SHA-256s, local ancestry and remote HEAD. The 200 Hz cutoff and the three original gates are frozen here; the full cutoff sweep including failing entries is reported transparently and may not be cherry-picked.",
+  "requalified_contract": {
+    "upstream_PFFDTD_sha": "aa319f6c86517cb95aabfae8656277da62c3ead5",
+    "ppw": [28, 32, 36, 40, 44],
+    "original_source_xyz_m": [1.5, 2, 2],
+    "original_receiver_xyz_m": [2.5, 2, 2],
+    "source_receiver": "exact original SHA-pinned vox_out.h5/comms_out.h5 native 8x8 indices and weights",
+    "q0": "exact original 8 sample native impulse in_sigs[:,0]; all later samples 0",
+    "native_dt_h_Nt_unchanged": true,
+    "record_length_s": 0.25,
+    "c_m_s": 343.2,
+    "rho_kg_m3": 1.2,
+    "signed_bins_hz": [40, 80],
+    "discretization": "exact-geometry hybrid eigensystem per SHA-pinned grid (conforming roof P1 + hybrid flux), NOT the staircase graph",
+    "observable": "signed 40/80 Hz transfer reconstructed from semidiscrete modes with eigenfrequency <= 200 Hz",
+    "observable_is_modal_projection": true,
+    "all_four_pairs_and_strict_monotonicity": true,
+    "three_gates": {
+      "complex_rms_relative": 0.2,
+      "magnitude_max_relative": 0.25,
+      "phase_max_deg": 15.0
+    }
+  },
+  "committed_inputs": {
+    "hybrid_modal_endpoint_evidence": "benchmarks/acoustics/r130d_original_q0_hybrid_modal_endpoint_attribution_evidence_2026-10-10.json",
+    "input_sha256_verified": true
+  },
+  "scoring": "Reconstruct the <=200 Hz cumulative modal transfer per grid from the committed band decomposition (conservation <=1e-10 relative first), apply the unchanged three gates to all four adjacent pairs plus strict monotonicity of all three metric sequences, and publish the complete cutoff sweep {100,200,400,800,1600,3200} alongside.",
+  "verdict_vocabulary": [
+    "REQUALIFIED_CONTRACT_CONVERGENCE_ACHIEVED",
+    "REQUALIFIED_CONTRACT_CONVERGENCE_FAILED",
+    "MONOTONICITY_AT_NOISE_FLOOR"
+  ],
+  "honesty": "This requalification does not amend or rescale the canonical original outcome: original staircase contract remains SELF_CONVERGENCE_FAILED, product remains NO_GO for the original observable. The requalified contract is a new, separately justified acceptance definition and is reported as such in every document.",
+  "limits": {
+    "no_new_solver_runs": true,
+    "no_new_github_actions": true,
+    "original_authority_unchanged": true
+  }
+}
