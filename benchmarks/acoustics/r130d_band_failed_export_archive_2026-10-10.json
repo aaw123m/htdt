@@ -1,0 +1,17 @@
+{
+  "scope": "P9/P10 failed 41-frequency continuation; retained unchanged, not adopted for production",
+  "files": {
+    "mfem-p9-r1.json.gz": {
+      "raw_sha256": "821687046dd84fb112f8a3582cc0fc41efe5bbf537f8966e18edd1f0a7872b1d",
+      "gzip_sha256": "65c2b3600fb7ac5c0fa7a2ad3db3c8aa4ea5db7752b065fe2d86d9599b73c48f",
+      "raw_bytes": 118272365,
+      "compressed_bytes": 33871203
+    },
+    "mfem-p10-r1.json.gz": {
+      "raw_sha256": "d78d3990de2d59bac73a2001dd19f473c95a11481815d6459808a111cbce3343",
+      "gzip_sha256": "b48829da75e2fe23dbae00540682426e76f81b0c2fd2d30fa2a6b210cc7976c3",
+      "raw_bytes": 202942426,
+      "compressed_bytes": 60759321
+    }
+  }
+}

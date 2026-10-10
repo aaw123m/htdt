@@ -36,8 +36,13 @@ dependencies = [
 htdt = "htdt.headless_cli:main"
 htdt-native = "htdt.native_cad:main"
 htdt-capture-import = "htdt.capture_import:main"
+htdt-r130d = "htdt.r130d_cli:main"
 
 [project.optional-dependencies]
+acoustic-numerical = [
+  "numpy>=1.26,<3",
+  "scipy>=1.14,<2",
+]
 dev = [
   "httpx==0.28.1",
   "pytest==9.1.1",
@@ -62,7 +67,7 @@ where = ["src"]
 # Pinned Capture Bundle v1 contract assets (support matrix + JSON schemas)
 # ship inside the package so the production import path can validate
 # untrusted bundles without a runtime checkout of HTDT-Capture.
-htdt = ["capture_contract/*.json", "reference_theater/*.json"]
+htdt = ["capture_contract/*.json", "reference_theater/*.json", "r130d_contract/*.json"]
 
 [tool.pytest.ini_options]
 addopts = "-q"

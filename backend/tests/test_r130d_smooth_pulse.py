@@ -50,3 +50,18 @@ def test_midpoint_pressure_and_exact_finite_time_integral_have_second_order_erro
         assert abs(t[-1]+.25/steps/2-.25) < 1e-14
         errors.append(np.linalg.norm(observed-exact))
     assert errors[0]/errors[1] > 3.8 and errors[1]/errors[2] > 3.8
+
+
+def test_discrete_midpoint_frequencies_against_independent_ode_integrals():
+    frequencies=np.array([41.,51.,79.])
+    lam=(2*np.pi*51)**2
+    cp=.02
+    def rhs(t,z):
+        q=np.exp(-.5*((t-.04)/.004)**2)
+        p=1.2*z[1]
+        return np.r_[z[1],343.2**2*cp*q-lam*z[0],
+                     p*np.cos(2*np.pi*frequencies*t),p*np.sin(2*np.pi*frequencies*t)]
+    sol=solve_ivp(rhs,[0,.25],np.zeros(8),rtol=1e-10,atol=1e-11,max_step=.0001)
+    expected=(sol.y[2:5,-1]+1j*sol.y[5:8,-1])/finite_gaussian_transform(2*np.pi*frequencies)
+    actual,_,_,_=all_mode_midpoint_gaussian_trace(np.array([lam]),np.array([cp]),64000,frequencies_hz=frequencies)
+    np.testing.assert_allclose(actual,expected,rtol=2e-5,atol=1e-5)

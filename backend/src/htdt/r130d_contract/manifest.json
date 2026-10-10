@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "evidence_sha256_lf": {
+    "finite_band.json": "fca38609e01b23ea6a1de9689028b51794902dba95f8cebcf21a1c910c80032e",
+    "instantaneous.json": "7a168fa45cddcafe38041c12c524d0158cdfe6ed56b9cad8dd4771c00fdc67c6",
+    "instantaneous_independent.json": "46e82e9d866b2abc9f60c381206f0f5dcfdd0027aa9ab63ce1d2c86ff7428642"
+  },
+  "asset_sha256": {
+    "finite_band/ppw28.npz": "a103cb590191d00d429a2c000c1f15de0f7c65994e3cafca9fbc3b62462ae49e",
+    "finite_band/ppw32.npz": "93103e9a4c7e0e8d6907510e9981c095eff3a823a93c55629183ba6391b2a372",
+    "finite_band/ppw36.npz": "9a029d148eecb104c9760188ecec17e941d82e13a542305f531d1e0b6cfdfff1",
+    "finite_band/ppw40.npz": "e4f001f70b2065c3e10cf8d8803588a7b1e89e9f26482ef9b89b219ad771b209",
+    "finite_band/ppw44.npz": "61a3361621024ba8cc29e5829d5878128805d4753ed3037c05c6d87c150f79e4",
+    "stabilized_instantaneous/ppw28.npz": "ce9245616e2f2799bfae40d71219fc4ab3d3c4a830e02fdb85e9039978fd1ae0",
+    "stabilized_instantaneous/ppw32.npz": "a18f61095dd4de95f714d3125767ed2757563bdcc9049f6860487ed218199983",
+    "stabilized_instantaneous/ppw36.npz": "94218e7d695f81ac6ebb7d9d6956f9e4b4252ab4ec7fbe7ed11cb3070fb323ef",
+    "stabilized_instantaneous/ppw40.npz": "e031c69baccf75a177f1dca69608ac533351f7285846a8031b14758857017ba2",
+    "stabilized_instantaneous/ppw44.npz": "00792d5eda602a705caeece2f80569aec43d77ad595418838cd260d2c2cff47b"
+  }
+}

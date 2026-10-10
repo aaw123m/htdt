@@ -32,6 +32,11 @@ def main():
     prior=(ROOT/'benchmarks/acoustics/r130d_finite_band_grid_evidence_2026-10-10.json').read_bytes().replace(b'\r\n',b'\n')
     if hashlib.sha256(prior).hexdigest()!=plan['parent_failed_evidence_sha256_lf'] or json.loads(prior)['qualification']!='FAIL_41_DISCRETE_FREQUENCIES':
         raise ValueError('previous failure missing or changed')
+    if 'prior_failed_continuation_sha256_lf' in plan:
+        previous=(ROOT/'benchmarks/acoustics/r130d_finite_band_grid_continuation_evidence_2026-10-10.json').read_bytes().replace(b'\r\n',b'\n')
+        if (hashlib.sha256(previous).hexdigest()!=plan['prior_failed_continuation_sha256_lf']
+            or json.loads(previous)['qualification']!='FAIL_41_DISCRETE_FREQUENCIES'):
+            raise ValueError('failed high-order continuation missing or changed')
     for name,expected in plan['input_artifacts'].items():
         if sha(ROOT/name)!=expected:
             raise ValueError(f'input drift: {name}')
