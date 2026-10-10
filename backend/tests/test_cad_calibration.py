@@ -47,6 +47,7 @@ from htdt.cad_measurement_quality import (
     measurement_repeatability_rms_db,
     observation_binding,
 )
+from htdt.cad_measurement_effective import CadEffectiveMeasurementResolver
 from htdt.cad_measurement_quality_repository import CadMeasurementQualityRepository
 from htdt.cad_measurement_repository import CadMeasurementRepository
 from htdt.cad_measurements import (
@@ -331,8 +332,7 @@ def _complete_verification(
         verification=verification,
         registration=registration,
         after_measurement_ids=(after_id,),
-        measurement_repository=measurements,
-        quality_repository=quality,
+        evidence_resolver=CadEffectiveMeasurementResolver(measurements, quality),
         completed_at_utc=completed_at_utc,
     )
     return calibration.save_verification_completion(completion)
@@ -1612,8 +1612,7 @@ def test_legacy_posthoc_verification_plan_reads_but_never_attests(
         verification=legacy,
         registration=fabricated,
         after_measurement_ids=('legacy-after',),
-        measurement_repository=measurements,
-        quality_repository=quality,
+        evidence_resolver=CadEffectiveMeasurementResolver(measurements, quality),
         completed_at_utc=_VERIFICATION_COMPLETED,
     )
     with pytest.raises(ValueError, match='registration authority missing/stale'):

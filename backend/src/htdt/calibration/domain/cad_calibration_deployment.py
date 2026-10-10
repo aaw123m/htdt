@@ -35,7 +35,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from ...cad_authority_resolver import AuthorityRef
+from ...cad_authority_registry import AuthorityRef
 from ...cad_device_adapter import (
     AdapterCapabilityReport,
     MaterializedCalibrationSettings,

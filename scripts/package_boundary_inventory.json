@@ -541,6 +541,7 @@
       "calibration.domain.cad_calibration",
       "calibration.domain.cad_calibration_deployment",
       "calibration.domain.cad_calibration_lifecycle",
+      "calibration.domain.cad_calibration_wizard_records",
       "calibration.domain.cad_external_calibration",
       "calibration.domain.cad_model_calibration",
       "calibration.persistence.cad_calibration_deployment_repository",
@@ -611,7 +612,7 @@
   "kind": "package-boundary-debt-inventory",
   "note": "Managed debt for the htdt domain split (#807/#954). Entries here are pre-existing violations recorded, not approved \u2014 regenerate after resolving debt so the inventory ratchets down.",
   "oversized": {
-    "application_pages": 6953,
+    "application_pages": 6959,
     "cad_geometric_acoustics_adapter": 8222,
     "cad_schema_ddl": 10563,
     "measurement.domain.measurement_evidence_display": 5306,
@@ -622,14 +623,5 @@
     "room_workspace": 9526,
     "workflow_application": 6423
   },
-  "violations": [
-    "package_import_direction|calibration.domain.cad_calibration_deployment|calibration.domain module imports cad_authority_resolver (flat persistence)",
-    "package_import_direction|calibration.domain.cad_calibration_lifecycle|calibration.domain module imports cad_authority_resolver (flat persistence)",
-    "package_import_direction|calibration.domain.cad_calibration|calibration.domain module imports cad_repository (flat persistence)",
-    "package_import_direction|calibration.domain.cad_calibration|calibration.domain module imports measurement.persistence.cad_measurement_effective (measurement.persistence)",
-    "package_import_direction|calibration.domain.cad_calibration|calibration.domain module imports measurement.persistence.cad_measurement_quality_repository (measurement.persistence)",
-    "package_import_direction|calibration.domain.cad_calibration|calibration.domain module imports measurement.persistence.cad_measurement_repository (measurement.persistence)",
-    "package_import_direction|calibration.persistence.cad_calibration_wizard_repository|calibration.persistence module imports calibration.services.cad_calibration_wizard (calibration.services)",
-    "package_import_direction|calibration.persistence.cad_calibration_workflow_repository|calibration.persistence module imports calibration.services.cad_calibration_workflow (calibration.services)"
-  ]
+  "violations": []
 }

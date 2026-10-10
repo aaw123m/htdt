@@ -13,7 +13,7 @@ from contextlib import closing
 from pathlib import Path
 
 from .cad_calibration_repository import CadCalibrationRepository
-from ..services.cad_calibration_workflow import CadAppliedSettingsRecord
+from ..domain.cad_calibration import CadAppliedSettingsRecord
 from ...cad_repository import SceneRepository
 from ...cad_schema import connect_sqlite, require_native_tables
 

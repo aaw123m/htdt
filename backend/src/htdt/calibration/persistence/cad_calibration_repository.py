@@ -756,8 +756,7 @@ class CadCalibrationRepository:
             verification=verification,
             registration=registration,
             after_measurement_ids=completion.after_measurement_ids,
-            measurement_repository=self.measurement_repository,
-            quality_repository=self.quality_repository,
+            evidence_resolver=self._effective,
             comparison=comparison,
             completed_at_utc=completion.completed_at_utc,
         )

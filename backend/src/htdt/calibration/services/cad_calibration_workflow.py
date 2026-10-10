@@ -27,9 +27,11 @@ from __future__ import annotations
 from typing import Any, Literal, Sequence
 from uuid import uuid4
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field
 
 from ..domain.cad_calibration import (
+    AppliedSettingsDeviation,
+    CadAppliedSettingsRecord,
     CadCalibrationExportSnapshot,
     CadCalibrationLifecycleEvent,
     CadCalibrationPlan,
@@ -45,8 +47,11 @@ from ..domain.cad_calibration import (
     render_generic_biquad_csv,
     render_generic_biquad_json,
 )
+from ...measurement.persistence.cad_measurement_effective import (
+    CadEffectiveMeasurementResolver,
+)
 from ..persistence.cad_calibration_repository import CadCalibrationRepository
-from ...canonical_json import canonical_json as _canonical_json, canonical_sha256 as _hash
+from ...canonical_json import canonical_sha256 as _hash
 
 
 
@@ -83,69 +88,6 @@ class CalibrationPlanReview(BaseModel):
     support_state: Literal['SUPPORTED', 'UNSUPPORTED']
     unsupported_reasons: tuple[str, ...] = ()
     channels: tuple[CalibrationChannelReview, ...] = Field(min_length=1)
-
-
-class AppliedSettingsDeviation(BaseModel):
-    """One explicit user deviation between exported and actually-applied."""
-
-    model_config = ConfigDict(frozen=True)
-
-    channel_id: str = Field(min_length=1)
-    field_name: Literal[
-        'gain_db', 'delay_s', 'polarity', 'crossover', 'peq', 'routing', 'level_db'
-    ]
-    exported_value_repr: str
-    applied_value_repr: str
-    reason: str | None = None
-
-
-class CadAppliedSettingsRecord(BaseModel):
-    """Structured 'effective applied settings' — export applied ≠ export.
-
-    The record never restates settings the user applied exactly as exported;
-    it pins the exact export (id + semantic hash) and lists only what the
-    user deliberately set differently, so consumers can always reconstruct
-    effective settings as ``export ⊕ deviations``.
-    """
-
-    model_config = ConfigDict(frozen=True)
-
-    applied_id: str = Field(min_length=1)
-    document_id: str = Field(min_length=1)
-    calibration_plan_id: str = Field(min_length=1)
-    calibration_plan_semantic_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
-    exported_settings_id: str = Field(min_length=1)
-    exported_settings_semantic_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
-    applied_at_utc: str = Field(min_length=1)
-    device_context: str | None = None
-    deviations: tuple[AppliedSettingsDeviation, ...] = ()
-    note: str | None = None
-    applied_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
-
-    @model_validator(mode='after')
-    def valid_record(self) -> 'CadAppliedSettingsRecord':
-        channel_field = tuple(
-            (item.channel_id, item.field_name) for item in self.deviations
-        )
-        if len(channel_field) != len(set(channel_field)):
-            raise ValueError('deviations must be unique per channel/field')
-        if self.applied_sha256 != _hash(self.semantic_payload()):
-            raise ValueError('CadAppliedSettingsRecord hash mismatch')
-        return self
-
-    def semantic_payload(self) -> dict[str, Any]:
-        return {
-            'applied_id': self.applied_id,
-            'document_id': self.document_id,
-            'calibration_plan_id': self.calibration_plan_id,
-            'calibration_plan_semantic_sha256': self.calibration_plan_semantic_sha256,
-            'exported_settings_id': self.exported_settings_id,
-            'exported_settings_semantic_sha256': self.exported_settings_semantic_sha256,
-            'applied_at_utc': self.applied_at_utc,
-            'device_context': self.device_context,
-            'deviations': [item.model_dump(mode='json') for item in self.deviations],
-            'note': self.note,
-        }
 
 
 class CalibrationWorkflowExport(BaseModel):
@@ -364,8 +306,9 @@ class CadCalibrationWorkflowService:
             verification=verification,
             registration=registration,
             after_measurement_ids=measurement_ids,
-            measurement_repository=self.measurement_repository,
-            quality_repository=self.quality_repository,
+            evidence_resolver=CadEffectiveMeasurementResolver(
+                self.measurement_repository, self.quality_repository
+            ),
             completed_at_utc=created_at_utc,
         )
         self.repository.save_verification_completion(completion)

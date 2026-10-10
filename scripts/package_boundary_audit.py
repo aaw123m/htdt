@@ -186,7 +186,8 @@ PACKAGE_LAYERS: dict[str, dict[str, tuple[str, ...]]] = {
     'calibration': {
         'domain': (
             'cad_calibration', 'cad_calibration_deployment',
-            'cad_calibration_lifecycle', 'cad_external_calibration',
+            'cad_calibration_lifecycle',
+            'cad_calibration_wizard_records', 'cad_external_calibration',
             'cad_mic_response_calibration', 'cad_model_calibration',
         ),
         'services': (

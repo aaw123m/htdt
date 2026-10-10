@@ -7,12 +7,14 @@ from datetime import datetime
 import io
 import json
 from math import cos, isfinite, log10, pi, sin
-from typing import TYPE_CHECKING, Any, Literal, Sequence
+from typing import Any, Literal, Protocol, Sequence
 from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from ...measurement.persistence.cad_measurement_effective import CadEffectiveMeasurementResolver
+from ...measurement.domain.cad_measurement_disposition import (
+    EffectiveMeasurementEvidence,
+)
 from ...measurement.domain.cad_measurement_models import (
     CadFrequencyResponseDataset,
     CadMeasurementComparison,
@@ -25,7 +27,7 @@ from ...measurement.domain.cad_measurement_quality import (
     gate_measurement_claim,
     measurement_sha256,
 )
-from ...cad_repository import SceneRevision
+from ...cad_scene_revisions import SceneRevision
 from ...cad_scene import Position3
 from ...cad_system_variant import SystemVariant
 from ...csv_export import csv_safe_row
@@ -44,9 +46,26 @@ VERIFICATION_PLAN_REGISTRATION_AUTHORITY_VERSION = (
 )
 VERIFICATION_COMPLETION_AUTHORITY_VERSION = 'calibration-verification-completion-1'
 
-if TYPE_CHECKING:
-    from ...measurement.persistence.cad_measurement_quality_repository import CadMeasurementQualityRepository
-    from ...measurement.persistence.cad_measurement_repository import CadMeasurementRepository
+
+class _EffectiveEvidenceSource(Protocol):
+    """Anything that fail-closed resolves effective measurement evidence.
+
+    ``measurement.persistence.CadEffectiveMeasurementResolver`` satisfies
+    this structurally; declaring the surface here keeps the verification
+    contract at domain rank without importing the persistence layer (#807).
+    """
+
+    def require_normal_use(
+        self,
+        measurement_id: str,
+        *,
+        purpose: str = 'normal use',
+    ) -> EffectiveMeasurementEvidence: ...
+
+    def dataset_for_measurement(
+        self, measurement_id: str
+    ) -> CadFrequencyResponseDataset | None: ...
+
 
 CalibrationSupportState = Literal['SUPPORTED', 'UNSUPPORTED']
 CalibrationSourceKind = Literal['user', 'provided_fixture', 'imported']
@@ -1355,8 +1374,7 @@ def build_verification_measurement_completion(
     verification: CadVerificationMeasurementPlan,
     registration: CadVerificationMeasurementPlanRegistration,
     after_measurement_ids: Sequence[str],
-    measurement_repository: CadMeasurementRepository,
-    quality_repository: CadMeasurementQualityRepository,
+    evidence_resolver: _EffectiveEvidenceSource,
     comparison: CadMeasurementComparison | None = None,
     completed_at_utc: str,
 ) -> CadVerificationMeasurementCompletion:
@@ -1398,9 +1416,7 @@ def build_verification_measurement_completion(
     routing = set(verification.routing)
     evidence: list[CadVerificationMeasurementEvidence] = []
     reasons: list[str] = []
-    effective = CadEffectiveMeasurementResolver(
-        measurement_repository, quality_repository
-    )
+    effective = evidence_resolver
     for measurement_id in ordered_ids:
         if measurement_id in verification.before_measurement_ids:
             raise ValueError(
@@ -1438,12 +1454,12 @@ def build_verification_measurement_completion(
             raise ValueError(
                 'pre-registration measurement cannot satisfy verification evidence'
             )
-        dataset = measurement_repository.dataset_for_measurement(measurement_id)
+        dataset = resolved.dataset
         if dataset is None:
             raise ValueError(
                 f'verification evidence dataset does not exist: {measurement_id}'
             )
-        report = quality_repository.latest_report(measurement_id)
+        report = resolved.latest_quality_report
         if report is None:
             raise ValueError(
                 f'verification evidence quality report does not exist: {measurement_id}'
@@ -1488,7 +1504,7 @@ def build_verification_measurement_completion(
             raise ValueError('verification comparison belongs to another document')
         before_dataset_ids: set[str] = set()
         for before_id in verification.before_measurement_ids:
-            before_dataset = measurement_repository.dataset_for_measurement(before_id)
+            before_dataset = evidence_resolver.dataset_for_measurement(before_id)
             if before_dataset is not None:
                 before_dataset_ids.add(before_dataset.dataset_id)
         after_dataset_ids = {item.dataset_id for item in evidence}
@@ -1650,3 +1666,71 @@ def build_calibration_lifecycle_event(
         **payload,
         event_semantic_sha256=_hash(provisional.semantic_payload()),
     )
+
+
+# ---------------------------------------------------------------------------
+# Sealed record: user-applied settings (export applied != export)
+# ---------------------------------------------------------------------------
+
+
+class AppliedSettingsDeviation(BaseModel):
+    """One explicit user deviation between exported and actually-applied."""
+
+    model_config = ConfigDict(frozen=True)
+
+    channel_id: str = Field(min_length=1)
+    field_name: Literal[
+        'gain_db', 'delay_s', 'polarity', 'crossover', 'peq', 'routing', 'level_db'
+    ]
+    exported_value_repr: str
+    applied_value_repr: str
+    reason: str | None = None
+
+
+class CadAppliedSettingsRecord(BaseModel):
+    """Structured 'effective applied settings' — export applied ≠ export.
+
+    The record never restates settings the user applied exactly as exported;
+    it pins the exact export (id + semantic hash) and lists only what the
+    user deliberately set differently, so consumers can always reconstruct
+    effective settings as ``export ⊕ deviations``.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    applied_id: str = Field(min_length=1)
+    document_id: str = Field(min_length=1)
+    calibration_plan_id: str = Field(min_length=1)
+    calibration_plan_semantic_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+    exported_settings_id: str = Field(min_length=1)
+    exported_settings_semantic_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+    applied_at_utc: str = Field(min_length=1)
+    device_context: str | None = None
+    deviations: tuple[AppliedSettingsDeviation, ...] = ()
+    note: str | None = None
+    applied_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+
+    @model_validator(mode='after')
+    def valid_record(self) -> 'CadAppliedSettingsRecord':
+        channel_field = tuple(
+            (item.channel_id, item.field_name) for item in self.deviations
+        )
+        if len(channel_field) != len(set(channel_field)):
+            raise ValueError('deviations must be unique per channel/field')
+        if self.applied_sha256 != _hash(self.semantic_payload()):
+            raise ValueError('CadAppliedSettingsRecord hash mismatch')
+        return self
+
+    def semantic_payload(self) -> dict[str, Any]:
+        return {
+            'applied_id': self.applied_id,
+            'document_id': self.document_id,
+            'calibration_plan_id': self.calibration_plan_id,
+            'calibration_plan_semantic_sha256': self.calibration_plan_semantic_sha256,
+            'exported_settings_id': self.exported_settings_id,
+            'exported_settings_semantic_sha256': self.exported_settings_semantic_sha256,
+            'applied_at_utc': self.applied_at_utc,
+            'device_context': self.device_context,
+            'deviations': [item.model_dump(mode='json') for item in self.deviations],
+            'note': self.note,
+        }

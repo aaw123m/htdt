@@ -20,54 +20,12 @@ trust stale without rewriting history.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-
 from ..domain.cad_measurement_disposition import (
-    CadMeasurementCorrection,
-    CadMeasurementDisposition,
+    EffectiveMeasurementEvidence,
     MEASUREMENT_ELIGIBLE_DISPOSITIONS,
 )
-from ..domain.cad_measurement_models import (
-    CadFrequencyResponseDataset,
-    CadMeasurementRecord,
-    RadiationScope,
-    RoutingEvidence,
-)
-from ..domain.cad_measurement_quality import CadMeasurementQualityReport
 from .cad_measurement_repository import CadMeasurementRepository
 from .cad_measurement_quality_repository import CadMeasurementQualityRepository
-
-
-@dataclass(frozen=True, slots=True)
-class EffectiveMeasurementEvidence:
-    """One measurement resolved through the lifecycle authorities.
-
-    A dataclass (like ``SceneRevision``), not a pydantic model: it carries
-    whatever record the measurement authority returned, including narrow
-    stand-ins in tests.
-    """
-
-    measurement: CadMeasurementRecord
-    dataset: CadFrequencyResponseDataset | None
-    disposition: CadMeasurementDisposition | None
-    correction: CadMeasurementCorrection | None
-    latest_quality_report: CadMeasurementQualityReport | None
-    # Retake lineage: the chain head that currently declares the selection
-    # for this binding's evidence (equal to measurement_id outside a chain).
-    selected_measurement_id: str
-    is_selected_head: bool
-    # Effective semantic binding — original record overlaid by the pinned
-    # correction; identity fields (id, document, scene revision, position,
-    # timestamps) always stay the immutable originals.
-    measurement_entity_id: str
-    channel_role: str
-    source_speaker_ids: tuple[str, ...]
-    radiation_scope: str
-    routing_evidence: str
-    # Normal-use verdict plus machine-readable reasons ('excluded_from_normal_use',
-    # 'misassigned', 'test_only', 'duplicate_import', 'no_measurement').
-    is_normally_eligible: bool
-    ineligibility_reasons: tuple[str, ...]
 
 
 class CadEffectiveMeasurementResolver:
@@ -170,6 +128,12 @@ class CadEffectiveMeasurementResolver:
             is_normally_eligible=eligible,
             ineligibility_reasons=reasons,
         )
+
+    def dataset_for_measurement(self, measurement_id: str):
+        """Pass-through for evidence-adjacent dataset reads (e.g. the
+        verification contract's before-measurement lineage check in
+        ``calibration.domain``)."""
+        return self.measurement_repository.dataset_for_measurement(measurement_id)
 
     def require_normal_use(
         self,

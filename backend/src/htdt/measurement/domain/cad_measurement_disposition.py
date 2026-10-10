@@ -16,14 +16,20 @@ lifecycle events:
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Literal
 from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from .cad_measurement_models import (
+    CadFrequencyResponseDataset,
+    CadMeasurementRecord,
+)
+from .cad_measurement_quality import CadMeasurementQualityReport
 from ...r120_geometry_compiler import ExactExternalAuthorityRef
-from ...canonical_json import canonical_json as _canonical_json, canonical_sha256 as _hash
+from ...canonical_json import canonical_sha256 as _hash
 
 
 
@@ -274,10 +280,43 @@ def build_measurement_correction(
     )
 
 
+@dataclass(frozen=True, slots=True)
+class EffectiveMeasurementEvidence:
+    """One measurement resolved through the lifecycle authorities.
+
+    A dataclass (like ``SceneRevision``), not a pydantic model: it carries
+    whatever record the measurement authority returned, including narrow
+    stand-ins in tests.
+    """
+
+    measurement: CadMeasurementRecord
+    dataset: CadFrequencyResponseDataset | None
+    disposition: CadMeasurementDisposition | None
+    correction: CadMeasurementCorrection | None
+    latest_quality_report: CadMeasurementQualityReport | None
+    # Retake lineage: the chain head that currently declares the selection
+    # for this binding's evidence (equal to measurement_id outside a chain).
+    selected_measurement_id: str
+    is_selected_head: bool
+    # Effective semantic binding — original record overlaid by the pinned
+    # correction; identity fields (id, document, scene revision, position,
+    # timestamps) always stay the immutable originals.
+    measurement_entity_id: str
+    channel_role: str
+    source_speaker_ids: tuple[str, ...]
+    radiation_scope: str
+    routing_evidence: str
+    # Normal-use verdict plus machine-readable reasons ('excluded_from_normal_use',
+    # 'misassigned', 'test_only', 'duplicate_import', 'no_measurement').
+    is_normally_eligible: bool
+    ineligibility_reasons: tuple[str, ...]
+
+
 __all__ = [
     'CORRECTION_KINDS',
     'CadMeasurementCorrection',
     'CadMeasurementDisposition',
+    'EffectiveMeasurementEvidence',
     'CorrectionKind',
     'MEASUREMENT_DISPOSITION_STATES',
     'MEASUREMENT_ELIGIBLE_DISPOSITIONS',

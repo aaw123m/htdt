@@ -24,7 +24,7 @@ from typing import Any
 
 from ...cad_repository import SceneRepository
 from ...cad_schema import connect_sqlite, require_native_tables
-from ..services.cad_calibration_wizard import (
+from ..domain.cad_calibration_wizard_records import (
     CadCalibrationWizardRun,
     CadCalibrationWizardTransition,
     CadCampaignCheckPlan,
