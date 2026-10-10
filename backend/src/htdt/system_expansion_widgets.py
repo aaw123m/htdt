@@ -54,7 +54,7 @@ from .ui_theme import (
     set_surface_role,
     set_typography_role,
 )
-from .user_facing_error import warn_user
+from .operation_error_dialog import warn_user
 from .user_facing_error import operation_error_message
 
 

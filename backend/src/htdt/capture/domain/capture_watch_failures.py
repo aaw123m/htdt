@@ -50,7 +50,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from .capture_watch_guard import STAGE_PERMANENT_REASONS
 from ...clock import utc_now_iso as _utc_now
-from ...native_diagnostics import diagnostics_dir
+from ...diagnostics_support import diagnostics_dir
 
 
 _LOGGER = logging.getLogger(__name__)

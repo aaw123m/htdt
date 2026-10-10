@@ -23,8 +23,11 @@ if TYPE_CHECKING:
     from ...cad_listener_pose import ListenerPoseAuthority
     from ..domain.cad_measurement_quality import CadMeasurementQualityReport
     from ..domain.cad_measurement_target_pattern import (
-        CadTargetPatternRepository,
         MeasurementTargetPattern,
+    )
+    from ..domain.cad_measurement_targets import CadMeasurementTargetLineage
+    from ..persistence.cad_target_pattern_repository import (
+        CadTargetPatternRepository,
     )
     from ...cad_scene import Position3
     from .cad_system_variant_measurement_campaign import (
@@ -2202,7 +2205,7 @@ class MeasurementWorkflowController:
 
     def _target_pattern_repo(self) -> CadTargetPatternRepository:
         if self._target_pattern_repository is None:
-            from ..domain.cad_measurement_target_pattern import (
+            from ..persistence.cad_target_pattern_repository import (
                 CadTargetPatternRepository,
             )
 

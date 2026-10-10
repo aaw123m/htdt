@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from . import __version__
-from .native_diagnostics import build_identity
+from .diagnostics_support import build_identity
 
 # Dependency pins whose identity a support engineer needs to reproduce a
 # failure. Only distribution names — never installed-path details.

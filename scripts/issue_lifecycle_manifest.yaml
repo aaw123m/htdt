@@ -99,14 +99,14 @@ entries:
   - docs/issues/issue-804-golden-path.md
   close_when_gates_clear: true
 - issue: 805
-  lifecycle: structural_followup_remaining
+  lifecycle: acceptance_remaining
   landed:
     prs:
     - 835
     commits: []
   remaining_gates:
-  - kind: structural
-    description: 標準カバレッジ拡張の残件（#839 ソースマトリクスで追跡）
+  - kind: acceptance
+    description: メイン受理 — ギャップマトリクス権威・builtin 行列・ソースマトリクス (#839) の維持者レビュー
   evidence_refs:
   - docs/issues/issue-805-standards-coverage.md
   close_when_gates_clear: true
@@ -246,10 +246,12 @@ entries:
     prs:
     - 843
     - 1
-    commits: [75476ada]
+    - 119
+    - 120
+    commits: [75476ada, 9e6572aa, 86913a4e]
   remaining_gates:
   - kind: structural
-    description: 'Action 2–6: BRAS importer・メトリクス・修飾実行（コーパス権威着地済み）'
+    description: 'Action 4–6: BRAS 修飾実行（コーパス権威+importer+メトリクス manifests 着地済み）'
   evidence_refs:
   - docs/issues/issue-836-external-corpus-manifest.md
   close_when_gates_clear: true

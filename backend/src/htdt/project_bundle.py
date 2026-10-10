@@ -61,7 +61,6 @@ from .managed_assets import (
     sha256_file,
 )
 from .native_row_integrity import verify_native_row_integrity
-from .project_library_repository import ProjectLibraryRepository
 from .clock import utc_now_iso as _utc_now
 
 
@@ -769,8 +768,19 @@ def collect_project_bundle(
                     )
                 )
                 asset_files[digest] = (size, asset_path)
-        library = ProjectLibraryRepository(repository)
-        project_entry = library.get_by_document_id(document_id)
+        # The entry carries only (project_id, display_name); read the row
+        # directly instead of importing the library repository — that keeps
+        # this module importable from the repository itself (#807).
+        entry_row = connection.execute(
+            'SELECT project_id, display_name FROM htdt_project_documents '
+            'WHERE document_id=?',
+            (document_id,),
+        ).fetchone()
+        project_entry = (
+            (str(entry_row['project_id']), str(entry_row['display_name']))
+            if entry_row is not None
+            else None
+        )
         head_row = connection.execute(
             'SELECT head_revision_id FROM scene_document_heads WHERE document_id=?',
             (document_id,),
@@ -800,10 +810,10 @@ def collect_project_bundle(
             root=BundleRootIdentity(
                 document_id=document_id,
                 project_id=(
-                    project_entry.project_id if project_entry else None
+                    project_entry[0] if project_entry else None
                 ),
                 display_name=display_name
-                or (project_entry.display_name if project_entry else None),
+                or (project_entry[1] if project_entry else None),
                 head_revision_id=(
                     str(head_row['head_revision_id']) if head_row else None
                 ),

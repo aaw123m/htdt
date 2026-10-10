@@ -7,89 +7,17 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from ..persistence.cad_measurement_repository import CadMeasurementRepository
+from ..domain.cad_measurement_plan import CadMeasurementPlan, _hash
+from ..persistence.cad_measurement_repository import (
+    CadMeasurementRepository,
+    _resolve_candidate,
+)
 from ...cad_prediction_provider import PredictionProviderBinding
 from ...cad_repository import SceneRepository
 from ...cad_search_repository import CadSearchRepository
 from ...cad_search import candidate_preview_document, iter_cad_candidate_pages
 from ...cad_scene import scene_content_hash
 from ...canonical_json import canonical_sha256
-
-
-class CadMeasurementPlan(BaseModel):
-    """Immutable O50 link from one generated candidate to the revision that was physically applied."""
-
-    model_config = ConfigDict(frozen=True)
-
-    plan_id: str = Field(min_length=1)
-    document_id: str = Field(min_length=1)
-    search_spec_id: str = Field(min_length=1)
-    search_spec_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
-    candidate_id: str = Field(min_length=1)
-    candidate_set_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
-    applied_scene_revision_id: str = Field(min_length=1)
-    applied_scene_content_hash: str = Field(pattern=r'^[0-9a-f]{64}$')
-    status: Literal['planned', 'measured'] = 'planned'
-    measurement_ids: tuple[str, ...] = ()
-    prediction_provider_binding_id: str | None = Field(default=None, min_length=1)
-    prediction_provider_binding_sha256: str | None = Field(
-        default=None,
-        pattern=r'^[0-9a-f]{64}$',
-    )
-    # Exact persisted predecessor this version claims; None marks a first-ever
-    # version. Omitted from the identity payload when unset so legacy payloads
-    # keep their original plan_sha256.
-    supersedes_plan_sha256: str | None = Field(default=None, pattern=r'^[0-9a-f]{64}$')
-    plan_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
-
-    @model_validator(mode='after')
-    def validate_status(self) -> 'CadMeasurementPlan':
-        if self.status == 'planned' and self.measurement_ids:
-            raise ValueError('planned measurement plan cannot contain measurements')
-        if self.status == 'measured' and not self.measurement_ids:
-            raise ValueError('measured measurement plan requires measurements')
-        if len(self.measurement_ids) != len(set(self.measurement_ids)):
-            raise ValueError('measurement ids must be unique')
-        if (self.prediction_provider_binding_id is None) != (
-            self.prediction_provider_binding_sha256 is None
-        ):
-            raise ValueError('prediction provider binding id/hash must be supplied together')
-        if self.plan_sha256 != _hash(self.identity_payload()):
-            raise ValueError('measurement plan identity hash mismatch')
-        return self
-
-    def identity_payload(self) -> dict:
-        payload = {
-            'document_id': self.document_id,
-            'search_spec_id': self.search_spec_id,
-            'search_spec_sha256': self.search_spec_sha256,
-            'candidate_id': self.candidate_id,
-            'candidate_set_sha256': self.candidate_set_sha256,
-            'applied_scene_revision_id': self.applied_scene_revision_id,
-            'applied_scene_content_hash': self.applied_scene_content_hash,
-            'status': self.status,
-            'measurement_ids': list(self.measurement_ids),
-        }
-        if self.prediction_provider_binding_id is not None:
-            payload['prediction_provider_binding_id'] = self.prediction_provider_binding_id
-            payload['prediction_provider_binding_sha256'] = (
-                self.prediction_provider_binding_sha256
-            )
-        if self.supersedes_plan_sha256 is not None:
-            payload['supersedes_plan_sha256'] = self.supersedes_plan_sha256
-        return payload
-
-
-def _hash(value: object) -> str:
-    return canonical_sha256(value)
-
-
-def _resolve_candidate(scene_repository: SceneRepository, spec, candidate_id: str):
-    for page in iter_cad_candidate_pages(scene_repository, spec):
-        for candidate in page.candidates:
-            if candidate.candidate_id == candidate_id:
-                return candidate, page.candidate_set_sha256
-    raise ValueError('candidate does not belong to SearchSpec candidate set')
 
 
 def build_measurement_plan(scene_repository: SceneRepository, search_repository: CadSearchRepository, *,

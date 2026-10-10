@@ -78,7 +78,7 @@ from .project_lifecycle import (
     ProjectLibrary as _LifecycleProjectLibrary,
     ProjectTombstone,
 )
-from .native_diagnostics import diagnostics_dir
+from .diagnostics_support import diagnostics_dir
 from .support_diagnostics import (
     HealthCategory,
     HealthCheckResult,
@@ -91,7 +91,8 @@ from .ui_theme import (
     set_semantic_state,
     set_typography_role,
 )
-from .user_facing_error import operation_error_message, warn_user
+from .user_facing_error import operation_error_message
+from .operation_error_dialog import warn_user
 from .workflow_navigation import WorkspaceDeepLink, WorkspaceId
 from .workflow_shell import TargetFocusResult
 from .activity_center import (

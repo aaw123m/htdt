@@ -21,7 +21,7 @@ from .cad_standards import StandardsProfile
 from .cad_tactile_reference_pack import TACTILE_REFERENCE_PACK
 from .canonical_json import canonical_sha256
 from .cad_standards_repository import CadStandardsRepository
-from .equipment_library import EquipmentLibraryService
+from .equipment_library_service import EquipmentLibraryService
 from .reference_libraries import (
     LibraryEntry,
     LibraryFamily,
@@ -29,7 +29,7 @@ from .reference_libraries import (
     LibraryScope,
     ReferenceLibraryIndex,
 )
-from .standards_profile_editor import StandardsProfileLibraryService
+from .standards_profile_library_service import StandardsProfileLibraryService
 
 
 class _ListingProvider:

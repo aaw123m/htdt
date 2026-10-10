@@ -19,6 +19,12 @@ from .cad_body_mesh import (
     upgrade_document_mesh_bodies,
 )
 from .cad_scene import SceneDocument, canonical_scene_json, scene_content_hash
+from .cad_scene_revisions import (
+    RecoverySnapshot,
+    SaveResult,
+    SceneRevision,
+    SceneRevisionSummary,
+)
 from .canonical_json import canonical_sha256
 from .cad_schema import (
     ensure_native_schema,
@@ -391,58 +397,6 @@ class AuthoringConstraintRevision:
                 revision.identity_payload()
             ),
         )
-
-
-@dataclass(frozen=True)
-class SceneRevision:
-    revision_id: str
-    document_id: str
-    parent_revision_id: str | None
-    created_at_utc: str
-    content_hash: str
-    document: SceneDocument
-    #: True when the revision is deliberate non-head lineage: it was written
-    #: by ``save_detached_revision`` (or reconstructed as off-mainline during
-    #: head migration) and never became the document's current head.
-    detached: bool = False
-    #: Optional provenance note for detached lineage (fixture, analytical
-    #: candidate materialization, historical comparison, ...).
-    detached_reason: str | None = None
-
-
-@dataclass(frozen=True)
-class SceneRevisionSummary:
-    """Compact revision metadata for history browsing (#663).
-
-    Carries lineage and identity only — the payload column is never read,
-    so listing several hundred revisions stays O(metadata) rather than
-    O(total project bytes). ``payload_bytes`` reports the stored payload
-    size so surfaces can show relative revision weight without decoding.
-    """
-
-    revision_id: str
-    document_id: str
-    parent_revision_id: str | None
-    created_at_utc: str
-    content_hash: str
-    detached: bool
-    detached_reason: str | None
-    payload_bytes: int
-
-
-@dataclass(frozen=True)
-class SaveResult:
-    revision: SceneRevision
-    created: bool
-
-
-@dataclass(frozen=True)
-class RecoverySnapshot:
-    document_id: str
-    source_revision_id: str | None
-    updated_at_utc: str
-    content_hash: str
-    document: SceneDocument
 
 
 @dataclass(frozen=True)

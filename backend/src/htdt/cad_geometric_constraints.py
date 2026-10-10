@@ -365,7 +365,7 @@ def constraint_guide_items(
     Imported lazily to avoid a room_viewport ↔ constraints import cycle.
     """
 
-    from .room_viewport import GuideRenderItem
+    from .room_render_items import GuideRenderItem
 
     items: list[GuideRenderItem] = []
     room = document.room

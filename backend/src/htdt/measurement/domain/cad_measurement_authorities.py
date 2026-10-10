@@ -25,7 +25,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from ...cad_authority_resolver import AuthorityRef
+from ...cad_authority_registry import AuthorityRef
 from ...canonical_json import canonical_json as _canonical_json, canonical_sha256 as _hash, canonicalize_payload
 from ...clock import utc_now_iso as _utc_now
 

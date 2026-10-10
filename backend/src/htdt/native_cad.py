@@ -436,7 +436,7 @@ def _offer_post_update_revalidation(
                 diagnostics.logger.warning(
                     "post-update revalidation failed", exc_info=True
                 )
-                from .user_facing_error import warn_user
+                from .operation_error_dialog import warn_user
 
                 warn_user(
                     None,

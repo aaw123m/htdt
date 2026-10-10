@@ -11,7 +11,7 @@ from uuid import uuid4
 from pydantic import ValidationError
 
 from .cad_measurement_models import CadFrequencyResponseDataset, CadMeasurementRecord
-from ...cad_repository import SceneRevision
+from ...cad_scene_revisions import SceneRevision
 from ...cad_scene import Direction3, acoustic_reference_position
 from ...rew_api import (
     RewApiError,
