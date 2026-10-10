@@ -600,6 +600,11 @@ def build_multidimensional_evaluations_from_provenance(
 
     evaluations: list[RobustnessEvaluation] = []
     for nominal_metric in nominal.objective_vector.metrics:
+        if nominal_metric.state != 'available' or nominal_metric.value is None:
+            raise ValueError(
+                f'nominal objective {nominal_metric.objective_id} is not '
+                'available for robustness evaluation'
+            )
         scored: list[tuple[Any, ObjectiveMetric]] = []
         for sample in ordered:
             if sample.objective_vector is None:
@@ -607,6 +612,8 @@ def build_multidimensional_evaluations_from_provenance(
             try:
                 metric = sample.objective_vector.metric(nominal_metric.objective_id)
             except KeyError:
+                continue
+            if metric.state != 'available' or metric.value is None:
                 continue
             scored.append((sample, metric))
         if not scored:
