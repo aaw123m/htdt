@@ -12,6 +12,8 @@ from run_r130d_independent_hp_impulse import assemble_case
 from htdt.r130d_smooth_pulse import all_mode_midpoint_gaussian_trace, exact_finite_gaussian_pressure_modes
 
 PLAN_SHA='44fcb9ea998979c150b4f8cf4b116e89a51c2a97055d372d1019c23a44ee35c6'
+PLAN_FILE='r130d_finite_band_grid_continuation_plan_2026-10-10.json'
+EVIDENCE_FILE='r130d_finite_band_grid_continuation_evidence_2026-10-10.json'
 
 
 def sha(path):
@@ -23,7 +25,7 @@ def main():
     parser.add_argument('--exports',type=Path,required=True)
     parser.add_argument('--assemble-only',action='store_true')
     args=parser.parse_args()
-    raw=(ROOT/'benchmarks/acoustics/r130d_finite_band_grid_continuation_plan_2026-10-10.json').read_bytes().replace(b'\r\n',b'\n')
+    raw=(ROOT/'benchmarks/acoustics'/PLAN_FILE).read_bytes().replace(b'\r\n',b'\n')
     if hashlib.sha256(raw).hexdigest()!=PLAN_SHA:
         raise ValueError('supplementary plan changed')
     plan=json.loads(raw)
@@ -42,10 +44,10 @@ def main():
         raise ValueError('independent exporter pin changed')
     independent=[]
     for order in plan['independent_orders']:
-        if (2*order+1)**3>plan['independent_max_dofs']:
+        if (2**plan['independent_refinement']*order+1)**3>plan['independent_max_dofs']:
             raise ValueError('prospective dense memory domain exceeded')
         print('ASSEMBLE_INDEPENDENT',order,flush=True)
-        row=assemble_case(order,args.exports,cloud,ROOT/'scratch/independent-hp-impulse',refinement=1,
+        row=assemble_case(order,args.exports,cloud,ROOT/'scratch/independent-hp-impulse',refinement=plan['independent_refinement'],
              rigid_operator_scaled_limit=plan['supplementary_p9_p10_rigid_operator_scaled_limit'] if order>=9 else None)
         with np.load(ROOT/f'scratch/independent-hp-impulse/order{order}.npz',allow_pickle=False) as d:
             cp=d['point_evaluations'][0]*d['point_evaluations'][1]
@@ -57,7 +59,7 @@ def main():
         return
     cases=[]
     for ppw in plan['ppw']:
-        steps=8*int(np.ceil(.25*np.sqrt(3)*100*ppw))
+        steps=plan['time_refinement_factor']*int(np.ceil(.25*np.sqrt(3)*100*ppw))
         with np.load(ROOT/f'scratch/physical-pulse-sem/ppw{ppw}.npz',allow_pickle=False) as d:
             kwargs=dict(frequencies_hz=plan['frequencies_hz'])
             exact=exact_finite_gaussian_pressure_modes(d['lam'],d['coupling'],**kwargs).sum(axis=1)
@@ -83,7 +85,7 @@ def main():
         'qualification':'PASS_41_DISCRETE_FREQUENCIES' if ok else 'FAIL_41_DISCRETE_FREQUENCIES',
         'continuous_band_qualification':'NOT_ESTABLISHED','product_go':False,'owned_room_validation':'NOT_VALIDATED',
         'legacy_pffdtd':'SELF_CONVERGENCE_FAILED','physical_undamped_point_source_limit':'NOT_ESTABLISHED'}
-    dest=ROOT/'benchmarks/acoustics/r130d_finite_band_grid_continuation_evidence_2026-10-10.json'
+    dest=ROOT/'benchmarks/acoustics'/EVIDENCE_FILE
     dest.write_bytes((json.dumps(evidence,indent=2,allow_nan=False)+'\n').encode())
     print(json.dumps({k:evidence[k] for k in ('qualification','strict_spatial_monotone','independent_fine_metrics','independent_cross_metrics')}),flush=True)
 
