@@ -179,10 +179,29 @@ PACKAGE_LAYERS: dict[str, dict[str, tuple[str, ...]]] = {
             'capture_retention_ui', 'capture_watch_runner',
         ),
     },
+    'calibration': {
+        'domain': (
+            'cad_calibration', 'cad_calibration_deployment',
+            'cad_calibration_lifecycle', 'cad_external_calibration',
+            'cad_mic_response_calibration', 'cad_model_calibration',
+        ),
+        'services': (
+            'cad_calibration_wizard', 'cad_calibration_workflow',
+        ),
+        'persistence': (
+            'cad_calibration_deployment_repository',
+            'cad_calibration_lifecycle_repository',
+            'cad_calibration_repository',
+            'cad_calibration_wizard_repository',
+            'cad_calibration_workflow_repository',
+            'cad_model_calibration_repository',
+        ),
+    },
 }
 PACKAGE_DIRECTION = {
     'measurement': 'ui -> services -> persistence -> domain',
     'capture': 'ui -> services -> persistence -> domain',
+    'calibration': 'ui -> services -> persistence -> domain',
 }
 """Documented import direction per package."""
 

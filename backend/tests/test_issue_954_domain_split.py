@@ -1,9 +1,11 @@
 """#954 domain-split — declared-package contracts.
 
-Phase 1 split the ``measurement`` domain and phase 2 the ``capture``
-domain into layered packages (``domain/services/persistence/ui`` under
-``htdt.<pkg>``).  These tests pin the migration's contracts for every
-declared package:
+Phase 1 split the ``measurement`` domain, phase 2 the ``capture``
+domain, and phase 3 the ``calibration`` domain into layered packages
+(``domain/services/persistence/ui`` under ``htdt.<pkg>`` — calibration
+ships no ui layer: its user-facing surfaces live in the shared
+application pages, so services is its highest layer).  These tests pin
+the migration's contracts for every declared package:
 
 - every old ``htdt.<stem>`` import path still resolves — and resolves to
   the *same module object* as ``htdt.<pkg>.<layer>.<stem>`` so name
@@ -124,6 +126,19 @@ def test_capture_attribute_writes_through_flat_path():
         canonical._utc_now = original  # noqa: SLF001
 
 
+def test_calibration_attribute_writes_through_flat_path():
+    flat = _import('htdt.cad_calibration_lifecycle')
+    canonical = _import(
+        'htdt.calibration.domain.cad_calibration_lifecycle')
+    sentinel = object()
+    original = flat._utc_now
+    try:
+        flat._utc_now = sentinel  # noqa: SLF001 — monkeypatch parity
+        assert canonical._utc_now is sentinel  # noqa: SLF001
+    finally:
+        canonical._utc_now = original  # noqa: SLF001
+
+
 def test_registry_is_exhaustive():
     """Every .py under each htdt.<pkg> is classified — nothing unlayered."""
     for pkg, layers in PACKAGES.items():
@@ -214,6 +229,27 @@ def test_capture_task_plan_hash_identically_via_old_and_new_paths():
     assert len(plan_a.plan_sha256) == 64
 
 
+def test_calibration_profile_hash_identically_via_old_and_new_paths():
+    """Hash-pinned response-calibration profile: identical sha."""
+    old = _import('htdt.cad_mic_response_calibration')
+    new = _import(
+        'htdt.calibration.domain.cad_mic_response_calibration')
+    assert (
+        old.build_response_calibration_profile
+        is new.build_response_calibration_profile)
+    kwargs = dict(
+        profile_id='mic-split-check',
+        schema_version='1',
+        instrument_manufacturer='acme',
+        incidence_kind='on_axis_0deg',
+        reference_axis_semantics='0deg = capsule boresight',
+    )
+    profile_a = old.build_response_calibration_profile(**kwargs)
+    profile_b = new.build_response_calibration_profile(**kwargs)
+    assert profile_a == profile_b
+    assert len(profile_a.profile_sha256) == 64
+
+
 def _fresh_audit_report():
     return audit_mod.audit(audit_mod.ROOT)
 
@@ -272,4 +308,5 @@ def test_importing_flat_path_does_not_pull_qt_for_domain_modules():
             pytest.skip('PySide6 already loaded in this worker')
     _import('htdt.cad_measurements')
     _import('htdt.capture_bundle')
+    _import('htdt.cad_calibration_lifecycle')
     assert 'PySide6' not in sys.modules
