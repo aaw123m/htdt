@@ -12,6 +12,18 @@ ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT/'backend/src'))
 from htdt.r130d_vanishing_viscosity_impulse import viscous_original_q0_transfer,viscous_original_q0_trace
 
+def qualification_checks(arm,hp):
+    def metrics(a,b):
+        a,b=np.asarray(a),np.asarray(b);a=a[:,0]+1j*a[:,1];b=b[:,0]+1j*b[:,1]
+        return np.array([np.linalg.norm(a-b)/np.linalg.norm(b),max(abs(abs(a)-abs(b))/abs(b)),max(abs(np.angle(a/b,deg=True)))])
+    original=np.array([metrics(a['signed_40_80'],b['signed_40_80']) for a,b in zip(arm['cases'],arm['cases'][1:])])
+    a,b=hp['cases'][-2:]
+    fine=metrics(a['native_viscosity_cases'][-1]['signed_40_80'],b['native_viscosity_cases'][-1]['signed_40_80'])
+    cross=metrics(arm['cases'][-1]['signed_40_80'],b['native_viscosity_cases'][-1]['signed_40_80'])
+    ok=len(original)==4 and np.all(original<=[.2,.25,15.]) and np.all(np.diff(original,axis=0)<0) and np.all(fine<=[.03,.05,3.]) and np.all(cross<=[.03,.05,3.])
+    expected='PASS_NEW_VANISHING_VISCOSITY_Q0_NUMERICAL_METHOD' if ok else 'FAIL_NEW_VANISHING_VISCOSITY_Q0_NUMERICAL_METHOD'
+    if hp['qualification']!=expected:raise ValueError('published status disagrees with actual frozen-gate evidence')
+
 def main():
     p=argparse.ArgumentParser(description='Original instantaneous source and rectangular pressure record; new consistent numerical viscosity')
     p.add_argument('--ppw',type=int,choices=[28,32,36,40,44],default=44)
@@ -19,8 +31,10 @@ def main():
     p.add_argument('--output-dir',type=Path,default=Path('r130d_instantaneous_results'))
     args=p.parse_args()
     evidence=json.loads((ROOT/'benchmarks/acoustics/r130d_vanishing_viscosity_q0_evidence_2026-10-10.json').read_text(encoding='utf8'))
-    hp=json.loads((ROOT/'benchmarks/acoustics/r130d_independent_hp_p5_impulse_evidence_2026-10-10.json').read_text(encoding='utf8'))
+    hp=json.loads((ROOT/'benchmarks/acoustics/r130d_independent_hp_p8_impulse_evidence_2026-10-10.json').read_text(encoding='utf8'))
     arm=next(r for r in evidence['arms'] if r['kappa']==1.)
+    if evidence['plan_sha256']!='45d9518eb59fa8e4aef18d0fb494e7fdf25cbe1515385840422ac708215c96d2' or hp['plan_sha256']!='a8bdd2158da1d46228c295debe1eb6cf6884c0a343a577a88f811cf68d3defe5':raise ValueError('published plan changed')
+    qualification_checks(arm,hp)
     case=next(r for r in arm['cases'] if r['ppw']==args.ppw)
     path=args.cache_root/f'ppw{args.ppw}.npz'
     if hashlib.sha256(path.read_bytes()).hexdigest()!=case['cache_sha256']:raise ValueError('complete original-point eigensystem SHA changed')

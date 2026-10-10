@@ -1,0 +1,46 @@
+{
+  "build_provenance.json.gz": {
+    "compressed_sha256": "c95764260ce2a6629432b3afb224a449773d4710b0c908fbe68e9fd5e9b19400",
+    "uncompressed_sha256": "80e885fad0f3788f782a1636471afc8b00205c5039b8be55184cb3c0a3452124"
+  },
+  "cloud_provenance.json.gz": {
+    "compressed_sha256": "e307d57cd4e612fa55d2597f6ab9fbc9b84fc9c61090b5c40710c62320040d0a",
+    "uncompressed_sha256": "d016bae660c75606fd6bf90211764a01a709e6b3d69e900030b0596ee69820fd"
+  },
+  "CMakeLists.txt.gz": {
+    "compressed_sha256": "b1e5152a3072c60277a4483da545fd88740668c265650fe725249e8dcc7465ec",
+    "uncompressed_sha256": "549dd635dc40b7dc606aee12505cc8c95a18c78b97eb77be6a203452bc7c117e"
+  },
+  "mfem-p2-r2.json.gz": {
+    "compressed_sha256": "aca50de71e7aa739cd20018ae3f94a6e72fb8d12103667c5ff3f7934b017b7f3",
+    "uncompressed_sha256": "5c120fbce936c2103da1041ba5805541dac1d646f0ae24830a54e4d2d492c2b9"
+  },
+  "mfem-p3-r2.json.gz": {
+    "compressed_sha256": "01d9977f2b98fe197e80af0ec76d1ae644465802b260eadcef1f8b52e25d0de8",
+    "uncompressed_sha256": "9becdc323216c3844b73fbbd34119b149953fe7aae5b3b4cf005982e84b785a6"
+  },
+  "mfem-p4-r2.json.gz": {
+    "compressed_sha256": "f85c1c7dde48cf3b56c7a8f83b8f4edba87b855ec651ff5709220ab496fca8e7",
+    "uncompressed_sha256": "d288447c8b3178a81d95a1e15b13a564fb0043c5df759e80ed8728edf13e5f8f"
+  },
+  "mfem-p5-r2.json.gz": {
+    "compressed_sha256": "0de5ab15fb72a743f6506cbbd5b8ca3c3a3f3a75d16b0978786d8416e29d21f5",
+    "uncompressed_sha256": "b49ad9bdbef33e46206b4fede388bb9428cc3d676a42b8cafb69c71789c6a98a"
+  },
+  "mfem-p6-r1.json.gz": {
+    "compressed_sha256": "24f14ac3d8ab95d3aab7671ea5652a761da444c43fed4fb02bfec4c8743264cb",
+    "uncompressed_sha256": "a21fad10acedeb775e7f761dab651175e33ba01a1ce1a8b9064370a7e934f9fe"
+  },
+  "mfem-p7-r1.json.gz": {
+    "compressed_sha256": "5f7a7e49fc66e04faa296f47a005339ea773828206ef5a19dd8ff4bf8f240afb",
+    "uncompressed_sha256": "6c8636af7fb52b515032c1f88892561389da2855ddd972e1112481009a2707ca"
+  },
+  "mfem-p8-r1.json.gz": {
+    "compressed_sha256": "8be30aefa219acdea50b6b0df752b72c77b31979896b35719ba603b0814df368",
+    "uncompressed_sha256": "98982652c9481282d5f01866bace86b39d7a139bcaca3ce5342a0d2383fccfd3"
+  },
+  "points.txt.gz": {
+    "compressed_sha256": "bf0b4b28f375c5d77c0d7a0085fbd8514ff8867bda3e103b22278d8cd0e64610",
+    "uncompressed_sha256": "b2b244f7fe26edfe247d463dbba50d9638d627be421635c9be8042331eed5359"
+  }
+}

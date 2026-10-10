@@ -75,3 +75,26 @@ def test_supplementary_p5_refinement_preserves_failure_and_gates():
     assert e['qualification']==('PASS_NEW_VANISHING_VISCOSITY_Q0_NUMERICAL_METHOD' if ok else 'FAIL_NEW_VANISHING_VISCOSITY_Q0_NUMERICAL_METHOD')
     blob=(ROOT/'benchmarks/acoustics/r130d_independent_hp_p5_impulse_plan_2026-10-10.json').read_bytes().replace(b'\r\n',b'\n')
     assert hashlib.sha256(blob).hexdigest()==e['plan_sha256']=='6fed35366b3241334f4d2725466d38362783ebbdf4ec3f30a7583ca8a32f0fc5'
+
+
+def test_p8_qualified_new_method_against_all_retained_frozen_gates():
+    e=load('r130d_independent_hp_p8_impulse_evidence')
+    priorpath=ROOT/'benchmarks/acoustics/r130d_independent_hp_p5_impulse_evidence_2026-10-10.json'
+    assert hashlib.sha256(priorpath.read_bytes().replace(b'\r\n',b'\n')).hexdigest()==e['prior_failed_p5_evidence_sha256_lf']
+    assert load('r130d_independent_hp_p5_impulse_evidence')['qualification']=='FAIL_NEW_VANISHING_VISCOSITY_Q0_NUMERICAL_METHOD'
+    assert e['qualification']=='PASS_NEW_VANISHING_VISCOSITY_Q0_NUMERICAL_METHOD'
+    assert e['old_pinned_pffdtd']=='SELF_CONVERGENCE_FAILED' and e['physical_undamped_point_source_limit']=='NOT_ESTABLISHED'
+    assert [r['dofs'] for r in e['cases']]==[2197,3375,4913]
+    assert all(r['dofs']==r['all_modes'] and r['max_operator_scaled_eigen_residual']<1e-8 for r in e['cases'])
+    values=[]
+    for x,y,pair in zip(e['cases'],e['cases'][1:],e['independent_pairs']):
+        actual=metrics(x['native_viscosity_cases'][-1]['signed_40_80'],y['native_viscosity_cases'][-1]['signed_40_80']);values.append(actual)
+        np.testing.assert_allclose(actual,[pair['metrics'][k] for k in ('complex_rms_relative','magnitude_max_relative','phase_max_deg')],rtol=1e-8,atol=1e-10)
+        assert pair['pass'] and np.all(actual<=[.03,.05,3.])
+    assert np.all(np.diff(values,axis=0)<0)
+    sem=next(r for r in load('r130d_vanishing_viscosity_q0_evidence')['arms'] if r['kappa']==1.)
+    cross=metrics(sem['cases'][-1]['signed_40_80'],e['cases'][-1]['native_viscosity_cases'][-1]['signed_40_80'])
+    assert sem['gate_pass'] and e['cross_sem44_mfem_p8']['pass'] and np.all(cross<=[.03,.05,3.])
+    np.testing.assert_allclose(cross,[e['cross_sem44_mfem_p8']['metrics'][k] for k in ('complex_rms_relative','magnitude_max_relative','phase_max_deg')],rtol=1e-8,atol=1e-10)
+    blob=(ROOT/'benchmarks/acoustics/r130d_independent_hp_p8_impulse_plan_2026-10-10.json').read_bytes().replace(b'\r\n',b'\n')
+    assert hashlib.sha256(blob).hexdigest()==e['plan_sha256']=='a8bdd2158da1d46228c295debe1eb6cf6884c0a343a577a88f811cf68d3defe5'

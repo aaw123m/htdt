@@ -1,0 +1,437 @@
+{
+  "plan_sha256": "a8bdd2158da1d46228c295debe1eb6cf6884c0a343a577a88f811cf68d3defe5",
+  "plan": {
+    "purpose": "Independent higher-order P6-P7-P8 validation after retained P3-P4 and P4-P5 failures; same physical room and original source/observer; no gate relaxation",
+    "mfem_pin": "d964264cdb9a13e94a201b6c236c7721e0c8765f",
+    "exporter_sha256_lf": "eb3a82cbdafec0a8ae4386d87b3f381b0957ad38aac233519a7825e6a0e965f4",
+    "orders": [
+      6,
+      7,
+      8
+    ],
+    "uniform_refinements": 1,
+    "complete_dofs_expected": [
+      2197,
+      3375,
+      4913
+    ],
+    "strategy": "p-refine the same exact6tet base with1 uniform refinement; polynomial degree rises instead of enlarging full dense eigenproblem",
+    "memory": "max5000 complete DOFs, full GVD generalized eigenbasis; no modal deletion or positive spectral floor",
+    "original_inputs": "identical82 point cloud, original8 nodes and weights on each grid, same native dt/Nt and gradient and rectangular DTFT, q0 instantaneous velocity jump",
+    "numerical_operator": "identical mesh-vanishing viscosity nu_h=h^3/c^3 kappa1, fixed h44 for independent finest pair and cross comparison",
+    "primary_fine_pair": [
+      7,
+      8
+    ],
+    "independent_fine_pair_limits": {
+      "complex_rms_relative": 0.03,
+      "magnitude_max_relative": 0.05,
+      "phase_max_deg": 3
+    },
+    "independent_cross_limits": {
+      "complex_rms_relative": 0.03,
+      "magnitude_max_relative": 0.05,
+      "phase_max_deg": 3
+    },
+    "require_all_original_four_pairs_strict_three_error_decrease": true,
+    "retained_failures": [
+      "P3-P4 magnitude5.548782 percent",
+      "P4-P5 magnitude5.308088 percent",
+      "all old pinned PFFDTD original q0"
+    ],
+    "qualifications_excluded": [
+      "old PFFDTD retrospective PASS",
+      "full undamped continuum proof",
+      "measured-room validation"
+    ],
+    "prospective": "save hash and commit and push before assembling any P6/P7/P8 results"
+  },
+  "independent_build": {
+    "compiler": "clang version 22.1.8 (https://github.com/llvm/llvm-project.git ca7933e47d3a3451d81e72ac174dcb5aa28b59d1)",
+    "cmake": "3.31.6",
+    "configure_source": "CMakeLists.txt",
+    "build_options": "serial Release MFEM; MPI/METIS/LAPACK/ZLIB/OpenMP disabled",
+    "executable_sha256": "97a884770d48d4b357e9d848171509713939a87b6f85661e24d4e8764b397740",
+    "point_cloud_sha256": "b2b244f7fe26edfe247d463dbba50d9638d627be421635c9be8042331eed5359",
+    "mfem_pin": "d964264cdb9a13e94a201b6c236c7721e0c8765f",
+    "cloud_provenance_sha256": "d016bae660c75606fd6bf90211764a01a709e6b3d69e900030b0596ee69820fd"
+  },
+  "prior_failed_p5_evidence_sha256_lf": "95d97142968d7e668719173277bb4e5cd592a2099dd8734172cd3e88b3cc7e2f",
+  "cases": [
+    {
+      "order": 6,
+      "dofs": 2197,
+      "matrix_sha256": "a21fad10acedeb775e7f761dab651175e33ba01a1ce1a8b9064370a7e934f9fe",
+      "volume_m3": 55.999999999999915,
+      "rigid_stiffness_max": 3.9872247725725174e-08,
+      "all_modes": 2197,
+      "zero_roundoff_before_exact_constant": 2.0519644834670846e-09,
+      "max_operator_scaled_eigen_residual": 3.403838017196723e-17,
+      "mass_norm_max_error_all_modes": 4.440892098500626e-15,
+      "mass_orthogonality_128_sample_max_error": 4.215378046623641e-15,
+      "eigh_elapsed_s": 1.0785731999203563,
+      "cache_sha256": "8e4df60fd0d8a89f8db78d758ae4457ff3114e96f00d6bfd797b98ce136f0bfc",
+      "native_viscosity_cases": [
+        {
+          "ppw": 28,
+          "signed_40_80": [
+            [
+              29.31825017228586,
+              3.5412743421851363
+            ],
+            [
+              33.9569769016745,
+              -175.89483698494956
+            ]
+          ]
+        },
+        {
+          "ppw": 32,
+          "signed_40_80": [
+            [
+              30.49620334510547,
+              2.1361989727482524
+            ],
+            [
+              37.70168663324575,
+              -188.98909236293085
+            ]
+          ]
+        },
+        {
+          "ppw": 36,
+          "signed_40_80": [
+            [
+              31.843270750255833,
+              1.2260224627921628
+            ],
+            [
+              40.89355610720309,
+              -197.681002270789
+            ]
+          ]
+        },
+        {
+          "ppw": 40,
+          "signed_40_80": [
+            [
+              33.44103082486676,
+              0.49250755134605956
+            ],
+            [
+              44.00350223850775,
+              -204.53987279418385
+            ]
+          ]
+        },
+        {
+          "ppw": 44,
+          "signed_40_80": [
+            [
+              33.80944790574834,
+              -0.026045792565675737
+            ],
+            [
+              45.475039552442496,
+              -209.1439058228524
+            ]
+          ]
+        }
+      ],
+      "physical_point_weak_signed_40_80": [
+        [
+          25.01262997778406,
+          27.658185430691983
+        ],
+        [
+          70.95094958769329,
+          -198.56917959931934
+        ]
+      ]
+    },
+    {
+      "order": 7,
+      "dofs": 3375,
+      "matrix_sha256": "6c8636af7fb52b515032c1f88892561389da2855ddd972e1112481009a2707ca",
+      "volume_m3": 56.00000000000004,
+      "rigid_stiffness_max": 1.5614205040037632e-08,
+      "all_modes": 3375,
+      "zero_roundoff_before_exact_constant": 6.971777961194826e-10,
+      "max_operator_scaled_eigen_residual": 5.645958069667399e-17,
+      "mass_norm_max_error_all_modes": 7.771561172376096e-15,
+      "mass_orthogonality_128_sample_max_error": 7.216449660063518e-15,
+      "eigh_elapsed_s": 3.8435847996734083,
+      "cache_sha256": "fd8c0c344a3fbc4260ddd95ab3e461eb6e9bf9c87f4b31189b719bff8de3fa9a",
+      "native_viscosity_cases": [
+        {
+          "ppw": 28,
+          "signed_40_80": [
+            [
+              29.64247390449475,
+              3.614944360899526
+            ],
+            [
+              34.35107202011025,
+              -175.60380312095805
+            ]
+          ]
+        },
+        {
+          "ppw": 32,
+          "signed_40_80": [
+            [
+              30.321636415627772,
+              2.2187950810729147
+            ],
+            [
+              37.61416314686881,
+              -188.70831160310382
+            ]
+          ]
+        },
+        {
+          "ppw": 36,
+          "signed_40_80": [
+            [
+              31.683416527148307,
+              1.3059866307468218
+            ],
+            [
+              40.79691010929757,
+              -197.44721750095508
+            ]
+          ]
+        },
+        {
+          "ppw": 40,
+          "signed_40_80": [
+            [
+              33.32732675083833,
+              0.5890762923757205
+            ],
+            [
+              43.95213463177303,
+              -204.2773858922748
+            ]
+          ]
+        },
+        {
+          "ppw": 44,
+          "signed_40_80": [
+            [
+              34.44564848460409,
+              0.04296837899057357
+            ],
+            [
+              46.154083875236246,
+              -208.94281270227876
+            ]
+          ]
+        }
+      ],
+      "physical_point_weak_signed_40_80": [
+        [
+          31.384954050613494,
+          28.681133234076995
+        ],
+        [
+          78.43766325645012,
+          -198.34358703500627
+        ]
+      ]
+    },
+    {
+      "order": 8,
+      "dofs": 4913,
+      "matrix_sha256": "98982652c9481282d5f01866bace86b39d7a139bcaca3ce5342a0d2383fccfd3",
+      "volume_m3": 56.00000000000002,
+      "rigid_stiffness_max": 2.8050544642610475e-07,
+      "all_modes": 4913,
+      "zero_roundoff_before_exact_constant": -1.1752007658596206e-08,
+      "max_operator_scaled_eigen_residual": 1.2551192317935172e-16,
+      "mass_norm_max_error_all_modes": 2.2426505097428162e-14,
+      "mass_orthogonality_128_sample_max_error": 1.06378122456674e-14,
+      "eigh_elapsed_s": 12.72493450017646,
+      "cache_sha256": "7c121e8a4a0ca878899cd8fb0442686779a44f3a43612a759978385d8338db5b",
+      "native_viscosity_cases": [
+        {
+          "ppw": 28,
+          "signed_40_80": [
+            [
+              29.280076279177266,
+              3.6014391031736057
+            ],
+            [
+              33.983044339717196,
+              -175.68126130413535
+            ]
+          ]
+        },
+        {
+          "ppw": 32,
+          "signed_40_80": [
+            [
+              30.239798978828308,
+              2.226478438747421
+            ],
+            [
+              37.478627339664236,
+              -188.73971850837862
+            ]
+          ]
+        },
+        {
+          "ppw": 36,
+          "signed_40_80": [
+            [
+              32.188596965939006,
+              1.2929897226529563
+            ],
+            [
+              41.27981707221666,
+              -197.48343148179063
+            ]
+          ]
+        },
+        {
+          "ppw": 40,
+          "signed_40_80": [
+            [
+              33.91953060809939,
+              0.5772435517140023
+            ],
+            [
+              44.50406924351553,
+              -204.29724078605932
+            ]
+          ]
+        },
+        {
+          "ppw": 44,
+          "signed_40_80": [
+            [
+              34.73324761939331,
+              0.02728239279826437
+            ],
+            [
+              46.425330293381215,
+              -208.951724443411
+            ]
+          ]
+        }
+      ],
+      "physical_point_weak_signed_40_80": [
+        [
+          25.015288188584197,
+          27.473163402451846
+        ],
+        [
+          72.6399643535388,
+          -200.04580864314386
+        ]
+      ]
+    }
+  ],
+  "qualification": "PASS_NEW_VANISHING_VISCOSITY_Q0_NUMERICAL_METHOD",
+  "independent_pairs": [
+    {
+      "coarse": 6,
+      "fine": 7,
+      "metrics": {
+        "complex_rms_relative": 0.004403967885083855,
+        "magnitude_max_relative": 0.018470166169336263,
+        "magnitude_max_db": 0.16192990760412931,
+        "phase_max_deg": 0.18911214526195863,
+        "mask_floor": 0.6766631247400872,
+        "compared_frequency_count": 2,
+        "frequency_metrics": [
+          {
+            "frequency_hz": 40.0,
+            "masked_in": true,
+            "magnitude_absolute": 0.6362173463200662,
+            "magnitude_relative": 0.018470166169336263,
+            "magnitude_db": 0.16192990760412931,
+            "phase_deg": 0.11561113198254702,
+            "complex_relative": 0.01857803358897342
+          },
+          {
+            "frequency_hz": 80.0,
+            "masked_in": true,
+            "magnitude_absolute": 0.05105980372880481,
+            "magnitude_relative": 0.00023861988449008794,
+            "magnitude_db": 0.00207237873657401,
+            "phase_deg": 0.18911214526195863,
+            "complex_relative": 0.003309635147782797
+          }
+        ]
+      },
+      "pass": true
+    },
+    {
+      "coarse": 7,
+      "fine": 8,
+      "metrics": {
+        "complex_rms_relative": 0.001824993735191657,
+        "magnitude_max_relative": 0.008279760195242498,
+        "magnitude_max_db": 0.07221646507217416,
+        "phase_max_deg": 0.07038321732616737,
+        "mask_floor": 0.676876166227802,
+        "compared_frequency_count": 2,
+        "frequency_metrics": [
+          {
+            "frequency_hz": 40.0,
+            "masked_in": true,
+            "magnitude_absolute": 0.2875830498076226,
+            "magnitude_relative": 0.008279760195242498,
+            "magnitude_db": 0.07221646507217416,
+            "phase_deg": 0.02646729719117502,
+            "complex_relative": 0.008292529891446066
+          },
+          {
+            "frequency_hz": 80.0,
+            "masked_in": true,
+            "magnitude_absolute": 0.06736963372893001,
+            "magnitude_relative": 0.00031474219117816083,
+            "magnitude_db": 0.002734246250919288,
+            "phase_deg": 0.07038321732616737,
+            "complex_relative": 0.001267911847529707
+          }
+        ]
+      },
+      "pass": true
+    }
+  ],
+  "cross_sem44_mfem_p8": {
+    "metrics": {
+      "complex_rms_relative": 0.0006795663160595038,
+      "magnitude_max_relative": 0.0012198824695266067,
+      "magnitude_max_db": 0.010589306959130386,
+      "phase_max_deg": 0.09388756807220489,
+      "mask_floor": 0.676876166227802,
+      "compared_frequency_count": 2,
+      "frequency_metrics": [
+        {
+          "frequency_hz": 40.0,
+          "masked_in": true,
+          "magnitude_absolute": 0.04237049295158357,
+          "magnitude_relative": 0.0012198824695266067,
+          "magnitude_db": 0.010589306959130386,
+          "phase_deg": 0.09388756807220489,
+          "complex_relative": 0.0020436616243748045
+        },
+        {
+          "frequency_hz": 80.0,
+          "masked_in": true,
+          "magnitude_absolute": 0.12908855108571515,
+          "magnitude_relative": 0.0006030849683433493,
+          "magnitude_db": 0.0052367505333161014,
+          "phase_deg": 0.0009666868281215102,
+          "complex_relative": 0.000603321067629088
+        }
+      ]
+    },
+    "pass": true
+  },
+  "physical_undamped_point_source_limit": "NOT_ESTABLISHED",
+  "old_pinned_pffdtd": "SELF_CONVERGENCE_FAILED"
+}
