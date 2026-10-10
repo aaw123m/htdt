@@ -232,6 +232,55 @@ class _WorkerCompletionRelay(QObject):
         self._pool._dispatch_completed(self._worker, key, result, error)
 
 
+class _WorkerThreadRelay(QObject):
+    """Queued per-task receiver for ``worker.completed``/``thread.finished``.
+
+    Same raw-pointer hazard as ``_WorkerCompletionRelay``: the queued
+    metacalls for ``worker.completed -> thread.quit`` and
+    ``thread.finished -> _thread_finished``/``deleteLater`` store the
+    *receiver's and sender's* C++ pointers. Once a dead QThread's address
+    is recycled by the next task's QThread, a stale ``finished`` metacall
+    resolves ``sender()`` to the *live new object* — pointer comparison
+    cannot tell it from a genuine emission, so it pops the fresh task's
+    record (and fires its ``on_finished`` early). A stale ``quit``
+    metacall likewise quits the replacement thread. The relay carries the
+    Python ``QThread`` object instead, so delivery is gated on object
+    identity and dead/foreign C++ objects degrade to a no-op instead of
+    resolving to the wrong thread.
+
+    Lives on the pool's owner thread so ``_thread_finished`` keeps its
+    owner-thread affinity. The relay is never ``deleteLater``'d — it is a
+    pool child and dies with the pool.
+    """
+
+    def __init__(self, pool: "NativeWorkerPool", thread: QThread) -> None:
+        super().__init__(pool)
+        self._pool = pool
+        self._thread = thread
+
+    @Slot(object, object, object)
+    def quit_thread(self, key: object, result: object, error: object) -> None:
+        try:
+            self._thread.quit()
+        except RuntimeError:
+            # Bound thread's C++ object is already gone — nothing to quit.
+            pass
+
+    @Slot()
+    def receive_finished(self) -> None:
+        try:
+            self._pool._thread_finished(self._thread)
+        except RuntimeError:
+            # The pool is already gone (detached thread finishing after
+            # pool destruction) — its records went with it.
+            pass
+        try:
+            self._thread.deleteLater()
+        except RuntimeError:
+            # Bound thread's C++ object is already gone — nothing to delete.
+            pass
+
+
 class NativeWorkerPool(QObject):
     """Own the ``QThread`` + ``NativeWorker`` pairs of one controller or window.
 
@@ -271,6 +320,7 @@ class NativeWorkerPool(QObject):
             ],
         ] = {}
         self._relays: dict[str, _WorkerCompletionRelay] = {}
+        self._thread_relays: dict[str, _WorkerThreadRelay] = {}
         _LIVE_POOLS.add(self)
         self._shutdown_requested = False
         self._last_shutdown_report = WorkerShutdownReport()
@@ -346,7 +396,9 @@ class NativeWorkerPool(QObject):
             relay = _WorkerCompletionRelay(self, worker)
             self._relays[key] = relay
             worker.completed.connect(relay.receive)
-        worker.completed.connect(thread.quit)
+        thread_relay = _WorkerThreadRelay(self, thread)
+        self._thread_relays[key] = thread_relay
+        worker.completed.connect(thread_relay.quit_thread)
         # NOTE: the worker is deliberately never connected to deleteLater.
         # Deleting a moved-to-thread QObject while its QThread emits
         # ``finished`` races the native thread teardown (PySide6 on Windows:
@@ -355,11 +407,12 @@ class NativeWorkerPool(QObject):
         # has finished, then the reference drops on the owner thread.
         # ``_thread_finished`` first, ``deleteLater`` second — matching
         # ``data_management._start``: the record must be dropped before a
-        # DeferredDelete can destroy the C++ object, or a typed
-        # ``sendPostedEvents(DeferredDelete)`` flush between the two queued
-        # metacalls leaves ``_tasks`` pointing at a dead thread.
-        thread.finished.connect(self._thread_finished)
-        thread.finished.connect(thread.deleteLater)
+        # DeferredDelete can destroy the C++ object. Both run inside the
+        # relay's single queued slot carrying the Python thread object —
+        # a queued metacall resolved through a raw sender/receiver pointer
+        # could deliver to a different task's QThread after an address
+        # reuse (see ``_WorkerThreadRelay``).
+        thread.finished.connect(thread_relay.receive_finished)
         self._tasks[key] = (thread, worker)
         self._callbacks[key] = (on_completed, on_finished)
         thread.start()
@@ -501,6 +554,7 @@ class NativeWorkerPool(QObject):
         """
         self._tasks.pop(key, None)
         self._callbacks.pop(key, None)
+        self._thread_relays.pop(key, None)
         relay = self._relays.pop(key, None)
         if relay is not None:
             # Disconnect, never deleteLater: freeing the relay's C++ side
@@ -536,9 +590,15 @@ class NativeWorkerPool(QObject):
             # as the dead-record branch above.
             self._release_task(key)
             return
+        thread_relay = self._thread_relays.get(key)
         self._release_task(key)
         try:
             thread.setParent(None)
+            if thread_relay is not None:
+                # The relay travels with the detached thread: its bound
+                # quit/finished deliveries keep working — and the C++
+                # thread still gets its deleteLater — after the pool dies.
+                thread_relay.setParent(thread)
             thread.finished.connect(lambda: _release_lingering(thread))
             # The thread can finish in the window between the bounded wait
             # and this connect — its earlier finished->deleteLater wiring
@@ -584,21 +644,26 @@ class NativeWorkerPool(QObject):
     def _drop_dead_records(self) -> None:
         """Release records whose QThread's C++ object is already gone.
 
-        A queued ``finished`` whose sender died before delivery arrives
-        here with ``sender() is None`` (verified on PySide6 6.11); the
-        stale record would otherwise sit in ``_tasks`` forever and crash
-        the next ``_detach``/``_stop_tracked``/``start`` that touches it.
+        Reached when a relay-delivered ``finished`` finds its bound
+        thread's C++ object already dead; the stale record would
+        otherwise sit in ``_tasks`` forever and crash the next
+        ``_detach``/``_stop_tracked``/``start`` that touches it.
         """
         for key, (thread, _worker) in tuple(self._tasks.items()):
             if not isValid(thread):
                 self._release_task(key)
 
-    @Slot()
-    def _thread_finished(self) -> None:
-        thread = self.sender()
-        if not isinstance(thread, QThread):
-            self._drop_dead_records()
-            return
+    @Slot(object)
+    def _thread_finished(self, thread: QThread) -> None:
+        """Drop a finished thread's task record and fire ``on_finished``.
+
+        Invoked on the owner thread by ``_WorkerThreadRelay`` with the
+        Python thread object the connection was created for — never
+        resolved through ``sender()``, whose raw pointer can identify a
+        different task's QThread after an allocator reuse. The identity
+        check below compares Python objects, which a C++ address reuse
+        cannot forge.
+        """
         try:
             key = thread.property("htdtWorkerKey")
         except RuntimeError:
@@ -607,11 +672,12 @@ class NativeWorkerPool(QObject):
         if key is None:
             return
         record = self._tasks.get(str(key))
-        if record is not None and record[0] != thread:
+        if record is not None and record[0] is not thread:
             # Stale ``finished`` for a task whose key was already reused;
             # the detached thread must not drop the new task's record.
             return
         self._tasks.pop(str(key), None)
+        self._thread_relays.pop(str(key), None)
         callbacks = self._callbacks.pop(str(key), None)
         relay = self._relays.pop(str(key), None)
         if relay is not None:

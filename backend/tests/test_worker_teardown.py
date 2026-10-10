@@ -397,6 +397,62 @@ def test_restart_releases_dead_record_before_start(app) -> None:
     _destroy(pool)
 
 
+def test_stale_finished_metacall_cannot_drop_restarted_record(
+    app, monkeypatch
+) -> None:
+    """A ``finished`` queued by a superseded thread must never release the
+    fresh task's record — even when its stored sender pointer resolves to
+    the new thread's reused C++ address.
+
+    The queued metacall holds the emitter's raw pointer; once the dead
+    QThread's address is recycled by the replacement task's QThread,
+    ``sender()`` returns the *live new object* — pointer comparison cannot
+    tell a stale emission from a genuine one (the ``_WorkerCompletionRelay``
+    hazard, one layer down). Delivery must therefore carry the Python
+    thread object and gate on identity.
+    """
+    pool = NativeWorkerPool(shutdown_timeout_ms=50)
+    baseline = lingering_thread_count()
+    old_thread, _old_worker = pool.start("dup-dead", lambda _cancel: None)
+    old_thread.quit()
+    assert old_thread.wait(5000)
+    _kill_thread_cpp(old_thread, app)
+    assert "dup-dead" in pool.tasks
+
+    started = Event()
+    finished_calls: list[str] = []
+
+    def fresh(cancel_event: Event) -> None:
+        started.set()
+        cancel_event.wait(5.0)
+
+    new_thread, _new_worker = pool.start(
+        "dup-dead", fresh, on_finished=finished_calls.append
+    )
+    assert _pump_until(started.is_set)
+    assert new_thread is not old_thread
+
+    # Deliver the stale finished for the superseded thread. On the
+    # identity-bound path it arrives as ``_thread_finished(old_thread)``;
+    # before that, the slot resolved the emitter through ``sender()`` —
+    # simulate the reused-address resolution by answering ``sender()``
+    # with the live new thread.
+    try:
+        pool._thread_finished(old_thread)
+    except TypeError:
+        monkeypatch.setattr(pool, "sender", lambda: new_thread)
+        pool._thread_finished()
+
+    assert "dup-dead" in pool.tasks
+    assert pool.tasks["dup-dead"][0] is new_thread
+    assert not finished_calls
+    assert lingering_thread_count() == baseline
+
+    report = pool.shutdown(timeout_ms=2000)
+    assert report.stopped_keys == ("dup-dead",)
+    _destroy(pool)
+
+
 def test_pool_destroyed_with_dead_record_still_detaches_live_thread(app) -> None:
     """The reported crash path: inside ``_detach_all`` one stale record
     raised mid-loop, so the sibling *live* thread was never detached and
