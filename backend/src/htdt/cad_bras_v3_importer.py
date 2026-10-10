@@ -91,6 +91,8 @@ class GeneralFirMeasurement(BaseModel):
     listener_positions_m: tuple[tuple[float, float, float], ...] = ()
     emitter_positions_m: tuple[tuple[float, float, float], ...] = ()
     receiver_positions_m: tuple[tuple[float, float, float], ...] = ()
+    emitter_ids: tuple[int, ...] | None = None
+    receiver_ids: tuple[int, ...] | None = None
     delays_s: tuple[tuple[float, ...], ...] = ()
     coordinate_system: str
     measurement_sha256: str = Field(pattern=_SHA256)
@@ -284,7 +286,17 @@ def read_sofa_generalfir(
                     )
             if pos_type:
                 coordinate = pos_type
-            raw = np.asarray(node[()]).reshape(-1, 3)
+            raw = np.asarray(node[()])
+            # BRAS v3 stores transducer positions as (I|E|R, 3, M) —
+            # the coordinate axis precedes the measurement axis, so the
+            # *columns* of the squeezed matrix are the positions, not
+            # groups of consecutive flat elements.  Plain (N, 3) arrays
+            # stay row-major; a trailing 3-axis keeps rows.
+            if raw.ndim >= 2 and raw.shape[-1] != 3 and raw.shape[-2] == 3:
+                raw = raw.reshape(-1, 3, raw.shape[-1]).transpose(
+                    0, 2, 1).reshape(-1, 3)
+            else:
+                raw = raw.reshape(-1, 3)
             return _to_triplets(raw.tolist(), what=what)
 
         # GeneralFIR carries scene axes + per-measurement channel axes.
@@ -339,6 +351,20 @@ def read_sofa_generalfir(
                 _dataset_attr(node, 'Type') or 'cartesian'
             ).strip().lower()
 
+        def _transducer_ids(name: str) -> tuple[int, ...] | None:
+            node = _var(name)
+            if node is None:
+                return None
+            values = np.asarray(node[()]).reshape(-1)
+            if values.size != measurement_count:
+                return None
+            if not np.all(np.isfinite(values)):
+                return None
+            as_int = values.astype(int)
+            if not np.all(values == as_int):
+                return None
+            return tuple(int(v) for v in as_int)
+
         return GeneralFirMeasurement(
             sofa_conventions=conventions,
             data_ir_units=units,
@@ -350,6 +376,8 @@ def read_sofa_generalfir(
             listener_positions_m=listener_pos,
             emitter_positions_m=emitter_pos,
             receiver_positions_m=receiver_pos,
+            emitter_ids=_transducer_ids('EmitterID'),
+            receiver_ids=_transducer_ids('ReceiverID'),
             delays_s=delays,
             coordinate_system=coordinate_system,
             measurement_sha256=ir_sha,
