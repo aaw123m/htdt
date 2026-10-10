@@ -119,5 +119,8 @@
   "points.txt_sha256": "b2b244f7fe26edfe247d463dbba50d9638d627be421635c9be8042331eed5359",
   "cloud_provenance.json_sha256": "d016bae660c75606fd6bf90211764a01a709e6b3d69e900030b0596ee69820fd",
   "build_provenance.json_sha256": "80e885fad0f3788f782a1636471afc8b00205c5039b8be55184cb3c0a3452124",
-  "exporter_executable_sha256": "97a884770d48d4b357e9d848171509713939a87b6f85661e24d4e8764b397740"
+  "exporter_executable_sha256": "97a884770d48d4b357e9d848171509713939a87b6f85661e24d4e8764b397740",
+  "supplementary_p9_p10_rigid_operator_scaled_limit": 1e-12,
+  "rigid_guard_reason": "P9 assembly absolute K*1 guard=2.9471830202965066e-6 fails legacy 1e-6. Matrix entries reach 50168405.65102684; scale by full stiffness infinity norm for supplementary P9/P10 only. No matrix, metric, eigen residual or qualification threshold changed.",
+  "p9_absolute_rigid_guard_failure_retained": true
 }

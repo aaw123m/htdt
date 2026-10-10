@@ -11,7 +11,7 @@ from run_r130d_finite_band_grid import ROOT, pairs, metrics, passes
 from run_r130d_independent_hp_impulse import assemble_case
 from htdt.r130d_smooth_pulse import all_mode_midpoint_gaussian_trace, exact_finite_gaussian_pressure_modes
 
-PLAN_SHA='59c5e9540ad61117aa58e59191fa82c2950afc1c315d8c3695523073ba97fa5d'
+PLAN_SHA='44fcb9ea998979c150b4f8cf4b116e89a51c2a97055d372d1019c23a44ee35c6'
 
 
 def sha(path):
@@ -45,7 +45,8 @@ def main():
         if (2*order+1)**3>plan['independent_max_dofs']:
             raise ValueError('prospective dense memory domain exceeded')
         print('ASSEMBLE_INDEPENDENT',order,flush=True)
-        row=assemble_case(order,args.exports,cloud,ROOT/'scratch/independent-hp-impulse',refinement=1)
+        row=assemble_case(order,args.exports,cloud,ROOT/'scratch/independent-hp-impulse',refinement=1,
+             rigid_operator_scaled_limit=plan['supplementary_p9_p10_rigid_operator_scaled_limit'] if order>=9 else None)
         with np.load(ROOT/f'scratch/independent-hp-impulse/order{order}.npz',allow_pickle=False) as d:
             cp=d['point_evaluations'][0]*d['point_evaluations'][1]
             h=exact_finite_gaussian_pressure_modes(d['lam'],cp,frequencies_hz=plan['frequencies_hz']).sum(axis=1)

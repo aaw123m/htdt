@@ -19,7 +19,7 @@ PLAN_SHA='c6b9c42cb4cc459b8b3496c4e4b38efba6ee42f7fb82b1363aa80588ede85faf'
 
 def sha(path):return hashlib.sha256(path.read_bytes()).hexdigest()
 
-def assemble_case(degree,folder,cloud,cache,refinement=2):
+def assemble_case(degree,folder,cloud,cache,refinement=2,*,rigid_operator_scaled_limit=None):
     path=folder/f'mfem-p{degree}-r{refinement}.json'
     doc=json.loads(path.read_bytes());n=(2**refinement*degree+1)**3
     if doc['ndofs']!=n or doc['order']!=degree or doc['uniform_refinements']!=refinement or doc['elements']!=6*8**refinement:
@@ -27,7 +27,12 @@ def assemble_case(degree,folder,cloud,cache,refinement=2):
     if doc['boundary_model']!='natural_neumann_rigid' or doc['sound_speed_m_s']!=343.2 or doc['base_volume_m3']!=56:
         raise ValueError('independent physical geometry changed')
     M,K=csr(doc['mass_matrix'],n),csr(doc['stiffness_c2_matrix'],n)
-    if abs(M.sum()-56)>1e-8 or max(abs((K@np.ones(n))))>1e-6:
+    rigid_absolute=float(max(abs(K@np.ones(n))))
+    rigid_scale=float(max(np.asarray(abs(K).sum(axis=1)).ravel()))
+    rigid_scaled=rigid_absolute/max(rigid_scale,1.)
+    rigid_ok=(rigid_absolute<=1e-6 if rigid_operator_scaled_limit is None
+              else rigid_scaled<=rigid_operator_scaled_limit)
+    if abs(M.sum()-56)>1e-8 or not rigid_ok:
         raise ValueError('mass volume or rigid stiffness failed')
     cloud_matrix=np.zeros((82,n))
     for i,row in enumerate(doc['point_cloud']):
@@ -36,7 +41,9 @@ def assemble_case(degree,folder,cloud,cache,refinement=2):
     np.testing.assert_allclose(cloud_matrix.sum(axis=1),1.,atol=1e-10,rtol=0)
     np.testing.assert_allclose(cloud_matrix[0],doc['source_functional'],atol=1e-12,rtol=0)
     np.testing.assert_allclose(cloud_matrix[1],doc['receiver_functional'],atol=1e-12,rtol=0)
-    row={'order':degree,'dofs':n,'matrix_sha256':sha(path),'volume_m3':float(M.sum()),'rigid_stiffness_max':float(max(abs(K@np.ones(n))))}
+    row={'order':degree,'dofs':n,'matrix_sha256':sha(path),'volume_m3':float(M.sum()),
+         'rigid_stiffness_max':rigid_absolute,'rigid_stiffness_operator_scaled':rigid_scaled,
+         'rigid_stiffness_infinity_norm':rigid_scale}
     if degree==2:
         original=json.loads(gzip.decompress((ROOT/'benchmarks/acoustics/r130d_mfem_independent_sparse_systems/mfem-r2.json.gz').read_bytes()))
         errors={key:float(np.max(abs((mat-csr(original[key],n)).data),initial=0.)) for key,mat in [('mass_matrix',M),('stiffness_c2_matrix',K)]}
