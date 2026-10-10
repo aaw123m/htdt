@@ -1,0 +1,2670 @@
+{
+  "schema_version": "htdt.r130d.conservative-q0-evidence-1",
+  "plan_sha256_lf": "79c7e66e508b27c4b80b7e4d5d1352c7f15af571e1d8f5ceb54ca50acf44bab9",
+  "plan": {
+    "schema_version": "htdt.r130d.conservative-q0-plan-1",
+    "request": "Resolve original undamped impulse nonconvergence; no finite-mesh viscosity allowed",
+    "ppw": [
+      28,
+      32,
+      36,
+      40,
+      44
+    ],
+    "frequencies_hz": [
+      40,
+      80
+    ],
+    "source": "original q[0]=1 and later samples zero; causal velocity jump c^2*dt*M^-1*b",
+    "source_and_receiver": "all original eight physical coordinates and weights per native grid",
+    "observer": "original rho*np.gradient(phi,dt,edge_order=2), native dt/Nt, full rectangular signed DTFT / q DTFT",
+    "primary_arm": "gauss4",
+    "arms": [
+      "exact",
+      "gauss2",
+      "gauss4",
+      "gauss6",
+      "rational_mass_exact",
+      "hyperstiffness_exact"
+    ],
+    "rational_mass": "lambda_eff=lambda/(1+h^2*lambda/(12*c^2)); labelled spatial modification",
+    "hyperstiffness": "lambda_eff=lambda+h^2*lambda^2/(12*c^2); labelled spatial modification",
+    "all_modes": true,
+    "viscosity": 0,
+    "coefficient_tuning": false,
+    "original_limits": {
+      "complex_rms_relative": 0.2,
+      "magnitude_max_relative": 0.25,
+      "phase_max_deg": 15
+    },
+    "all_four_pairs_and_strict_monotone_all_three": true,
+    "independent_orders_r2": [
+      3,
+      4,
+      5
+    ],
+    "independent_orders_r1": [
+      6,
+      7,
+      8
+    ],
+    "independent_fine_and_cross_limits": {
+      "complex_rms_relative": 0.03,
+      "magnitude_max_relative": 0.05,
+      "phase_max_deg": 3
+    },
+    "independent_rule": "both P4/P5 r2 and P7/P8 r1 fine pairs and both SEM44 cross checks must pass; neither independent family may be selected after observing results",
+    "energy_max_relative_drift": 2e-12,
+    "unit_modulus_max_error": 2e-14,
+    "input_sha256": {
+      "scratch/boundary-fitted-sem/ppw28.npz": "ce9245616e2f2799bfae40d71219fc4ab3d3c4a830e02fdb85e9039978fd1ae0",
+      "scratch/boundary-fitted-sem/ppw32.npz": "a18f61095dd4de95f714d3125767ed2757563bdcc9049f6860487ed218199983",
+      "scratch/boundary-fitted-sem/ppw36.npz": "94218e7d695f81ac6ebb7d9d6956f9e4b4252ab4ec7fbe7ed11cb3070fb323ef",
+      "scratch/boundary-fitted-sem/ppw40.npz": "e031c69baccf75a177f1dca69608ac533351f7285846a8031b14758857017ba2",
+      "scratch/boundary-fitted-sem/ppw44.npz": "00792d5eda602a705caeece2f80569aec43d77ad595418838cd260d2c2cff47b",
+      "scratch/independent-hp-impulse/order3.npz": "877d30d01194a6872aef321bd74a7543c4ad687c8d125c91d70ebcf4e06c74f7",
+      "scratch/independent-hp-impulse/order4.npz": "f93e6575f6baabe93f08f92a265c0824312d328deb676e24b70e8e322802d549",
+      "scratch/independent-hp-impulse/order5.npz": "0ded743027e1ef1dc4a87769c1db199392fa86fd4c10538df00cf61f24c831e0",
+      "scratch/independent-hp-impulse/order6.npz": "8e4df60fd0d8a89f8db78d758ae4457ff3114e96f00d6bfd797b98ce136f0bfc",
+      "scratch/independent-hp-impulse/order7.npz": "fd8c0c344a3fbc4260ddd95ab3e461eb6e9bf9c87f4b31189b719bff8de3fa9a",
+      "scratch/independent-hp-impulse/order8.npz": "7c121e8a4a0ca878899cd8fb0442686779a44f3a43612a759978385d8338db5b"
+    },
+    "cloud_provenance_sha256": "d016bae660c75606fd6bf90211764a01a709e6b3d69e900030b0596ee69820fd",
+    "legacy_archived_pffdtd": "SELF_CONVERGENCE_FAILED",
+    "measured_validation": "NOT_VALIDATED",
+    "do_not_relabel_archived_records": true,
+    "design_informed_by_prior_failed_exact_and_gauss2_controls": true
+  },
+  "legacy_archived_pffdtd": "SELF_CONVERGENCE_FAILED",
+  "measured_validation": "NOT_VALIDATED",
+  "arms": [
+    {
+      "name": "exact",
+      "cases": [
+        {
+          "ppw": 28,
+          "native_h_m": 0.12257142857142857,
+          "native_dt_s": 0.00020599032818587005,
+          "native_Nt": 1214,
+          "all_modes": 50653,
+          "signed_40_80": [
+            [
+              99.31400398033563,
+              -0.5102107375338599
+            ],
+            [
+              118.14676810123686,
+              -220.1952633356419
+            ]
+          ],
+          "conservation": {
+            "viscosity": 0.0,
+            "modal_attenuation": false,
+            "unit_modulus_error": 0.0,
+            "spatial_operator_modified": false,
+            "all_modes_audited": 50653,
+            "energy_relative_drift": 2.220446049250313e-16,
+            "sampled_state_indices": [
+              1,
+              607,
+              1213
+            ],
+            "conservation_basis": "unitary modal update; state audits are not full temporal error bounds"
+          },
+          "control_reproduction_relative_error": 2.9251271025050505e-14
+        },
+        {
+          "ppw": 32,
+          "native_h_m": 0.10725,
+          "native_dt_s": 0.0001802415371626363,
+          "native_Nt": 1388,
+          "all_modes": 68921,
+          "signed_40_80": [
+            [
+              133.94412114807284,
+              0.045235085610626995
+            ],
+            [
+              152.69763700736604,
+              -219.39675405787867
+            ]
+          ],
+          "conservation": {
+            "viscosity": 0.0,
+            "modal_attenuation": false,
+            "unit_modulus_error": 0.0,
+            "spatial_operator_modified": false,
+            "all_modes_audited": 68921,
+            "energy_relative_drift": 2.220446049250313e-16,
+            "sampled_state_indices": [
+              1,
+              694,
+              1387
+            ],
+            "conservation_basis": "unitary modal update; state audits are not full temporal error bounds"
+          },
+          "control_reproduction_relative_error": 6.474387123319551e-14
+        },
+        {
+          "ppw": 36,
+          "native_h_m": 0.09533333333333333,
+          "native_dt_s": 0.00016021469970012116,
+          "native_Nt": 1561,
+          "all_modes": 91125,
+          "signed_40_80": [
+            [
+              1.7162325136524113,
+              2.293652081279907
+            ],
+            [
+              20.258238809784025,
+              -214.75972973609203
+            ]
+          ],
+          "conservation": {
+            "viscosity": 0.0,
+            "modal_attenuation": false,
+            "unit_modulus_error": 0.0,
+            "spatial_operator_modified": false,
+            "all_modes_audited": 91125,
+            "energy_relative_drift": 2.220446049250313e-16,
+            "sampled_state_indices": [
+              1,
+              780,
+              1560
+            ],
+            "conservation_basis": "unitary modal update; state audits are not full temporal error bounds"
+          },
+          "control_reproduction_relative_error": 5.01290713323103e-14
+        },
+        {
+          "ppw": 40,
+          "native_h_m": 0.0858,
+          "native_dt_s": 0.00014419322973010905,
+          "native_Nt": 1734,
+          "all_modes": 117649,
+          "signed_40_80": [
+            [
+              107.31024008591503,
+              -0.21477494254558277
+            ],
+            [
+              126.17197698320051,
+              -220.31326971860784
+            ]
+          ],
+          "conservation": {
+            "viscosity": 0.0,
+            "modal_attenuation": false,
+            "unit_modulus_error": 0.0,
+            "spatial_operator_modified": false,
+            "all_modes_audited": 117649,
+            "energy_relative_drift": 2.220446049250313e-16,
+            "sampled_state_indices": [
+              1,
+              867,
+              1733
+            ],
+            "conservation_basis": "unitary modal update; state audits are not full temporal error bounds"
+          },
+          "control_reproduction_relative_error": 1.0210539301011642e-13
+        },
+        {
+          "ppw": 44,
+          "native_h_m": 0.078,
+          "native_dt_s": 0.00013108475430009911,
+          "native_Nt": 1908,
+          "all_modes": 148877,
+          "signed_40_80": [
+            [
+              142.5280085525138,
+              1.2939501244292149
+            ],
+            [
+              161.7793101263967,
+              -217.39049767200964
+            ]
+          ],
+          "conservation": {
+            "viscosity": 0.0,
+            "modal_attenuation": false,
+            "unit_modulus_error": 0.0,
+            "spatial_operator_modified": false,
+            "all_modes_audited": 148877,
+            "energy_relative_drift": 2.220446049250313e-16,
+            "sampled_state_indices": [
+              1,
+              954,
+              1907
+            ],
+            "conservation_basis": "unitary modal update; state audits are not full temporal error bounds"
+          },
+          "control_reproduction_relative_error": 1.0149064137039012e-13
+        }
+      ],
+      "independent_cases": [
+        {
+          "order": 3,
+          "refinement": 2,
+          "all_modes": 2197,
+          "signed_40_80": [
+            [
+              13.840953209012218,
+              0.666640405879133
+            ],
+            [
+              25.891965489213398,
+              -219.78332922008298
+            ]
+          ],
+          "conservation": {
+            "viscosity": 0.0,
+            "modal_attenuation": false,
+            "unit_modulus_error": 0.0,
+            "spatial_operator_modified": false,
+            "all_modes_audited": 2197,
+            "energy_relative_drift": 2.220446049250313e-16,
+            "sampled_state_indices": [
+              1,
+              954,
+              1907
+            ],
+            "conservation_basis": "unitary modal update; state audits are not full temporal error bounds"
+          }
+        },
+        {
+          "order": 4,
+          "refinement": 2,
+          "all_modes": 4913,
+          "signed_40_80": [
+            [
+              57.75080450819586,
+              2.0858111027956943
+            ],
+            [
+              75.70823486956562,
+              -215.9308854054038
+            ]
+          ],
+          "conservation": {
+            "viscosity": 0.0,
+            "modal_attenuation": false,
+            "unit_modulus_error": 0.0,
+            "spatial_operator_modified": false,
+            "all_modes_audited": 4913,
+            "energy_relative_drift": 2.220446049250313e-16,
+            "sampled_state_indices": [
+              1,
+              954,
+              1907
+            ],
+            "conservation_basis": "unitary modal update; state audits are not full temporal error bounds"
+          }
+        },
+        {
+          "order": 5,
+          "refinement": 2,
+          "all_modes": 9261,
+          "signed_40_80": [
+            [
+              32.09059354633908,
+              -2.826481061453413
+            ],
+            [
+              48.25283344640075,
+              -225.85433791451948
+            ]
+          ],
+          "conservation": {
+            "viscosity": 0.0,
+            "modal_attenuation": false,
+            "unit_modulus_error": 0.0,
+            "spatial_operator_modified": false,
+            "all_modes_audited": 9261,
+            "energy_relative_drift": 2.220446049250313e-16,
+            "sampled_state_indices": [
+              1,
+              954,
+              1907
+            ],
+            "conservation_basis": "unitary modal update; state audits are not full temporal error bounds"
+          }
+        },
+        {
+          "order": 6,
+          "refinement": 1,
+          "all_modes": 2197,
+          "signed_40_80": [
+            [
+              53.37985968796384,
+              -2.7598876619008754
+            ],
+            [
+              69.03244566119456,
+              -226.61061150113366
+            ]
+          ],
+          "conservation": {
+            "viscosity": 0.0,
+            "modal_attenuation": false,
+            "unit_modulus_error": 0.0,
+            "spatial_operator_modified": false,
+            "all_modes_audited": 2197,
+            "energy_relative_drift": 2.220446049250313e-16,
+            "sampled_state_indices": [
+              1,
+              954,
+              1907
+            ],
+            "conservation_basis": "unitary modal update; state audits are not full temporal error bounds"
+          }
+        },
+        {
+          "order": 7,
+          "refinement": 1,
+          "all_modes": 3375,
+          "signed_40_80": [
+            [
+              81.80241586592774,
+              -0.765747034241279
+            ],
+            [
+              100.86506766503196,
+              -221.53002012817896
+            ]
+          ],
+          "conservation": {
+            "viscosity": 0.0,
+            "modal_attenuation": false,
+            "unit_modulus_error": 0.0,
+            "spatial_operator_modified": false,
+            "all_modes_audited": 3375,
+            "energy_relative_drift": 2.220446049250313e-16,
+            "sampled_state_indices": [
+              1,
+              954,
+              1907
+            ],
+            "conservation_basis": "unitary modal update; state audits are not full temporal error bounds"
+          }
+        },
+        {
+          "order": 8,
+          "refinement": 1,
+          "all_modes": 4913,
+          "signed_40_80": [
+            [
+              65.56661709037485,
+              -2.7319049636973975
+            ],
+            [
+              83.03099944878504,
+              -225.69243208263126
+            ]
+          ],
+          "conservation": {
+            "viscosity": 0.0,
+            "modal_attenuation": false,
+            "unit_modulus_error": 0.0,
+            "spatial_operator_modified": false,
+            "all_modes_audited": 4913,
+            "energy_relative_drift": 2.220446049250313e-16,
+            "sampled_state_indices": [
+              1,
+              954,
+              1907
+            ],
+            "conservation_basis": "unitary modal update; state audits are not full temporal error bounds"
+          }
+        }
+      ],
+      "pairs": [
+        {
+          "coarse": 28,
+          "fine": 32,
+          "metrics": {
+            "complex_rms_relative": 0.16364669903997062,
+            "magnitude_max_relative": 0.2585317815946204,
+            "phase_max_deg": 6.621491846635526
+          },
+          "pass": false,
+          "all_frequencies_retained": true
+        },
+        {
+          "coarse": 32,
+          "fine": 36,
+          "metrics": {
+            "complex_rms_relative": 0.8678310840424415,
+            "magnitude_max_relative": 45.757377869211616,
+            "phase_max_deg": 53.174860238048026
+          },
+          "pass": false,
+          "all_frequencies_retained": true
+        },
+        {
+          "coarse": 36,
+          "fine": 40,
+          "metrics": {
+            "complex_rms_relative": 0.5430537260548359,
+            "magnitude_max_relative": 0.9733049033669526,
+            "phase_max_deg": 53.30888382171902
+          },
+          "pass": false,
+          "all_frequencies_retained": true
+        },
+        {
+          "coarse": 40,
+          "fine": 44,
+          "metrics": {
+            "complex_rms_relative": 0.1639209782215408,
+            "magnitude_max_relative": 0.24712318586480925,
+            "phase_max_deg": 6.85667878823165
+          },
+          "pass": true,
+          "all_frequencies_retained": true
+        }
+      ],
+      "all_four_pairs_pass": false,
+      "strict_monotone_all_three": false,
+      "original_ladder_gate_pass": false,
+      "independent_checks": {
+        "P4_P5_r2": {
+          "metrics": {
+            "complex_rms_relative": 0.16800733176797408,
+            "magnitude_max_relative": 0.793846548566986,
+            "phase_max_deg": 7.261645207457571
+          },
+          "pass": false,
+          "all_frequencies_retained": true
+        },
+        "P7_P8_r1": {
+          "metrics": {
+            "complex_rms_relative": 0.09849766666135022,
+            "magnitude_max_relative": 0.24659599024468268,
+            "phase_max_deg": 4.282008702201189
+          },
+          "pass": false,
+          "all_frequencies_retained": true
+        },
+        "SEM44_P5_r2": {
+          "metrics": {
+            "complex_rms_relative": 0.6804013717457416,
+            "magnitude_max_relative": 3.424480517487815,
+            "phase_max_deg": 24.596466841159433
+          },
+          "pass": false,
+          "all_frequencies_retained": true
+        },
+        "SEM44_P8_r1": {
+          "metrics": {
+            "complex_rms_relative": 0.44327286897152046,
+            "magnitude_max_relative": 1.171994305645596,
+            "phase_max_deg": 16.45787513423274
+          },
+          "pass": false,
+          "all_frequencies_retained": true
+        }
+      },
+      "independent_gate_pass": false,
+      "conservation_gate_pass": true,
+      "qualification": "SELF_CONVERGENCE_FAILED"
+    },
+    {
+      "name": "gauss2",
+      "cases": [
+        {
+          "ppw": 28,
+          "native_h_m": 0.12257142857142857,
+          "native_dt_s": 0.00020599032818587005,
+          "native_Nt": 1214,
+          "all_modes": 50653,
+          "signed_40_80": [
+            [
+              -1.2826778471808926,
+              0.15469029182766514
+            ],
+            [
+              25.352110270648573,
+              -215.67604749706464
+            ]
+          ],
+          "conservation": {
+            "viscosity": 0.0,
+            "modal_attenuation": false,
+            "unit_modulus_error": 4.440892098500626e-16,
+            "spatial_operator_modified": false,
+            "all_modes_audited": 50653,
+            "energy_relative_drift": 2.220446049250313e-16,
+            "sampled_state_indices": [
+              1,
+              607,
+              1213
+            ],
+            "conservation_basis": "unitary modal update; state audits are not full temporal error bounds"
+          },
+          "control_reproduction_relative_error": 6.202882056734096e-14
+        },
+        {
+          "ppw": 32,
+          "native_h_m": 0.10725,
+          "native_dt_s": 0.0001802415371626363,
+          "native_Nt": 1388,
+          "all_modes": 68921,
+          "signed_40_80": [
+            [
+              -99.50062079931816,
+              -2.1450981097274284
+            ],
+            [
+              -76.38873274176306,
+              -221.23844698216763
+            ]
+          ],
+          "conservation": {
+            "viscosity": 0.0,
+            "modal_attenuation": false,
+            "unit_modulus_error": 4.440892098500626e-16,
+            "spatial_operator_modified": false,
+            "all_modes_audited": 68921,
+            "energy_relative_drift": 2.220446049250313e-16,
+            "sampled_state_indices": [
+              1,
+              694,
+              1387
+            ],
+            "conservation_basis": "unitary modal update; state audits are not full temporal error bounds"
+          },
+          "control_reproduction_relative_error": 2.4197373953339464e-13
+        },
+        {
+          "ppw": 36,
+          "native_h_m": 0.09533333333333333,
+          "native_dt_s": 0.00016021469970012116,
+          "native_Nt": 1561,
+          "all_modes": 91125,
+          "signed_40_80": [
+            [
+              60.29113212359823,
+              7.741826108943763
+            ],
+            [
+              82.98736917028023,
+              -201.35792916925848
+            ]
+          ],
+          "conservation": {
+            "viscosity": 0.0,
+            "modal_attenuation": false,
+            "unit_modulus_error": 4.440892098500626e-16,
+            "spatial_operator_modified": false,
+            "all_modes_audited": 91125,
+            "energy_relative_drift": 2.220446049250313e-16,
+            "sampled_state_indices": [
+              1,
+              780,
+              1560
+            ],
+            "conservation_basis": "unitary modal update; state audits are not full temporal error bounds"
+          },
+          "control_reproduction_relative_error": 2.2221583690194962e-14
+        },
+        {
+          "ppw": 40,
+          "native_h_m": 0.0858,
+          "native_dt_s": 0.00014419322973010905,
+          "native_Nt": 1734,
+          "all_modes": 117649,
+          "signed_40_80": [
+            [
+              88.3506178924057,
+              2.3924948618978945
+            ],
+            [
+              110.474181210078,
+              -213.1166852315217
+            ]
+          ],
+          "conservation": {
+            "viscosity": 0.0,
+            "modal_attenuation": false,
+            "unit_modulus_error": 4.440892098500626e-16,
+            "spatial_operator_modified": false,
+            "all_modes_audited": 117649,
+            "energy_relative_drift": 2.220446049250313e-16,
+            "sampled_state_indices": [
+              1,
+              867,
+              1733
+            ],
+            "conservation_basis": "unitary modal update; state audits are not full temporal error bounds"
+          },
+          "control_reproduction_relative_error": 2.3604716493980796e-13
+        },
+        {
+          "ppw": 44,
+          "native_h_m": 0.078,
+          "native_dt_s": 0.00013108475430009911,
+          "native_Nt": 1908,
+          "all_modes": 148877,
+          "signed_40_80": [
+            [
+              30.01424775165618,
+              -0.3625391808821449
+            ],
+            [
+              51.175699491349434,
+              -219.10649256026494
+            ]
+          ],
+          "conservation": {
+            "viscosity": 0.0,
+            "modal_attenuation": false,
+            "unit_modulus_error": 4.440892098500626e-16,
+            "spatial_operator_modified": false,
+            "all_modes_audited": 148877,
+            "energy_relative_drift": 2.220446049250313e-16,
+            "sampled_state_indices": [
+              1,
+              954,
+              1907
+            ],
+            "conservation_basis": "unitary modal update; state audits are not full temporal error bounds"
+          },
+          "control_reproduction_relative_error": 9.071395835686777e-14
+        }
+      ],
+      "independent_cases": [
+        {
+          "order": 3,
+          "refinement": 2,
+          "all_modes": 2197,
+          "signed_40_80": [
+            [
+              50.7868184232728,
+              -2.8836933075887585
+            ],
+            [
+              71.11669419612197,
+              -226.45471795444504
+            ]
+          ],
+          "conservation": {
+            "viscosity": 0.0,
+            "modal_attenuation": false,
+            "unit_modulus_error": 3.3306690738754696e-16,
+            "spatial_operator_modified": false,
+            "all_modes_audited": 2197,
+            "energy_relative_drift": 2.220446049250313e-16,
+            "sampled_state_indices": [
+              1,
+              954,
+              1907
+            ],
+            "conservation_basis": "unitary modal update; state audits are not full temporal error bounds"
+          }
+        },
+        {
+          "order": 4,
+          "refinement": 2,
+          "all_modes": 4913,
+          "signed_40_80": [
+            [
+              45.41861171272214,
+              2.778017130150445
+            ],
+            [
+              66.11663337339535,
+              -212.93773535086004
+            ]
+          ],
+          "conservation": {
+            "viscosity": 0.0,
+            "modal_attenuation": false,
+            "unit_modulus_error": 4.440892098500626e-16,
+            "spatial_operator_modified": false,
+            "all_modes_audited": 4913,
+            "energy_relative_drift": 2.220446049250313e-16,
+            "sampled_state_indices": [
+              1,
+              954,
+              1907
+            ],
+            "conservation_basis": "unitary modal update; state audits are not full temporal error bounds"
+          }
+        },
+        {
+          "order": 5,
+          "refinement": 2,
+          "all_modes": 9261,
+          "signed_40_80": [
+            [
+              55.426861019503235,
+              7.835197317308701
+            ],
+            [
+              77.08346408792846,
+              -202.2672019623151
+            ]
+          ],
+          "conservation": {
+            "viscosity": 0.0,
+            "modal_attenuation": false,
+            "unit_modulus_error": 4.440892098500626e-16,
+            "spatial_operator_modified": false,
+            "all_modes_audited": 9261,
+            "energy_relative_drift": 2.220446049250313e-16,
+            "sampled_state_indices": [
+              1,
+              954,
+              1907
+            ],
+            "conservation_basis": "unitary modal update; state audits are not full temporal error bounds"
+          }
+        },
+        {
+          "order": 6,
+          "refinement": 1,
+          "all_modes": 2197,
+          "signed_40_80": [
+            [
+              48.02675457927999,
+              -3.7663859230512395
+            ],
+            [
+              71.82430054037805,
+              -227.07098880250305
+            ]
+          ],
+          "conservation": {
+            "viscosity": 0.0,
+            "modal_attenuation": false,
+            "unit_modulus_error": 3.3306690738754696e-16,
+            "spatial_operator_modified": false,
+            "all_modes_audited": 2197,
+            "energy_relative_drift": 2.220446049250313e-16,
+            "sampled_state_indices": [
+              1,
+              954,
+              1907
+            ],
+            "conservation_basis": "unitary modal update; state audits are not full temporal error bounds"
+          }
+        },
+        {
+          "order": 7,
+          "refinement": 1,
+          "all_modes": 3375,
+          "signed_40_80": [
+            [
+              -32.01545519610847,
+              1.5386409914527988
+            ],
+            [
+              -12.921576171939087,
+              -215.47084414386234
+            ]
+          ],
+          "conservation": {
+            "viscosity": 0.0,
+            "modal_attenuation": false,
+            "unit_modulus_error": 3.3306690738754696e-16,
+            "spatial_operator_modified": false,
+            "all_modes_audited": 3375,
+            "energy_relative_drift": 2.220446049250313e-16,
+            "sampled_state_indices": [
+              1,
+              954,
+              1907
+            ],
+            "conservation_basis": "unitary modal update; state audits are not full temporal error bounds"
+          }
+        },
+        {
+          "order": 8,
+          "refinement": 1,
+          "all_modes": 4913,
+          "signed_40_80": [
+            [
+              43.246026181520534,
+              4.282946126119534
+            ],
+            [
+              65.52309348120384,
+              -209.7150655898056
+            ]
+          ],
+          "conservation": {
+            "viscosity": 0.0,
+            "modal_attenuation": false,
+            "unit_modulus_error": 3.3306690738754696e-16,
+            "spatial_operator_modified": false,
+            "all_modes_audited": 4913,
+            "energy_relative_drift": 2.220446049250313e-16,
+            "sampled_state_indices": [
+              1,
+              954,
+              1907
+            ],
+            "conservation_basis": "unitary modal update; state audits are not full temporal error bounds"
+          }
+        }
+      ],
+      "pairs": [
+        {
+          "coarse": 28,
+          "fine": 32,
+          "metrics": {
+            "complex_rms_relative": 0.5565171434283552,
+            "magnitude_max_relative": 0.9870184545949996,
+            "phase_max_deg": 25.752850877952962
+          },
+          "pass": false,
+          "all_frequencies_retained": true
+        },
+        {
+          "coarse": 32,
+          "fine": 36,
+          "metrics": {
+            "complex_rms_relative": 1.0029320910709236,
+            "magnitude_max_relative": 0.6372764966963638,
+            "phase_max_deg": 173.9178679616772
+          },
+          "pass": false,
+          "all_frequencies_retained": true
+        },
+        {
+          "coarse": 36,
+          "fine": 40,
+          "metrics": {
+            "complex_rms_relative": 0.16164452095713958,
+            "magnitude_max_relative": 0.3122416105494502,
+            "phase_max_deg": 5.7659950663124535
+          },
+          "pass": false,
+          "all_frequencies_retained": true
+        },
+        {
+          "coarse": 40,
+          "fine": 44,
+          "metrics": {
+            "complex_rms_relative": 0.3675999639878107,
+            "magnitude_max_relative": 1.9444868882842028,
+            "phase_max_deg": 14.254423661580779
+          },
+          "pass": false,
+          "all_frequencies_retained": true
+        }
+      ],
+      "all_four_pairs_pass": false,
+      "strict_monotone_all_three": false,
+      "original_ladder_gate_pass": false,
+      "independent_checks": {
+        "P4_P5_r2": {
+          "metrics": {
+            "complex_rms_relative": 0.08484838625469728,
+            "magnitude_max_relative": 0.1871171199888242,
+            "phase_max_deg": 4.545956979550159
+          },
+          "pass": false,
+          "all_frequencies_retained": true
+        },
+        "P7_P8_r1": {
+          "metrics": {
+            "complex_rms_relative": 0.4862131482738828,
+            "magnitude_max_relative": 0.26244403980686754,
+            "phase_max_deg": 171.59257634495447
+          },
+          "pass": false,
+          "all_frequencies_retained": true
+        },
+        "SEM44_P5_r2": {
+          "metrics": {
+            "complex_rms_relative": 0.1826580339210422,
+            "magnitude_max_relative": 0.4637807444579449,
+            "phase_max_deg": 8.738113920498298
+          },
+          "pass": false,
+          "all_frequencies_retained": true
+        },
+        "SEM44_P8_r1": {
+          "metrics": {
+            "complex_rms_relative": 0.09890601042186141,
+            "magnitude_max_relative": 0.3092936127114965,
+            "phase_max_deg": 6.347981034408742
+          },
+          "pass": false,
+          "all_frequencies_retained": true
+        }
+      },
+      "independent_gate_pass": false,
+      "conservation_gate_pass": true,
+      "qualification": "SELF_CONVERGENCE_FAILED"
+    },
+    {
+      "name": "gauss4",
+      "cases": [
+        {
+          "ppw": 28,
+          "native_h_m": 0.12257142857142857,
+          "native_dt_s": 0.00020599032818587005,
+          "native_Nt": 1214,
+          "all_modes": 50653,
+          "signed_40_80": [
+            [
+              63.747780460928155,
+              -0.37058298163888903
+            ],
+            [
+              82.84228301777914,
+              -219.9249035621079
+            ]
+          ],
+          "conservation": {
+            "viscosity": 0.0,
+            "modal_attenuation": false,
+            "unit_modulus_error": 4.440892098500626e-16,
+            "spatial_operator_modified": false,
+            "all_modes_audited": 50653,
+            "energy_relative_drift": 2.220446049250313e-16,
+            "sampled_state_indices": [
+              1,
+              607,
+              1213
+            ],
+            "conservation_basis": "unitary modal update; state audits are not full temporal error bounds"
+          },
+          "control_reproduction_relative_error": null
+        },
+        {
+          "ppw": 32,
+          "native_h_m": 0.10725,
+          "native_dt_s": 0.0001802415371626363,
+          "native_Nt": 1388,
+          "all_modes": 68921,
+          "signed_40_80": [
+            [
+              111.45631946109428,
+              -1.535966734725009
+            ],
+            [
+              130.38034959758036,
+              -222.57582441360086
+            ]
+          ],
+          "conservation": {
+            "viscosity": 0.0,
+            "modal_attenuation": false,
+            "unit_modulus_error": 4.440892098500626e-16,
+            "spatial_operator_modified": false,
+            "all_modes_audited": 68921,
+            "energy_relative_drift": 2.220446049250313e-16,
+            "sampled_state_indices": [
+              1,
+              694,
+              1387
+            ],
+            "conservation_basis": "unitary modal update; state audits are not full temporal error bounds"
+          },
+          "control_reproduction_relative_error": null
+        },
+        {
+          "ppw": 36,
+          "native_h_m": 0.09533333333333333,
+          "native_dt_s": 0.00016021469970012116,
+          "native_Nt": 1561,
+          "all_modes": 91125,
+          "signed_40_80": [
+            [
+              38.15809278912781,
+              -0.7587672423689418
+            ],
+            [
+              56.86264643844064,
+              -220.8989293424219
+            ]
+          ],
+          "conservation": {
+            "viscosity": 0.0,
+            "modal_attenuation": false,
+            "unit_modulus_error": 4.440892098500626e-16,
+            "spatial_operator_modified": false,
+            "all_modes_audited": 91125,
+            "energy_relative_drift": 2.220446049250313e-16,
+            "sampled_state_indices": [
+              1,
+              780,
+              1560
+            ],
+            "conservation_basis": "unitary modal update; state audits are not full temporal error bounds"
+          },
+          "control_reproduction_relative_error": null
+        },
+        {
+          "ppw": 40,
+          "native_h_m": 0.0858,
+          "native_dt_s": 0.00014419322973010905,
+          "native_Nt": 1734,
+          "all_modes": 117649,
+          "signed_40_80": [
+            [
+              24.866536106014916,
+              0.7196862349507592
+            ],
+            [
+              43.66317369420494,
+              -218.4518691530044
+            ]
+          ],
+          "conservation": {
+            "viscosity": 0.0,
+            "modal_attenuation": false,
+            "unit_modulus_error": 4.440892098500626e-16,
+            "spatial_operator_modified": false,
+            "all_modes_audited": 117649,
+            "energy_relative_drift": 2.220446049250313e-16,
+            "sampled_state_indices": [
+              1,
+              867,
+              1733
+            ],
+            "conservation_basis": "unitary modal update; state audits are not full temporal error bounds"
+          },
+          "control_reproduction_relative_error": null
+        },
+        {
+          "ppw": 44,
+          "native_h_m": 0.078,
+          "native_dt_s": 0.00013108475430009911,
+          "native_Nt": 1908,
+          "all_modes": 148877,
+          "signed_40_80": [
+            [
+              43.603665636588765,
+              2.8976357749442943
+            ],
+            [
+              62.58728341942972,
+              -214.17118986493597
+            ]
+          ],
+          "conservation": {
+            "viscosity": 0.0,
+            "modal_attenuation": false,
+            "unit_modulus_error": 4.440892098500626e-16,
+            "spatial_operator_modified": false,
+            "all_modes_audited": 148877,
+            "energy_relative_drift": 2.220446049250313e-16,
+            "sampled_state_indices": [
+              1,
+              954,
+              1907
+            ],
+            "conservation_basis": "unitary modal update; state audits are not full temporal error bounds"
+          },
+          "control_reproduction_relative_error": null
+        }
+      ],
+      "independent_cases": [
+        {
+          "order": 3,
+          "refinement": 2,
+          "all_modes": 2197,
+          "signed_40_80": [
+            [
+              -16.055066535369672,
+              0.19254848643315553
+            ],
+            [
+              -4.111058807968096,
+              -220.7367819163523
+            ]
+          ],
+          "conservation": {
+            "viscosity": 0.0,
+            "modal_attenuation": false,
+            "unit_modulus_error": 3.3306690738754696e-16,
+            "spatial_operator_modified": false,
+            "all_modes_audited": 2197,
+            "energy_relative_drift": 2.220446049250313e-16,
+            "sampled_state_indices": [
+              1,
+              954,
+              1907
+            ],
+            "conservation_basis": "unitary modal update; state audits are not full temporal error bounds"
+          }
+        },
+        {
+          "order": 4,
+          "refinement": 2,
+          "all_modes": 4913,
+          "signed_40_80": [
+            [
+              26.30379068093793,
+              1.8675702933195786
+            ],
+            [
+              44.156403580900005,
+              -216.37132305626642
+            ]
+          ],
+          "conservation": {
+            "viscosity": 0.0,
+            "modal_attenuation": false,
+            "unit_modulus_error": 3.3306690738754696e-16,
+            "spatial_operator_modified": false,
+            "all_modes_audited": 4913,
+            "energy_relative_drift": 2.220446049250313e-16,
+            "sampled_state_indices": [
+              1,
+              954,
+              1907
+            ],
+            "conservation_basis": "unitary modal update; state audits are not full temporal error bounds"
+          }
+        },
+        {
+          "order": 5,
+          "refinement": 2,
+          "all_modes": 9261,
+          "signed_40_80": [
+            [
+              -27.545929406594414,
+              -2.5470526080033906
+            ],
+            [
+              -11.363853082719908,
+              -225.2943402148483
+            ]
+          ],
+          "conservation": {
+            "viscosity": 0.0,
+            "modal_attenuation": false,
+            "unit_modulus_error": 4.440892098500626e-16,
+            "spatial_operator_modified": false,
+            "all_modes_audited": 9261,
+            "energy_relative_drift": 2.220446049250313e-16,
+            "sampled_state_indices": [
+              1,
+              954,
+              1907
+            ],
+            "conservation_basis": "unitary modal update; state audits are not full temporal error bounds"
+          }
+        },
+        {
+          "order": 6,
+          "refinement": 1,
+          "all_modes": 2197,
+          "signed_40_80": [
+            [
+              28.519218650766867,
+              -2.693020524385208
+            ],
+            [
+              44.064149282419145,
+              -226.47771715035415
+            ]
+          ],
+          "conservation": {
+            "viscosity": 0.0,
+            "modal_attenuation": false,
+            "unit_modulus_error": 3.3306690738754696e-16,
+            "spatial_operator_modified": false,
+            "all_modes_audited": 2197,
+            "energy_relative_drift": 2.220446049250313e-16,
+            "sampled_state_indices": [
+              1,
+              954,
+              1907
+            ],
+            "conservation_basis": "unitary modal update; state audits are not full temporal error bounds"
+          }
+        },
+        {
+          "order": 7,
+          "refinement": 1,
+          "all_modes": 3375,
+          "signed_40_80": [
+            [
+              104.80114414187442,
+              0.418869859434119
+            ],
+            [
+              123.89889626189108,
+              -219.1494463952905
+            ]
+          ],
+          "conservation": {
+            "viscosity": 0.0,
+            "modal_attenuation": false,
+            "unit_modulus_error": 3.3306690738754696e-16,
+            "spatial_operator_modified": false,
+            "all_modes_audited": 3375,
+            "energy_relative_drift": 2.220446049250313e-16,
+            "sampled_state_indices": [
+              1,
+              954,
+              1907
+            ],
+            "conservation_basis": "unitary modal update; state audits are not full temporal error bounds"
+          }
+        },
+        {
+          "order": 8,
+          "refinement": 1,
+          "all_modes": 4913,
+          "signed_40_80": [
+            [
+              51.83780336429522,
+              -2.7860971890035384
+            ],
+            [
+              69.32914063454902,
+              -225.80084816376223
+            ]
+          ],
+          "conservation": {
+            "viscosity": 0.0,
+            "modal_attenuation": false,
+            "unit_modulus_error": 4.440892098500626e-16,
+            "spatial_operator_modified": false,
+            "all_modes_audited": 4913,
+            "energy_relative_drift": 2.220446049250313e-16,
+            "sampled_state_indices": [
+              1,
+              954,
+              1907
+            ],
+            "conservation_basis": "unitary modal update; state audits are not full temporal error bounds"
+          }
+        }
+      ],
+      "pairs": [
+        {
+          "coarse": 28,
+          "fine": 32,
+          "metrics": {
+            "complex_rms_relative": 0.23989542326724425,
+            "magnitude_max_relative": 0.42809160207795316,
+            "phase_max_deg": 9.720286818841075
+          },
+          "pass": false,
+          "all_frequencies_retained": true
+        },
+        {
+          "coarse": 32,
+          "fine": 36,
+          "metrics": {
+            "complex_rms_relative": 0.4489584512423579,
+            "magnitude_max_relative": 1.9206090626228227,
+            "phase_max_deg": 15.925511188617833
+          },
+          "pass": false,
+          "all_frequencies_retained": true
+        },
+        {
+          "coarse": 36,
+          "fine": 40,
+          "metrics": {
+            "complex_rms_relative": 0.08453444177393524,
+            "magnitude_max_relative": 0.5341767515331831,
+            "phase_max_deg": 3.132312591120868
+          },
+          "pass": false,
+          "all_frequencies_retained": true
+        },
+        {
+          "coarse": 40,
+          "fine": 44,
+          "metrics": {
+            "complex_rms_relative": 0.11901629940710699,
+            "magnitude_max_relative": 0.4307313500430634,
+            "phase_max_deg": 4.986882741662078
+          },
+          "pass": false,
+          "all_frequencies_retained": true
+        }
+      ],
+      "all_four_pairs_pass": false,
+      "strict_monotone_all_three": false,
+      "original_ladder_gate_pass": false,
+      "independent_checks": {
+        "P4_P5_r2": {
+          "metrics": {
+            "complex_rms_relative": 0.343129824996775,
+            "magnitude_max_relative": 0.046755944989260514,
+            "phase_max_deg": 178.77831747732586
+          },
+          "pass": false,
+          "all_frequencies_retained": true
+        },
+        "P7_P8_r1": {
+          "metrics": {
+            "complex_rms_relative": 0.31592320137304475,
+            "magnitude_max_relative": 1.0188150714682869,
+            "phase_max_deg": 12.413786858881457
+          },
+          "pass": false,
+          "all_frequencies_retained": true
+        },
+        "SEM44_P5_r2": {
+          "metrics": {
+            "complex_rms_relative": 0.4548119136591955,
+            "magnitude_max_relative": 0.5796967118263944,
+            "phase_max_deg": 178.51907039485477
+          },
+          "pass": false,
+          "all_frequencies_retained": true
+        },
+        "SEM44_P8_r1": {
+          "metrics": {
+            "complex_rms_relative": 0.06929036878927393,
+            "magnitude_max_relative": 0.15820394738386584,
+            "phase_max_deg": 6.87842467922303
+          },
+          "pass": false,
+          "all_frequencies_retained": true
+        }
+      },
+      "independent_gate_pass": false,
+      "conservation_gate_pass": true,
+      "qualification": "SELF_CONVERGENCE_FAILED"
+    },
+    {
+      "name": "gauss6",
+      "cases": [
+        {
+          "ppw": 28,
+          "native_h_m": 0.12257142857142857,
+          "native_dt_s": 0.00020599032818587005,
+          "native_Nt": 1214,
+          "all_modes": 50653,
+          "signed_40_80": [
+            [
+              102.92557202301955,
+              -0.6587826158762962
+            ],
+            [
+              121.7443130931677,
+              -220.49209839491772
+            ]
+          ],
+          "conservation": {
+            "viscosity": 0.0,
+            "modal_attenuation": false,
+            "unit_modulus_error": 4.440892098500626e-16,
+            "spatial_operator_modified": false,
+            "all_modes_audited": 50653,
+            "energy_relative_drift": 2.220446049250313e-16,
+            "sampled_state_indices": [
+              1,
+              607,
+              1213
+            ],
+            "conservation_basis": "unitary modal update; state audits are not full temporal error bounds"
+          },
+          "control_reproduction_relative_error": null
+        },
+        {
+          "ppw": 32,
+          "native_h_m": 0.10725,
+          "native_dt_s": 0.0001802415371626363,
+          "native_Nt": 1388,
+          "all_modes": 68921,
+          "signed_40_80": [
+            [
+              -30.445081924473577,
+              0.04436485290784406
+            ],
+            [
+              -11.713495475357318,
+              -219.3989539756331
+            ]
+          ],
+          "conservation": {
+            "viscosity": 0.0,
+            "modal_attenuation": false,
+            "unit_modulus_error": 4.440892098500626e-16,
+            "spatial_operator_modified": false,
+            "all_modes_audited": 68921,
+            "energy_relative_drift": 2.220446049250313e-16,
+            "sampled_state_indices": [
+              1,
+              694,
+              1387
+            ],
+            "conservation_basis": "unitary modal update; state audits are not full temporal error bounds"
+          },
+          "control_reproduction_relative_error": null
+        },
+        {
+          "ppw": 36,
+          "native_h_m": 0.09533333333333333,
+          "native_dt_s": 0.00016021469970012116,
+          "native_Nt": 1561,
+          "all_modes": 91125,
+          "signed_40_80": [
+            [
+              -0.006449917063507416,
+              2.3249899463749784
+            ],
+            [
+              18.53295995526715,
+              -214.69741307119716
+            ]
+          ],
+          "conservation": {
+            "viscosity": 0.0,
+            "modal_attenuation": false,
+            "unit_modulus_error": 4.440892098500626e-16,
+            "spatial_operator_modified": false,
+            "all_modes_audited": 91125,
+            "energy_relative_drift": 2.220446049250313e-16,
+            "sampled_state_indices": [
+              1,
+              780,
+              1560
+            ],
+            "conservation_basis": "unitary modal update; state audits are not full temporal error bounds"
+          },
+          "control_reproduction_relative_error": null
+        },
+        {
+          "ppw": 40,
+          "native_h_m": 0.0858,
+          "native_dt_s": 0.00014419322973010905,
+          "native_Nt": 1734,
+          "all_modes": 117649,
+          "signed_40_80": [
+            [
+              63.89107590767324,
+              0.973652403881477
+            ],
+            [
+              82.79459545881019,
+              -217.9369125344508
+            ]
+          ],
+          "conservation": {
+            "viscosity": 0.0,
+            "modal_attenuation": false,
+            "unit_modulus_error": 4.440892098500626e-16,
+            "spatial_operator_modified": false,
+            "all_modes_audited": 117649,
+            "energy_relative_drift": 2.220446049250313e-16,
+            "sampled_state_indices": [
+              1,
+              867,
+              1733
+            ],
+            "conservation_basis": "unitary modal update; state audits are not full temporal error bounds"
+          },
+          "control_reproduction_relative_error": null
+        },
+        {
+          "ppw": 44,
+          "native_h_m": 0.078,
+          "native_dt_s": 0.00013108475430009911,
+          "native_Nt": 1908,
+          "all_modes": 148877,
+          "signed_40_80": [
+            [
+              147.98989824442728,
+              1.2135975741814256
+            ],
+            [
+              167.2379170185782,
+              -217.55105796840778
+            ]
+          ],
+          "conservation": {
+            "viscosity": 0.0,
+            "modal_attenuation": false,
+            "unit_modulus_error": 4.440892098500626e-16,
+            "spatial_operator_modified": false,
+            "all_modes_audited": 148877,
+            "energy_relative_drift": 2.220446049250313e-16,
+            "sampled_state_indices": [
+              1,
+              954,
+              1907
+            ],
+            "conservation_basis": "unitary modal update; state audits are not full temporal error bounds"
+          },
+          "control_reproduction_relative_error": null
+        }
+      ],
+      "independent_cases": [
+        {
+          "order": 3,
+          "refinement": 2,
+          "all_modes": 2197,
+          "signed_40_80": [
+            [
+              13.648171099267286,
+              0.6664992053546084
+            ],
+            [
+              25.698498920565903,
+              -219.7836131624458
+            ]
+          ],
+          "conservation": {
+            "viscosity": 0.0,
+            "modal_attenuation": false,
+            "unit_modulus_error": 3.3306690738754696e-16,
+            "spatial_operator_modified": false,
+            "all_modes_audited": 2197,
+            "energy_relative_drift": 2.220446049250313e-16,
+            "sampled_state_indices": [
+              1,
+              954,
+              1907
+            ],
+            "conservation_basis": "unitary modal update; state audits are not full temporal error bounds"
+          }
+        },
+        {
+          "order": 4,
+          "refinement": 2,
+          "all_modes": 4913,
+          "signed_40_80": [
+            [
+              58.31301598330282,
+              2.0875177277920756
+            ],
+            [
+              76.2706744651106,
+              -215.92745423563127
+            ]
+          ],
+          "conservation": {
+            "viscosity": 0.0,
+            "modal_attenuation": false,
+            "unit_modulus_error": 4.440892098500626e-16,
+            "spatial_operator_modified": false,
+            "all_modes_audited": 4913,
+            "energy_relative_drift": 2.220446049250313e-16,
+            "sampled_state_indices": [
+              1,
+              954,
+              1907
+            ],
+            "conservation_basis": "unitary modal update; state audits are not full temporal error bounds"
+          }
+        },
+        {
+          "order": 5,
+          "refinement": 2,
+          "all_modes": 9261,
+          "signed_40_80": [
+            [
+              19.187531663138145,
+              -2.804705064165887
+            ],
+            [
+              35.345603767960085,
+              -225.81078067655454
+            ]
+          ],
+          "conservation": {
+            "viscosity": 0.0,
+            "modal_attenuation": false,
+            "unit_modulus_error": 4.440892098500626e-16,
+            "spatial_operator_modified": false,
+            "all_modes_audited": 9261,
+            "energy_relative_drift": 2.220446049250313e-16,
+            "sampled_state_indices": [
+              1,
+              954,
+              1907
+            ],
+            "conservation_basis": "unitary modal update; state audits are not full temporal error bounds"
+          }
+        },
+        {
+          "order": 6,
+          "refinement": 1,
+          "all_modes": 2197,
+          "signed_40_80": [
+            [
+              53.67541741535408,
+              -2.753611658745379
+            ],
+            [
+              69.32807507294906,
+              -226.59802983549875
+            ]
+          ],
+          "conservation": {
+            "viscosity": 0.0,
+            "modal_attenuation": false,
+            "unit_modulus_error": 3.3306690738754696e-16,
+            "spatial_operator_modified": false,
+            "all_modes_audited": 2197,
+            "energy_relative_drift": 2.220446049250313e-16,
+            "sampled_state_indices": [
+              1,
+              954,
+              1907
+            ],
+            "conservation_basis": "unitary modal update; state audits are not full temporal error bounds"
+          }
+        },
+        {
+          "order": 7,
+          "refinement": 1,
+          "all_modes": 3375,
+          "signed_40_80": [
+            [
+              82.63060578598858,
+              -0.761258488202683
+            ],
+            [
+              101.69484405526505,
+              -221.5210196054671
+            ]
+          ],
+          "conservation": {
+            "viscosity": 0.0,
+            "modal_attenuation": false,
+            "unit_modulus_error": 4.440892098500626e-16,
+            "spatial_operator_modified": false,
+            "all_modes_audited": 3375,
+            "energy_relative_drift": 2.220446049250313e-16,
+            "sampled_state_indices": [
+              1,
+              954,
+              1907
+            ],
+            "conservation_basis": "unitary modal update; state audits are not full temporal error bounds"
+          }
+        },
+        {
+          "order": 8,
+          "refinement": 1,
+          "all_modes": 4913,
+          "signed_40_80": [
+            [
+              63.53520813569652,
+              -2.714750757701639
+            ],
+            [
+              80.99910643837484,
+              -225.65806889601427
+            ]
+          ],
+          "conservation": {
+            "viscosity": 0.0,
+            "modal_attenuation": false,
+            "unit_modulus_error": 3.3306690738754696e-16,
+            "spatial_operator_modified": false,
+            "all_modes_audited": 4913,
+            "energy_relative_drift": 2.220446049250313e-16,
+            "sampled_state_indices": [
+              1,
+              954,
+              1907
+            ],
+            "conservation_basis": "unitary modal update; state audits are not full temporal error bounds"
+          }
+        }
+      ],
+      "pairs": [
+        {
+          "coarse": 28,
+          "fine": 32,
+          "metrics": {
+            "complex_rms_relative": 0.8506381956949711,
+            "magnitude_max_relative": 2.3807618343300136,
+            "phase_max_deg": 179.7167710772265
+          },
+          "pass": false,
+          "all_frequencies_retained": true
+        },
+        {
+          "coarse": 32,
+          "fine": 36,
+          "metrics": {
+            "complex_rms_relative": 0.20058640348826912,
+            "magnitude_max_relative": 12.094679030313932,
+            "phase_max_deg": 89.75756030553467
+          },
+          "pass": false,
+          "all_frequencies_retained": true
+        },
+        {
+          "coarse": 36,
+          "fine": 40,
+          "metrics": {
+            "complex_rms_relative": 0.3751694067630288,
+            "magnitude_max_relative": 0.9636141834522255,
+            "phase_max_deg": 89.28587040005033
+          },
+          "pass": false,
+          "all_frequencies_retained": true
+        },
+        {
+          "coarse": 40,
+          "fine": 44,
+          "metrics": {
+            "complex_rms_relative": 0.3822659709143369,
+            "magnitude_max_relative": 0.5682384631658124,
+            "phase_max_deg": 16.748676538379513
+          },
+          "pass": false,
+          "all_frequencies_retained": true
+        }
+      ],
+      "all_four_pairs_pass": false,
+      "strict_monotone_all_three": false,
+      "original_ladder_gate_pass": false,
+      "independent_checks": {
+        "P4_P5_r2": {
+          "metrics": {
+            "complex_rms_relative": 0.25147007810847205,
+            "magnitude_max_relative": 2.0090795110182507,
+            "phase_max_deg": 10.558242374945278
+          },
+          "pass": false,
+          "all_frequencies_retained": true
+        },
+        "P7_P8_r1": {
+          "metrics": {
+            "complex_rms_relative": 0.11501349333067504,
+            "magnitude_max_relative": 0.2994178361368262,
+            "phase_max_deg": 4.9132823314722
+          },
+          "pass": false,
+          "all_frequencies_retained": true
+        },
+        "SEM44_P5_r2": {
+          "metrics": {
+            "complex_rms_relative": 0.8046884912879128,
+            "magnitude_max_relative": 6.6319713377346705,
+            "phase_max_deg": 28.654363186196285
+          },
+          "pass": false,
+          "all_frequencies_retained": true
+        },
+        "SEM44_P8_r1": {
+          "metrics": {
+            "complex_rms_relative": 0.48797856803353357,
+            "magnitude_max_relative": 1.3272129842184035,
+            "phase_max_deg": 17.805136619601043
+          },
+          "pass": false,
+          "all_frequencies_retained": true
+        }
+      },
+      "independent_gate_pass": false,
+      "conservation_gate_pass": true,
+      "qualification": "SELF_CONVERGENCE_FAILED"
+    },
+    {
+      "name": "rational_mass_exact",
+      "cases": [
+        {
+          "ppw": 28,
+          "native_h_m": 0.12257142857142857,
+          "native_dt_s": 0.00020599032818587005,
+          "native_Nt": 1214,
+          "all_modes": 50653,
+          "signed_40_80": [
+            [
+              32.63378664990508,
+              3.262493375076918
+            ],
+            [
+              66.85142144492654,
+              -208.32623144348588
+            ]
+          ],
+          "conservation": {
+            "viscosity": 0.0,
+            "modal_attenuation": false,
+            "unit_modulus_error": 0.0,
+            "spatial_operator_modified": true,
+            "all_modes_audited": 50653,
+            "energy_relative_drift": 2.220446049250313e-16,
+            "sampled_state_indices": [
+              1,
+              607,
+              1213
+            ],
+            "conservation_basis": "unitary modal update; state audits are not full temporal error bounds"
+          },
+          "control_reproduction_relative_error": null
+        },
+        {
+          "ppw": 32,
+          "native_h_m": 0.10725,
+          "native_dt_s": 0.0001802415371626363,
+          "native_Nt": 1388,
+          "all_modes": 68921,
+          "signed_40_80": [
+            [
+              89.35136101375222,
+              0.8988818857484998
+            ],
+            [
+              118.00347088209521,
+              -214.31797003189132
+            ]
+          ],
+          "conservation": {
+            "viscosity": 0.0,
+            "modal_attenuation": false,
+            "unit_modulus_error": 0.0,
+            "spatial_operator_modified": true,
+            "all_modes_audited": 68921,
+            "energy_relative_drift": 2.220446049250313e-16,
+            "sampled_state_indices": [
+              1,
+              694,
+              1387
+            ],
+            "conservation_basis": "unitary modal update; state audits are not full temporal error bounds"
+          },
+          "control_reproduction_relative_error": null
+        },
+        {
+          "ppw": 36,
+          "native_h_m": 0.09533333333333333,
+          "native_dt_s": 0.00016021469970012116,
+          "native_Nt": 1561,
+          "all_modes": 91125,
+          "signed_40_80": [
+            [
+              24.458375790581634,
+              2.923443800174322
+            ],
+            [
+              50.15974580328047,
+              -210.6733005097765
+            ]
+          ],
+          "conservation": {
+            "viscosity": 0.0,
+            "modal_attenuation": false,
+            "unit_modulus_error": 0.0,
+            "spatial_operator_modified": true,
+            "all_modes_audited": 91125,
+            "energy_relative_drift": 2.220446049250313e-16,
+            "sampled_state_indices": [
+              1,
+              780,
+              1560
+            ],
+            "conservation_basis": "unitary modal update; state audits are not full temporal error bounds"
+          },
+          "control_reproduction_relative_error": null
+        },
+        {
+          "ppw": 40,
+          "native_h_m": 0.0858,
+          "native_dt_s": 0.00014419322973010905,
+          "native_Nt": 1734,
+          "all_modes": 117649,
+          "signed_40_80": [
+            [
+              147.96870369396603,
+              -1.9977284198226388
+            ],
+            [
+              170.6341368685436,
+              -221.4701108344361
+            ]
+          ],
+          "conservation": {
+            "viscosity": 0.0,
+            "modal_attenuation": false,
+            "unit_modulus_error": 0.0,
+            "spatial_operator_modified": true,
+            "all_modes_audited": 117649,
+            "energy_relative_drift": 2.220446049250313e-16,
+            "sampled_state_indices": [
+              1,
+              867,
+              1733
+            ],
+            "conservation_basis": "unitary modal update; state audits are not full temporal error bounds"
+          },
+          "control_reproduction_relative_error": null
+        },
+        {
+          "ppw": 44,
+          "native_h_m": 0.078,
+          "native_dt_s": 0.00013108475430009911,
+          "native_Nt": 1908,
+          "all_modes": 148877,
+          "signed_40_80": [
+            [
+              13.331960621482612,
+              6.108554825594044
+            ],
+            [
+              36.209681633413425,
+              -205.33370219553115
+            ]
+          ],
+          "conservation": {
+            "viscosity": 0.0,
+            "modal_attenuation": false,
+            "unit_modulus_error": 0.0,
+            "spatial_operator_modified": true,
+            "all_modes_audited": 148877,
+            "energy_relative_drift": 2.220446049250313e-16,
+            "sampled_state_indices": [
+              1,
+              954,
+              1907
+            ],
+            "conservation_basis": "unitary modal update; state audits are not full temporal error bounds"
+          },
+          "control_reproduction_relative_error": null
+        }
+      ],
+      "independent_cases": [
+        {
+          "order": 3,
+          "refinement": 2,
+          "all_modes": 2197,
+          "signed_40_80": [
+            [
+              38.84771473118407,
+              -1.5370601410927265
+            ],
+            [
+              62.88187480481983,
+              -223.02630867880114
+            ]
+          ],
+          "conservation": {
+            "viscosity": 0.0,
+            "modal_attenuation": false,
+            "unit_modulus_error": 0.0,
+            "spatial_operator_modified": true,
+            "all_modes_audited": 2197,
+            "energy_relative_drift": 2.220446049250313e-16,
+            "sampled_state_indices": [
+              1,
+              954,
+              1907
+            ],
+            "conservation_basis": "unitary modal update; state audits are not full temporal error bounds"
+          }
+        },
+        {
+          "order": 4,
+          "refinement": 2,
+          "all_modes": 4913,
+          "signed_40_80": [
+            [
+              26.990469273081878,
+              1.2864697176955742
+            ],
+            [
+              50.8337605683929,
+              -215.52838928568153
+            ]
+          ],
+          "conservation": {
+            "viscosity": 0.0,
+            "modal_attenuation": false,
+            "unit_modulus_error": 0.0,
+            "spatial_operator_modified": true,
+            "all_modes_audited": 4913,
+            "energy_relative_drift": 2.220446049250313e-16,
+            "sampled_state_indices": [
+              1,
+              954,
+              1907
+            ],
+            "conservation_basis": "unitary modal update; state audits are not full temporal error bounds"
+          }
+        },
+        {
+          "order": 5,
+          "refinement": 2,
+          "all_modes": 9261,
+          "signed_40_80": [
+            [
+              3.1192448900349707,
+              -1.3675715708061746
+            ],
+            [
+              25.1954920124072,
+              -220.70101958079636
+            ]
+          ],
+          "conservation": {
+            "viscosity": 0.0,
+            "modal_attenuation": false,
+            "unit_modulus_error": 0.0,
+            "spatial_operator_modified": true,
+            "all_modes_audited": 9261,
+            "energy_relative_drift": 2.220446049250313e-16,
+            "sampled_state_indices": [
+              1,
+              954,
+              1907
+            ],
+            "conservation_basis": "unitary modal update; state audits are not full temporal error bounds"
+          }
+        },
+        {
+          "order": 6,
+          "refinement": 1,
+          "all_modes": 2197,
+          "signed_40_80": [
+            [
+              124.31959966924892,
+              4.8108109312351495
+            ],
+            [
+              152.52895045896358,
+              -208.33874457781056
+            ]
+          ],
+          "conservation": {
+            "viscosity": 0.0,
+            "modal_attenuation": false,
+            "unit_modulus_error": 0.0,
+            "spatial_operator_modified": true,
+            "all_modes_audited": 2197,
+            "energy_relative_drift": 2.220446049250313e-16,
+            "sampled_state_indices": [
+              1,
+              954,
+              1907
+            ],
+            "conservation_basis": "unitary modal update; state audits are not full temporal error bounds"
+          }
+        },
+        {
+          "order": 7,
+          "refinement": 1,
+          "all_modes": 3375,
+          "signed_40_80": [
+            [
+              84.22080251174862,
+              -1.137743770289316
+            ],
+            [
+              108.70115870889295,
+              -220.51699923166797
+            ]
+          ],
+          "conservation": {
+            "viscosity": 0.0,
+            "modal_attenuation": false,
+            "unit_modulus_error": 0.0,
+            "spatial_operator_modified": true,
+            "all_modes_audited": 3375,
+            "energy_relative_drift": 2.220446049250313e-16,
+            "sampled_state_indices": [
+              1,
+              954,
+              1907
+            ],
+            "conservation_basis": "unitary modal update; state audits are not full temporal error bounds"
+          }
+        },
+        {
+          "order": 8,
+          "refinement": 1,
+          "all_modes": 4913,
+          "signed_40_80": [
+            [
+              30.10166618498546,
+              4.760710688273944
+            ],
+            [
+              53.19876913365828,
+              -208.00805029344352
+            ]
+          ],
+          "conservation": {
+            "viscosity": 0.0,
+            "modal_attenuation": false,
+            "unit_modulus_error": 0.0,
+            "spatial_operator_modified": true,
+            "all_modes_audited": 4913,
+            "energy_relative_drift": 2.220446049250313e-16,
+            "sampled_state_indices": [
+              1,
+              954,
+              1907
+            ],
+            "conservation_basis": "unitary modal update; state audits are not full temporal error bounds"
+          }
+        }
+      ],
+      "pairs": [
+        {
+          "coarse": 28,
+          "fine": 32,
+          "metrics": {
+            "complex_rms_relative": 0.29427453133785875,
+            "magnitude_max_relative": 0.632968073711586,
+            "phase_max_deg": 11.045860352833616
+          },
+          "pass": false,
+          "all_frequencies_retained": true
+        },
+        {
+          "coarse": 32,
+          "fine": 36,
+          "metrics": {
+            "complex_rms_relative": 0.431158487350673,
+            "magnitude_max_relative": 2.627564574798064,
+            "phase_max_deg": 15.444827168958689
+          },
+          "pass": false,
+          "all_frequencies_retained": true
+        },
+        {
+          "coarse": 36,
+          "fine": 40,
+          "metrics": {
+            "complex_rms_relative": 0.5467230992498748,
+            "magnitude_max_relative": 0.8335443470176221,
+            "phase_max_deg": 24.220505480802768
+          },
+          "pass": false,
+          "all_frequencies_retained": true
+        },
+        {
+          "coarse": 40,
+          "fine": 44,
+          "metrics": {
+            "complex_rms_relative": 0.9143279652265499,
+            "magnitude_max_relative": 9.09099642599131,
+            "phase_max_deg": 27.6118270744602
+          },
+          "pass": false,
+          "all_frequencies_retained": true
+        }
+      ],
+      "all_four_pairs_pass": false,
+      "strict_monotone_all_three": false,
+      "original_ladder_gate_pass": false,
+      "independent_checks": {
+        "P4_P5_r2": {
+          "metrics": {
+            "complex_rms_relative": 0.15983904335956717,
+            "magnitude_max_relative": 6.933691629902084,
+            "phase_max_deg": 26.40297515097155
+          },
+          "pass": false,
+          "all_frequencies_retained": true
+        },
+        "P7_P8_r1": {
+          "metrics": {
+            "complex_rms_relative": 0.36311895980469283,
+            "magnitude_max_relative": 1.763782215335088,
+            "phase_max_deg": 11.894352597315006
+          },
+          "pass": false,
+          "all_frequencies_retained": true
+        },
+        "SEM44_P5_r2": {
+          "metrics": {
+            "complex_rms_relative": 0.10241290591781774,
+            "magnitude_max_relative": 3.305737108264048,
+            "phase_max_deg": 48.29082302195767
+          },
+          "pass": false,
+          "all_frequencies_retained": true
+        },
+        "SEM44_P8_r1": {
+          "metrics": {
+            "complex_rms_relative": 0.11094354094059848,
+            "magnitude_max_relative": 0.5188059904351635,
+            "phase_max_deg": 15.629578866362793
+          },
+          "pass": false,
+          "all_frequencies_retained": true
+        }
+      },
+      "independent_gate_pass": false,
+      "conservation_gate_pass": true,
+      "qualification": "SELF_CONVERGENCE_FAILED"
+    },
+    {
+      "name": "hyperstiffness_exact",
+      "cases": [
+        {
+          "ppw": 28,
+          "native_h_m": 0.12257142857142857,
+          "native_dt_s": 0.00020599032818587005,
+          "native_Nt": 1214,
+          "all_modes": 50653,
+          "signed_40_80": [
+            [
+              3.2202401240901426,
+              -5.917893093319518
+            ],
+            [
+              -5.113955744224655,
+              -225.37223326639122
+            ]
+          ],
+          "conservation": {
+            "viscosity": 0.0,
+            "modal_attenuation": false,
+            "unit_modulus_error": 0.0,
+            "spatial_operator_modified": true,
+            "all_modes_audited": 50653,
+            "energy_relative_drift": 2.220446049250313e-16,
+            "sampled_state_indices": [
+              1,
+              607,
+              1213
+            ],
+            "conservation_basis": "unitary modal update; state audits are not full temporal error bounds"
+          },
+          "control_reproduction_relative_error": null
+        },
+        {
+          "ppw": 32,
+          "native_h_m": 0.10725,
+          "native_dt_s": 0.0001802415371626363,
+          "native_Nt": 1388,
+          "all_modes": 68921,
+          "signed_40_80": [
+            [
+              145.1115993725978,
+              -8.49800541150907
+            ],
+            [
+              145.0790961196156,
+              -235.60157752191512
+            ]
+          ],
+          "conservation": {
+            "viscosity": 0.0,
+            "modal_attenuation": false,
+            "unit_modulus_error": 0.0,
+            "spatial_operator_modified": true,
+            "all_modes_audited": 68921,
+            "energy_relative_drift": 2.220446049250313e-16,
+            "sampled_state_indices": [
+              1,
+              694,
+              1387
+            ],
+            "conservation_basis": "unitary modal update; state audits are not full temporal error bounds"
+          },
+          "control_reproduction_relative_error": null
+        },
+        {
+          "ppw": 36,
+          "native_h_m": 0.09533333333333333,
+          "native_dt_s": 0.00016021469970012116,
+          "native_Nt": 1561,
+          "all_modes": 91125,
+          "signed_40_80": [
+            [
+              2.7549161756890954,
+              -5.099862814851422
+            ],
+            [
+              4.501965788788216,
+              -231.61555216015236
+            ]
+          ],
+          "conservation": {
+            "viscosity": 0.0,
+            "modal_attenuation": false,
+            "unit_modulus_error": 0.0,
+            "spatial_operator_modified": true,
+            "all_modes_audited": 91125,
+            "energy_relative_drift": 2.220446049250313e-16,
+            "sampled_state_indices": [
+              1,
+              780,
+              1560
+            ],
+            "conservation_basis": "unitary modal update; state audits are not full temporal error bounds"
+          },
+          "control_reproduction_relative_error": null
+        },
+        {
+          "ppw": 40,
+          "native_h_m": 0.0858,
+          "native_dt_s": 0.00014419322973010905,
+          "native_Nt": 1734,
+          "all_modes": 117649,
+          "signed_40_80": [
+            [
+              130.5502222023948,
+              -4.5644835292601424
+            ],
+            [
+              133.61174542154177,
+              -226.594149745671
+            ]
+          ],
+          "conservation": {
+            "viscosity": 0.0,
+            "modal_attenuation": false,
+            "unit_modulus_error": 0.0,
+            "spatial_operator_modified": true,
+            "all_modes_audited": 117649,
+            "energy_relative_drift": 2.220446049250313e-16,
+            "sampled_state_indices": [
+              1,
+              867,
+              1733
+            ],
+            "conservation_basis": "unitary modal update; state audits are not full temporal error bounds"
+          },
+          "control_reproduction_relative_error": null
+        },
+        {
+          "ppw": 44,
+          "native_h_m": 0.078,
+          "native_dt_s": 0.00013108475430009911,
+          "native_Nt": 1908,
+          "all_modes": 148877,
+          "signed_40_80": [
+            [
+              27.829868481638158,
+              -5.336940896852108
+            ],
+            [
+              33.87666289287436,
+              -232.84073900379818
+            ]
+          ],
+          "conservation": {
+            "viscosity": 0.0,
+            "modal_attenuation": false,
+            "unit_modulus_error": 0.0,
+            "spatial_operator_modified": true,
+            "all_modes_audited": 148877,
+            "energy_relative_drift": 2.220446049250313e-16,
+            "sampled_state_indices": [
+              1,
+              954,
+              1907
+            ],
+            "conservation_basis": "unitary modal update; state audits are not full temporal error bounds"
+          },
+          "control_reproduction_relative_error": null
+        }
+      ],
+      "independent_cases": [
+        {
+          "order": 3,
+          "refinement": 2,
+          "all_modes": 2197,
+          "signed_40_80": [
+            [
+              65.70199929208272,
+              -1.9352293933207885
+            ],
+            [
+              73.99877457339662,
+              -226.1317637598336
+            ]
+          ],
+          "conservation": {
+            "viscosity": 0.0,
+            "modal_attenuation": false,
+            "unit_modulus_error": 0.0,
+            "spatial_operator_modified": true,
+            "all_modes_audited": 2197,
+            "energy_relative_drift": 2.220446049250313e-16,
+            "sampled_state_indices": [
+              1,
+              954,
+              1907
+            ],
+            "conservation_basis": "unitary modal update; state audits are not full temporal error bounds"
+          }
+        },
+        {
+          "order": 4,
+          "refinement": 2,
+          "all_modes": 4913,
+          "signed_40_80": [
+            [
+              1.137353753806137,
+              -7.313928375221011
+            ],
+            [
+              6.461801820779592,
+              -237.04968969668911
+            ]
+          ],
+          "conservation": {
+            "viscosity": 0.0,
+            "modal_attenuation": false,
+            "unit_modulus_error": 0.0,
+            "spatial_operator_modified": true,
+            "all_modes_audited": 4913,
+            "energy_relative_drift": 2.220446049250313e-16,
+            "sampled_state_indices": [
+              1,
+              954,
+              1907
+            ],
+            "conservation_basis": "unitary modal update; state audits are not full temporal error bounds"
+          }
+        },
+        {
+          "order": 5,
+          "refinement": 2,
+          "all_modes": 9261,
+          "signed_40_80": [
+            [
+              17.199804233839107,
+              -3.178425836295444
+            ],
+            [
+              23.70161098026579,
+              -228.18359478632962
+            ]
+          ],
+          "conservation": {
+            "viscosity": 0.0,
+            "modal_attenuation": false,
+            "unit_modulus_error": 0.0,
+            "spatial_operator_modified": true,
+            "all_modes_audited": 9261,
+            "energy_relative_drift": 2.220446049250313e-16,
+            "sampled_state_indices": [
+              1,
+              954,
+              1907
+            ],
+            "conservation_basis": "unitary modal update; state audits are not full temporal error bounds"
+          }
+        },
+        {
+          "order": 6,
+          "refinement": 1,
+          "all_modes": 2197,
+          "signed_40_80": [
+            [
+              48.8996964890834,
+              3.0950468415704666
+            ],
+            [
+              55.37639350394591,
+              -214.94095522857165
+            ]
+          ],
+          "conservation": {
+            "viscosity": 0.0,
+            "modal_attenuation": false,
+            "unit_modulus_error": 0.0,
+            "spatial_operator_modified": true,
+            "all_modes_audited": 2197,
+            "energy_relative_drift": 2.220446049250313e-16,
+            "sampled_state_indices": [
+              1,
+              954,
+              1907
+            ],
+            "conservation_basis": "unitary modal update; state audits are not full temporal error bounds"
+          }
+        },
+        {
+          "order": 7,
+          "refinement": 1,
+          "all_modes": 3375,
+          "signed_40_80": [
+            [
+              93.00725268386876,
+              -5.937337664117444
+            ],
+            [
+              101.39583346163788,
+              -234.19430605816953
+            ]
+          ],
+          "conservation": {
+            "viscosity": 0.0,
+            "modal_attenuation": false,
+            "unit_modulus_error": 0.0,
+            "spatial_operator_modified": true,
+            "all_modes_audited": 3375,
+            "energy_relative_drift": 2.220446049250313e-16,
+            "sampled_state_indices": [
+              1,
+              954,
+              1907
+            ],
+            "conservation_basis": "unitary modal update; state audits are not full temporal error bounds"
+          }
+        },
+        {
+          "order": 8,
+          "refinement": 1,
+          "all_modes": 4913,
+          "signed_40_80": [
+            [
+              86.4375258295156,
+              1.1991904144771677
+            ],
+            [
+              94.87789157124735,
+              -219.19704108436062
+            ]
+          ],
+          "conservation": {
+            "viscosity": 0.0,
+            "modal_attenuation": false,
+            "unit_modulus_error": 0.0,
+            "spatial_operator_modified": true,
+            "all_modes_audited": 4913,
+            "energy_relative_drift": 2.220446049250313e-16,
+            "sampled_state_indices": [
+              1,
+              954,
+              1907
+            ],
+            "conservation_basis": "unitary modal update; state audits are not full temporal error bounds"
+          }
+        }
+      ],
+      "pairs": [
+        {
+          "coarse": 28,
+          "fine": 32,
+          "metrics": {
+            "complex_rms_relative": 0.6619401652814577,
+            "magnitude_max_relative": 0.9536509054911756,
+            "phase_max_deg": 58.09551930565081
+          },
+          "pass": false,
+          "all_frequencies_retained": true
+        },
+        {
+          "coarse": 32,
+          "fine": 36,
+          "metrics": {
+            "complex_rms_relative": 0.8636575753602552,
+            "magnitude_max_relative": 24.077704892271203,
+            "phase_max_deg": 58.27082115458823
+          },
+          "pass": false,
+          "all_frequencies_retained": true
+        },
+        {
+          "coarse": 36,
+          "fine": 40,
+          "metrics": {
+            "complex_rms_relative": 0.6187616206124238,
+            "magnitude_max_relative": 0.9556274008055702,
+            "phase_max_deg": 59.61989955608415
+          },
+          "pass": false,
+          "all_frequencies_retained": true
+        },
+        {
+          "coarse": 40,
+          "fine": 44,
+          "metrics": {
+            "complex_rms_relative": 0.6047089585807057,
+            "magnitude_max_relative": 3.6098767806163075,
+            "phase_max_deg": 22.247779851492517
+          },
+          "pass": false,
+          "all_frequencies_retained": true
+        }
+      ],
+      "all_four_pairs_pass": false,
+      "strict_monotone_all_three": false,
+      "original_ladder_gate_pass": false,
+      "independent_checks": {
+        "P4_P5_r2": {
+          "metrics": {
+            "complex_rms_relative": 0.11088980054116375,
+            "magnitude_max_relative": 0.5768209154280787,
+            "phase_max_deg": 70.69118136433364
+          },
+          "pass": false,
+          "all_frequencies_retained": true
+        },
+        "P7_P8_r1": {
+          "metrics": {
+            "complex_rms_relative": 0.07485069162101428,
+            "magnitude_max_relative": 0.07809199116608216,
+            "phase_max_deg": 4.447496631292183
+          },
+          "pass": false,
+          "all_frequencies_retained": true
+        },
+        "SEM44_P5_r2": {
+          "metrics": {
+            "complex_rms_relative": 0.06773620754525102,
+            "magnitude_max_relative": 0.6200877480383925,
+            "phase_max_deg": 2.347949865640632
+          },
+          "pass": false,
+          "all_frequencies_retained": true
+        },
+        "SEM44_P8_r1": {
+          "metrics": {
+            "complex_rms_relative": 0.3383121853827965,
+            "magnitude_max_relative": 0.6721996087828276,
+            "phase_max_deg": 15.126990979584335
+          },
+          "pass": false,
+          "all_frequencies_retained": true
+        }
+      },
+      "independent_gate_pass": false,
+      "conservation_gate_pass": true,
+      "qualification": "SELF_CONVERGENCE_FAILED"
+    }
+  ],
+  "primary_qualification": "SELF_CONVERGENCE_FAILED",
+  "physical_undamped_point_source_limit": "NOT_ESTABLISHED"
+}

@@ -3,7 +3,9 @@
   "evidence_sha256_lf": {
     "finite_band.json": "fca38609e01b23ea6a1de9689028b51794902dba95f8cebcf21a1c910c80032e",
     "instantaneous.json": "7a168fa45cddcafe38041c12c524d0158cdfe6ed56b9cad8dd4771c00fdc67c6",
-    "instantaneous_independent.json": "46e82e9d866b2abc9f60c381206f0f5dcfdd0027aa9ab63ce1d2c86ff7428642"
+    "instantaneous_independent.json": "46e82e9d866b2abc9f60c381206f0f5dcfdd0027aa9ab63ce1d2c86ff7428642",
+    "undamped.json": "db295f057d98d30d9f14bf8536c9ef3d37f5ccdc4e71de6835dfabc2021dc639",
+    "undamped_cloud.json": "2f14da4c7310149a99ccc5bfc01e3f22fd1c67c3c2bbd1c481ca127d35618357"
   },
   "asset_sha256": {
     "finite_band/ppw28.npz": "a103cb590191d00d429a2c000c1f15de0f7c65994e3cafca9fbc3b62462ae49e",
@@ -15,6 +17,17 @@
     "stabilized_instantaneous/ppw32.npz": "a18f61095dd4de95f714d3125767ed2757563bdcc9049f6860487ed218199983",
     "stabilized_instantaneous/ppw36.npz": "94218e7d695f81ac6ebb7d9d6956f9e4b4252ab4ec7fbe7ed11cb3070fb323ef",
     "stabilized_instantaneous/ppw40.npz": "e031c69baccf75a177f1dca69608ac533351f7285846a8031b14758857017ba2",
-    "stabilized_instantaneous/ppw44.npz": "00792d5eda602a705caeece2f80569aec43d77ad595418838cd260d2c2cff47b"
+    "stabilized_instantaneous/ppw44.npz": "00792d5eda602a705caeece2f80569aec43d77ad595418838cd260d2c2cff47b",
+    "undamped_instantaneous/ppw28.npz": "ce9245616e2f2799bfae40d71219fc4ab3d3c4a830e02fdb85e9039978fd1ae0",
+    "undamped_instantaneous/ppw32.npz": "a18f61095dd4de95f714d3125767ed2757563bdcc9049f6860487ed218199983",
+    "undamped_instantaneous/ppw36.npz": "94218e7d695f81ac6ebb7d9d6956f9e4b4252ab4ec7fbe7ed11cb3070fb323ef",
+    "undamped_instantaneous/ppw40.npz": "e031c69baccf75a177f1dca69608ac533351f7285846a8031b14758857017ba2",
+    "undamped_instantaneous/ppw44.npz": "00792d5eda602a705caeece2f80569aec43d77ad595418838cd260d2c2cff47b",
+    "undamped_instantaneous/independent/order3.npz": "877d30d01194a6872aef321bd74a7543c4ad687c8d125c91d70ebcf4e06c74f7",
+    "undamped_instantaneous/independent/order4.npz": "f93e6575f6baabe93f08f92a265c0824312d328deb676e24b70e8e322802d549",
+    "undamped_instantaneous/independent/order5.npz": "0ded743027e1ef1dc4a87769c1db199392fa86fd4c10538df00cf61f24c831e0",
+    "undamped_instantaneous/independent/order6.npz": "8e4df60fd0d8a89f8db78d758ae4457ff3114e96f00d6bfd797b98ce136f0bfc",
+    "undamped_instantaneous/independent/order7.npz": "fd8c0c344a3fbc4260ddd95ab3e461eb6e9bf9c87f4b31189b719bff8de3fa9a",
+    "undamped_instantaneous/independent/order8.npz": "7c121e8a4a0ca878899cd8fb0442686779a44f3a43612a759978385d8338db5b"
   }
 }

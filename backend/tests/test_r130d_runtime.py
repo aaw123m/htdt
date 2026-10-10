@@ -6,7 +6,7 @@ import pytest
 from pydantic import ValidationError
 
 from htdt.r130d_cli import main
-from htdt.r130d_runtime import DATA, R130DRequest, _validate_finite, readiness
+from htdt.r130d_runtime import DATA, R130DRequest, _validate_finite, _validate_undamped, readiness
 
 
 def spec(**changes):
@@ -58,3 +58,29 @@ def test_duplicate_request_keys_cannot_override_profile(tmp_path,capsys):
     request.write_text('{"profile":"finite_band","profile":"stabilized_instantaneous"}')
     assert main(['run','--request',str(request),'--assets',str(tmp_path),'--output-dir',str(tmp_path/'results')])==4
     assert 'duplicate input key' in json.loads(capsys.readouterr().out)['error']
+
+
+def test_unresolved_undamped_method_is_never_marked_numerically_verified():
+    state=readiness()
+    assert set(state['undamped_impulse_qualification'].values())=={'SELF_CONVERGENCE_FAILED'}
+    evidence=json.loads((DATA/'undamped.json').read_text())
+    evidence['arms'][0]['qualification']='PASS_UNDAMPED_NUMERICAL_CANDIDATE'
+    with pytest.raises(ValueError,match='actual metrics'):_validate_undamped(evidence)
+
+
+def test_conservative_arm_cannot_change_finite_band_contract():
+    with pytest.raises(ValidationError,match='undamped arm requires'):
+        R130DRequest.model_validate(spec(undamped_arm='gauss4'))
+
+
+def test_failed_undamped_execution_keeps_artifact_and_failure_exit(tmp_path,capsys,monkeypatch):
+    import htdt.r130d_runtime as runtime
+    request=tmp_path/'request.json'
+    request.write_text(json.dumps(spec(profile='undamped_instantaneous',frequencies_hz=[40.,80.])))
+    summary={'qualification':'SELF_CONVERGENCE_FAILED','request_sha256':'test','all_modes':3}
+    monkeypatch.setattr(runtime,'run',lambda *a:(summary,np.zeros((6,4)),'time,q,phi,p',np.array([1+2j,3+4j])))
+    output=tmp_path/'results'
+    assert main(['run','--request',str(request),'--assets',str(tmp_path),'--output-dir',str(output)])==6
+    result=json.loads(capsys.readouterr().out)
+    assert result['ok'] is False and result['data']['qualification']=='SELF_CONVERGENCE_FAILED'
+    assert (output/'waveform.csv').exists() and (output/'verification.json').exists()

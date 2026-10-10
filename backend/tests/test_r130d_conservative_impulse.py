@@ -2,7 +2,7 @@
 import numpy as np
 import pytest
 from scipy.linalg import expm
-from htdt.r130d_conservative_impulse import ARMS, conservative_q0_trace, conservative_q0_transfer
+from htdt.r130d_conservative_impulse import ARMS, conservative_q0_trace, conservative_q0_transfer, original_pressure_endpoint_audit
 
 @pytest.mark.parametrize('arm',ARMS)
 def test_against_full_coupled_matrix_propagation(arm):
@@ -47,3 +47,15 @@ def test_invalid_inputs_rejected(changes):
     args=dict(lam=np.array([0.,1.]),coupling=np.array([1.,1.]),dt=.001,nt=9,h=.1)
     args.update(changes)
     with pytest.raises(ValueError):conservative_q0_transfer(**args)
+
+def test_endpoint_audit_preserves_each_signed_contribution():
+    # Arbitrary record, including nonzero initial potential, so an endpoint
+    # term cannot disappear accidentally under a zero initial condition.
+    dt=.0002;phi=np.random.default_rng(203).normal(size=41)
+    result=original_pressure_endpoint_audit(phi,dt)
+    for row in result['frequencies']:
+        z=lambda key:complex(*row[key])
+        np.testing.assert_allclose(z('bulk')+z('initial_stencils')+z('final_stencils'),z('total'),rtol=1e-12,atol=1e-8)
+        direct=np.exp(2j*np.pi*row['frequency_hz']*np.arange(len(phi))*dt)@(1.2*np.gradient(phi,dt,edge_order=2))
+        np.testing.assert_allclose(z('total'),direct,rtol=1e-12,atol=1e-8)
+        assert row['endpoint_terms_retained'] is True
