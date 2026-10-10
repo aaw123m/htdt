@@ -74,7 +74,7 @@ from ...cad_search_repository import CadSearchRepository
 from ...cad_validation_campaign_repository import CadValidationCampaignRepository
 from ...cad_validation_campaign_service import CadValidationCampaignService
 from ...tree_item_role import ROLE
-from ...native_worker import WORKER_CANCELLED, NativeWorker, NativeWorkerPool
+from ...worker_pool import WORKER_CANCELLED, NativeWorker, NativeWorkerPool
 from .optimization_adaptive_controller import AdaptiveControllerMixin
 from .optimization_adaptive_extended_controller import AdaptiveExtendedControllerMixin
 from .optimization_extended_controller import ExtendedSearchControllerMixin

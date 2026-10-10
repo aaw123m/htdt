@@ -9,7 +9,7 @@ from ...cad_constraint_models import CadConstraintSet
 from ...cad_constraints import evaluate_cad_constraints
 from .cad_objective_models import CadObjectiveEvaluation
 from ...cad_orientation_constraints import orientation_constraint_rejections
-from ...cad_repository import SceneRevision
+from ...cad_scene_revisions import SceneRevision
 from ...cad_scene import SceneDocument, scene_content_hash
 from ...cad_search_models import CadSearchSpec
 from .optimization_objectives import ObjectiveMetric, ObjectiveVector

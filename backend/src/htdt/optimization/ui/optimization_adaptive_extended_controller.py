@@ -13,7 +13,7 @@ from ...activity_center import (
     RetryPolicy,
 )
 from ...workflow_navigation import WorkspaceDeepLink, WorkspaceId
-from ...native_worker import WORKER_CANCELLED
+from ...worker_pool import WORKER_CANCELLED
 from ...error_boundary import EXPECTED_OPERATION_ERRORS
 from ...user_facing_error import operation_error_message
 

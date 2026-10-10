@@ -84,7 +84,7 @@ from ...cad_validation_campaign_repository import CadValidationCampaignRepositor
 from ...cad_validation_campaign_service import CadValidationCampaignService
 from ...cad_validation_metrics import CadApplicabilityCheck
 from ...tree_item_role import ROLE
-from ...native_worker import WORKER_CANCELLED
+from ...worker_pool import WORKER_CANCELLED
 from .optimization_search_controller import (
     CandidateTreeItem,
     _CANDIDATE_SORT_KEY_ROLE,
