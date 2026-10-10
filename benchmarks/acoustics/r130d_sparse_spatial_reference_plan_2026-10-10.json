@@ -1,0 +1,95 @@
+{
+  "schema_version": "htdt.r130d.sparse-spatial-reference-plan-1",
+  "source": "original q[0]=1, later zero; velocity jump c^2*dt*M^-1*b",
+  "native_observer": {
+    "ppw": 44,
+    "cache_sha256": "00792d5eda602a705caeece2f80569aec43d77ad595418838cd260d2c2cff47b",
+    "source_cloud_indices": [
+      66,
+      67,
+      68,
+      69,
+      70,
+      71,
+      72,
+      73
+    ],
+    "receiver_cloud_indices": [
+      74,
+      75,
+      76,
+      77,
+      78,
+      79,
+      80,
+      81
+    ],
+    "sw": [
+      0.014533707581045602,
+      0.005354523845648348,
+      0.08852349163000249,
+      0.08852349163000248,
+      0.03261391796894809,
+      0.03261391796894809,
+      0.5391885399281814,
+      0.19864840944722353
+    ],
+    "rw": [
+      0.010964025017280075,
+      0.008924206409413877,
+      0.06678087965070398,
+      0.06678087965070399,
+      0.05435652994824658,
+      0.054356529948246586,
+      0.40675626696336703,
+      0.3310806824120378
+    ],
+    "dt": 0.00013108475430009911,
+    "Nt": 1908
+  },
+  "frequencies_hz": [
+    40,
+    80
+  ],
+  "pressure": "original gradient edge_order=2 and rectangular signed DTFT",
+  "order": 2,
+  "refinements": [
+    2,
+    3,
+    4
+  ],
+  "dofs": [
+    729,
+    4913,
+    35937
+  ],
+  "native_substeps": 1,
+  "linear_solver": "cg",
+  "cg_rtol": 1e-13,
+  "memory_budget_bytes": 536870912,
+  "energy_drift_max": 2e-10,
+  "backward_error_max": 5e-13,
+  "all_dofs": true,
+  "viscosity": 0.0,
+  "primary_fine_pair_limits": [
+    0.03,
+    0.05,
+    3.0
+  ],
+  "sem44_cross_limits": [
+    0.03,
+    0.05,
+    3.0
+  ],
+  "binary_p3_r2_vs_original_json": "all CSR values and all 82 functionals must be exactly equal",
+  "fixed_observer_only": true,
+  "original_five_grid_qualification": "SELF_CONVERGENCE_FAILED",
+  "physical_limit": "NOT_ESTABLISHED",
+  "do_not_qualify_original_from_fixed_observer_study": true,
+  "mfem_pin": "d964264cdb9a13e94a201b6c236c7721e0c8765f",
+  "exporter_source_sha256_lf": "997875a08aa25986d5438aecf82a0fdaf5900d37ce1bb9c37781671969dd6445",
+  "exporter_executable_sha256": "bb4db18131d55dd7b02dd3ef63784ab208657e3909edea4a5a4c9b220d2522ad",
+  "point_cloud_sha256": "b2b244f7fe26edfe247d463dbba50d9638d627be421635c9be8042331eed5359",
+  "binary_baseline_old_cache_sha256": "877d30d01194a6872aef321bd74a7543c4ad687c8d125c91d70ebcf4e06c74f7",
+  "sem_control_sha256": "afad6dfcc248b9cd823f361cdbd825af14c2afa90e35a3c5f012630e65460744"
+}

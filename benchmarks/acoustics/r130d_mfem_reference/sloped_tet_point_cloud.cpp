@@ -8,9 +8,62 @@
 #include <string>
 #include <vector>
 #include <array>
+#include <cstdint>
+#include <limits>
 
 namespace
 {
+
+template<class T> void WriteRaw(std::ofstream &os, const T *data, std::size_t count)
+{
+   os.write(reinterpret_cast<const char *>(data), sizeof(T)*count);
+   if (!os) { throw std::runtime_error("binary write failed"); }
+}
+
+void WriteBinarySystem(const std::string &path, int order, int refinements,
+   int elements, double density, double sound_speed, mfem::SparseMatrix &mass,
+   mfem::SparseMatrix &stiffness, const std::string &cloud_path,
+   mfem::FiniteElementSpace &fes)
+{
+   static_assert(sizeof(int)==4 && sizeof(double)==8, "binary scalar size");
+   static_assert(std::numeric_limits<double>::is_iec559, "IEEE754 required");
+   if (std::ifstream(path,std::ios::binary).good())
+   { throw std::runtime_error("binary output already exists"); }
+   const std::uint32_t endian=1;
+   if (*reinterpret_cast<const unsigned char *>(&endian)!=1)
+   { throw std::runtime_error("binary export requires little-endian host"); }
+   std::ofstream os(path,std::ios::binary);
+   if (!os) { throw std::runtime_error("binary output unavailable"); }
+   os.write("R130DM01",8);
+   std::uint32_t header[]={1,static_cast<std::uint32_t>(fes.GetVSize()),
+      static_cast<std::uint32_t>(order),static_cast<std::uint32_t>(refinements),
+      static_cast<std::uint32_t>(elements)};
+   WriteRaw(os,header,5);
+   const double physical[]={density,sound_speed,56.0};WriteRaw(os,physical,3);
+   for (auto *matrix : {&mass,&stiffness})
+   {
+      const std::uint64_t nnz=matrix->NumNonZeroElems();WriteRaw(os,&nnz,1);
+      WriteRaw(os,matrix->GetI(),matrix->Height()+1);
+      WriteRaw(os,matrix->GetJ(),nnz);WriteRaw(os,matrix->GetData(),nnz);
+   }
+   const std::uint32_t count=82;WriteRaw(os,&count,1);
+   std::ifstream cloud(cloud_path);
+   if (!cloud) { throw std::runtime_error("point cloud unavailable"); }
+   double xyz[3];std::uint32_t actual=0;
+   while (cloud>>xyz[0]>>xyz[1]>>xyz[2])
+   {
+      mfem::DeltaCoefficient delta(xyz[0],xyz[1],xyz[2],1.0);
+      mfem::LinearForm functional(&fes);
+      functional.AddDomainIntegrator(new mfem::DomainLFIntegrator(delta));functional.Assemble();
+      std::vector<int> indices;std::vector<double> values;
+      for(int i=0;i<functional.Size();++i)
+      { if(functional[i]!=0.0){indices.push_back(i);values.push_back(functional[i]);} }
+      WriteRaw(os,xyz,3);
+      const std::uint32_t size=indices.size();WriteRaw(os,&size,1);
+      WriteRaw(os,indices.data(),size);WriteRaw(os,values.data(),size);++actual;
+   }
+   if (!cloud.eof() || actual!=count) { throw std::runtime_error("invalid binary point cloud"); }
+}
 
 void WriteSparseMatrixJson(std::ofstream &os, const char *name, mfem::SparseMatrix &matrix)
 {
@@ -193,6 +246,7 @@ int Main(int argc, char *argv[])
    int order = 2;
    int refinements = 0;
    std::string output;
+   std::string binary_output;
    std::string cloud_path;
 
    for (int i = 1; i < argc; ++i)
@@ -218,14 +272,17 @@ int Main(int argc, char *argv[])
       else if (arg == "--uniform-refinements") { refinements = std::stoi(value("--uniform-refinements")); }
       else if (arg == "--point-cloud") { cloud_path = value("--point-cloud"); }
       else if (arg == "--output") { output = value("--output"); }
+      else if (arg == "--binary-output") { binary_output = value("--binary-output"); }
       else { throw std::runtime_error("unknown argument: " + arg); }
    }
 
-   if (output.empty()) { throw std::runtime_error("--output is required"); }
-   if (!(density > 0.0 && sound_speed > 0.0) || order < 1 || refinements < 0 || refinements > 3)
+   if (output.empty() && binary_output.empty()) { throw std::runtime_error("an output is required"); }
+   if (!(density > 0.0 && sound_speed > 0.0) || order < 1 || refinements < 0 || refinements > 4)
    {
       throw std::runtime_error("invalid physical/discretization input");
    }
+   if (!binary_output.empty() && std::pow(std::ldexp(1.0,refinements)*order+1,3)>40000)
+   { throw std::runtime_error("binary study DOF budget exceeded before mesh allocation"); }
 
    mfem::Mesh mesh = BuildSlopedRoom();
    for (int level = 0; level < refinements; ++level)
@@ -240,6 +297,8 @@ int Main(int argc, char *argv[])
 
    mfem::H1_FECollection fec(order, 3);
    mfem::FiniteElementSpace fes(&mesh, &fec);
+   if (fes.GetVSize()>40000 && !binary_output.empty())
+   { throw std::runtime_error("binary study DOF budget exceeded"); }
 
    mfem::BilinearForm mass(&fes);
    mass.AddDomainIntegrator(new mfem::MassIntegrator);
@@ -267,7 +326,7 @@ int Main(int argc, char *argv[])
       throw std::runtime_error("source or receiver functional is empty");
    }
 
-   WriteSystem(
+   if (!output.empty()) WriteSystem(
       output,
       order,
       refinements,
@@ -285,6 +344,8 @@ int Main(int argc, char *argv[])
       stiffness.SpMat(),
       source,
       receiver, cloud_path, fes);
+   if (!binary_output.empty()) WriteBinarySystem(binary_output,order,refinements,
+      mesh.GetNE(),density,sound_speed,mass.SpMat(),stiffness.SpMat(),cloud_path,fes);
    return 0;
 }
 
