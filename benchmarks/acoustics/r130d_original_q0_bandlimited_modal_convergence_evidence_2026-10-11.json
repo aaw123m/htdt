@@ -1,0 +1,953 @@
+{
+  "schema_version": "htdt.r130d.original-q0-bandlimited-modal-convergence-evidence-1",
+  "preregistered_plan_sha256_lf": "143e790c1f18d70687ea94d50bde04b77f45226f8135fa01d9f65a8a664b2c65",
+  "preregistered_plan": {
+    "schema_version": "htdt.r130d.original-q0-bandlimited-modal-convergence-plan-1",
+    "date_jst": "2026-10-11",
+    "issue": 53,
+    "pr": 118,
+    "hypothesis": "The original q0 nonconvergence decomposes into (a) a non-convergent realization-dependent high-eigenmode finite-record leakage component and (b) for the original staircase graph, a non-convergent lowest-mode geometry component, while the physical low-band (<=200Hz semidiscrete modes) signed 40/80Hz transfer converges on the exact-geometry hybrid eigensystem. Diagnostic rescores committed all-mode band decompositions against cumulative mode-frequency cutoffs; it never substitutes a band-limited quantity for the canonical full-band original authority.",
+    "preregistration": "Commit and push this fixed diagnostic plan before the rescoring execution. The runner verifies plan bytes, local ancestry and remote HEAD.",
+    "original": {
+      "upstream_PFFDTD_sha": "aa319f6c86517cb95aabfae8656277da62c3ead5",
+      "ppw": [
+        28,
+        32,
+        36,
+        40,
+        44
+      ],
+      "original_source_xyz_m": [
+        1.5,
+        2,
+        2
+      ],
+      "original_receiver_xyz_m": [
+        2.5,
+        2,
+        2
+      ],
+      "source_receiver": "exact original SHA-pinned vox_out.h5/comms_out.h5 native 8x8 indices and weights",
+      "q0": "exact original 8 sample native impulse in_sigs[:,0]; all later samples 0",
+      "native_dt_h_Nt_unchanged": true,
+      "record_length_s": 0.25,
+      "c_m_s": 343.2,
+      "rho_kg_m3": 1.2,
+      "signed_bins_hz": [
+        40,
+        80
+      ],
+      "all_four_pairs_and_strict_monotonicity": true,
+      "three_gates": {
+        "complex_rms_relative": 0.2,
+        "magnitude_max_relative": 0.25,
+        "phase_max_deg": 15.0
+      }
+    },
+    "committed_inputs": {
+      "original_native_modal_evidence": "benchmarks/acoustics/r130d_original_pffdtd_native_full_modal_q0_evidence_2026-10-09.json",
+      "hybrid_modal_endpoint_evidence": "benchmarks/acoustics/r130d_original_q0_hybrid_modal_endpoint_attribution_evidence_2026-10-10.json",
+      "input_sha256_verified": true
+    },
+    "cutoffs_hz": [
+      100,
+      200,
+      400,
+      800,
+      1600,
+      3200
+    ],
+    "scoring": "For each eigensystem (original native staircase graph, exact-geometry hybrid) and each cumulative mode-frequency cutoff, reconstruct the signed 40/80Hz transfer from committed per-grid per-band modal terms, then apply the unchanged three gates to all four adjacent pairs plus strict monotonicity of all three metric sequences. Band sums must reconstruct each frozen full transfer to <=1e-10 relative before any rescoring.",
+    "verdict_vocabulary": [
+      "BANDLIMITED_CONVERGENCE_ACHIEVED_TRUE_GEOMETRY",
+      "BANDLIMITED_CONVERGENCE_NOT_ACHIEVED_TRUE_GEOMETRY",
+      "ORIGINAL_NATIVE_LOWBAND_CONVERGENT",
+      "ORIGINAL_NATIVE_LOWBAND_NOT_CONVERGENT",
+      "MONOTONICITY_AT_NOISE_FLOOR"
+    ],
+    "honesty": "A band-limited convergent score is a diagnostic companion only: the canonical original full-band, full-record 8-point q0 acceptance remains failed and may not be recomputed with a truncated modal sum for authority. Verdicts report each grid/cutoff/gate symmetrically.",
+    "limits": {
+      "no_new_solver_runs": true,
+      "no_new_github_actions": true,
+      "no_modes_dropped_from_accounting": true,
+      "product_go": false
+    }
+  },
+  "input_sha256": {
+    "native_modal": "97c3ed15b9f23c655e15ad6bc6aa72edd6df346bcdb18c825e079eacd1cd7b2a",
+    "hybrid_endpoint": "b545e5665690bacdf592abedb2c2317471fdce5b97386432ff86a7d10098a3c0"
+  },
+  "canonical_full_band_original_authority": "SELF_CONVERGENCE_FAILED",
+  "independent_physics": "NOT_VALIDATED",
+  "product": "NO_GO",
+  "new_solver_runs": 0,
+  "new_github_actions_runs": 0,
+  "band_limited_scores_are_diagnostics_not_authority": true,
+  "original_native_staircase_eigensystem": {
+    "conservation_rel": {
+      "28": 1.232121005792839e-11,
+      "32": 1.4467587342160617e-13,
+      "36": 2.4815227805206785e-11,
+      "40": 2.5254172299168866e-11,
+      "44": 2.0508005479169564e-11
+    },
+    "cutoffs": {
+      "100": {
+        "pairs": [
+          {
+            "pair": [
+              28,
+              32
+            ],
+            "complex_rms_relative": 0.9937366356231632,
+            "magnitude_max_relative": 1.2715570534995175,
+            "phase_max_deg": 78.7343972894879,
+            "all_three_gates": false,
+            "gates": {
+              "complex_rms_relative": false,
+              "magnitude_max_relative": false,
+              "phase_max_deg": false
+            }
+          },
+          {
+            "pair": [
+              32,
+              36
+            ],
+            "complex_rms_relative": 0.628221715338246,
+            "magnitude_max_relative": 0.5088175588764846,
+            "phase_max_deg": 39.17658360696149,
+            "all_three_gates": false,
+            "gates": {
+              "complex_rms_relative": false,
+              "magnitude_max_relative": false,
+              "phase_max_deg": false
+            }
+          },
+          {
+            "pair": [
+              36,
+              40
+            ],
+            "complex_rms_relative": 0.4563760289143459,
+            "magnitude_max_relative": 0.2431227560986881,
+            "phase_max_deg": 20.908491089233234,
+            "all_three_gates": false,
+            "gates": {
+              "complex_rms_relative": false,
+              "magnitude_max_relative": true,
+              "phase_max_deg": false
+            }
+          },
+          {
+            "pair": [
+              40,
+              44
+            ],
+            "complex_rms_relative": 0.7913969067043379,
+            "magnitude_max_relative": 0.8987520608703571,
+            "phase_max_deg": 50.077757077230494,
+            "all_three_gates": false,
+            "gates": {
+              "complex_rms_relative": false,
+              "magnitude_max_relative": false,
+              "phase_max_deg": false
+            }
+          }
+        ],
+        "all_pairs_all_gates": false,
+        "strict_monotone": {
+          "complex_rms_relative": false,
+          "magnitude_max_relative": false,
+          "phase_max_deg": false
+        }
+      },
+      "200": {
+        "pairs": [
+          {
+            "pair": [
+              28,
+              32
+            ],
+            "complex_rms_relative": 1.0023315351158832,
+            "magnitude_max_relative": 1.4626270621729858,
+            "phase_max_deg": 116.15841737284055,
+            "all_three_gates": false,
+            "gates": {
+              "complex_rms_relative": false,
+              "magnitude_max_relative": false,
+              "phase_max_deg": false
+            }
+          },
+          {
+            "pair": [
+              32,
+              36
+            ],
+            "complex_rms_relative": 0.6960683245050502,
+            "magnitude_max_relative": 0.6248494610953854,
+            "phase_max_deg": 69.94609247628715,
+            "all_three_gates": false,
+            "gates": {
+              "complex_rms_relative": false,
+              "magnitude_max_relative": false,
+              "phase_max_deg": false
+            }
+          },
+          {
+            "pair": [
+              36,
+              40
+            ],
+            "complex_rms_relative": 0.4124064752011665,
+            "magnitude_max_relative": 0.24914145812911007,
+            "phase_max_deg": 21.449680399763647,
+            "all_three_gates": false,
+            "gates": {
+              "complex_rms_relative": false,
+              "magnitude_max_relative": true,
+              "phase_max_deg": false
+            }
+          },
+          {
+            "pair": [
+              40,
+              44
+            ],
+            "complex_rms_relative": 0.7845007251274941,
+            "magnitude_max_relative": 1.1500053970818578,
+            "phase_max_deg": 60.87159113314404,
+            "all_three_gates": false,
+            "gates": {
+              "complex_rms_relative": false,
+              "magnitude_max_relative": false,
+              "phase_max_deg": false
+            }
+          }
+        ],
+        "all_pairs_all_gates": false,
+        "strict_monotone": {
+          "complex_rms_relative": false,
+          "magnitude_max_relative": false,
+          "phase_max_deg": false
+        }
+      },
+      "400": {
+        "pairs": [
+          {
+            "pair": [
+              28,
+              32
+            ],
+            "complex_rms_relative": 0.996803822307571,
+            "magnitude_max_relative": 0.5357822565856761,
+            "phase_max_deg": 75.20964364942883,
+            "all_three_gates": false,
+            "gates": {
+              "complex_rms_relative": false,
+              "magnitude_max_relative": false,
+              "phase_max_deg": false
+            }
+          },
+          {
+            "pair": [
+              32,
+              36
+            ],
+            "complex_rms_relative": 0.5408116877920986,
+            "magnitude_max_relative": 1.9827170478756888,
+            "phase_max_deg": 55.53330835090642,
+            "all_three_gates": false,
+            "gates": {
+              "complex_rms_relative": false,
+              "magnitude_max_relative": false,
+              "phase_max_deg": false
+            }
+          },
+          {
+            "pair": [
+              36,
+              40
+            ],
+            "complex_rms_relative": 0.44082822743758615,
+            "magnitude_max_relative": 0.5408609551846507,
+            "phase_max_deg": 22.815910570719378,
+            "all_three_gates": false,
+            "gates": {
+              "complex_rms_relative": false,
+              "magnitude_max_relative": false,
+              "phase_max_deg": false
+            }
+          },
+          {
+            "pair": [
+              40,
+              44
+            ],
+            "complex_rms_relative": 0.6574098707971451,
+            "magnitude_max_relative": 0.3020438014057355,
+            "phase_max_deg": 50.40977277295036,
+            "all_three_gates": false,
+            "gates": {
+              "complex_rms_relative": false,
+              "magnitude_max_relative": false,
+              "phase_max_deg": false
+            }
+          }
+        ],
+        "all_pairs_all_gates": false,
+        "strict_monotone": {
+          "complex_rms_relative": false,
+          "magnitude_max_relative": false,
+          "phase_max_deg": false
+        }
+      },
+      "800": {
+        "pairs": [
+          {
+            "pair": [
+              28,
+              32
+            ],
+            "complex_rms_relative": 1.0847704698747058,
+            "magnitude_max_relative": 0.8699768431752036,
+            "phase_max_deg": 80.32837184051978,
+            "all_three_gates": false,
+            "gates": {
+              "complex_rms_relative": false,
+              "magnitude_max_relative": false,
+              "phase_max_deg": false
+            }
+          },
+          {
+            "pair": [
+              32,
+              36
+            ],
+            "complex_rms_relative": 0.5711817554228364,
+            "magnitude_max_relative": 0.897193731800759,
+            "phase_max_deg": 55.24033748404943,
+            "all_three_gates": false,
+            "gates": {
+              "complex_rms_relative": false,
+              "magnitude_max_relative": false,
+              "phase_max_deg": false
+            }
+          },
+          {
+            "pair": [
+              36,
+              40
+            ],
+            "complex_rms_relative": 0.4449445903027143,
+            "magnitude_max_relative": 0.6152427423166673,
+            "phase_max_deg": 24.399929296220826,
+            "all_three_gates": false,
+            "gates": {
+              "complex_rms_relative": false,
+              "magnitude_max_relative": false,
+              "phase_max_deg": false
+            }
+          },
+          {
+            "pair": [
+              40,
+              44
+            ],
+            "complex_rms_relative": 0.5133242304801732,
+            "magnitude_max_relative": 0.34364137174392423,
+            "phase_max_deg": 31.207726275628733,
+            "all_three_gates": false,
+            "gates": {
+              "complex_rms_relative": false,
+              "magnitude_max_relative": false,
+              "phase_max_deg": false
+            }
+          }
+        ],
+        "all_pairs_all_gates": false,
+        "strict_monotone": {
+          "complex_rms_relative": false,
+          "magnitude_max_relative": false,
+          "phase_max_deg": false
+        }
+      },
+      "1600": {
+        "pairs": [
+          {
+            "pair": [
+              28,
+              32
+            ],
+            "complex_rms_relative": 1.0847704698747058,
+            "magnitude_max_relative": 0.8699768431752036,
+            "phase_max_deg": 80.32837184051978,
+            "all_three_gates": false,
+            "gates": {
+              "complex_rms_relative": false,
+              "magnitude_max_relative": false,
+              "phase_max_deg": false
+            }
+          },
+          {
+            "pair": [
+              32,
+              36
+            ],
+            "complex_rms_relative": 0.5711817554228364,
+            "magnitude_max_relative": 0.897193731800759,
+            "phase_max_deg": 55.24033748404943,
+            "all_three_gates": false,
+            "gates": {
+              "complex_rms_relative": false,
+              "magnitude_max_relative": false,
+              "phase_max_deg": false
+            }
+          },
+          {
+            "pair": [
+              36,
+              40
+            ],
+            "complex_rms_relative": 0.4449445903027143,
+            "magnitude_max_relative": 0.6152427423166673,
+            "phase_max_deg": 24.399929296220826,
+            "all_three_gates": false,
+            "gates": {
+              "complex_rms_relative": false,
+              "magnitude_max_relative": false,
+              "phase_max_deg": false
+            }
+          },
+          {
+            "pair": [
+              40,
+              44
+            ],
+            "complex_rms_relative": 0.5133242304801732,
+            "magnitude_max_relative": 0.34364137174392423,
+            "phase_max_deg": 31.207726275628733,
+            "all_three_gates": false,
+            "gates": {
+              "complex_rms_relative": false,
+              "magnitude_max_relative": false,
+              "phase_max_deg": false
+            }
+          }
+        ],
+        "all_pairs_all_gates": false,
+        "strict_monotone": {
+          "complex_rms_relative": false,
+          "magnitude_max_relative": false,
+          "phase_max_deg": false
+        }
+      },
+      "3200": {
+        "pairs": [
+          {
+            "pair": [
+              28,
+              32
+            ],
+            "complex_rms_relative": 1.0847704698747058,
+            "magnitude_max_relative": 0.8699768431752036,
+            "phase_max_deg": 80.32837184051978,
+            "all_three_gates": false,
+            "gates": {
+              "complex_rms_relative": false,
+              "magnitude_max_relative": false,
+              "phase_max_deg": false
+            }
+          },
+          {
+            "pair": [
+              32,
+              36
+            ],
+            "complex_rms_relative": 0.5711817554228364,
+            "magnitude_max_relative": 0.897193731800759,
+            "phase_max_deg": 55.24033748404943,
+            "all_three_gates": false,
+            "gates": {
+              "complex_rms_relative": false,
+              "magnitude_max_relative": false,
+              "phase_max_deg": false
+            }
+          },
+          {
+            "pair": [
+              36,
+              40
+            ],
+            "complex_rms_relative": 0.4449445903027143,
+            "magnitude_max_relative": 0.6152427423166673,
+            "phase_max_deg": 24.399929296220826,
+            "all_three_gates": false,
+            "gates": {
+              "complex_rms_relative": false,
+              "magnitude_max_relative": false,
+              "phase_max_deg": false
+            }
+          },
+          {
+            "pair": [
+              40,
+              44
+            ],
+            "complex_rms_relative": 0.5133242304801732,
+            "magnitude_max_relative": 0.34364137174392423,
+            "phase_max_deg": 31.207726275628733,
+            "all_three_gates": false,
+            "gates": {
+              "complex_rms_relative": false,
+              "magnitude_max_relative": false,
+              "phase_max_deg": false
+            }
+          }
+        ],
+        "all_pairs_all_gates": false,
+        "strict_monotone": {
+          "complex_rms_relative": false,
+          "magnitude_max_relative": false,
+          "phase_max_deg": false
+        }
+      }
+    }
+  },
+  "exact_geometry_hybrid_eigensystem": {
+    "conservation_rel": {
+      "28": 2.3171062562102584e-14,
+      "32": 9.357635123322135e-15,
+      "36": 4.4411736915502494e-15,
+      "40": 9.50413824172906e-15,
+      "44": 9.794819250892798e-15
+    },
+    "cutoffs": {
+      "100": {
+        "pairs": [
+          {
+            "pair": [
+              28,
+              32
+            ],
+            "complex_rms_relative": 0.005080063177733419,
+            "magnitude_max_relative": 0.018806735427040294,
+            "phase_max_deg": 0.2446849676146096,
+            "all_three_gates": true,
+            "gates": {
+              "complex_rms_relative": true,
+              "magnitude_max_relative": true,
+              "phase_max_deg": true
+            }
+          },
+          {
+            "pair": [
+              32,
+              36
+            ],
+            "complex_rms_relative": 0.007769627871067166,
+            "magnitude_max_relative": 0.01915037358909098,
+            "phase_max_deg": 0.41071580268076596,
+            "all_three_gates": true,
+            "gates": {
+              "complex_rms_relative": true,
+              "magnitude_max_relative": true,
+              "phase_max_deg": true
+            }
+          },
+          {
+            "pair": [
+              36,
+              40
+            ],
+            "complex_rms_relative": 0.0057072181160286225,
+            "magnitude_max_relative": 0.01480253401222112,
+            "phase_max_deg": 0.2726676190103472,
+            "all_three_gates": true,
+            "gates": {
+              "complex_rms_relative": true,
+              "magnitude_max_relative": true,
+              "phase_max_deg": true
+            }
+          },
+          {
+            "pair": [
+              40,
+              44
+            ],
+            "complex_rms_relative": 0.0025374969184124023,
+            "magnitude_max_relative": 0.016418836285127948,
+            "phase_max_deg": 0.08353699976989219,
+            "all_three_gates": true,
+            "gates": {
+              "complex_rms_relative": true,
+              "magnitude_max_relative": true,
+              "phase_max_deg": true
+            }
+          }
+        ],
+        "all_pairs_all_gates": true,
+        "strict_monotone": {
+          "complex_rms_relative": false,
+          "magnitude_max_relative": false,
+          "phase_max_deg": false
+        }
+      },
+      "200": {
+        "pairs": [
+          {
+            "pair": [
+              28,
+              32
+            ],
+            "complex_rms_relative": 0.006863473398862218,
+            "magnitude_max_relative": 0.0335414029686514,
+            "phase_max_deg": 0.22355102152363665,
+            "all_three_gates": true,
+            "gates": {
+              "complex_rms_relative": true,
+              "magnitude_max_relative": true,
+              "phase_max_deg": true
+            }
+          },
+          {
+            "pair": [
+              32,
+              36
+            ],
+            "complex_rms_relative": 0.016715936354214856,
+            "magnitude_max_relative": 0.07242781979067797,
+            "phase_max_deg": 0.6030518688771558,
+            "all_three_gates": true,
+            "gates": {
+              "complex_rms_relative": true,
+              "magnitude_max_relative": true,
+              "phase_max_deg": true
+            }
+          },
+          {
+            "pair": [
+              36,
+              40
+            ],
+            "complex_rms_relative": 0.012606254832518671,
+            "magnitude_max_relative": 0.054313752416013245,
+            "phase_max_deg": 0.49745415329452364,
+            "all_three_gates": true,
+            "gates": {
+              "complex_rms_relative": true,
+              "magnitude_max_relative": true,
+              "phase_max_deg": true
+            }
+          },
+          {
+            "pair": [
+              40,
+              44
+            ],
+            "complex_rms_relative": 0.0029875556776376862,
+            "magnitude_max_relative": 0.011285452034766792,
+            "phase_max_deg": 0.3472519792200832,
+            "all_three_gates": true,
+            "gates": {
+              "complex_rms_relative": true,
+              "magnitude_max_relative": true,
+              "phase_max_deg": true
+            }
+          }
+        ],
+        "all_pairs_all_gates": true,
+        "strict_monotone": {
+          "complex_rms_relative": false,
+          "magnitude_max_relative": false,
+          "phase_max_deg": false
+        }
+      },
+      "400": {
+        "pairs": [
+          {
+            "pair": [
+              28,
+              32
+            ],
+            "complex_rms_relative": 0.08958952765260227,
+            "magnitude_max_relative": 0.20614101051771355,
+            "phase_max_deg": 3.889687166932341,
+            "all_three_gates": true,
+            "gates": {
+              "complex_rms_relative": true,
+              "magnitude_max_relative": true,
+              "phase_max_deg": true
+            }
+          },
+          {
+            "pair": [
+              32,
+              36
+            ],
+            "complex_rms_relative": 0.12207853337343308,
+            "magnitude_max_relative": 0.2516233858283157,
+            "phase_max_deg": 5.029790788620722,
+            "all_three_gates": false,
+            "gates": {
+              "complex_rms_relative": true,
+              "magnitude_max_relative": false,
+              "phase_max_deg": true
+            }
+          },
+          {
+            "pair": [
+              36,
+              40
+            ],
+            "complex_rms_relative": 0.1106436819760781,
+            "magnitude_max_relative": 0.19716219818734979,
+            "phase_max_deg": 4.396579904505734,
+            "all_three_gates": true,
+            "gates": {
+              "complex_rms_relative": true,
+              "magnitude_max_relative": true,
+              "phase_max_deg": true
+            }
+          },
+          {
+            "pair": [
+              40,
+              44
+            ],
+            "complex_rms_relative": 0.04039665193063778,
+            "magnitude_max_relative": 0.0656322998084505,
+            "phase_max_deg": 1.8175258205153557,
+            "all_three_gates": true,
+            "gates": {
+              "complex_rms_relative": true,
+              "magnitude_max_relative": true,
+              "phase_max_deg": true
+            }
+          }
+        ],
+        "all_pairs_all_gates": false,
+        "strict_monotone": {
+          "complex_rms_relative": false,
+          "magnitude_max_relative": false,
+          "phase_max_deg": false
+        }
+      },
+      "800": {
+        "pairs": [
+          {
+            "pair": [
+              28,
+              32
+            ],
+            "complex_rms_relative": 0.5444287864967072,
+            "magnitude_max_relative": 9.955932728921548,
+            "phase_max_deg": 19.80476447650519,
+            "all_three_gates": false,
+            "gates": {
+              "complex_rms_relative": false,
+              "magnitude_max_relative": false,
+              "phase_max_deg": false
+            }
+          },
+          {
+            "pair": [
+              32,
+              36
+            ],
+            "complex_rms_relative": 0.18732447243907666,
+            "magnitude_max_relative": 0.7775155050737951,
+            "phase_max_deg": 13.492001358373342,
+            "all_three_gates": false,
+            "gates": {
+              "complex_rms_relative": true,
+              "magnitude_max_relative": false,
+              "phase_max_deg": true
+            }
+          },
+          {
+            "pair": [
+              36,
+              40
+            ],
+            "complex_rms_relative": 0.18191450831821446,
+            "magnitude_max_relative": 0.44822150113251435,
+            "phase_max_deg": 7.862395424537925,
+            "all_three_gates": false,
+            "gates": {
+              "complex_rms_relative": true,
+              "magnitude_max_relative": false,
+              "phase_max_deg": true
+            }
+          },
+          {
+            "pair": [
+              40,
+              44
+            ],
+            "complex_rms_relative": 0.08020674916044543,
+            "magnitude_max_relative": 0.16257174620385245,
+            "phase_max_deg": 3.609413627132042,
+            "all_three_gates": true,
+            "gates": {
+              "complex_rms_relative": true,
+              "magnitude_max_relative": true,
+              "phase_max_deg": true
+            }
+          }
+        ],
+        "all_pairs_all_gates": false,
+        "strict_monotone": {
+          "complex_rms_relative": true,
+          "magnitude_max_relative": true,
+          "phase_max_deg": true
+        }
+      },
+      "1600": {
+        "pairs": [
+          {
+            "pair": [
+              28,
+              32
+            ],
+            "complex_rms_relative": 0.44694616282775246,
+            "magnitude_max_relative": 0.8737171841025029,
+            "phase_max_deg": 162.7148784274466,
+            "all_three_gates": false,
+            "gates": {
+              "complex_rms_relative": false,
+              "magnitude_max_relative": false,
+              "phase_max_deg": false
+            }
+          },
+          {
+            "pair": [
+              32,
+              36
+            ],
+            "complex_rms_relative": 0.5506772024110912,
+            "magnitude_max_relative": 1.898493513040838,
+            "phase_max_deg": 167.31485852298604,
+            "all_three_gates": false,
+            "gates": {
+              "complex_rms_relative": false,
+              "magnitude_max_relative": false,
+              "phase_max_deg": false
+            }
+          },
+          {
+            "pair": [
+              36,
+              40
+            ],
+            "complex_rms_relative": 0.21373597216069684,
+            "magnitude_max_relative": 1.1059673420530312,
+            "phase_max_deg": 164.02071337390691,
+            "all_three_gates": false,
+            "gates": {
+              "complex_rms_relative": false,
+              "magnitude_max_relative": false,
+              "phase_max_deg": false
+            }
+          },
+          {
+            "pair": [
+              40,
+              44
+            ],
+            "complex_rms_relative": 0.47239905692516,
+            "magnitude_max_relative": 0.8394949198720815,
+            "phase_max_deg": 178.63108801774231,
+            "all_three_gates": false,
+            "gates": {
+              "complex_rms_relative": false,
+              "magnitude_max_relative": false,
+              "phase_max_deg": false
+            }
+          }
+        ],
+        "all_pairs_all_gates": false,
+        "strict_monotone": {
+          "complex_rms_relative": false,
+          "magnitude_max_relative": false,
+          "phase_max_deg": false
+        }
+      },
+      "3200": {
+        "pairs": [
+          {
+            "pair": [
+              28,
+              32
+            ],
+            "complex_rms_relative": 0.6250948666829734,
+            "magnitude_max_relative": 0.9315397862058156,
+            "phase_max_deg": 30.05443950079142,
+            "all_three_gates": false,
+            "gates": {
+              "complex_rms_relative": false,
+              "magnitude_max_relative": false,
+              "phase_max_deg": false
+            }
+          },
+          {
+            "pair": [
+              32,
+              36
+            ],
+            "complex_rms_relative": 1.1505998075230353,
+            "magnitude_max_relative": 0.9286387879879865,
+            "phase_max_deg": 174.7957820737023,
+            "all_three_gates": false,
+            "gates": {
+              "complex_rms_relative": false,
+              "magnitude_max_relative": false,
+              "phase_max_deg": false
+            }
+          },
+          {
+            "pair": [
+              36,
+              40
+            ],
+            "complex_rms_relative": 0.3208882278106056,
+            "magnitude_max_relative": 0.4970558495237176,
+            "phase_max_deg": 14.002907309392036,
+            "all_three_gates": false,
+            "gates": {
+              "complex_rms_relative": false,
+              "magnitude_max_relative": false,
+              "phase_max_deg": true
+            }
+          },
+          {
+            "pair": [
+              40,
+              44
+            ],
+            "complex_rms_relative": 0.24352428473555793,
+            "magnitude_max_relative": 0.3046137534077402,
+            "phase_max_deg": 11.302550140760609,
+            "all_three_gates": false,
+            "gates": {
+              "complex_rms_relative": false,
+              "magnitude_max_relative": false,
+              "phase_max_deg": true
+            }
+          }
+        ],
+        "all_pairs_all_gates": false,
+        "strict_monotone": {
+          "complex_rms_relative": false,
+          "magnitude_max_relative": true,
+          "phase_max_deg": false
+        }
+      }
+    }
+  },
+  "verdicts": [
+    "BANDLIMITED_CONVERGENCE_ACHIEVED_TRUE_GEOMETRY",
+    "ORIGINAL_NATIVE_LOWBAND_NOT_CONVERGENT",
+    "MONOTONICITY_AT_NOISE_FLOOR"
+  ]
+}
