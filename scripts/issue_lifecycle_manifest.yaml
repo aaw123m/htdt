@@ -863,15 +863,16 @@ entries:
 - issue: 954
   lifecycle: structural_followup_remaining
   landed:
-    prs: [1049, 117, 122, 125, 126]
-    commits: [fc0076ed, f05030b9, 35203e91, 316e53aa, c674c9b5, 72a1c369]
+    prs: [1049, 117, 122, 125, 126, 130]
+    commits: [fc0076ed, f05030b9, 35203e91, 316e53aa, c674c9b5, 72a1c369, b21b6e02]
   remaining_gates:
   - kind: structural
-    description: 'Phase 5 optimization は PR#126 で htdt.optimization{domain(14),services(4),persistence(10),ui(12)} 40 stems 着地 (contract 206 moved stems 全件検証)。残: cad_search*/seating/speaker 共有基盤の層判断、shim 撤去、inventory 残 20 violations (新規 optimization 分) + mega-SCC 644 (managed debt) の逐次解消 — docs/issues/issue-954-domain-split-phase5.md deferred work 記載'
+    description: 'Phase 6 は PR#130 で optimization 債務 20 → 0 (全エッジを repoint/実 seam で解消、EXEMPTIONS 追加なし、mega-SCC 644→641)。残: cad_search*/seating/speaker 共有基盤の層判断、shim 撤去、mega-SCC 641 (managed debt) の逐次解消 — docs/issues/issue-954-domain-split-phase6.md 記載'
   evidence_refs:
   - docs/issues/issue-954-domain-split-phase1.md
   - docs/issues/issue-954-domain-split-phase3.md
   - docs/issues/issue-954-domain-split-phase4.md
+  - docs/issues/issue-954-domain-split-phase6.md
   - backend/tests/test_issue_954_domain_split.py
   - scripts/package_boundary_audit.py
   - scripts/package_boundary_inventory.json
