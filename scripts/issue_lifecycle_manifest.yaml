@@ -130,10 +130,11 @@ entries:
     - 123
     - 122
     - 124
+    - 128
     commits: [cb20fb86, c674c9b5, 63b69058]
   remaining_gates:
   - kind: structural
-    description: '監査済みパッケージ境界への実リファクタ — PR#123+#124 で当時の 31+8 violations を全解消 (0件、AuthorityRef/SceneRevision/Protocol seam 確立)。#954 phase4 (acoustics split) で新規 49 violations が管理債務として inventory 記録済 — 同 seam で逐次解消。shim 撤去・optimization 移行は #954 フェーズ継続'
+    description: '監査済みパッケージ境界への実リファクタ — PR#123+#124+#128 で acoustics 債務を含む 31+8+49 violations を全解消 (11 repositories→persistence、contracts→domain、Protocol seam 確立、実GUIスモーク検証済)。#954 phase5 (optimization split) で新規 20 violations が管理債務として inventory 記録済 — 同 seam で逐次解消。shim 撤去・残ドメイン移行は #954 フェーズ継続'
   evidence_refs:
   - docs/issues/issue-807-package-boundaries.md
   close_when_gates_clear: true
@@ -638,11 +639,11 @@ entries:
 - issue: 938
   lifecycle: structural_followup_remaining
   landed:
-    prs: [945, 998]
+    prs: [945, 998, 127]
     commits: [bf1ba6b3, ecc74ddf]
   remaining_gates:
     - kind: structural
-      description: "MFEM ビルド可能な環境 — fem_conditioning_pollution 軸は MFEM 未構築のため UNRESOLVED_ENVIRONMENT_BLOCKED のまま (fail/closed ではなく環境ブロック)"
+      description: "fem_conditioning_pollution 軸の機構同定 — PR#127 で MFEM v4.10 (pinned d964264c) を WSL2/gcc で実ビルドし軸を実実行: verdict UNRESOLVED (環境ブロック解除、conditioning 機構は未同定)。残ゲートは実質的な cross-solver 比較と機構同定。boundary_halo_separation は #947 処置適用で HALO_ADJACENCY_NO_LEAK_OBSERVED へ真値更新 (未処置リプレイは 0.00998 ABSORBS を bit-identical 再現)"
   evidence_refs:
     - docs/R130D_GENERAL3D_REPRODUCTION_ISOLATION_RESULT_2026-10-08.md
     - benchmarks/acoustics/r130d_reproduction_isolation_diagnostic_summary.json
@@ -862,11 +863,11 @@ entries:
 - issue: 954
   lifecycle: structural_followup_remaining
   landed:
-    prs: [1049, 117, 122, 125]
+    prs: [1049, 117, 122, 125, 126]
     commits: [fc0076ed, f05030b9, 35203e91, 316e53aa, c674c9b5, 72a1c369]
   remaining_gates:
   - kind: structural
-    description: 'Phase 5 以降 — acoustics ドメインは PR#125 で htdt.acoustics{domain(58),services(12),persistence(12),ui(2)} 84モジュール着地。残: optimization 等の次ドメイン移行、shim 撤去、inventory 49 violations/1 cycle (managed debt) の逐次解消 — docs/issues/issue-954-domain-split-phase4.md deferred work 記載'
+    description: 'Phase 5 optimization は PR#126 で htdt.optimization{domain(14),services(4),persistence(10),ui(12)} 40 stems 着地 (contract 206 moved stems 全件検証)。残: cad_search*/seating/speaker 共有基盤の層判断、shim 撤去、inventory 残 20 violations (新規 optimization 分) + mega-SCC 644 (managed debt) の逐次解消 — docs/issues/issue-954-domain-split-phase5.md deferred work 記載'
   evidence_refs:
   - docs/issues/issue-954-domain-split-phase1.md
   - docs/issues/issue-954-domain-split-phase3.md
