@@ -73,8 +73,10 @@ from run_r130d_general3d_validation import (
     UNIT,
     ValidationBlocked,
     _git_head,
+    _mfem_execution_mode,
     _observable_contract,
     _run_pffdtd_level,
+    _run_reference_level,
     _validate_pr295_canonical_reproduction,
     _validate_target_window_diagnostic_binding,
 )
@@ -137,6 +139,16 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument('--run62-summary', required=True, type=Path)
     parser.add_argument('--pr295-summary', required=True, type=Path)
     parser.add_argument('--pffdtd-root', required=True, type=Path)
+    parser.add_argument(
+        '--mfem-root',
+        type=Path,
+        help='MFEM source checkout at the pinned commit (enables the MFEM legs)',
+    )
+    parser.add_argument(
+        '--mfem-executable',
+        type=Path,
+        help='Built r130d sloped-tet system adapter (enables the MFEM legs)',
+    )
     parser.add_argument('--work-root', required=True, type=Path)
     parser.add_argument('--output', required=True, type=Path)
     parser.add_argument('--summary-output', type=Path)
@@ -761,18 +773,66 @@ def _match_analytic_modes(
     }
 
 
-def _check_runtime_mfem() -> dict[str, Any]:
-    """MFEM legs are environment-dependent; on this Windows box the pinned
-    MFEM toolchain is not buildable, so report ENVIRONMENT_BLOCKED rather
-    than an unconditional FAIL."""
+def _check_runtime_mfem(
+    plan,
+    *,
+    mfem_root: Path | None,
+    mfem_executable: Path | None,
+    work_root: Path,
+) -> dict[str, Any]:
+    """MFEM legs are environment-dependent: they need the pinned MFEM
+    source checkout plus a built sloped-tet adapter executable. When no
+    toolchain is supplied the axis is reported ENVIRONMENT_BLOCKED rather
+    than unconditionally failed; when supplied, the frozen sloped-tetra
+    system-export + modal legs execute for real (on Windows a Linux ELF
+    adapter is invoked through wsl.exe — the execution is still the real
+    pinned MFEM build) and the per-level evidence is recorded."""
+    pinned_sha = plan.independent_reference.source_commit_sha
+
+    def blocked(reason: str) -> dict[str, Any]:
+        return {
+            'status': 'ENVIRONMENT_BLOCKED',
+            'mfem_source_commit_sha': pinned_sha,
+            'blocked_reason': reason,
+        }
+
+    if mfem_root is None or mfem_executable is None:
+        return blocked(
+            'MFEM toolchain not supplied to this run '
+            '(--mfem-root/--mfem-executable absent); MFEM-dependent '
+            'hypothesis legs are reported UNRESOLVED_ENVIRONMENT_BLOCKED'
+        )
+    if not mfem_executable.is_file():
+        return blocked(
+            f'MFEM adapter executable missing: {mfem_executable}'
+        )
+    head = _git_head(mfem_root)
+    if head != pinned_sha:
+        return blocked(
+            f'MFEM checkout mismatch: expected {pinned_sha}, got {head}'
+        )
+
+    mfem_work = work_root / 'mfem-reference'
+    mfem_work.mkdir(parents=True, exist_ok=True)
+    levels = [
+        _run_reference_level(
+            plan,
+            executable=mfem_executable,
+            work_root=mfem_work,
+            refinement=int(refinement),
+            expected_elements=int(expected_elements),
+        )
+        for refinement, expected_elements in zip(
+            plan.independent_reference.uniform_refinements,
+            plan.independent_reference.expected_element_counts,
+        )
+    ]
     return {
-        'status': 'ENVIRONMENT_BLOCKED',
-        'mfem_source_commit_sha': 'd964264cdb9a13e94a201b6c236c7721e0c8765f',
-        'blocked_reason': (
-            'pinned MFEM reference solver cannot be built/executed on '
-            'this Windows box (Linux CI only); MFEM-dependent hypothesis '
-            'legs are reported UNRESOLVED_ENVIRONMENT_BLOCKED'
-        ),
+        'status': 'EXECUTED',
+        'mfem_source_commit_sha': head,
+        'execution_mode': _mfem_execution_mode(mfem_executable),
+        'mfem_executable': str(mfem_executable),
+        'levels': levels,
     }
 
 
@@ -923,9 +983,16 @@ def main(argv: list[str] | None = None) -> int:
                 dense_diagnostic=dense_diagnostic,
             )
         )
+    mfem_manifest = _check_runtime_mfem(
+        plan,
+        mfem_root=args.mfem_root,
+        mfem_executable=args.mfem_executable,
+        work_root=args.work_root,
+    )
+    mfem_executed = mfem_manifest['status'] == 'EXECUTED'
     canonical_reproduction = _validate_pr295_canonical_reproduction(
         args.pr295_summary,
-        reference_levels=[],
+        reference_levels=mfem_manifest.get('levels', []),
         pffdtd_levels=pffdtd_levels,
         max_abs_tolerance=float(
             diagnostic['canonical_reproduction'][
@@ -1520,8 +1587,6 @@ def main(argv: list[str] | None = None) -> int:
         'WORSENING_BINS_CLASSIFIED'
     )
 
-    mfem_manifest = _check_runtime_mfem()
-    mfem_executed = mfem_manifest['status'] != 'ENVIRONMENT_BLOCKED'
     hypothesis_table = build_reproduction_hypothesis_table(
         axis_verdicts, mfem_executed=mfem_executed
     )
@@ -1577,8 +1642,14 @@ def main(argv: list[str] | None = None) -> int:
             {
                 'check': 'mfem_pffdtd_cross_solver_gate',
                 'status': 'BLOCKED',
-                'note': 'self-convergence has not re-passed on both '
-                'solvers; MFEM legs environment-blocked on this box',
+                'note': (
+                    'self-convergence has not re-passed on both solvers'
+                    + (
+                        ''
+                        if mfem_executed
+                        else '; MFEM legs environment-blocked on this box'
+                    )
+                ),
             }
         ],
         'PHYSICALLY_VALIDATED': [

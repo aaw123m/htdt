@@ -73,8 +73,16 @@ def test_committed_summary_schema_and_verdicts() -> None:
     assert summary['axis_verdicts']['record_prefix_identity'] == (
         'RECORD_PREFIX_IDENTICAL'
     )
+    # The committed driver applies the #947 boundary-halo separation
+    # treatment to both probe layouts, so the treated wall-at-index-1
+    # reflects and the axis records NO_LEAK. The previously committed
+    # ABSORBS row was generated before the treatment call landed in the
+    # probe loop; replaying the probe without the treatment reproduces
+    # it bit-identically (tail/head 0.009985730478577396, trace sha256
+    # 0838dd3884791eff...), so the recorded defect remains real
+    # falsifiable evidence and the treatment is what removes it.
     assert summary['axis_verdicts']['boundary_halo_separation'] == (
-        'HALO_ADJACENCY_ABSORBS_CONFIRMED'
+        'HALO_ADJACENCY_NO_LEAK_OBSERVED'
     )
     assert summary['axis_verdicts']['cfl_dt_variants'] == (
         'CFL_DT_WORSENING_PERSISTS'
@@ -94,9 +102,15 @@ def test_committed_summary_schema_and_verdicts() -> None:
     assert hypotheses['time_window_discrete_dtft'] == (
         'REJECTED_AS_PRINCIPAL'
     )
-    assert hypotheses['fem_conditioning_pollution'] == (
-        'UNRESOLVED_ENVIRONMENT_BLOCKED'
-    )
+    # The committed evidence was regenerated with the pinned MFEM toolchain
+    # (v4.10 @ d964264c) executing under WSL on this box, so the fem axis now
+    # reports its real unresolved verdict rather than the environment block.
+    assert hypotheses['fem_conditioning_pollution'] == 'UNRESOLVED'
+    assert summary['mfem_manifest']['status'] == 'EXECUTED'
+    assert [
+        level['refinement']
+        for level in summary['mfem_manifest']['levels']
+    ] == [1, 2, 3]
 
 
 def test_reproduction_values_match_tolerance() -> None:
@@ -168,6 +182,13 @@ def test_hypothesis_table_statuses() -> None:
         'UNRESOLVED_ENVIRONMENT_BLOCKED'
     )
     assert all(row['status'] != 'FAIL' for row in table)
+    executed = {
+        row['hypothesis']: row['status']
+        for row in build_reproduction_hypothesis_table(
+            axis_verdicts, mfem_executed=True
+        )
+    }
+    assert executed['fem_conditioning_pollution'] == 'UNRESOLVED'
 
 
 def test_classify_reproduction_isolation_state_machine() -> None:
