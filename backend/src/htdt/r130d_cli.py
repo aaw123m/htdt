@@ -31,7 +31,10 @@ def main(argv=None):
     audit_parser.add_argument('--assets',type=Path,required=True)
     audit_parser.add_argument('--output-dir',type=Path,required=True)
     audit_parser.add_argument('--arm',choices=['all','exact','gauss2','gauss4','gauss6','rational_mass_exact','hyperstiffness_exact'],default='all')
-    for command in (status,run_parser,audit_parser):
+    enriched_parser=sub.add_parser('audit-enrichment',help='recompute the pinned singular-source enrichment gates from full waveforms')
+    enriched_parser.add_argument('--evidence-dir',type=Path,required=True)
+    enriched_parser.add_argument('--output-dir',type=Path,required=True)
+    for command in (status,run_parser,audit_parser,enriched_parser):
         command.add_argument('--json',action='store_true',help='single machine-readable result envelope')
     args=parser.parse_args(argv)
     os.environ.setdefault('OPENBLAS_NUM_THREADS','4')
@@ -42,6 +45,19 @@ def main(argv=None):
         if args.verb=='status':
             data=readiness()
             code=3 if args.require_product_go and not data['product_go'] else 0
+        elif args.verb=='audit-enrichment':
+            from .r130d_enriched_evidence import audit_enrichment
+            output=args.output_dir.resolve()
+            if output.exists():raise ValueError('output directory already exists; choose a new run directory')
+            report=audit_enrichment(args.evidence_dir.resolve())
+            output.parent.mkdir(parents=True,exist_ok=True)
+            staging=Path(tempfile.mkdtemp(prefix=output.name+'-staging-',dir=output.parent))
+            (staging/'audit.json').write_text(json.dumps(report,indent=2,allow_nan=False)+'\n',encoding='utf8')
+            (staging/'verification.json').write_text(json.dumps({'schema_version':1,'product_go':False,
+                'files':{'audit.json':hashlib.sha256((staging/'audit.json').read_bytes()).hexdigest()}},indent=2)+'\n')
+            staging.rename(output)
+            data={'output_dir':str(output),'qualification':report['qualification'],'product_go':False,'gates':report['gates']}
+            code=6 if report['qualification']=='FAIL_SINGULAR_SOURCE_ENRICHMENT' else 0
         elif args.verb=='audit-undamped':
             output=args.output_dir.resolve()
             if output.exists():raise ValueError('output directory already exists; choose a new run directory')
