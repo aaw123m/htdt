@@ -10,23 +10,39 @@ mount's message — a failed resolution never loses the operator's context.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Literal
+from collections.abc import Callable
+from typing import Literal, Protocol
 
 from PySide6.QtWidgets import QMessageBox, QWidget
 
+from .modal_transient import exec_transient
 from .user_facing_error import operation_error_message
+from .error_boundary import EXPECTED_OPERATION_ERRORS
 from .workspace_dirty_state import (
     DeactivationContext,
     DirtyResolutionAction,
+    WorkspaceDirtyState,
     dirty_state_prompt,
 )
 
-if TYPE_CHECKING:
-    from .workflow_shell import WorkspaceMount
+
+class _MountLike(Protocol):
+    """Structural surface ``resolve_mount_dirty_state`` needs from a mount.
+
+    ``workflow_shell.WorkspaceMount`` satisfies this shape; the dialog takes
+    the protocol so the shell->dialog import is the only edge of the pair
+    (#807: breaks the dirty_state_dialog <-> workflow_shell cycle).
+    """
+
+    dirty_state: Callable[[], WorkspaceDirtyState] | None
+    resolve_dirty_state: (
+        Callable[[DirtyResolutionAction], tuple[bool, str | None]] | None
+    )
+    before_deactivate: Callable[[], tuple[bool, str | None]] | None
 
 
 def resolve_mount_dirty_state(
-    mount: "WorkspaceMount",
+    mount: _MountLike,
     context: DeactivationContext,
     parent: QWidget | None,
 ) -> bool:
@@ -77,19 +93,19 @@ def _choose(prompt, parent: QWidget | None) -> DirtyResolutionAction | None:
     # non-destructive choice (save/keep/open), or Cancel when every choice
     # is destructive (e.g. busy workspaces offering only stop_busy).
     box.setDefaultButton(default_button or cancel_button)
-    box.exec()
+    exec_transient(box)
     return buttons.get(box.clickedButton())
 
 
 def _apply(
-    mount: "WorkspaceMount",
+    mount: _MountLike,
     action: DirtyResolutionAction,
     title: str,
     parent: QWidget | None,
 ) -> bool:
     try:
         resolved, message = mount.resolve_dirty_state(action)
-    except Exception as error:  # resolution must never lose the context
+    except EXPECTED_OPERATION_ERRORS as error:  # error-boundary: op surface — expected failures warn verbatim; unexpected errors propagate to diagnostics
         QMessageBox.warning(
             parent,
             title,
@@ -139,7 +155,7 @@ def choose_snapshot_action(
     # Enter saves first — the non-destructive choice; Esc/Cancel aborts and
     # never produces an artifact.
     box.setDefaultButton(save_button)
-    box.exec()
+    exec_transient(box)
     clicked = box.clickedButton()
     if clicked is last_saved_button:
         return "last_saved"

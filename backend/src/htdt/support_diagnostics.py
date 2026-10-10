@@ -49,7 +49,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from . import __version__
 from .ingress import IngressTooLargeError, read_file_bounded
 from .managed_assets import MANAGED_ASSETS_DIRNAME
-from .native_diagnostics import (
+from .diagnostics_support import (
     BuildIdentity,
     DIAGNOSTICS_DIRNAME,
     LOG_FILENAME,
@@ -116,7 +116,7 @@ def _staged_zip_archive(destination: Path):
         ) as archive:
             yield archive
         os.replace(staging, destination)
-    except BaseException:
+    except BaseException:  # error-boundary: cleanup before re-raise — any failure (incl. cancel) removes the staged archive so a partial file never looks published (noqa: BLE001)
         staging.unlink(missing_ok=True)
         raise
 
@@ -401,7 +401,7 @@ def _check_schema_compatibility(path: Path) -> HealthCheckResult:
                 'or install the HTDT build that created it.'
             ),
         )
-    except Exception as exc:
+    except Exception as exc:  # error-boundary: health check — a crashing check is itself a FAIL finding with the exception identity, never a blanked report (noqa: BLE001)
         return HealthCheckResult(
             check_id='storage.schema_compatibility',
             category=HealthCategory.APP_STORAGE,
@@ -616,7 +616,7 @@ def run_health_checks(
         # is itself a finding, never a blanked report.
         try:
             return list(produce())
-        except Exception as exc:
+        except Exception as exc:  # error-boundary: health check — a crashing check is itself a FAIL finding with the exception identity, never a blanked report (noqa: BLE001)
             return [
                 HealthCheckResult(
                     check_id=check_id,
@@ -647,7 +647,7 @@ def run_health_checks(
     if integrity_runner is not None:
         try:
             results.append(integrity_runner(Path(data_dir)))
-        except Exception as exc:  # a crashing probe is a finding, not a crash
+        except Exception as exc:  # error-boundary: health check — a crashing probe is itself a FAIL finding with the exception identity, never a crash (noqa: BLE001)
             results.append(
                 HealthCheckResult(
                     check_id='integrity.semantic',
@@ -669,7 +669,7 @@ def run_health_checks(
     for index, probe in enumerate(integration_probes):
         try:
             result = probe(Path(data_dir))
-        except Exception as exc:
+        except Exception as exc:  # error-boundary: health check — a crashing probe is itself a FAIL finding with the exception identity, never a crash (noqa: BLE001)
             result = HealthCheckResult(
                 check_id=f'integrations.probe_{index}',
                 category=HealthCategory.INTEGRATIONS,
@@ -683,6 +683,227 @@ def run_health_checks(
             )
         results.append(result)
     return HealthReport(checked_at=_utc_now(), results=tuple(results))
+
+
+# ---------------------------------------------------------------------------
+# Live-store check runners and probes (#1018)
+#
+# These factories produce the ``integrity_runner``/``integration_probes``
+# callables :func:`run_health_checks` consumes. Every one is read-only on
+# the project store: the semantic audit runs on a consistent throwaway
+# clone (repository construction may initialize/migrate a schema, so the
+# live file is never opened), and the integration probes only *read*
+# endpoint/snapshot state — none of them connects a device, promotes
+# evidence, or repairs anything.
+
+
+def semantic_integrity_check(
+    data_dir: Path,
+    *,
+    is_cancelled: Callable[[], bool] | None = None,
+) -> HealthCheckResult:
+    """The #426 authority-graph audit as a ``SEMANTIC_INTEGRITY`` finding.
+
+    The audit replays persisted authority through repository construction,
+    which may initialize or migrate the schema — running it on the live
+    database would itself be a write. The probe therefore mirrors the
+    ``native_upgrade`` contract: a consistent online-backup clone plus a
+    hardlinked managed-asset subtree inside one temporary directory under
+    ``data_dir`` (the audit resolves ``measurement-assets/`` relative to
+    the audited file's parent), removed in ``finally`` whatever happens.
+    The live store is only read, through SQLite's backup API so a torn
+    mid-transaction copy can never masquerade as corruption evidence.
+    """
+
+    data_dir = Path(data_dir)
+    database_path = data_dir / DATABASE_NAME
+    if not database_path.is_file() or database_path.stat().st_size == 0:
+        return HealthCheckResult(
+            check_id='integrity.semantic',
+            category=HealthCategory.SEMANTIC_INTEGRITY,
+            status=HealthStatus.NOT_APPLICABLE,
+            summary='project database not created yet',
+        )
+    from .cad_schema import connect_sqlite  # local import keeps module Qt/db-light
+    from .native_authority_audit import audit_native_authority_graph
+
+    probe_dir = Path(tempfile.mkdtemp(prefix='.health-audit-', dir=data_dir))
+    try:
+        probe_path = probe_dir / DATABASE_NAME
+        with closing(
+            sqlite3.connect(
+                f'file:{database_path.as_posix()}?mode=ro', uri=True
+            )
+        ) as source, closing(connect_sqlite(probe_path)) as destination:
+            source.backup(destination)
+            destination.commit()
+        live_assets = data_dir / MANAGED_ASSETS_DIRNAME
+        if live_assets.is_dir():
+            probe_assets = probe_dir / MANAGED_ASSETS_DIRNAME
+            probe_assets.mkdir()
+            for candidate in live_assets.iterdir():
+                if not candidate.is_file():
+                    continue
+                target = probe_assets / candidate.name
+                try:
+                    target.hardlink_to(candidate)
+                except OSError:
+                    shutil.copyfile(candidate, target)
+        report = audit_native_authority_graph(
+            probe_path, is_cancelled=is_cancelled
+        )
+    finally:
+        shutil.rmtree(probe_dir, ignore_errors=True)
+    if report.ok:
+        total = sum(count for _name, count in report.checked)
+        return HealthCheckResult(
+            check_id='integrity.semantic',
+            category=HealthCategory.SEMANTIC_INTEGRITY,
+            status=HealthStatus.PASS,
+            summary=f'authority graph audit passed ({total} records checked)',
+        )
+    classes = sorted({d.failure_class for d in report.diagnostics})
+    detail_lines = [
+        f'{len(report.diagnostics)} diagnostics'
+        + (f' ({", ".join(classes)})' if classes else '')
+    ]
+    for diagnostic in report.diagnostics[:5]:
+        detail_lines.append(
+            f'[{diagnostic.authority}:{diagnostic.record_ref}] '
+            f'{diagnostic.failure_class} — {diagnostic.message}'
+        )
+    if len(report.diagnostics) > 5:
+        detail_lines.append(
+            f'... {len(report.diagnostics) - 5} more'
+        )
+    for table in report.unclassified_tables[:5]:
+        detail_lines.append(f'[coverage:{table}] unclassified table')
+    return HealthCheckResult(
+        check_id='integrity.semantic',
+        category=HealthCategory.SEMANTIC_INTEGRITY,
+        status=HealthStatus.FAIL,
+        summary='authority graph audit reported stale or broken records',
+        detail='\n'.join(detail_lines),
+    )
+
+
+def rew_api_probe(
+    base_url: str,
+    *,
+    timeout_s: float = 1.5,
+) -> Callable[[Path], HealthCheckResult]:
+    """REW API reachability probe (#599 surface, read-only).
+
+    ``base_url`` is captured by the caller on the UI thread; the probe
+    itself only constructs a client and performs the bounded ``status``
+    read. An unreachable REW is ATTENTION — it is an optional integration,
+    never installation damage.
+    """
+
+    def probe(_data_dir: Path) -> HealthCheckResult:
+        from .rew_api import RewApiClient  # local import keeps module light
+
+        client = RewApiClient(base_url, timeout_s=timeout_s)
+        status = client.status()
+        if status['connected']:
+            version = status['rew_version'] or 'version unknown'
+            return HealthCheckResult(
+                check_id='integrations.rew_api',
+                category=HealthCategory.INTEGRATIONS,
+                status=HealthStatus.PASS,
+                summary=f'REW API reachable ({version})',
+                detail=(
+                    f'{status["base_url"]} — '
+                    f'{status["measurement_count"]} measurements visible'
+                ),
+            )
+        return HealthCheckResult(
+            check_id='integrations.rew_api',
+            category=HealthCategory.INTEGRATIONS,
+            status=HealthStatus.ATTENTION,
+            summary='REW API is not reachable (optional integration)',
+            detail=status['error'] or str(status['base_url']),
+        )
+
+    return probe
+
+
+def capture_receiver_probe(
+    state: Mapping[str, object],
+) -> Callable[[Path], HealthCheckResult]:
+    """Capture receiver (#593) probe over a UI-thread state snapshot.
+
+    ``state`` is frozen before dispatch — the receiver's service objects
+    are not thread-safe, so the worker must never query them live. Keys:
+    ``running``, ``requested_enabled``, ``last_error``, ``enabled``.
+    ``enabled=False`` (no receiver wired at all) is honest NOT_APPLICABLE,
+    not a failure.
+    """
+
+    def probe(_data_dir: Path) -> HealthCheckResult:
+        if not state.get('enabled', True):
+            return HealthCheckResult(
+                check_id='integrations.capture_receiver',
+                category=HealthCategory.INTEGRATIONS,
+                status=HealthStatus.NOT_APPLICABLE,
+                summary='capture receiver is not configured in this build',
+            )
+        if state.get('running'):
+            return HealthCheckResult(
+                check_id='integrations.capture_receiver',
+                category=HealthCategory.INTEGRATIONS,
+                status=HealthStatus.PASS,
+                summary='capture receiver is listening',
+            )
+        if state.get('requested_enabled'):
+            return HealthCheckResult(
+                check_id='integrations.capture_receiver',
+                category=HealthCategory.INTEGRATIONS,
+                status=HealthStatus.ATTENTION,
+                summary='capture receiver is enabled but not listening',
+                detail=(
+                    str(state.get('last_error'))
+                    if state.get('last_error')
+                    else 'receiver is stopped'
+                ),
+            )
+        return HealthCheckResult(
+            check_id='integrations.capture_receiver',
+            category=HealthCategory.INTEGRATIONS,
+            status=HealthStatus.NOT_APPLICABLE,
+            summary='capture receiver is disabled',
+        )
+
+    return probe
+
+
+def vtk_probe() -> Callable[[Path], HealthCheckResult]:
+    """3D stack presence probe — capability presence, never a GL context.
+
+    Mirrors ``collect_gpu_context``'s rule: forcing a GL context to check
+    health can crash exactly the machines whose graphics stack is broken,
+    so this only answers whether the VTK module is importable.
+    """
+
+    def probe(_data_dir: Path) -> HealthCheckResult:
+        import importlib.util
+
+        if importlib.util.find_spec('vtkmodules') is not None:
+            return HealthCheckResult(
+                check_id='integrations.vtk',
+                category=HealthCategory.INTEGRATIONS,
+                status=HealthStatus.PASS,
+                summary='VTK module is importable (renderer unprobed)',
+            )
+        return HealthCheckResult(
+            check_id='integrations.vtk',
+            category=HealthCategory.INTEGRATIONS,
+            status=HealthStatus.ATTENTION,
+            summary='VTK module is not importable — 3D surfaces unavailable',
+            detail='room/preview 3D workspaces require vtkmodules',
+        )
+
+    return probe
 
 
 # ---------------------------------------------------------------------------
@@ -714,7 +935,7 @@ def previous_session_unexpected_end(
         pid_alive = _default_pid_alive
     try:
         alive = pid_alive(info.pid)
-    except Exception:
+    except Exception:  # error-boundary: environment probe — a pid-liveness probe failure treats the pid as dead honestly (noqa: BLE001)
         alive = False
     if alive:
         return UnexpectedEndEvidence(
@@ -1514,10 +1735,14 @@ __all__ = [
     'PackageResult',
     'SUPPORT_SCHEMA_VERSION',
     'UnexpectedEndEvidence',
+    'capture_receiver_probe',
     'environment_summary',
     'failure_correlation_id',
     'package_filename',
     'previous_session_unexpected_end',
     'redact_support_value',
+    'rew_api_probe',
     'run_health_checks',
+    'semantic_integrity_check',
+    'vtk_probe',
 ]

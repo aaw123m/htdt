@@ -67,7 +67,7 @@ from typing import Final
 
 from pydantic import ValidationError
 
-from .ui_theme import SemanticState
+from .ui_theme_tokens import SemanticState
 from .user_facing_error import (
     UserFacingError,
     log_operation_error,

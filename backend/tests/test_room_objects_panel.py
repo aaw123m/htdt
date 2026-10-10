@@ -3,7 +3,9 @@
 The object browser is the always-visible selection surface for the Room
 workspace: rows must mirror document entities with visibility/lock markers,
 selection must round-trip through the sync API without recursive emission,
-and batch action buttons must emit the currently selected ids.
+and batch action buttons must emit the currently selected ids. Since #978
+rows live under kind-group headers; lookups go through ``item_for_entity``
+(stable entity ID), never row indices.
 """
 
 from __future__ import annotations
@@ -81,16 +83,17 @@ def test_sync_document_rows_mark_hidden_locked_and_primary() -> None:
         hidden_ids={'speaker-fr'},
         locked_ids={'point-mlp'},
     )
-    assert panel.tree.topLevelItemCount() == 3
+    # Two kind groups (speaker + measurement_point), not flat rows.
+    assert panel.tree.topLevelItemCount() == 2
 
-    fl = panel.tree.topLevelItem(0)
+    fl = panel.item_for_entity('speaker-fl')
     assert fl.text(0) == '▶ Front Left'  # primary marker
     assert fl.text(1) == 'スピーカー'
     assert fl.isSelected()
 
-    fr = panel.tree.topLevelItem(1)
+    fr = panel.item_for_entity('speaker-fr')
     assert fr.text(2) == '—'  # hidden marker
-    mlp = panel.tree.topLevelItem(2)
+    mlp = panel.item_for_entity('point-mlp')
     assert mlp.text(3) == '🔒'  # locked marker
 
     summary = panel.summary.text()
@@ -108,8 +111,8 @@ def test_selection_emits_ordered_ids_and_primary() -> None:
     emitted: list = []
     panel.selectionRequested.connect(lambda ids, primary: emitted.append((ids, primary)))
 
-    panel.tree.topLevelItem(0).setSelected(True)
-    panel.tree.topLevelItem(2).setSelected(True)
+    panel.item_for_entity('speaker-fl').setSelected(True)
+    panel.item_for_entity('point-mlp').setSelected(True)
     ids = panel.selected_entity_ids()
     assert set(ids) == {'speaker-fl', 'point-mlp'}
     assert emitted
@@ -140,7 +143,7 @@ def test_action_buttons_emit_current_selection() -> None:
     panel.lockRequested.connect(lambda ids, lock: lock_calls.append((ids, lock)))
     panel.deleteRequested.connect(lambda ids: delete_calls.append(ids))
 
-    panel.tree.topLevelItem(1).setSelected(True)
+    panel.item_for_entity('speaker-fr').setSelected(True)
     panel.hide_button.click()
     assert hide_calls[-1] == (('speaker-fr',), True)
     panel.show_button.click()

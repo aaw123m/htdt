@@ -5,10 +5,11 @@ from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+import pyqtgraph as pg
 from PySide6.QtWidgets import QApplication, QPushButton, QSplitter
 
 from htdt.cad_repository import SceneRepository
-from htdt.cad_scene import make_f1_scene
+from htdt.cad_scene import RoomPrism, make_f1_scene
 from htdt.measurement_page_workspace import MeasurementPageWorkspace
 from htdt.measurement_workflow import MeasurementAssignment, MeasurementWorkflowController
 from htdt.workflow_navigation import (
@@ -70,7 +71,7 @@ def test_calibration_context_selects_the_onboarding_page(
     _, workspace = _workspace(tmp_path)
     try:
         workspace.set_context("calibration")
-        assert workspace.pages.currentIndex() == 5
+        assert workspace.pages.currentIndex() == 7
     finally:
         workspace.close()
         workspace.deleteLater()
@@ -102,10 +103,19 @@ def test_quality_page_uses_split_layout(tmp_path: Path) -> None:
         workspace.set_context("quality")
         splitters = workspace.findChildren(QSplitter)
         assert splitters, "quality page must place table and detail side by side"
-        split = splitters[0]
-        children = {split.widget(i) for i in range(split.count())}
-        assert workspace.quality_table.parentWidget() in children
-        assert workspace.quality_detail.parentWidget() in children
+        # #1002 added another splitter (the correspondence compare pane) —
+        # locate the split that actually hosts the quality table+detail.
+        for split in splitters:
+            children = {split.widget(i) for i in range(split.count())}
+            if (
+                workspace.quality_table.parentWidget() in children
+                and workspace.quality_detail.parentWidget() in children
+            ):
+                break
+        else:
+            raise AssertionError(
+                "no splitter hosts both quality table and detail"
+            )
     finally:
         workspace.close()
         workspace.deleteLater()
@@ -150,15 +160,28 @@ def test_comparison_preview_saved_distinction_and_metrics(tmp_path: Path) -> Non
         _commit(controller, "point-mlp", "predicted", "front_left", b"20 69\n40 70\n80 68\n")
         workspace.refresh()
         workspace.set_context("comparison")
-        assert "プレビュー" in workspace.comparison_state_label.text()
+        # #970: an unregistered measured×predicted pair is fail-closed —
+        # the state label, the field-adjacent reason and the disabled save
+        # button all say so instead of letting a preview pose as saveable.
+        assert "比較不能" in workspace.comparison_state_label.text()
+        assert "未登録" in workspace.comparison_state_label.text()
+        assert "未登録" in workspace.selection_reason_label.text()
+        assert "登録レコードを作成" in workspace.save_guidance_label.text()
+        assert not workspace.compare_button.isEnabled()
+        # The at-a-glance strip shows the selected pair's source, scene
+        # binding and the registration verdict.
+        summary = workspace.pair_summary_label.text()
+        assert "実測" in summary and "予測" in summary
+        assert "SceneRevision" in summary
+        assert "未登録" in summary
         # #564: measured-vs-predicted comparison is gated on a persisted
-        # registration record — saving without it must be refused, then
-        # succeed once the pair is registered.
-        workspace.compare_button.click()
-        assert "プレビュー" in workspace.comparison_state_label.text()
+        # registration record — registering the pair clears the blocker
+        # and re-enables save.
         assert "登録" in workspace.registration_state_label.text()
         workspace.register_pair_button.click()
         assert "登録済み" in workspace.registration_state_label.text()
+        assert workspace.compare_button.isEnabled()
+        assert "プレビュー" in workspace.comparison_state_label.text()
         workspace.compare_button.click()
         assert "保存済み" in workspace.comparison_state_label.text()
         metrics = {
@@ -170,6 +193,177 @@ def test_comparison_preview_saved_distinction_and_metrics(tmp_path: Path) -> Non
         workspace.comparison_history.selectRow(0)
         assert "保存済み" in workspace.comparison_state_label.text()
         assert "保存済み比較" in workspace.context_label.text()
+    finally:
+        workspace.close()
+        workspace.deleteLater()
+        app.processEvents()
+
+
+def _plot_state_text(plot: pg.PlotWidget) -> str:
+    viewbox = plot.getPlotItem().getViewBox()
+    return " ".join(
+        child.textItem.toPlainText()
+        for child in viewbox.allChildren()
+        if isinstance(child, pg.TextItem)
+    )
+
+
+def _select_combo_by_freq_floor(combo, controller, floor_hz: float) -> None:
+    """Select the combo entry whose dataset starts above ``floor_hz``."""
+    for index in range(combo.count()):
+        dataset_id = combo.itemData(index)
+        dataset = controller.dataset(dataset_id) if dataset_id else None
+        if dataset is not None and dataset.frequency_hz[0] > floor_hz:
+            combo.setCurrentIndex(index)
+            return
+    raise AssertionError("no dataset with min freq above floor")
+
+
+def _select_combo_by_freq_ceiling(combo, controller, ceiling_hz: float) -> None:
+    """Select the combo entry whose dataset ends below ``ceiling_hz``."""
+    for index in range(combo.count()):
+        dataset_id = combo.itemData(index)
+        dataset = controller.dataset(dataset_id) if dataset_id else None
+        if dataset is not None and dataset.frequency_hz[-1] < ceiling_hz:
+            combo.setCurrentIndex(index)
+            return
+    raise AssertionError("no dataset with max freq below ceiling")
+
+
+def test_comparison_band_overlap_reason_and_recovery(tmp_path: Path) -> None:
+    """#970: the band gate mirrors the pinned overlap rule, live."""
+    app = _app()
+    controller, workspace = _workspace(tmp_path)
+    try:
+        _commit(controller, "point-mlp", "measured", "front_left", b"20 70\n40 71\n80 69\n")
+        _commit(controller, "point-mlp", "measured", "front_right", b"40 70\n80 71\n120 69\n")
+        _commit(controller, "point-mlp", "measured", "center", b"5000 70\n10000 71\n20000 69\n")
+        workspace.refresh()
+        workspace.set_context("comparison")
+        # The auto-pair is alphabetical (C 5000+ vs FR 40–120) and already
+        # fail-closed on the disjoint band rule.
+        assert "帯域の交差なし" in workspace.comparison_state_label.text()
+        assert "別のペア" in workspace.save_guidance_label.text()
+        assert not workspace.compare_button.isEnabled()
+        # Overlapping pair (A 20–80 Hz, B 40–120 Hz): the gate clears.
+        _select_combo_by_freq_ceiling(workspace.measured_combo, controller, 100.0)
+        _select_combo_by_freq_ceiling(workspace.predicted_combo, controller, 200.0)
+        assert workspace.compare_button.isEnabled()
+        assert "比較不能" not in workspace.comparison_state_label.text()
+        # Narrow the requested band below the common range — blocked with
+        # the nearest resolvable reason and the concrete common range.
+        workspace.compare_high.setValue(30.0)
+        assert "帯域の交差なし" in workspace.comparison_state_label.text()
+        assert "重なり" in workspace.selection_reason_label.text()
+        assert "40.0–80.0 Hz" in workspace.save_guidance_label.text()
+        assert not workspace.compare_button.isEnabled()
+        workspace.compare_high.setValue(20000.0)
+        assert workspace.compare_button.isEnabled()
+        # Genuinely disjoint pair: the honest guidance is to pick another
+        # pair, not to chase a band that cannot intersect.
+        _select_combo_by_freq_floor(workspace.predicted_combo, controller, 4000.0)
+        assert "帯域の交差なし" in workspace.comparison_state_label.text()
+        assert "別のペア" in workspace.save_guidance_label.text()
+        assert not workspace.compare_button.isEnabled()
+    finally:
+        workspace.close()
+        workspace.deleteLater()
+        app.processEvents()
+
+
+def test_comparison_details_toggle_preserves_state(tmp_path: Path) -> None:
+    """#970: opening/closing 詳細条件 never mutates selection or evidence."""
+    app = _app()
+    controller, workspace = _workspace(tmp_path)
+    try:
+        _commit(controller, "point-mlp", "measured", "front_left", b"20 70\n40 71\n80 69\n")
+        _commit(controller, "point-mlp", "predicted", "front_left", b"20 69\n40 70\n80 68\n")
+        workspace.refresh()
+        workspace.set_context("comparison")
+        workspace.register_pair_button.click()
+        workspace.compare_button.click()
+        assert "保存済み" in workspace.comparison_state_label.text()
+
+        snapshot = (
+            workspace.measured_combo.currentIndex(),
+            workspace.predicted_combo.currentIndex(),
+            workspace.compare_low.value(),
+            workspace.compare_high.value(),
+            workspace.comparison_state_label.text(),
+            workspace.comparison_history.rowCount(),
+            workspace.pair_summary_label.text(),
+        )
+        toggles = [
+            button
+            for button in workspace.comparison_details_block.findChildren(QPushButton)
+            if button.isCheckable()
+        ]
+        assert len(toggles) == 1
+        toggles[0].click()
+        app.processEvents()
+        toggles[0].click()
+        app.processEvents()
+        assert snapshot == (
+            workspace.measured_combo.currentIndex(),
+            workspace.predicted_combo.currentIndex(),
+            workspace.compare_low.value(),
+            workspace.compare_high.value(),
+            workspace.comparison_state_label.text(),
+            workspace.comparison_history.rowCount(),
+            workspace.pair_summary_label.text(),
+        )
+    finally:
+        workspace.close()
+        workspace.deleteLater()
+        app.processEvents()
+
+
+def test_comparison_phase_lane_shows_reason_not_silence(tmp_path: Path) -> None:
+    """#970: an unauthorized/absent phase lane states its grounds."""
+    app = _app()
+    controller, workspace = _workspace(tmp_path)
+    try:
+        _commit(controller, "point-mlp", "measured", "front_left", b"20 70\n40 71\n80 69\n")
+        _commit(controller, "point-mlp", "measured", "front_right", b"20 69\n40 70\n80 68\n")
+        workspace.refresh()
+        workspace.set_context("comparison")
+        # REW text carries no phase — the lane stays visible and names the
+        # missing data per side instead of disappearing.
+        assert not workspace.phase_compare_plot.isHidden()
+        state_text = _plot_state_text(workspace.phase_compare_plot)
+        assert "位相は表示できません" in state_text
+        assert "A: 位相データがありません" in state_text
+        assert "B: 位相データがありません" in state_text
+    finally:
+        workspace.close()
+        workspace.deleteLater()
+        app.processEvents()
+
+
+def test_comparison_stale_registration_is_fail_closed(tmp_path: Path) -> None:
+    """#970: a superseded head revision turns the pair gate stale."""
+    app = _app()
+    controller, workspace = _workspace(tmp_path)
+    try:
+        _commit(controller, "point-mlp", "measured", "front_left", b"20 70\n40 71\n80 69\n")
+        _commit(controller, "point-mlp", "predicted", "front_left", b"20 69\n40 70\n80 68\n")
+        workspace.refresh()
+        workspace.set_context("comparison")
+        workspace.register_pair_button.click()
+        assert workspace.compare_button.isEnabled()
+
+        moved = make_f1_scene().model_copy(
+            update={"room": RoomPrism(width_m=6.5, depth_m=4.0, height_m=2.4)}
+        )
+        controller.scene_repository.save(
+            moved,
+            parent_revision_id=controller.latest_revision().revision_id,
+        )
+        workspace.refresh()
+        assert "stale" in workspace.comparison_state_label.text()
+        assert "古い" in workspace.selection_reason_label.text()
+        assert "再登録" in workspace.save_guidance_label.text()
+        assert not workspace.compare_button.isEnabled()
     finally:
         workspace.close()
         workspace.deleteLater()

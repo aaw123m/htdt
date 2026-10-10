@@ -342,7 +342,7 @@ def run_roomsim_position_batch(
             raise RewRoomSimConcurrentChange(
                 'Room Simulator state changed while candidate response was being read'
             )
-    except BaseException as exc:
+    except BaseException as exc:  # error-boundary: transaction capture — any read/apply failure (incl. cancel) is carried verbatim into the combined transaction/restore error below (noqa: BLE001)
         transaction_error = exc
 
     restore_error: BaseException | None = None
@@ -352,7 +352,7 @@ def run_roomsim_position_batch(
             before,
             owned,
         )
-    except BaseException as exc:
+    except BaseException as exc:  # error-boundary: restore capture — any restore failure (incl. cancel) is carried verbatim into the combined transaction/restore error below (noqa: BLE001)
         restore_error = exc
 
     if restore_error is not None:

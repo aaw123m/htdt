@@ -521,7 +521,7 @@ class LibraryMetaStore:
                 os.fsync(handle.fileno())
             os.replace(tmp, self.path)
             self._persisted_signature = self._file_signature()
-        except BaseException:
+        except BaseException:  # error-boundary: cleanup before re-raise — any write failure (incl. cancel/interrupt) removes the temp file so a partial library file never replaces the good one (noqa: BLE001)
             try:
                 os.unlink(tmp)
             except OSError:

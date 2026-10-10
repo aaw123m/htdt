@@ -713,7 +713,7 @@ def execute_mixed_fidelity_prediction_matrix(
             hybrid_providers=hybrid_providers,
             cached_result_sha256=cached,
         )
-    except Exception as exc:
+    except Exception as exc:  # error-boundary: run boundary — any collection failure records a FAILED execution run with the exception identity and re-raises; the run ledger is never silent (noqa: BLE001)
         run = build_matrix_execution_run(
             spec=spec,
             attempt=attempt,

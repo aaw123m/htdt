@@ -779,9 +779,13 @@ def _retention_widget() -> RetentionPolicyWidget:
         capture_revision_id="rev-abcdef1234",
         ingestion_run_count=2,
         latest_recorded_at_utc="2026-09-01T00:00:00Z",
+        linked_evidence_count=1,
+        linked_payload_bytes=2048,
+        assigned_document_ids=(),
     )
     plan = SimpleNamespace(
         status="ready",
+        capture_revision_id="rev-abcdef1234",
         deletable_source_evidence_ids=("e1",),
         deletable_mesh_binding_ids=(),
         deletable_authority_record_ids=(),
@@ -812,6 +816,7 @@ def _retention_widget() -> RetentionPolicyWidget:
 
 def test_capture_purge_confirm_names_revision(qapp, msgboxes):
     widget = _retention_widget()
+    assert widget.select_revision("rev-abcdef1234")
     widget.plan_button.click()
     assert widget.purge_button.isEnabled()
     widget.purge_button.click()

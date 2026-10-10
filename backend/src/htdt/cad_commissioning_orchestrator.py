@@ -1296,7 +1296,7 @@ class CommissioningOrchestrator:
                 )
             if transition.to_stage in TERMINAL_STAGES:
                 declare_operation_finished(run.run_id)
-        except Exception:
+        except Exception:  # error-boundary: best-effort marker — an operation-declare failure is benign bookkeeping; the stage transition itself already committed (noqa: BLE001)
             pass
         return transition
 
@@ -1831,7 +1831,7 @@ class CommissioningOrchestrator:
         if callable(capture):
             try:
                 _canonical, previous_sha = capture(binding)
-            except Exception:
+            except Exception:  # error-boundary: baseline probe — a capture failure degrades to 'no previous sha' honestly, never a forged baseline (noqa: BLE001)
                 previous_sha = None
         try:
             ack: DeviceApplyAck = adapter.apply(

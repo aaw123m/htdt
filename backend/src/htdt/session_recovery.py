@@ -39,6 +39,7 @@ journal/native-schema versions are ``incompatible`` — never restored.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import shutil
@@ -53,6 +54,9 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from .canonical_json import canonical_sha256, canonicalize_payload
 from .clock import utc_now_iso
+from .error_boundary import EXPECTED_OPERATION_ERRORS, is_authority_failure
+
+_LOGGER = logging.getLogger('htdt.session_recovery')
 
 # ---------------------------------------------------------------------------
 # Contract
@@ -291,9 +295,9 @@ def boot_token() -> str | None:
             import psutil  # type: ignore
 
             return f'boot-{psutil.boot_time():.0f}'
-        except Exception:
+        except Exception:  # error-boundary: optional dependency probe — any psutil/probe failure means 'no boot token' (degrades to unknown, never falsifies a boot match) (noqa: BLE001)
             return None
-    except Exception:
+    except Exception:  # error-boundary: platform probe — any OS probe failure means 'no boot token' (degrades to unknown, never falsifies a boot match) (noqa: BLE001)
         return None
 
 
@@ -598,7 +602,7 @@ class SessionJournal:
                 provided = self._state_provider()
                 if isinstance(provided, dict):
                     state = provided
-            except Exception:
+            except Exception:  # error-boundary: provider callback — any provider failure is journaled as provider_error (the failure is recorded, never silent) (noqa: BLE001)
                 state = {'provider_error': True}
         if state:
             self.append('workspace_snapshot', state)
@@ -1239,7 +1243,7 @@ def classify_session_ending(
         pid_alive = _default_pid_alive
     try:
         alive = pid_alive(envelope.pid)
-    except Exception:
+    except Exception:  # error-boundary: environment probe — a pid-liveness failure degrades to 'not alive' so classification falls through to the boot-token checks (never falsifies 'still running') (noqa: BLE001)
         alive = False
     if alive:
         return 'still_running', (
@@ -1515,7 +1519,7 @@ def _draft_items(
         if scene_repository is not None:
             try:
                 snapshot = scene_repository.recovery(document_id)
-            except Exception as exc:
+            except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: per-document integrity probe — expected failures seal as this item's blocked reason; unexpected errors abort the scan
                 availability = 'blocked'
                 reason = f'draft snapshot failed integrity: {exc}'
             else:
@@ -1547,7 +1551,12 @@ def _draft_items(
                 continue
             try:
                 snapshot = scene_repository.recovery(document_id)
-            except Exception:
+            except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: per-document snapshot read — sealed-store failures abort the scan loudly rather than hide a document; expected failures log and skip
+                if is_authority_failure(exc):
+                    raise
+                _LOGGER.warning(
+                    'draft snapshot read failed for %s: %r', document_id, exc
+                )
                 continue
             if snapshot is None:
                 continue
@@ -1675,7 +1684,12 @@ def _authority_resume_items(
         for document_id in documents:
             try:
                 open_run = orchestrator.get_open_run(document_id)
-            except Exception:
+            except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: per-document run probe — sealed-store failures abort the scan loudly; expected failures log and skip
+                if is_authority_failure(exc):
+                    raise
+                _LOGGER.warning(
+                    'open-run probe failed for %s: %r', document_id, exc
+                )
                 continue
             if open_run is None:
                 continue
@@ -1759,7 +1773,12 @@ def _apply_transaction_reconciliations(
                 transactions[transaction.transaction_id] = transaction
             writes.extend(apply_repository.writes.list(doc))
             verifications.extend(apply_repository.verifications.list(doc))
-        except Exception:
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: per-document evidence fold — sealed-store failures abort loudly rather than fold partial evidence; expected failures log and skip
+            if is_authority_failure(exc):
+                raise
+            _LOGGER.warning(
+                'apply evidence fold failed for %s: %r', doc, exc
+            )
             continue
 
     def _derived_verdict(transaction: Any, ref_id: str) -> str | None:
@@ -1787,7 +1806,10 @@ def _apply_transaction_reconciliations(
         )
         try:
             return evaluate_apply_state(plan, plan_writes, verification)
-        except Exception:
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: verdict fold — sealed-evidence failures abort loudly; expected failures log and yield no derived verdict (recorded honestly as absent)
+            if is_authority_failure(exc):
+                raise
+            _LOGGER.warning('apply verdict fold failed: %r', exc)
             return None
 
     def _emit(
@@ -1848,7 +1870,7 @@ def _apply_transaction_reconciliations(
                 outcome = readback(
                     ref_id, {'document_id': doc, **payload}
                 )
-            except Exception:
+            except EXPECTED_OPERATION_ERRORS:  # error-boundary: readback probe — expected failures record 'readback_unavailable' honestly; unexpected errors propagate
                 outcome = None
             if outcome == 'confirmed':
                 resolution = 'machine read-back confirmed the device state'
@@ -1937,7 +1959,10 @@ def _acquisition_reconciliations(
         last_stage = state.acquisition_stages.get(run_id)
         try:
             record = sweep_repository.get_run_by_run_id(run_id)
-        except Exception:
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: run record probe — sealed-store failures abort loudly rather than fabricate 'interrupted'; expected failures log and yield an honest interrupted item
+            if is_authority_failure(exc):
+                raise
+            _LOGGER.warning('sweep run probe failed for %s: %r', run_id, exc)
             record = None
         if record is not None and (
             record.stage in terminal and record.outcome is not None
@@ -2144,7 +2169,14 @@ def inspect_recoverable_sessions(
                     and decision.action in TERMINAL_DECISION_ACTIONS
                     for decision in decisions
                 )
-            except Exception:
+            except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: decisions read — sealed-store failures abort loudly rather than falsify 'unresolved'; expected failures log and degrade
+                if is_authority_failure(exc):
+                    raise
+                _LOGGER.warning(
+                    'recovery decisions read failed for %s: %r',
+                    envelope.session_id,
+                    exc,
+                )
                 decisions = ()
         report = SessionRecoveryReport(
             session_id=envelope.session_id,
@@ -2180,8 +2212,12 @@ def inspect_recoverable_sessions(
                     report,
                     detected_by_session_id=current_session_id,
                 )
-            except Exception:
-                pass
+            except Exception:  # error-boundary: best-effort journal — a failed detection record must not abort the inspection sweep; the failure identity is logged (noqa: BLE001)
+                _LOGGER.warning(
+                    'journal detection record failed for %s',
+                    envelope.session_id,
+                    exc_info=True,
+                )
     return SessionRecoveryInspection(tuple(reports), tuple(rejected))
 
 
@@ -2440,7 +2476,14 @@ def enforce_retention(
                 decided = session_recovery_repository.session_is_resolved(
                     envelope.session_id
                 )
-            except Exception:
+            except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: resolved-state read — sealed-store failures abort loudly rather than falsify 'unresolved' into a retention-delete candidate; expected failures log and degrade to undecided
+                if is_authority_failure(exc):
+                    raise
+                _LOGGER.warning(
+                    'resolved-state read failed for %s: %r',
+                    envelope.session_id,
+                    exc,
+                )
                 decided = False
         if envelope is not None and envelope.closed_clean:
             decided = True
@@ -2467,8 +2510,14 @@ def enforce_retention(
                         f'({max_unresolved})'
                     ),
                 )
-            except Exception:
-                pass
+            except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: retention tombstone — sealed-store failures abort the sweep loudly rather than delete without a recorded decision; expected failures log and the retention bound still applies
+                if is_authority_failure(exc):
+                    raise
+                _LOGGER.warning(
+                    'retention discard decision failed for %s: %r',
+                    session_id,
+                    exc,
+                )
         shutil.rmtree(victim, ignore_errors=True)
         removed.append(str(victim))
         total = len(resolved_dirs) + len(unresolved_dirs)

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QLabel,
+    QLineEdit,
     QPushButton,
     QSizePolicy,
     QTreeWidget,
@@ -18,6 +19,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .modal_transient import exec_transient
 from .cad_repository import SceneRepository
 from .cad_standards import (
     CriterionDefinition,
@@ -35,6 +37,13 @@ from .cad_standards_profiles import builtin_standards_profiles
 from .cad_standards_repository import CadStandardsRepository
 from .cad_system_variant import materialize_system_variant
 from .cad_system_variant_repository import CadSystemVariantRepository
+from .dynamic_a11y import (
+    DynamicAnnouncer,
+    capture_focus,
+    disabled_hint,
+    reason_label,
+    restore_focus,
+)
 from .ui_theme import (
     ControlSize,
     SemanticState,
@@ -72,6 +81,56 @@ _REASON_JA = {
     "comparison_pass": "基準を満たしています",
     "comparison_fail": "基準を満たしていません",
 }
+
+# #972: search/status/domain narrowing over the evaluated criterion list.
+STATUS_FILTER_ALL = "all"
+STATUS_FILTER_UNEVALUATED = "unevaluated"
+STATUS_FILTER_SELECTED = "selected"
+STATUS_FILTER_ITEMS: tuple[tuple[str, str], ...] = (
+    ("全て", STATUS_FILTER_ALL),
+    ("適合のみ", "PASS"),
+    ("不適合のみ", "FAIL"),
+    ("判定材料不足のみ", "UNKNOWN"),
+    ("対象外のみ", "NOT_APPLICABLE"),
+    ("未評価のみ", STATUS_FILTER_UNEVALUATED),
+    ("制約に選択済み", STATUS_FILTER_SELECTED),
+)
+_STATUS_FILTER_LABELS = {key: label for label, key in STATUS_FILTER_ITEMS}
+
+DOMAIN_FILTER_ALL = "all"
+_DOMAIN_JA = {
+    "room": "部屋",
+    "seat": "座席",
+    "speaker_layout": "スピーカー配置",
+    "wide_speaker": "ワイドスピーカー",
+    "auro_lower_speaker": "Auro 下層スピーカー",
+    "auro_height_speaker": "Auro 高層スピーカー",
+    "auro_top_speaker": "Auro トップスピーカー",
+}
+
+
+def _domain_label(domain: str) -> str:
+    # Unknown domains render as their raw identifier — never invent a
+    # translation for a domain the codebase does not name yet.
+    return _DOMAIN_JA.get(domain, domain)
+
+
+def _criterion_search_haystack(criterion: CriterionDefinition) -> str:
+    source = criterion.source
+    return " ".join(
+        part
+        for part in (
+            criterion.name,
+            criterion.criterion_id,
+            criterion.quantity,
+            source.publisher,
+            source.document_title,
+            source.reference,
+            " ".join(criterion.applicable_domains),
+            " ".join(_domain_label(domain) for domain in criterion.applicable_domains),
+        )
+        if part
+    ).casefold()
 
 
 def _profile_key(profile: StandardsProfile) -> str:
@@ -354,6 +413,8 @@ class StandardsCriterionPanel(QFrame):
         self.model = StandardsWorkspaceModel(scene_repository, document_id)
         self._evaluation: StandardsEvaluation | None = None
         self._selected_constraints: set[str] = set()
+        self._result_counts: tuple[int, int] = (0, 0)
+        self._announcer = DynamicAnnouncer(self)
         set_surface_role(self, SurfaceRole.RAISED)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(12, 12, 12, 12)
@@ -401,12 +462,18 @@ class StandardsCriterionPanel(QFrame):
         layout.addWidget(self.profile_meta)
 
         self.evaluate_button = QPushButton("この基準で評価")
+        self.evaluate_button.setObjectName('standards-evaluate')
         self.evaluate_button.setToolTip(
             "選択した対象をこの基準で評価し、各項目の適合状態を更新します。"
         )
         set_control_size(self.evaluate_button, ControlSize.STANDARD)
         self.evaluate_button.clicked.connect(self.evaluate_selected)
         layout.addWidget(self.evaluate_button)
+        # #975: a disabled evaluate button leaves the Tab order — the
+        # reason + resolution path live in this focusable label.
+        self.evaluate_hint = reason_label('', self)
+        self.evaluate_hint.setVisible(False)
+        layout.addWidget(self.evaluate_hint)
 
         self.editor_button = QPushButton("プロファイルを編集 / 複製…")
         set_control_size(self.editor_button, ControlSize.COMPACT)
@@ -424,6 +491,74 @@ class StandardsCriterionPanel(QFrame):
         set_typography_role(constraint_note, TypographyRole.SECONDARY)
         layout.addWidget(constraint_note)
 
+        # #972: search + status/domain narrowing — compact rows like the
+        # #986 project picker so the narrow dock's minimum width stays
+        # under its ~280px budget. The reset control sits left of the
+        # result line (never at a row's clipped right edge) and the
+        # label wraps, so the フィルタ外の制約選択 tail can never hide.
+        search_row = QHBoxLayout()
+        search_row.setSpacing(4)
+        self.search_edit = QLineEdit(self)
+        self.search_edit.setObjectName("standardsSearch")
+        self.search_edit.setPlaceholderText("基準名・ID・出典・領域で検索…")
+        self.search_edit.setAccessibleName("基準を検索")
+        self.search_edit.setClearButtonEnabled(True)
+        self.search_edit.setToolTip(
+            "基準名・基準ID・出典・適用領域の部分一致で一覧を絞り込みます"
+        )
+        self.search_edit.textChanged.connect(self._refilter)
+        search_row.addWidget(self.search_edit, 1)
+        layout.addLayout(search_row)
+
+        filter_row = QHBoxLayout()
+        filter_row.setSpacing(4)
+        self.status_filter_combo = QComboBox(self)
+        self.status_filter_combo.setObjectName("standardsStatusFilter")
+        for label, key in STATUS_FILTER_ITEMS:
+            self.status_filter_combo.addItem(label, key)
+        self.status_filter_combo.setAccessibleName("状態フィルタ")
+        self.status_filter_combo.setToolTip(
+            "評価状態または制約への選択で絞り込みます"
+        )
+        self.status_filter_combo.setMinimumContentsLength(6)
+        self.status_filter_combo.setSizeAdjustPolicy(
+            QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+        )
+        self.status_filter_combo.currentIndexChanged.connect(self._refilter)
+        filter_row.addWidget(self.status_filter_combo, 1)
+        self.domain_filter_combo = QComboBox(self)
+        self.domain_filter_combo.setObjectName("standardsDomainFilter")
+        self.domain_filter_combo.setAccessibleName("領域フィルタ")
+        self.domain_filter_combo.setToolTip(
+            "基準が適用される領域（部屋・座席・スピーカー配置など）で絞り込みます"
+        )
+        self.domain_filter_combo.setMinimumContentsLength(6)
+        self.domain_filter_combo.setSizeAdjustPolicy(
+            QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+        )
+        self.domain_filter_combo.currentIndexChanged.connect(self._refilter)
+        filter_row.addWidget(self.domain_filter_combo, 1)
+        layout.addLayout(filter_row)
+
+        result_row = QHBoxLayout()
+        result_row.setSpacing(4)
+        self.reset_filter_button = QPushButton("リセット", self)
+        self.reset_filter_button.setObjectName("standardsFilterReset")
+        self.reset_filter_button.setAccessibleName("絞り込み条件をリセット")
+        self.reset_filter_button.setToolTip(
+            "検索とフィルタを解除して全項目を表示します"
+        )
+        set_control_size(self.reset_filter_button, ControlSize.COMPACT)
+        self.reset_filter_button.clicked.connect(self.reset_filters)
+        result_row.addWidget(self.reset_filter_button)
+        self.result_label = QLabel()
+        self.result_label.setObjectName("standardsResultStatus")
+        self.result_label.setAccessibleName("基準の表示状況")
+        self.result_label.setWordWrap(True)
+        set_typography_role(self.result_label, TypographyRole.SECONDARY)
+        result_row.addWidget(self.result_label, 1)
+        layout.addLayout(result_row)
+
         self.tree = QTreeWidget()
         self.tree.setMinimumWidth(0)
         self.tree.setSizePolicy(
@@ -431,8 +566,10 @@ class StandardsCriterionPanel(QFrame):
             QSizePolicy.Policy.Expanding,
         )
         self.tree.setObjectName("standardsCriterionTree")
+        # #972: original five columns keep their indices — the domain and
+        # source columns are appended at the tail only.
         self.tree.setHeaderLabels(
-            ["配置制約 / 基準", "状態", "観測値", "必要条件", "証拠"]
+            ["配置制約 / 基準", "状態", "観測値", "必要条件", "証拠", "領域", "出典"]
         )
         self.tree.setToolTip(
             "配置基準の項目一覧です。チェックした項目は候補生成時のハード制約になります。"
@@ -444,6 +581,8 @@ class StandardsCriterionPanel(QFrame):
             2: '対象について実際に観測・計算された値',
             3: '基準が要求する値・範囲',
             4: '判定の根拠となる証拠',
+            5: '基準が適用される領域',
+            6: '基準の出典（発行元・参照箇所）',
         }.items():
             _std_header.setToolTip(_c, _t)
         header = self.tree.header()
@@ -496,7 +635,7 @@ class StandardsCriterionPanel(QFrame):
 
         service = StandardsProfileLibraryService(self.model.repository)
         dialog = StandardsProfileEditorDialog(service, parent=self)
-        dialog.exec()
+        exec_transient(dialog)
         self.refresh_profiles()
 
     def refresh_targets(self) -> None:
@@ -555,11 +694,47 @@ class StandardsCriterionPanel(QFrame):
         self.refresh()
         self.evaluationChanged.emit(self._evaluation)
 
+    def _sync_evaluate_enabled(self) -> None:
+        """#975: gate 'この基準で評価' honestly — disabled with the
+        reason AND the resolution path shown on this screen; never
+        enabled just so the surface looks complete."""
+        reason = None
+        if self.selected_profile() is None:
+            reason = disabled_hint(
+                'standards.evaluate',
+                '評価を実行できません: 利用できる基準プロファイルがありません',
+                '「プロファイルを編集 / 複製…」からプロファイルを'
+                '作成してください',
+            )
+        elif self.target_combo.count() == 0:
+            reason = disabled_hint(
+                'standards.evaluate',
+                '評価を実行できません: 評価対象がまだ登録されていません',
+                '部屋または候補が登録されると評価できます',
+            )
+        self.evaluate_button.setEnabled(reason is None)
+        self.evaluate_hint.setText(reason or '')
+        self.evaluate_hint.setVisible(reason is not None)
+        if reason is not None:
+            self.evaluate_button.setToolTip(reason)
+        else:
+            self.evaluate_button.setToolTip(
+                "選択した対象をこの基準で評価し、各項目の適合状態を更新します。"
+            )
+
     def refresh(self, *_args) -> None:
         profile = self.selected_profile()
+        self._sync_evaluate_enabled()
+        self._sync_domain_filter(profile)
         if profile is None:
             self.tree.clear()
             self.profile_meta.setText("利用できる基準プロファイルがありません")
+            self._evaluation = None
+            self._update_result_status(None)
+            self._refresh_gate()
+            self._announcer.announce_state(
+                'evaluation', None, 'operation_completed', ''
+            )
             return
         domains = sorted(
             {domain for item in profile.criteria for domain in item.applicable_domains}
@@ -574,43 +749,244 @@ class StandardsCriterionPanel(QFrame):
         )
         self._render_results(profile)
         self._refresh_gate()
+        # #975: a new/updated evaluation is announced once per
+        # evaluation_id — re-render of unchanged state stays silent.
+        evaluation = self._evaluation
+        if evaluation is None:
+            self._announcer.announce_state(
+                'evaluation', None, 'operation_completed', ''
+            )
+        else:
+            counts = {'PASS': 0, 'FAIL': 0, 'UNKNOWN': 0}
+            for item in evaluation.results:
+                counts[item.status] = counts.get(item.status, 0) + 1
+            self._announcer.announce_state(
+                'evaluation',
+                evaluation.evaluation_id,
+                'operation_completed',
+                '基準評価を更新しました — '
+                f"適合 {counts['PASS']} / 不適合 {counts['FAIL']} / "
+                f"判定材料不足 {counts['UNKNOWN']} 件",
+            )
 
-    def _render_results(self, profile: StandardsProfile) -> None:
+    def _filters(self) -> tuple[str, str, str]:
+        return (
+            self.search_edit.text().strip().casefold(),
+            str(self.status_filter_combo.currentData() or STATUS_FILTER_ALL),
+            str(self.domain_filter_combo.currentData() or DOMAIN_FILTER_ALL),
+        )
+
+    def _filter_active(self) -> bool:
+        needle, status_key, domain_key = self._filters()
+        return (
+            bool(needle)
+            or status_key != STATUS_FILTER_ALL
+            or domain_key != DOMAIN_FILTER_ALL
+        )
+
+    def _sync_domain_filter(self, profile: StandardsProfile | None) -> None:
+        """Repopulate the domain combo from the profile's own domains;
+        keep the current pick when it still exists under the new set."""
+        current = self.domain_filter_combo.currentData()
+        self.domain_filter_combo.blockSignals(True)
+        self.domain_filter_combo.clear()
+        self.domain_filter_combo.addItem("全て", DOMAIN_FILTER_ALL)
+        if profile is not None:
+            for domain in sorted(
+                {
+                    domain
+                    for criterion in profile.criteria
+                    for domain in criterion.applicable_domains
+                }
+            ):
+                self.domain_filter_combo.addItem(_domain_label(domain), domain)
+        index = self.domain_filter_combo.findData(current)
+        self.domain_filter_combo.setCurrentIndex(index if index >= 0 else 0)
+        self.domain_filter_combo.blockSignals(False)
+
+    def reset_filters(self) -> None:
+        """Clear search text and restore both filters to 全て."""
+        for widget in (
+            self.search_edit,
+            self.status_filter_combo,
+            self.domain_filter_combo,
+        ):
+            widget.blockSignals(True)
+        self.search_edit.clear()
+        self.status_filter_combo.setCurrentIndex(0)
+        self.domain_filter_combo.setCurrentIndex(0)
+        for widget in (
+            self.search_edit,
+            self.status_filter_combo,
+            self.domain_filter_combo,
+        ):
+            widget.blockSignals(False)
+        self._refilter()
+
+    def _refilter(self, *_args) -> None:
+        self._render_results(self.selected_profile())
+
+    def _matches(
+        self,
+        criterion: CriterionDefinition,
+        result: CriterionEvaluationResult | None,
+        *,
+        needle: str,
+        status_key: str,
+        domain_key: str,
+    ) -> bool:
+        if status_key == STATUS_FILTER_SELECTED:
+            if criterion.criterion_id not in self._selected_constraints:
+                return False
+        elif status_key == STATUS_FILTER_UNEVALUATED:
+            if result is not None:
+                return False
+        elif status_key != STATUS_FILTER_ALL and (
+            result is None or result.status != status_key
+        ):
+            return False
+        if (
+            domain_key != DOMAIN_FILTER_ALL
+            and domain_key not in criterion.applicable_domains
+        ):
+            return False
+        if needle and needle not in _criterion_search_haystack(criterion):
+            return False
+        return True
+
+    def _update_result_status(self, profile: StandardsProfile | None) -> None:
+        """Result-count line: totals, opt-in count, shown/total under a
+        filter, and — so constraints can never silently hide — how many
+        selected constraints are filtered out of view."""
+        self.reset_filter_button.setEnabled(self._filter_active())
+        if profile is None:
+            self.result_label.setText("")
+            return
+        total = len(profile.criteria)
+        if total == 0:
+            self.result_label.setText(
+                "基準 0 件 — このプロファイルに基準項目がありません"
+            )
+            return
+        shown, hidden_selected = self._result_counts
+        # The hidden-selection warning leads the line: the dock can h-scroll
+        # and clip a label's tail, so the must-not-miss count sits in the
+        # always-visible head position.
+        parts = []
+        if hidden_selected:
+            parts.append(f"フィルタ外の制約選択 {hidden_selected} 件")
+        parts.append(f"基準 {total} 件")
+        parts.append(f"制約選択 {len(self._selected_constraints)} 件")
+        if self._filter_active():
+            parts.append(f"表示 {shown}/{total}")
+        self.result_label.setText(" · ".join(parts))
+
+    def _active_filter_description(self) -> str:
+        needle, status_key, domain_key = self._filters()
+        parts = []
+        if needle:
+            parts.append(f"検索「{self.search_edit.text().strip()}」")
+        if status_key != STATUS_FILTER_ALL:
+            parts.append(
+                f"状態「{_STATUS_FILTER_LABELS.get(status_key, status_key)}」"
+            )
+        if domain_key != DOMAIN_FILTER_ALL:
+            parts.append(f"領域「{_domain_label(domain_key)}」")
+        return "絞り込み条件: " + " + ".join(parts)
+
+    def _render_results(self, profile: StandardsProfile | None) -> None:
         results = (
             {}
             if self._evaluation is None
             else {item.criterion_id: item for item in self._evaluation.results}
         )
+        needle, status_key, domain_key = self._filters()
+        # #975: the tree is rebuilt from scratch — capture the
+        # criterion_id under the keyboard anchor first, then re-point
+        # it at the rebuilt item (or keep focus on the tree when the
+        # criterion vanished).
+        token = capture_focus(self)
         self.tree.blockSignals(True)
         self.tree.clear()
-        for criterion in profile.criteria:
-            result = results.get(criterion.criterion_id)
-            item = QTreeWidgetItem()
-            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
-            item.setCheckState(
-                0,
-                Qt.CheckState.Checked
-                if criterion.criterion_id in self._selected_constraints
-                else Qt.CheckState.Unchecked,
-            )
-            item.setText(0, criterion.name)
-            item.setData(0, Qt.ItemDataRole.UserRole, criterion.criterion_id)
-            if result is None:
-                item.setText(1, "未評価")
-                item.setText(2, "—")
-                item.setText(3, _rule_text(criterion))
-                item.setText(4, "評価を実行してください")
-            else:
-                item.setText(1, _STATUS_JA[result.status])
-                item.setText(2, _observed_text(result))
-                item.setText(3, _rule_text(criterion))
-                item.setText(
-                    4,
-                    f"{_EVIDENCE_JA[result.evidence_basis]} · {_reason_text(result)}",
+        shown = 0
+        hidden_selected = 0
+        if profile is not None:
+            for criterion in profile.criteria:
+                result = results.get(criterion.criterion_id)
+                if not self._matches(
+                    criterion,
+                    result,
+                    needle=needle,
+                    status_key=status_key,
+                    domain_key=domain_key,
+                ):
+                    if criterion.criterion_id in self._selected_constraints:
+                        hidden_selected += 1
+                    continue
+                shown += 1
+                item = QTreeWidgetItem()
+                item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+                item.setCheckState(
+                    0,
+                    Qt.CheckState.Checked
+                    if criterion.criterion_id in self._selected_constraints
+                    else Qt.CheckState.Unchecked,
                 )
-                item.setData(1, Qt.ItemDataRole.UserRole, result.status)
-            self.tree.addTopLevelItem(item)
+                item.setText(0, criterion.name)
+                item.setData(0, Qt.ItemDataRole.UserRole, criterion.criterion_id)
+                if result is None:
+                    item.setText(1, "未評価")
+                    item.setText(2, "—")
+                    item.setText(3, _rule_text(criterion))
+                    item.setText(4, "評価を実行してください")
+                else:
+                    item.setText(1, _STATUS_JA[result.status])
+                    item.setText(2, _observed_text(result))
+                    item.setText(3, _rule_text(criterion))
+                    item.setText(
+                        4,
+                        f"{_EVIDENCE_JA[result.evidence_basis]} · {_reason_text(result)}",
+                    )
+                    item.setData(1, Qt.ItemDataRole.UserRole, result.status)
+                item.setText(
+                    5,
+                    "、".join(
+                        _domain_label(domain)
+                        for domain in criterion.applicable_domains
+                    ),
+                )
+                item.setText(
+                    6,
+                    f"{criterion.source.publisher} · {criterion.source.reference}",
+                )
+                self.tree.addTopLevelItem(item)
+            if shown == 0:
+                if profile.criteria:
+                    zero_item = QTreeWidgetItem(
+                        ["条件に一致する基準はありません"]
+                    )
+                    zero_item.setFlags(Qt.ItemFlag.ItemIsEnabled)
+                    zero_item.setToolTip(
+                        0,
+                        self._active_filter_description()
+                        + " — リセットで全表示に戻せます",
+                    )
+                else:
+                    zero_item = QTreeWidgetItem(
+                        ["このプロファイルに基準項目がありません"]
+                    )
+                    zero_item.setFlags(Qt.ItemFlag.ItemIsEnabled)
+                self.tree.addTopLevelItem(zero_item)
+                # Span the message across all columns — at dock width a
+                # column-0-only message collapses to a few pixels. This
+                # MUST run after addTopLevelItem: spanning applies through
+                # the item's view index, which does not exist before the
+                # item is in the tree (a pre-insert call is a silent no-op).
+                zero_item.setFirstColumnSpanned(True)
         self.tree.blockSignals(False)
+        restore_focus(self, token, fallback=self.evaluate_button)
+        self._result_counts = (shown, hidden_selected)
+        self._update_result_status(profile)
 
     def _constraint_changed(self, item: QTreeWidgetItem, column: int) -> None:
         if column != 0:
@@ -622,29 +998,58 @@ class StandardsCriterionPanel(QFrame):
             self._selected_constraints.add(str(criterion_id))
         else:
             self._selected_constraints.discard(str(criterion_id))
+        _, status_key, _ = self._filters()
+        if status_key == STATUS_FILTER_SELECTED:
+            # Row membership itself changed — rebuild after the
+            # itemChanged emit finishes so an unchecked row leaves the
+            # 制約に選択済み view (deleting the item mid-signal is not
+            # safe).
+            QTimer.singleShot(0, self._refilter)
+        else:
+            self._update_result_status(self.selected_profile())
         self._refresh_gate()
 
     def _refresh_gate(self) -> None:
         if self._evaluation is None:
             self.gate_label.setText("配置制約: 評価後に判定します")
             set_semantic_state(self.gate_label, None)
+            self._announcer.announce_state(
+                'gate', None, 'operation_completed', ''
+            )
             return
         gate = self.model.hard_constraint_gate(
             self._evaluation,
             self.selected_criterion_ids,
         )
+        # #975: block/unblock transitions are announced once per state —
+        # the resolution path is in the same label for keyboard users.
         if gate.allowed:
             self.gate_label.setText(
                 "配置制約: 許可 · 未選択の不適合は証拠表示のみです"
             )
             set_semantic_state(self.gate_label, SemanticState.SUCCESS)
+            self._announcer.announce_state(
+                'gate',
+                'allowed',
+                'operation_unblocked',
+                '配置制約のブロックは解除されています',
+            )
         else:
+            blocked_ids = ', '.join(gate.blocking_criterion_ids)
             self.gate_label.setText(
                 "配置制約: ブロック · "
-                + ", ".join(gate.blocking_criterion_ids)
-                + " · 判定材料不足も選択時は安全側にブロックします"
+                + blocked_ids
+                + " · 判定材料不足も選択時は安全側にブロックします。"
+                + "解消: 該当項目のチェックを外すか、対象を修正して"
+                + "再評価してください"
             )
             set_semantic_state(self.gate_label, SemanticState.WARNING)
+            self._announcer.announce_state(
+                'gate',
+                f'blocked:{blocked_ids}',
+                'operation_blocked',
+                f'配置制約でブロックされています: {blocked_ids}',
+            )
 
     def advanced_text(self) -> str:
         profile = self.selected_profile()
@@ -720,7 +1125,7 @@ class StandardsCriterionPanel(QFrame):
         close = QPushButton("閉じる")
         close.clicked.connect(dialog.accept)
         layout.addWidget(close)
-        dialog.exec()
+        exec_transient(dialog)
 
 
 class StandardsVariantComparisonPanel(QFrame):
@@ -795,7 +1200,7 @@ class StandardsVariantComparisonPanel(QFrame):
 
         service = StandardsProfileLibraryService(self.model.repository)
         dialog = StandardsProfileEditorDialog(service, parent=self)
-        dialog.exec()
+        exec_transient(dialog)
         self._load_profiles()
 
     def _load_profiles(self) -> None:

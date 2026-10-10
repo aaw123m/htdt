@@ -678,8 +678,20 @@ def test_choose_project_accepts_on_item_activation(
     monkeypatch.setattr(QDialog, "exec", _exec_activating_first_row)
 
     entries = (
-        SimpleNamespace(project_id="p-1", display_name="リビング"),
-        SimpleNamespace(project_id="p-2", display_name="シアター"),
+        SimpleNamespace(
+            project_id="p-1",
+            display_name="リビング",
+            created_at_utc="2026-01-01T00:00:00Z",
+            last_opened_at_utc="2026-01-02T00:00:00Z",
+            archived=False,
+        ),
+        SimpleNamespace(
+            project_id="p-2",
+            display_name="シアター",
+            created_at_utc="2026-01-01T00:00:00Z",
+            last_opened_at_utc=None,
+            archived=False,
+        ),
     )
     picked = composition._choose_project(entries, "開く", "対象:")
     assert picked is entries[0]

@@ -67,7 +67,6 @@ from htdt.cad_hybrid_numerical_composition import (
     R130_ANALYSIS_FOURIER_KERNEL,
     R130_PHASOR_CONVENTION,
     R130_PRESSURE_REFERENCE,
-    CadNumericalHybridResponseRepository,
     aggregate_r150_complex_paths,
     build_hybrid_convention_normalization_authority,
     build_numerical_hybrid_composition_spec,
@@ -85,6 +84,7 @@ from htdt.cad_wave_excitation import (
 )
 from htdt.r120_geometry_compiler import ExactExternalAuthorityRef
 from scripts.run_r130a_candidate_wave_execution import _fixture as r130_fixture
+from htdt.acoustics.persistence.cad_numerical_hybrid_response_repository import CadNumericalHybridResponseRepository
 
 
 def _canonical(value: object) -> str:

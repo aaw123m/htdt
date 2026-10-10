@@ -53,6 +53,11 @@ from .field_tooltips import apply_field_tooltip
 from .overview_readiness import OverviewReadinessService
 from .ui_theme import TypographyRole, set_typography_role
 from .workflow_navigation import WorkspaceDeepLink, WorkspaceId
+from .error_boundary import (
+    EXPECTED_OPERATION_ERRORS,
+    is_authority_failure,
+    report_boundary_failure,
+)
 
 
 _STAGE_ORDER: tuple[CommissioningStage, ...] = (
@@ -276,7 +281,10 @@ class CommissioningWizard(QDialog):
             return tuple(
                 row[0] for row in rows if row[0] != self.current_document_id
             )
-        except Exception:
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: sealed read — expected failures report and degrade to no documents; sealed-store failures propagate
+            if is_authority_failure(exc):
+                raise
+            report_boundary_failure(exc, operation='他ドキュメントの読み取り')
             return ()
 
     def _show_page(self, index: int) -> None:

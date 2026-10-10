@@ -17,7 +17,7 @@ from ..domain.cad_measurement_quality import (
     gate_measurement_claim,
     measurement_sha256,
 )
-from .cad_measurement_effective import (
+from ..persistence.cad_measurement_effective import (
     CadEffectiveMeasurementResolver,
     EffectiveMeasurementEvidence,
 )

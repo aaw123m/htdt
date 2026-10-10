@@ -10,6 +10,7 @@ explicit, and defer leaves the evidence untouched for the next launch.
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
+from .modal_transient import exec_transient
 
 if TYPE_CHECKING:
     from .session_recovery import (
@@ -162,7 +163,7 @@ def offer_session_recovery(
             'あとで決める', QMessageBox.ButtonRole.RejectRole
         )
         box.setDefaultButton(restore_button)
-        box.exec()
+        exec_transient(box)
         clicked = box.clickedButton()
         try:
             if clicked is restore_button:
@@ -217,7 +218,7 @@ def offer_session_recovery(
                     restoring_session_id=restoring_session_id,
                     reason='operator deferred recovery',
                 )
-        except Exception:
+        except Exception:  # error-boundary: decision journal — a decision-record failure logs the exception verbatim and the dialog still returns its honest outcome (noqa: BLE001)
             if logger is not None:
                 logger.exception(
                     'session recovery decision failed: %s',
@@ -244,7 +245,7 @@ def offer_session_recovery(
             QMessageBox.ButtonRole.DestructiveRole,
         )
         box.addButton('残す', QMessageBox.ButtonRole.RejectRole)
-        box.exec()
+        exec_transient(box)
         if box.clickedButton() is discard_button:
             for item in rejected:
                 try:
@@ -255,7 +256,7 @@ def offer_session_recovery(
                         reason='operator deleted rejected evidence',
                         delete_journal=True,
                     )
-                except Exception:
+                except Exception:  # error-boundary: evidence cleanup — a removal failure logs the exception verbatim and the remaining items still process (noqa: BLE001)
                     if logger is not None:
                         logger.exception(
                             'rejected-evidence removal failed: %s',

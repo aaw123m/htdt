@@ -27,7 +27,7 @@ Non-goals / fail-closed rules:
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol
 
 from .cad_design_brief import (
     BriefGoalRef,
@@ -37,11 +37,40 @@ from .cad_design_brief import (
 
 if TYPE_CHECKING:
     from .cad_design_brief_repository import CadDesignBriefRepository
-    from .cad_project_template import (
-        ProjectTemplate,
-        ProjectTemplateInstantiation,
-    )
     from .commissioning_plan import CommissioningIntent, CommissioningPlan
+
+
+
+class _TemplateDesignBriefLike(Protocol):
+    project_kind: str
+    display_intent: str
+    audio_only: bool
+    notes: str | None
+
+
+class _TemplateAuthorityRefLike(Protocol):
+    kind: str
+    ref_id: str
+    version: str | None
+
+
+class _UnresolvedRefLike(Protocol):
+    kind: str
+    ref_id: str
+
+
+class _ProjectTemplateLike(Protocol):
+    design_brief: _TemplateDesignBriefLike
+    target_refs: tuple[_TemplateAuthorityRefLike, ...]
+    name: str
+    template_id: str
+    version: str
+    template_sha256: str
+
+
+class _InstantiationLike(Protocol):
+    unresolved_refs: tuple[_UnresolvedRefLike, ...]
+    instantiation_id: str
 
 
 def _utcnow() -> str:
@@ -166,11 +195,15 @@ def materialize_commissioning_brief(
     return brief
 
 
+    brief_repository.save_brief(brief)
+    return brief
+
+
 def brief_from_template_brief(
-    template: 'ProjectTemplate',
+    template: '_ProjectTemplateLike',
     *,
     document_id: str,
-    instantiation: 'ProjectTemplateInstantiation',
+    instantiation: '_InstantiationLike',
     created_at_utc: str | None = None,
 ) -> ProjectDesignBrief:
     """Materialize a template's design brief into a project-bound brief.
@@ -228,11 +261,11 @@ def brief_from_template_brief(
 
 
 def materialize_template_brief(
-    brief_repository: 'CadDesignBriefRepository',
-    template: 'ProjectTemplate',
+    brief_repository,
+    template: '_ProjectTemplateLike',
     *,
     document_id: str,
-    instantiation: 'ProjectTemplateInstantiation',
+    instantiation: '_InstantiationLike',
     created_at_utc: str | None = None,
 ) -> ProjectDesignBrief | None:
     """Persist a fresh project-bound brief seeded from template defaults.

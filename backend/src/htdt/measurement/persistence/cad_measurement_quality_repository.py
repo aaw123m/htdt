@@ -13,8 +13,8 @@ from ...cad_ambient_noise import (
     CadAmbientNoiseRepository,
     check_ambient_measurement_compatibility,
 )
+from ...cad_authority_registry import AuthorityRef
 from ...cad_authority_resolver import (
-    AuthorityRef,
     ExactAuthorityResolver,
     KindResolver,
     ResolvedAuthority,
@@ -1179,7 +1179,7 @@ class CadMeasurementQualityRepository:
                         bound=bound,
                         asset_rows=asset_rows,
                     )
-                except Exception as exc:
+                except Exception as exc:  # error-boundary: row read — a row-decode failure lands in errors verbatim; one poisoned row never loses the healthy reports (noqa: BLE001)
                     errors[measurement_id] = exc
                     break
             latest[measurement_id] = reports[-1]

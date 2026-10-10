@@ -185,6 +185,9 @@ def test_glossary_link_opens_the_bound_help_topic(monkeypatch) -> None:
             def exec(self) -> int:
                 return 0
 
+            def deleteLater(self) -> None:
+                pass
+
         return _FakeDialog()
 
     monkeypatch.setattr(HelpDialog, 'topic', staticmethod(_fake_topic))

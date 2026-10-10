@@ -22,7 +22,7 @@ import logging
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from .export_io import write_text_atomic
 from .workflow_navigation import normalize_destination_id
@@ -33,6 +33,66 @@ _LOGGER = logging.getLogger(__name__)
 WINDOW_STATE_NAME = 'window-state.json'
 WINDOW_STATE_DIR = 'window-state'
 WINDOW_STATE_SCHEMA = 1
+
+#: Caps that keep a view-state record bounded (#973): these are
+#: convenience UI values, so a hostile or bloated file is truncated rather
+#: than honoured verbatim.
+VIEW_STATE_MAX_ENTRIES = 64
+VIEW_STATE_MAX_KEY = 160
+_VIEW_STATE_MAX_FILTERS = 32
+_VIEW_STATE_MAX_TEXT = 256
+
+
+def view_state_key(workspace: str, context: str | None = None) -> str:
+    """Stable map key for a (workspace, context) view-state record."""
+
+    return f'{workspace}:{context}' if context else workspace
+
+
+class WorkspaceViewState(BaseModel):
+    """UX-convenience view state for one (workspace, context) pair (#973).
+
+    Scroll offset, primary selection id, enabled filters, expanded panels
+    and splitter ratio — all non-secret, bounded, project-local UI values.
+    Never authority: restoring a record re-shows where the user *was*;
+    it never promotes stale results to current/accepted, and a missing
+    selection resolves to a deselected parent focus instead of guessing
+    the nearest row.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    scroll_offset: int | None = Field(default=None, ge=0, le=10_000_000)
+    selected_entity: str | None = Field(default=None, max_length=_VIEW_STATE_MAX_TEXT)
+    filters: dict[str, str] = Field(default_factory=dict)
+    expanded_panels: tuple[str, ...] = ()
+    splitter_ratio: float | None = Field(default=None, ge=0.0, le=1.0)
+
+    @field_validator('filters', mode='before')
+    @classmethod
+    def _bounded_filters(cls, value):
+        if not isinstance(value, dict):
+            return {}
+        bounded: dict[str, str] = {}
+        for key, item in value.items():
+            if len(bounded) >= _VIEW_STATE_MAX_FILTERS:
+                break
+            if not isinstance(item, (str, int, float, bool)) or item is None:
+                continue
+            bounded[str(key)[:_VIEW_STATE_MAX_TEXT]] = str(item)[
+                :_VIEW_STATE_MAX_TEXT
+            ]
+        return bounded
+
+    @field_validator('expanded_panels', mode='before')
+    @classmethod
+    def _bounded_panels(cls, value):
+        if not isinstance(value, (list, tuple)):
+            return ()
+        return tuple(
+            str(item)[:_VIEW_STATE_MAX_TEXT]
+            for item in value[:_VIEW_STATE_MAX_FILTERS]
+        )
 
 
 class PersistedWindowState(BaseModel):
@@ -50,6 +110,30 @@ class PersistedWindowState(BaseModel):
     #: global records. Self-describing so recovery tooling can verify the
     #: file was replayed into the project it belongs to.
     project_ref: str | None = None
+    #: Per-(workspace, context) view states keyed by :func:`view_state_key`
+    #: (#973). Each entry is validated independently so one corrupt record
+    #: drops out instead of sinking the whole file.
+    view_states: dict[str, WorkspaceViewState] = Field(default_factory=dict)
+
+    @field_validator('view_states', mode='before')
+    @classmethod
+    def _bounded_view_states(cls, value):
+        if not isinstance(value, dict):
+            return {}
+        bounded: dict[str, WorkspaceViewState] = {}
+        for key, raw in value.items():
+            if len(bounded) >= VIEW_STATE_MAX_ENTRIES:
+                break
+            try:
+                entry = (
+                    raw
+                    if isinstance(raw, WorkspaceViewState)
+                    else WorkspaceViewState.model_validate(raw)
+                )
+            except (TypeError, ValueError):
+                continue
+            bounded[str(key)[:VIEW_STATE_MAX_KEY]] = entry
+        return bounded
 
 
 def window_state_path(data_dir: Path, project_ref: str | None = None) -> Path:
@@ -119,6 +203,13 @@ def _pruned_state(state: PersistedWindowState) -> PersistedWindowState:
     }
     if contexts != state.contexts:
         state = state.model_copy(update={'contexts': contexts})
+    view_states = {
+        key: entry
+        for key, entry in state.view_states.items()
+        if _known_destination(key.split(':', 1)[0])
+    }
+    if view_states.keys() != state.view_states.keys():
+        state = state.model_copy(update={'view_states': view_states})
     return state
 
 
@@ -155,9 +246,11 @@ def save_window_state(
 
 __all__ = [
     'PersistedWindowState',
+    'WorkspaceViewState',
     'WINDOW_STATE_DIR',
     'WINDOW_STATE_NAME',
     'load_window_state',
     'save_window_state',
+    'view_state_key',
     'window_state_path',
 ]

@@ -1064,7 +1064,7 @@ def run_queue_software(
                     note=str(exc) or 'runner declined this item',
                 )
             )
-        except Exception as exc:
+        except Exception as exc:  # error-boundary: queue item — a crashing item lands an honest failed/unavailable outcome with the exception identity; one broken item never poisons the queue (noqa: BLE001)
             software_failed = True
             outcomes.append(
                 QueueItemOutcome(

@@ -6,13 +6,23 @@ never solver internals — and renders only what the field contract
 supports. The produced field is labeled for what it is: an analytical
 rectangular-room mode field bound to one saved prediction run, not a
 solver-validated or measured field.
+
+#995 bounds the display side of that pipeline: slice rasters are built
+on a ``NativeWorkerPool`` thread behind a debounce + request-epoch gate
+(the control edits that used to repaint synchronously on the GUI
+thread), the QImage raster and painted QPixmap each carry explicit
+cell/pixel budgets with an honestly-labelled uniform decimation, and
+every invalid / failed / deselected selection clears the previous
+heatmap instead of leaving it painted as if current (#994).
 """
 
 from __future__ import annotations
 
-from math import isfinite
+from dataclasses import dataclass
 
-from PySide6.QtCore import Qt, Signal
+import numpy as np
+
+from PySide6.QtCore import QEvent, Qt, QTimer, Signal
 from PySide6.QtGui import QImage, QPixmap
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -21,7 +31,9 @@ from PySide6.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
     QLabel,
+    QProgressBar,
     QPushButton,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
@@ -48,9 +60,15 @@ from .cad_repository import SceneRepository
 from .cad_scene import Position3
 from .cad_spatial_field import FieldSliceView
 from .field_volume_visual_adapter import field_overlay_currency
+from .native_worker import WORKER_CANCELLED, NativeWorkerPool
 from .room_field_overlay import FieldOverlay3DRequest
 from .length_spinbox import MetricSpinBox
 from .user_facing_error import operation_error_message
+from .error_boundary import (
+    EXPECTED_OPERATION_ERRORS,
+    is_authority_failure,
+    report_boundary_failure,
+)
 
 _ROLE = Qt.ItemDataRole.UserRole
 
@@ -80,65 +98,261 @@ def _ramp_rgb(t: float) -> tuple[int, int, int]:
 def _slice_stats(view: FieldSliceView) -> tuple[float, float, int]:
     """(min, max, non-rendered count) over the slice's finite samples."""
 
-    masked = set(view.masked_positions)
-    lo: float | None = None
-    hi: float | None = None
-    hidden = 0
-    for row_i, row in enumerate(view.rows):
-        for col_i, value in enumerate(row):
-            if (row_i, col_i) in masked or not isfinite(value):
-                hidden += 1
-                continue
-            lo = value if lo is None else min(lo, value)
-            hi = value if hi is None else max(hi, value)
-    return (lo if lo is not None else 0.0, hi if hi is not None else 1.0, hidden)
+    values = np.asarray(view.rows, dtype=np.float64)
+    masked = np.zeros(values.shape, dtype=bool)
+    if view.masked_positions:
+        indices = np.asarray(view.masked_positions, dtype=np.int64)
+        masked[indices[:, 0], indices[:, 1]] = True
+    masked |= ~np.isfinite(values)
+    finite = ~masked
+    if not finite.any():
+        return 0.0, 1.0, int(masked.sum())
+    return (
+        float(values[finite].min()),
+        float(values[finite].max()),
+        int(masked.sum()),
+    )
 
 
-def _slice_pixmap(view: FieldSliceView) -> QPixmap:
-    """Render a slice view to an image — derived display product only.
+#: Debounce window for slice re-render requests (#995): rapid control edits
+#: (plane / coordinate / quantity / session) coalesce into ONE worker
+#: dispatch, so a burst of edits can never queue a raster per keystroke.
+_SLICE_DEBOUNCE_MS = 120
 
-    Orientation convention: x_m runs right; z_m runs up (vertical sections
-    read upright, not sideways); for the horizontal plan y_m runs top→down
-    so the room front stays at the image top — matching the 3D viewport's
-    plan orientation.
+#: Display-side raster budget — independent of the 3D sample cap
+#: ``MAX_FIELD_EXPLORER_SAMPLES`` (a data-authority bound, not a render
+#: bound). The painted image is a derived display product: canonical
+#: samples are never thinned; the raster is subsampled by a uniform
+#: integer stride and the decimation is labelled in the status line.
+FIELD_SLICE_MAX_RASTER_CELLS = 1_000_000
+
+#: Device-pixel caps for the painted QPixmap: the fixed ``*8`` upscale it
+#: replaces could allocate ~164 MiB for one 800x800 slice; 2048x2048 RGB32
+#: stays ~16.8 MiB and the pixel cap holds at every DPI.
+FIELD_SLICE_MAX_PIXMAP_EDGE = 2048
+FIELD_SLICE_MAX_PIXMAP_PIXELS = 4_194_304  # 2048 * 2048
+
+_SLICE_TASK_KEY = 'field-explorer-slice'
+_BUILD_TASK_KEY = 'field-explorer-build'
+
+
+def _slice_display_stride(n_rows: int, n_cols: int, budget: int) -> int:
+    """Smallest uniform integer stride keeping the raster within budget.
+
+    Monotonic predicate + binary search, so even a hostile degenerate
+    slice (e.g. 1x10^8 cells from a fabricated view) resolves in ~30
+    iterations instead of walking strides one at a time.
+    """
+
+    if n_rows <= 0 or n_cols <= 0 or n_rows * n_cols <= budget:
+        return 1
+
+    def _fits(stride: int) -> bool:
+        return ((n_rows + stride - 1) // stride) * (
+            (n_cols + stride - 1) // stride
+        ) <= budget
+
+    lo, hi = 1, max(n_rows, n_cols)  # hi collapses to 1x1 — always fits
+    while lo < hi:
+        mid = (lo + hi) // 2
+        if _fits(mid):
+            hi = mid
+        else:
+            lo = mid + 1
+    return lo
+
+
+def _slice_ramp_u8(
+    t: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Vectorized twin of ``_ramp_rgb`` — identical piecewise-linear ramp."""
+
+    t = np.clip(t, 0.0, 1.0)
+    r = np.clip(2.0 * t - 0.5, 0.0, 1.0)
+    g = np.clip(np.where(t < 0.5, 2.0 * t, 2.0 * (1.0 - t)), 0.0, 1.0)
+    b = np.clip(1.5 - 2.0 * t, 0.0, 1.0)
+    return (
+        (r * 255).astype(np.uint8),
+        (g * 255).astype(np.uint8),
+        (b * 255).astype(np.uint8),
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class SliceRaster:
+    """Bounded display raster for one slice — orientation already applied.
+
+    ``pixels`` is a ``(height, width, 4)`` uint8 BGRA buffer matching
+    ``QImage.Format_RGB32`` byte order. ``lo``/``hi``/``hidden`` are
+    measured on the FULL-resolution slice so display decimation can
+    never hide an extremum (same contract as the 3D viewport adapter).
+    """
+
+    pixels: np.ndarray
+    lo: float
+    hi: float
+    hidden: int
+    display_stride: int
+    source_rows: int
+    source_cols: int
+    display_rows: int
+    display_cols: int
+    horizontal: str
+    vertical: str
+
+    @property
+    def width(self) -> int:
+        return int(self.pixels.shape[1])
+
+    @property
+    def height(self) -> int:
+        return int(self.pixels.shape[0])
+
+
+def _slice_raster(
+    view: FieldSliceView,
+    cell_budget: int = FIELD_SLICE_MAX_RASTER_CELLS,
+) -> SliceRaster:
+    """Rasterize one exact slice into a bounded display grid (#995).
+
+    Source cells are subsampled by a uniform integer stride — a
+    nearest-sample view, never interpolated: coordinate extent, axis
+    direction, phase mask and colour scale keep their meaning, and the
+    canonical samples are never touched (display product only).
+
+    Orientation convention: x_m runs right; z_m runs up (vertical
+    sections read upright, not sideways); for the horizontal plan y_m
+    runs top→down so the room front stays at the image top — matching
+    the 3D viewport's plan orientation.
     """
 
     n_rows = len(view.rows)
     n_cols = len(view.column_coordinates_m)
+    values = np.asarray(view.rows, dtype=np.float64)
+    masked = np.zeros((n_rows, n_cols), dtype=bool)
+    if view.masked_positions:
+        indices = np.asarray(view.masked_positions, dtype=np.int64)
+        masked[indices[:, 0], indices[:, 1]] = True
+    masked |= ~np.isfinite(values)
+    hidden = int(masked.sum())
+    finite = ~masked
+    if finite.any():
+        lo = float(values[finite].min())
+        hi = float(values[finite].max())
+    else:
+        lo, hi = 0.0, 1.0
+
+    stride = _slice_display_stride(n_rows, n_cols, cell_budget)
+    shown = values[::stride, ::stride]
+    shown_masked = masked[::stride, ::stride]
+    span = hi - lo if hi > lo else 1.0
+    t = np.where(
+        np.isfinite(shown), np.clip((shown - lo) / span, 0.0, 1.0), 0.0
+    )
+    r, g, b = _slice_ramp_u8(t)
+    cells = np.empty((shown.shape[0], shown.shape[1], 4), dtype=np.uint8)
+    cells[..., 0] = b  # Format_RGB32 byte order is B,G,R,A little-endian
+    cells[..., 1] = g
+    cells[..., 2] = r
+    cells[..., 3] = 0xFF
+    cells[shown_masked] = (0x40, 0x40, 0x40, 0xFF)
+
     horizontal = 'x_m' if 'x_m' in (view.row_axis, view.column_axis) else 'y_m'
     vertical = 'z_m' if 'z_m' in (view.row_axis, view.column_axis) else (
         'y_m' if horizontal == 'x_m' else 'x_m'
     )
-    flip_vertical = vertical == 'z_m'
-    width = n_rows if view.row_axis == horizontal else n_cols
-    height = n_cols if view.row_axis == horizontal else n_rows
-    lo, hi, _hidden = _slice_stats(view)
-    span = hi - lo if hi > lo else 1.0
-    masked = set(view.masked_positions)
-    image = QImage(width, height, QImage.Format.Format_RGB32)
-    for row_i, row in enumerate(view.rows):
-        for col_i, value in enumerate(row):
-            px = row_i if view.row_axis == horizontal else col_i
-            py = col_i if view.row_axis == horizontal else row_i
-            if flip_vertical:
-                py = height - 1 - py
-            if (row_i, col_i) in masked or not isfinite(value):
-                image.setPixel(px, py, 0xFF404040)
-                continue
-            t = (value - lo) / span
-            r, g, b = _ramp_rgb(t)
-            image.setPixel(px, py, (0xFF << 24) | (r << 16) | (g << 8) | b)
-    pixmap = QPixmap.fromImage(image).scaled(
-        max(240, width * 8),
-        max(240, height * 8),
-        Qt.AspectRatioMode.KeepAspectRatio,
-        Qt.TransformationMode.FastTransformation,
+    image = cells.transpose(1, 0, 2) if view.row_axis == horizontal else cells
+    if vertical == 'z_m':
+        image = image[::-1]
+    return SliceRaster(
+        pixels=np.ascontiguousarray(image),
+        lo=lo,
+        hi=hi,
+        hidden=hidden,
+        display_stride=stride,
+        source_rows=n_rows,
+        source_cols=n_cols,
+        display_rows=shown.shape[0],
+        display_cols=shown.shape[1],
+        horizontal=horizontal,
+        vertical=vertical,
     )
-    return pixmap
+
+
+def _slice_qimage(raster: SliceRaster) -> QImage:
+    """QImage over the raster buffer — safe to build off the GUI thread."""
+
+    image = QImage(
+        raster.pixels.data,
+        raster.width,
+        raster.height,
+        raster.width * 4,
+        QImage.Format.Format_RGB32,
+    )
+    # Detach from the numpy buffer so the image owns its pixels.
+    return image.copy()
+
+
+def _slice_pixmap(view: FieldSliceView) -> QPixmap:
+    """Bounded raster pixmap (no upscale) — kept for r9-era tests."""
+
+    return QPixmap.fromImage(_slice_qimage(_slice_raster(view)))
+
+
+def _target_pixmap_size(
+    width_dip: float, height_dip: float, device_pixel_ratio: float
+) -> tuple[int, int]:
+    """Paint target in device pixels: widget DIP x DPR, clamped to budget."""
+
+    width = max(
+        240,
+        int(
+            round(
+                max(1.0, float(width_dip)) * max(1.0, device_pixel_ratio)
+            )
+        ),
+    )
+    height = max(
+        240,
+        int(
+            round(
+                max(1.0, float(height_dip)) * max(1.0, device_pixel_ratio)
+            )
+        ),
+    )
+    scale = min(
+        1.0,
+        FIELD_SLICE_MAX_PIXMAP_EDGE / max(width, height),
+        (FIELD_SLICE_MAX_PIXMAP_PIXELS / (width * height)) ** 0.5,
+    )
+    return max(1, int(width * scale)), max(1, int(height * scale))
+
+
+@dataclass(frozen=True, slots=True)
+class _SliceRequest:
+    """One queued slice render — its epoch is the request identity (#994)."""
+
+    request_id: int
+    session_id: str
+    plane: str
+    coordinate_m: float
+    quantity: str
+
+
+@dataclass(frozen=True, slots=True)
+class _SliceJobResult:
+    """Worker → GUI payload: a rendered image + stats, or an honest error."""
+
+    request: _SliceRequest
+    image: QImage | None
+    raster: SliceRaster | None
+    unit: str
+    sample_state: str
+    error: str | None
 
 
 def _scale_bar_pixmap(width: int = 240, height: int = 12) -> QPixmap:
-    """Horizontal ramp strip matching ``_slice_pixmap``'s normalization range."""
+    """Horizontal ramp strip matching ``_slice_raster``'s normalization range."""
 
     image = QImage(width, height, QImage.Format.Format_RGB32)
     for x in range(width):
@@ -176,6 +390,27 @@ class FieldExplorerPanel(QWidget):
         self._length_policy = display_length_policy('m')
         self._suppress_3d_signals = False
         self._build_widgets()
+        # #995: slice rasters + session builds run on one worker pool so
+        # dense grids can never freeze the GUI thread. The epoch is the
+        # render-request identity (#994): every control edit bumps it,
+        # and only a result stamped with the live epoch may paint.
+        self._pool = NativeWorkerPool(self)
+        self._slice_timer = QTimer(self)
+        self._slice_timer.setSingleShot(True)
+        self._slice_timer.setInterval(_SLICE_DEBOUNCE_MS)
+        self._slice_timer.timeout.connect(self._start_slice_request)
+        self._slice_epoch = 0
+        self._build_epoch = 0
+        self._pending_slice: _SliceRequest | None = None
+        self._quantity_unsupported: dict[int, str] = {}
+        self._probe_context: tuple[str, str] | None = None
+        self._slice_busy = False
+        self._build_busy = False
+        self._disposed = False
+        #: Device-pixel size of the pixmap currently applied — repaints
+        #: only run when the label's real geometry diverges from it.
+        self._applied_target: tuple[int, int] | None = None
+        self.field_image_label.installEventFilter(self)
         self.refresh_sessions()
 
     # -- widget scaffolding -------------------------------------------------
@@ -278,7 +513,39 @@ class FieldExplorerPanel(QWidget):
         self.field_image_label = QLabel('音場なし')
         self.field_image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.field_image_label.setMinimumHeight(220)
+        # Ignored size policy is load-bearing (#995): the label's own
+        # geometry must never depend on its contents. If a pixmap/text
+        # swap changed the label's sizeHint, layout churn would emit
+        # Resize, which re-rendered, which resized — an unbounded
+        # paint->clear->repaint loop on the real GUI.
+        self.field_image_label.setSizePolicy(
+            QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Ignored
+        )
         layout.addWidget(self.field_image_label)
+
+        # Fixed-height busy row — showing/hiding the affordance must not
+        # move the image label either (same feedback loop otherwise).
+        self.busy_row = QWidget()
+        self.busy_row.setFixedHeight(22)
+        busy_row = QHBoxLayout(self.busy_row)
+        busy_row.setContentsMargins(0, 0, 0, 0)
+        self.field_progress = QProgressBar()
+        self.field_progress.setRange(0, 0)
+        self.field_progress.setMaximumHeight(14)
+        self.field_progress.setToolTip(
+            '断面・音場をワーカーで計算中です。'
+        )
+        busy_row.addWidget(self.field_progress, 1)
+        self.field_cancel_button = QPushButton('キャンセル')
+        self.field_cancel_button.setToolTip(
+            '進行中の計算を取り消します。'
+            '表示条件を変更すると再計算します。'
+        )
+        self.field_cancel_button.clicked.connect(self._cancel_render)
+        busy_row.addWidget(self.field_cancel_button)
+        layout.addWidget(self.busy_row)
+        self.field_progress.hide()
+        self.field_cancel_button.hide()
 
         scale_row = QHBoxLayout()
         self.field_scale_lo = QLabel('')
@@ -456,17 +723,65 @@ class FieldExplorerPanel(QWidget):
         if revision is None:
             self.field_status_label.setText('予測元のシーンリビジョンがありません')
             return
+        # Dense grids make build + repository save take seconds — run both
+        # on the worker pool so the GUI never blocks (#995). Qt widgets
+        # are read on this thread first (stride/mode are plain values).
+        modes_result = self._modes_result
+        mode_indices = tuple(mode)
+        stride_m = float(self.stride_field.value_m())
+        field_repository = self.field_repository
+        self._build_epoch += 1
+        epoch = self._build_epoch
+        self._set_build_busy(True)
+        self.field_status_label.setText('音場を生成中…')
+
+        def work(cancel_event):
+            try:
+                built = build_mode_field_explorer_session(
+                    revision=revision,
+                    modes_result=modes_result,
+                    mode_indices=mode_indices,
+                    stride_m=stride_m,
+                )
+                if cancel_event.is_set():
+                    return (epoch, None, None)
+                field_repository.save(built)
+                return (epoch, built, None)
+            except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: worker envelope — expected failures return their reason verbatim in the result envelope; unexpected errors propagate to diagnostics
+                return (epoch, None, operation_error_message(exc))
+
         try:
-            session = build_mode_field_explorer_session(
-                revision=revision,
-                modes_result=self._modes_result,
-                mode_indices=tuple(mode),
-                stride_m=float(self.stride_field.value_m()),
+            self._pool.start(_BUILD_TASK_KEY, work, self._build_job_completed)
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: op surface — an expected pool-start failure shows a verbatim error; unexpected errors propagate to diagnostics
+            self._set_build_busy(False)
+            self.field_status_label.setText(
+                f'音場を生成できません · {operation_error_message(exc)}'
             )
-        except ValueError as exc:
-            self.field_status_label.setText(f'音場を生成できません · {operation_error_message(exc)}')
+
+    def _build_job_completed(self, key, result, error) -> None:
+        """GUI-thread slot for the build task (epoch-gated like slices)."""
+
+        if error is not None:
+            if error == WORKER_CANCELLED:
+                return  # whoever cancelled already owns the visible state
+            if self._build_busy:
+                self._set_build_busy(False)
+                self.field_status_label.setText(
+                    '音場を生成できません · '
+                    f'{operation_error_message(error)}'
+                )
             return
-        self.field_repository.save(session)
+        epoch, session, reason = result
+        if epoch != self._build_epoch:
+            return  # superseded or cancelled while the worker ran
+        self._set_build_busy(False)
+        if reason is not None:
+            self.field_status_label.setText(
+                f'音場を生成できません · {reason}'
+            )
+            return
+        if session is None:
+            return  # cancelled inside work() — cancel path owns the UI
         self._session = session
         self.refresh_sessions()
         index = self.session_combo.findData(session.session_id)
@@ -495,10 +810,33 @@ class FieldExplorerPanel(QWidget):
     def _session_combo_changed(self) -> None:
         session_id = self.session_combo.currentData()
         if session_id is None:
+            # Deselection must not keep the previous session painted as if
+            # it were the current selection (#994).
+            self._unload_session('音場セッションを選択してください')
             return
         session = self.field_repository.get(str(session_id))
-        if session is not None:
-            self._load_session(session)
+        if session is None:
+            self._unload_session(
+                'セッションを読み込めません · 一覧を再読み込みしてください'
+            )
+            return
+        self._load_session(session)
+
+    def _unload_session(self, reason: str) -> None:
+        """Drop the loaded session + every painted artifact (#994)."""
+
+        self._session = None
+        self._slice_epoch += 1
+        self._pool.cancel(_SLICE_TASK_KEY)
+        if self.field3d_toggle.isChecked():
+            self.field3d_toggle.setChecked(False)  # emits field3DCleared
+        self.field3d_toggle.setEnabled(False)
+        for combo in (self.coordinate_combo, self.quantity_combo):
+            combo.blockSignals(True)
+            combo.clear()
+            combo.blockSignals(False)
+        self._quantity_unsupported.clear()
+        self._clear_field_view(reason)
 
     def _load_session(self, session: FieldExplorerSession) -> None:
         self._session = session
@@ -533,11 +871,15 @@ class FieldExplorerPanel(QWidget):
         current = self.quantity_combo.currentData()
         self.quantity_combo.blockSignals(True)
         self.quantity_combo.clear()
+        self._quantity_unsupported.clear()
         for quantity, supported, reason in explorer_quantities(self._session):
             label = _QUANTITY_LABELS[quantity]
             if supported:
                 self.quantity_combo.addItem(label, quantity)
             else:
+                self._quantity_unsupported[
+                    self.quantity_combo.count()
+                ] = reason or '非対応'
                 self.quantity_combo.addItem(
                     f'{label} — 非対応 ({reason})', None
                 )
@@ -566,46 +908,348 @@ class FieldExplorerPanel(QWidget):
         self.coordinate_combo.blockSignals(False)
 
     def _refresh_view(self) -> None:
+        """Selection-driven refresh — clear the old paint, then queue."""
+
+        self._queue_slice_render(clear_paint=True)
+
+    def _request_repaint(self) -> None:
+        """Display-driven repaint of the SAME selection (resize / DPI move).
+
+        Unlike ``_refresh_view`` this keeps the current paint + status
+        until the new raster lands — repaints must never blank the view
+        or the layout churn they answer to would loop forever.
+        """
+
+        self._queue_slice_render(clear_paint=False)
+
+    def _queue_slice_render(self, clear_paint: bool) -> None:
+        """Queue a bounded, worker-side slice render (#995).
+
+        Every call bumps the epoch — the render-request identity (#994) —
+        and cancels the in-flight raster, so only the latest selection's
+        result can ever paint. Invalid / deselected selections clear the
+        old heatmap immediately instead of leaving it behind.
+        """
+
+        self._slice_epoch += 1
+        self._pending_slice = None
+        self._pool.cancel(_SLICE_TASK_KEY)
         session = self._session
         if session is None:
+            self._clear_field_view('音場セッションを選択してください')
             return
         plane = self.plane_combo.currentData()
         coordinate = self.coordinate_combo.currentData()
         quantity = self.quantity_combo.currentData()
-        if plane is None or coordinate is None or quantity is None:
+        if plane is None:
+            self._clear_field_view('断面を選択してください')
             return
-        try:
-            view = explorer_slice(
-                session,
-                axis_plane=plane,
-                coordinate_m=float(coordinate),
-                quantity=quantity,
-                phase_mask_min_magnitude_pa=(
-                    1.0e-9 if quantity == 'phase_deg' else None
-                ),
+        if coordinate is None:
+            self._clear_field_view('断面位置を選択してください')
+            return
+        if quantity is None:
+            reason = self._quantity_unsupported.get(
+                self.quantity_combo.currentIndex()
             )
-        except ValueError as exc:
-            self.field_status_label.setText(f'断面を表示できません · {operation_error_message(exc)}')
+            self._clear_field_view(
+                'この表示量はこの音場では計算できません'
+                + (f'（{reason}）' if reason else '')
+                + ' · 対応する表示量を選び直してください'
+            )
             return
-        self.field_image_label.setPixmap(_slice_pixmap(view))
-        lo, hi, hidden = _slice_stats(view)
-        horizontal = 'x_m' if 'x_m' in (view.row_axis, view.column_axis) else 'y_m'
-        vertical = 'z_m' if 'z_m' in (view.row_axis, view.column_axis) else (
-            'y_m' if horizontal == 'x_m' else 'x_m'
+        self._sync_probe_context()
+        self._pending_slice = _SliceRequest(
+            request_id=self._slice_epoch,
+            session_id=session.session_id,
+            plane=str(plane),
+            coordinate_m=float(coordinate),
+            quantity=str(quantity),
         )
-        axes = f'{horizontal} → / {vertical} ↑'
+        if clear_paint:
+            self._clear_paint_only()
+            self.field_status_label.setText('断面を計算中…')
+        self._set_slice_busy(True)
+        self._slice_timer.start()
+
+    def _start_slice_request(self) -> None:
+        """Debounce timer fired — dispatch the pending render to the pool."""
+
+        request = self._pending_slice
+        self._pending_slice = None
+        if request is None or request.request_id != self._slice_epoch:
+            self._set_slice_busy(False)
+            return
+        session = self._session
+        if session is None or session.session_id != request.session_id:
+            self._set_slice_busy(False)
+            return
+        self._pool.cancel(_SLICE_TASK_KEY)  # supersede an in-flight raster
+
+        def work(cancel_event) -> _SliceJobResult:
+            try:
+                view = explorer_slice(
+                    session,
+                    axis_plane=request.plane,
+                    coordinate_m=request.coordinate_m,
+                    quantity=request.quantity,
+                    phase_mask_min_magnitude_pa=(
+                        1.0e-9 if request.quantity == 'phase_deg' else None
+                    ),
+                )
+                if cancel_event.is_set():
+                    return _SliceJobResult(request, None, None, '', '', None)
+                raster = _slice_raster(view)
+                if cancel_event.is_set():
+                    return _SliceJobResult(request, None, None, '', '', None)
+                # QImage (never QPixmap/QWidget) is safe to build here;
+                # conversion + painting happen on the GUI thread.
+                image = _slice_qimage(raster)
+                return _SliceJobResult(
+                    request=request,
+                    image=image,
+                    raster=raster,
+                    unit=view.unit,
+                    sample_state=view.sample_state,
+                    error=None,
+                )
+            except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: worker envelope — expected failures return their reason verbatim in the result envelope; unexpected errors propagate to diagnostics
+                return _SliceJobResult(
+                    request=request,
+                    image=None,
+                    raster=None,
+                    unit='',
+                    sample_state='',
+                    error=operation_error_message(exc),
+                )
+
+        try:
+            self._pool.start(_SLICE_TASK_KEY, work, self._slice_job_completed)
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: op surface — an expected pool-start failure shows a verbatim error; unexpected errors propagate to diagnostics
+            self._set_slice_busy(False)
+            self._clear_field_view(
+                f'断面を表示できません · {operation_error_message(exc)}'
+            )
+
+    def _slice_job_completed(self, key, result, error) -> None:
+        """GUI-thread slot: apply only the live epoch's payload (#994)."""
+
+        if error is not None:
+            if error == WORKER_CANCELLED:
+                # Whoever cancelled (edit/cancel button/hide) already owns
+                # the visible state — nothing to restore here.
+                pass
+            elif self._slice_busy or self._pending_slice is not None:
+                self._clear_field_view(
+                    '断面を表示できません · '
+                    f'{operation_error_message(error)}'
+                )
+            self._set_slice_busy(self._pending_slice is not None)
+            return
+        if not isinstance(result, _SliceJobResult):
+            self._set_slice_busy(self._pending_slice is not None)
+            return
+        request = result.request
+        if request.request_id != self._slice_epoch:
+            return  # superseded while the worker ran — leave the state
+        self._set_slice_busy(False)
+        if result.error is not None:
+            self._clear_field_view(
+                f'断面を表示できません · {result.error}'
+            )
+            return
+        if result.image is None or result.raster is None:
+            return  # cancelled inside work() — cancel path owns the UI
+        self._apply_slice_result(result)
+
+    def _apply_slice_result(self, result: _SliceJobResult) -> None:
+        """Paint the rendered request — only when it still IS the request."""
+
+        request = result.request
+        session = self._session
+        if session is None or session.session_id != request.session_id:
+            return
+        # The controls must still describe this render — a repaint is
+        # only ever the paint of the CURRENT selection (#994).
+        plane = self.plane_combo.currentData()
+        quantity = self.quantity_combo.currentData()
+        coordinate = self.coordinate_combo.currentData()
+        if (
+            plane != request.plane
+            or quantity != request.quantity
+            or coordinate is None
+            or float(coordinate) != request.coordinate_m
+        ):
+            return
+        raster = result.raster
+        if raster is None or result.image is None:
+            return
+        target_w, target_h = _target_pixmap_size(
+            self.field_image_label.width(),
+            self.field_image_label.height(),
+            self.devicePixelRatioF(),
+        )
+        pixmap = QPixmap.fromImage(result.image).scaled(
+            target_w,
+            target_h,
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.FastTransformation,
+        )
+        self.field_image_label.setPixmap(pixmap)
+        self._applied_target = (target_w, target_h)
         self.field_scale_bar.setPixmap(_scale_bar_pixmap())
         self.field_scale_bar.show()
-        self.field_scale_lo.setText(f'{lo:.4g}')
-        self.field_scale_hi.setText(f'{hi:.4g} {view.unit}')
-        masked_note = f' · マスク {hidden}' if hidden else ''
+        self.field_scale_lo.setText(f'{raster.lo:.4g}')
+        self.field_scale_hi.setText(f'{raster.hi:.4g} {result.unit}')
+        masked_note = f' · マスク {raster.hidden}' if raster.hidden else ''
+        decimate_note = (
+            f' · 表示 {raster.display_cols}x{raster.display_rows}'
+            f' (間引き x{raster.display_stride} · サンプル本体は不変)'
+            if raster.display_stride > 1
+            else ''
+        )
+        axes = f'{raster.horizontal} → / {raster.vertical} ↑'
         self.field_status_label.setText(
-            f'{_QUANTITY_LABELS.get(quantity, quantity)} · {axes} · '
-            f'{lo:.4g}…{hi:.4g} {view.unit} · '
-            f'{len(view.column_coordinates_m)}x{len(view.row_coordinates_m)} '
-            f'サンプル · {view.sample_state}{masked_note}'
+            f'{_QUANTITY_LABELS.get(request.quantity, request.quantity)}'
+            f' · {axes} · '
+            f'{raster.lo:.4g}…{raster.hi:.4g} {result.unit} · '
+            f'{raster.source_cols}x{raster.source_rows} サンプル · '
+            f'{result.sample_state}{masked_note}{decimate_note}'
         )
         self._emit_3d_if_armed()
+
+    # -- bounded render plumbing (#995) + stale-paint clearing (#994) -------
+
+    def _clear_paint_only(self) -> None:
+        """Drop the painted raster + legend — no status/probe touch."""
+
+        self._applied_target = None
+        self.field_image_label.clear()
+        self.field_image_label.setText('音場なし')
+        self.field_scale_bar.hide()
+        self.field_scale_lo.setText('')
+        self.field_scale_hi.setText('')
+
+    def _clear_field_view(self, reason: str) -> None:
+        """Clear all painted field state and show an honest reason (#994)."""
+
+        self._pending_slice = None
+        self._slice_timer.stop()
+        self._set_slice_busy(False)
+        self._clear_paint_only()
+        self.field_status_label.setText(reason)
+        self._sync_probe_context()
+        # An armed overlay whose request just became impossible is stale
+        # in the same sense — uncheck it so the viewport clears too.
+        if self.field3d_toggle.isChecked() and (
+            self._current_3d_request() is None
+        ):
+            self.field3d_toggle.setChecked(False)  # emits field3DCleared
+
+    def _set_slice_busy(self, busy: bool) -> None:
+        self._slice_busy = busy
+        self._update_busy_ui()
+
+    def _set_build_busy(self, busy: bool) -> None:
+        self._build_busy = busy
+        self._update_busy_ui()
+
+    def _update_busy_ui(self) -> None:
+        busy = self._slice_busy or self._build_busy
+        self.field_progress.setVisible(busy)
+        self.field_cancel_button.setVisible(busy)
+        self.build_button.setEnabled(not self._build_busy)
+        self.build_button.setText(
+            '音場を生成中…' if self._build_busy else '選択モードの音場を生成'
+        )
+
+    def _cancel_render(self) -> None:
+        """Cancel button: abandon pending + in-flight compute honestly."""
+
+        if self._slice_busy or self._pending_slice is not None:
+            self._slice_epoch += 1  # in-flight results now drop as stale
+            self._pending_slice = None
+            self._slice_timer.stop()
+            self._pool.cancel(_SLICE_TASK_KEY)
+            self._set_slice_busy(False)
+            self._clear_paint_only()
+            self.field_status_label.setText(
+                '断面計算をキャンセルしました · '
+                '表示条件を変更すると再計算します'
+            )
+        if self._build_busy:
+            self._build_epoch += 1
+            self._pool.cancel(_BUILD_TASK_KEY)
+            self._set_build_busy(False)
+            self.field_status_label.setText(
+                '音場の生成をキャンセルしました'
+            )
+
+    def _sync_probe_context(self) -> None:
+        """Probe readout belongs to (session, quantity) — clear it off context."""
+
+        current = (
+            None if self._session is None else self._session.session_id,
+            self.quantity_combo.currentData(),
+        )
+        if self._probe_context is not None and self._probe_context != current:
+            self.probe_result_label.setText('')
+            self._probe_context = None
+
+    def eventFilter(self, watched, event) -> bool:
+        # Repaint when the image area's real device-pixel target changed
+        # (dialog resize, DPI/screen move). Guarded by _applied_target +
+        # a dead-band so layout churn can never feed back into renders —
+        # content swaps are sizeHint-ignored, so any Resize seen here is
+        # a genuine geometry change, but cheap insurance is cheap.
+        if watched is not self.field_image_label or self._session is None:
+            return super().eventFilter(watched, event)
+        if event.type() in (
+            QEvent.Type.Resize,
+            QEvent.Type.ScreenChangeInternal,
+        ) and self._applied_target is not None:
+            target = _target_pixmap_size(
+                self.field_image_label.width(),
+                self.field_image_label.height(),
+                self.devicePixelRatioF(),
+            )
+            old_w, old_h = self._applied_target
+            if (
+                abs(target[0] - old_w) > 12
+                or abs(target[1] - old_h) > 12
+            ):
+                self._request_repaint()
+        return super().eventFilter(watched, event)
+
+    def hideEvent(self, event) -> None:
+        # The explorer lives in a non-modal dialog: hidden work is wasted
+        # work. stop_all drains it; the pool stays usable for reopening.
+        self.stop_workers()
+        super().hideEvent(event)
+
+    def stop_workers(self):
+        """Bounded stop that keeps the pool usable (dialog hide path).
+
+        Detaches immediately (zero join): a worker inside an
+        uninterruptible sealed computation would otherwise stall the
+        dialog's hide on its remaining runtime. The lingerer is detached
+        to module ownership and its late completion is dropped by the
+        epoch gate.
+        """
+
+        self._slice_epoch += 1
+        self._build_epoch += 1
+        self._pending_slice = None
+        self._slice_timer.stop()
+        self._set_slice_busy(False)
+        self._set_build_busy(False)
+        return self._pool.stop_all(timeout_ms=0)
+
+    def dispose(self):
+        """Real teardown: physical shutdown of slice + build workers."""
+
+        self._disposed = True
+        self._slice_timer.stop()
+        return self._pool.shutdown()
 
     # -- 3D viewport overlay (#999) ------------------------------------------
 
@@ -685,6 +1329,7 @@ class FieldExplorerPanel(QWidget):
         except ValueError as exc:
             self.probe_result_label.setText(f'プローブできません · {operation_error_message(exc)}')
             return
+        self._probe_context = (session.session_id, str(quantity))
         self.probe_result_label.setText(
             f'{probed.value:.4g} {probed.unit} · '
             f'{_SAMPLE_STATE_LABELS[probed.sample_state]}'

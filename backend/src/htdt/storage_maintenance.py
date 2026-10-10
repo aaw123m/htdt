@@ -596,7 +596,7 @@ def run_storage_gc(
                             'WHERE sha256=?',
                             (digest,),
                         )
-            except Exception:
+            except Exception:  # error-boundary: rollback before re-raise — any delete-pass failure rolls the transaction back so a partial GC delete never persists (noqa: BLE001)
                 connection.rollback()
                 raise
             else:
@@ -696,7 +696,7 @@ def run_storage_gc(
                         f'DELETE FROM {GC_PENDING_TABLE} WHERE sha256=?',
                         (digest,),
                     )
-            except Exception:
+            except Exception:  # error-boundary: rollback before re-raise — any unlink-pass failure rolls the transaction back so a partial GC unlink never persists (noqa: BLE001)
                 connection.rollback()
                 raise
             else:

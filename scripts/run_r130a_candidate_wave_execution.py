@@ -40,7 +40,6 @@ from htdt.cad_acoustic_solver_adapter import (
 from htdt.cad_acoustic_solver_dispatch_repository import (
     CadAcousticSolverDispatchRepository,
 )
-from htdt.cad_acoustic_solver_result import CadAcousticSolverResultRepository
 from htdt.cad_solver_capability_manifest import (
     build_solver_capability_manifest,
     derive_solver_capability_rows,
@@ -87,7 +86,6 @@ from htdt.cad_system_variant import (
 )
 from htdt.cad_system_variant_repository import CadSystemVariantRepository
 from htdt.cad_wave_excitation import (
-    CadWaveExcitationRepository,
     ComplexVolumeVelocitySample,
     WaveExcitationEvidenceSubject,
     WaveExcitationManualDerivation,
@@ -114,6 +112,8 @@ from htdt.semantic_geometry import (
     make_semantic_geometry_conversion_request,
     raw_triangle_ids,
 )
+from htdt.acoustics.persistence.cad_acoustic_solver_result_repository import CadAcousticSolverResultRepository
+from htdt.acoustics.persistence.cad_wave_excitation_repository import CadWaveExcitationRepository
 
 
 PFFDTD_SHA = 'aa319f6c86517cb95aabfae8656277da62c3ead5'

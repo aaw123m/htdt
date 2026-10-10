@@ -133,3 +133,6 @@ environmental, unrelated).
   calibration)
 - resolve the 26 inventory entries; require `--diff` in CI so the
   inventory can only shrink
+
+Phase 2 (capture package) landed separately — see
+`docs/issues/issue-954-domain-split-phase2.md`.

@@ -225,6 +225,8 @@ class InstallationPanel(QFrame):
 
     contextSaved = Signal()
     datumSaved = Signal()
+    #: #990: scene→Library deep link — emits the selected definition_id.
+    libraryRequested = Signal(str)
 
     def __init__(
         self,
@@ -287,6 +289,25 @@ class InstallationPanel(QFrame):
             self._equipment_changed
         )
         form.addRow('機材定義', self.equipment_combo)
+
+        library_row = QWidget()
+        library_row_layout = QHBoxLayout(library_row)
+        library_row_layout.setContentsMargins(0, 0, 0, 0)
+        library_row_layout.setSpacing(4)
+        self.open_library_button = QPushButton('ライブラリで確認')
+        set_control_size(self.open_library_button, ControlSize.COMPACT)
+        self.open_library_button.setAccessibleName(
+            '選択した機材定義をライブラリで開く'
+        )
+        self.open_library_button.setToolTip(
+            '選択中の機材定義を参照ライブラリで開きます'
+            '（参照のみ・紐付けは変更しません）。'
+        )
+        self.open_library_button.setEnabled(False)
+        self.open_library_button.clicked.connect(self._open_in_library)
+        library_row_layout.addWidget(self.open_library_button)
+        library_row_layout.addStretch(1)
+        form.addRow('', library_row)
 
         self.mounting_combo = _styled_combo()
         form.addRow('設置方式', self.mounting_combo)
@@ -569,7 +590,16 @@ class InstallationPanel(QFrame):
     def _equipment_changed(self) -> None:
         if self._syncing:
             return
+        self.open_library_button.setEnabled(
+            self._selected_definition() is not None
+        )
         self._refresh_mounting_combo()
+
+    def _open_in_library(self) -> None:
+        definition = self._selected_definition()
+        if definition is None:
+            return
+        self.libraryRequested.emit(definition.definition_id)
 
     def _directivity_changed(self) -> None:
         non_default = (

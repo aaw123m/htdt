@@ -84,13 +84,13 @@ def _environment_snapshot() -> dict[str, Any]:
         import htdt
 
         snapshot['htdt_version'] = getattr(htdt, '__version__', None)
-    except Exception:
+    except Exception:  # error-boundary: environment probe — any import/version probe failure leaves the field absent honestly (noqa: BLE001)
         pass
     try:
         from PySide6.QtCore import qVersion
 
         snapshot['qt'] = qVersion()
-    except Exception:
+    except Exception:  # error-boundary: environment probe — any import/version probe failure leaves the field absent honestly (noqa: BLE001)
         pass
     try:
         from PySide6.QtGui import QGuiApplication
@@ -105,7 +105,7 @@ def _environment_snapshot() -> dict[str, Any]:
                 }
                 for screen in gui.screens()
             ]
-    except Exception:
+    except Exception:  # error-boundary: environment probe — a screen-enumeration failure leaves the field absent honestly (noqa: BLE001)
         pass
     try:
         # The code state under test — the run header renders this when
@@ -121,7 +121,7 @@ def _environment_snapshot() -> dict[str, Any]:
             )
             if proc.returncode == 0:
                 snapshot['code_sha'] = proc.stdout.strip()
-    except Exception:
+    except Exception:  # error-boundary: environment probe — a git/subprocess probe failure leaves code_sha absent honestly (noqa: BLE001)
         pass
     return snapshot
 
@@ -234,6 +234,10 @@ class AcceptancePage(QWidget):
         self._gate = None
         self._run: AcceptanceRun | None = None
         self._worker: _AutoCheckWorker | None = None
+        # #974: app ActivityCenter — wired post-construction by the
+        # application; None keeps the page fully usable standalone.
+        self._activity_center = None
+        self._worker_op_id: str | None = None
         # Step id whose input/attestation text is currently in the editors.
         self._detail_step_id: str | None = None
 
@@ -622,6 +626,11 @@ class AcceptancePage(QWidget):
     def _run_auto_capture(self) -> None:
         self._launch_worker(capture_only=True)
 
+    def set_activity_center(self, activity_center) -> None:
+        """Wire the app ActivityCenter for the auto-check run (#974)."""
+
+        self._activity_center = activity_center
+
     def _launch_worker(self, *, capture_only: bool) -> None:
         definition, record = self._current_def_and_record()
         if definition is None or record is None or not record.auto_check:
@@ -632,6 +641,48 @@ class AcceptancePage(QWidget):
         self.capture_button.setEnabled(False)
         self.step_result.setText('チェック実行中…')
         ctx = self._ctx(record)
+        # #974: the check writes a sealed run commit on completion —
+        # EXCLUSIVE + NOT_CANCELLABLE is the honest registration for a
+        # QThread that cannot cooperatively cancel.
+        self._worker_op_id = None
+        center = self._activity_center
+        if center is not None:
+            from .activity_center import (
+                Cancellability,
+                NavigationPolicy,
+                OperationClass,
+                OperationTransitionError,
+                RetryPolicy,
+            )
+            from .workflow_navigation import (
+                ApplicationDestinationId,
+                WorkspaceDeepLink,
+            )
+
+            try:
+                self._worker_op_id = center.submit(
+                    operation_kind='acceptance.auto_check',
+                    operation_class=OperationClass.COMPUTE,
+                    title=(
+                        '受入チェック（キャプチャ）'
+                        if capture_only
+                        else '受入チェック'
+                    ),
+                    document_ref=self._run.run_id,
+                    input_authority_refs=(f'acceptance-run:{self._run.run_id}',),
+                    cancellability=Cancellability.NOT_CANCELLABLE,
+                    retry_policy=RetryPolicy.NONE,
+                    navigation_policy=NavigationPolicy.EXCLUSIVE,
+                    navigation_block_reason=(
+                        'チェック結果の記録を伴うため画面を切り替えられません'
+                    ),
+                    deep_link=WorkspaceDeepLink(
+                        ApplicationDestinationId.ACCEPTANCE
+                    ),
+                )
+                center.mark_running(self._worker_op_id)
+            except OperationTransitionError:
+                self._worker_op_id = None
         worker = _AutoCheckWorker(record.auto_check, ctx, self)
         self._worker = worker
         worker.finished_result.connect(
@@ -656,9 +707,23 @@ class AcceptancePage(QWidget):
     def _on_check_result(self, step_id, result, capture_only, run_id) -> None:
         self.check_button.setEnabled(True)
         self.capture_button.setEnabled(True)
+        op_id, self._worker_op_id = self._worker_op_id, None
+        center = self._activity_center
         if self._run is None or self._run.run_id != run_id:
             # The user switched or started another run while the worker
             # was in flight — a result belongs to its own run only.
+            if op_id is not None and center is not None:
+                from .activity_center import OperationTransitionError
+
+                try:
+                    center.complete(
+                        op_id,
+                        result_summary=(
+                            '別の実行へ切り替わったため結果を破棄しました'
+                        ),
+                    )
+                except (KeyError, OperationTransitionError):
+                    pass
             return
         latest = self.repository.latest(run_id)
         if latest is None:
@@ -668,9 +733,29 @@ class AcceptancePage(QWidget):
         )
         if steps is None:
             # Result dropped — no step changed, so no journal revision.
+            if op_id is not None and center is not None:
+                from .activity_center import OperationTransitionError
+
+                try:
+                    center.complete(
+                        op_id,
+                        result_summary='チェック結果はステップを変更しませんでした',
+                    )
+                except (KeyError, OperationTransitionError):
+                    pass
             self._select_row(step_id)
             return
         self._run = self.repository.commit(latest, steps)
+        if op_id is not None and center is not None:
+            from .activity_center import OperationTransitionError
+
+            try:
+                center.complete(
+                    op_id,
+                    result_summary='チェック結果を記録しました',
+                )
+            except (KeyError, OperationTransitionError):
+                pass
         self._refresh_run_list()
         self._render_run()
         self._select_row(step_id)

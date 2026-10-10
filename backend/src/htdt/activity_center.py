@@ -249,6 +249,59 @@ class OperationTransitionError(ValueError):
     pass
 
 
+#: JA labels for ``OperationState`` — shared by the Activity page table and
+#: the shell status strip so both render the same vocabulary (#974).
+OPERATION_STATE_LABELS: Mapping[OperationState, str] = {
+    OperationState.QUEUED: '待機中',
+    OperationState.PREFLIGHTING: '準備中',
+    OperationState.RUNNING: '実行中',
+    OperationState.CANCELLATION_REQUESTED: 'キャンセル要求中',
+    OperationState.CANCELLED: 'キャンセル済み',
+    OperationState.COMPLETED: '完了',
+    OperationState.FAILED: '失敗',
+    OperationState.COMPLETED_FOR_HISTORICAL_INPUT: '完了（旧入力）',
+    OperationState.RESULT_STALE: '結果が古い',
+}
+
+
+def operation_state_label(state: OperationState | str) -> str:
+    """JA label for an operation state; unknown values render verbatim."""
+
+    try:
+        return OPERATION_STATE_LABELS[OperationState(state)]
+    except (KeyError, ValueError):
+        return str(state)
+
+
+def operation_progress_text(progress: OperationProgress | None) -> str:
+    """Honest JA rendering of the progress model (#974).
+
+    Only what the domain reported is shown: a real fraction, a real stage,
+    real units — never an ETA and never an invented percentage. When the
+    operation cannot measure progress this returns the same "in progress"
+    wording an indeterminate bar would carry.
+    """
+
+    if progress is None:
+        return ''
+    if progress.kind == ProgressKind.INDETERMINATE:
+        return '進行中'
+    if progress.kind == ProgressKind.DETERMINATE:
+        fraction = progress.known_fraction()
+        return f'{round(fraction * 100)}%' if fraction is not None else '進行中'
+    if progress.kind == ProgressKind.STAGE:
+        label = f' {progress.stage_label}' if progress.stage_label else ''
+        return (
+            f'段階 {progress.stage_index + 1}/{progress.stage_count}{label}'
+        )
+    if progress.kind in (ProgressKind.BYTES, ProgressKind.ITEMS):
+        unit = progress.unit_label or (
+            'B' if progress.kind == ProgressKind.BYTES else '件'
+        )
+        return f'{progress.done_units}/{progress.total_units} {unit}'
+    return '進行中'
+
+
 _ALLOWED_TRANSITIONS: dict[OperationState, frozenset[OperationState]] = {
     OperationState.QUEUED: frozenset(
         {
@@ -510,6 +563,18 @@ class ActivityCenter:
             return record.snapshot
         return self._history_snapshot(operation_id)
 
+    def domain_payload_of(self, operation_id: str) -> Any:
+        """Adapter-owned payload for a live record (#974).
+
+        Payloads never serialize into history, so this only resolves while
+        the record is still live; a completed/archived record reports
+        ``None`` and the caller must fall back to re-dispatching from the
+        snapshot alone.
+        """
+
+        record = self._records.get(operation_id)
+        return record.domain_payload if record is not None else None
+
     def require(self, operation_id: str) -> ApplicationOperation:
         snapshot = self.get(operation_id)
         if snapshot is None:
@@ -749,6 +814,7 @@ class ActivityCenter:
         retry_factory: Callable[
             [ApplicationOperation], OperationRetryRequest
         ] | None = None,
+        new_operation_id: str | None = None,
     ) -> str:
         """Create a new attempt identity for a failed/cancelled operation.
 
@@ -758,6 +824,12 @@ class ActivityCenter:
         attempt's callback was cleared at its terminal transition, so the
         new attempt only advertises cancellability when the factory
         supplies a real delivery path.
+
+        ``new_operation_id`` lets the factory pre-bind the attempt id to
+        its executor key mapping before the new record exists: the
+        adapter generates the id, dispatches the worker under it, and the
+        record lands with the same id so the completion handler resolves
+        it directly (#974).
         """
 
         record = self._records.get(operation_id)
@@ -808,6 +880,7 @@ class ActivityCenter:
                 if request.domain_payload is not None
                 else (record.domain_payload if record is not None else None)
             ),
+            operation_id=new_operation_id,
             retry_of=snapshot.operation_id,
             attempt=snapshot.attempt + 1,
         )
@@ -874,7 +947,7 @@ class ActivityCenter:
                 handle.flush()
                 os.fsync(handle.fileno())
             os.replace(tmp, path)
-        except BaseException:
+        except BaseException:  # error-boundary: cleanup before re-raise — any write failure (incl. cancel/interrupt) removes the temp file so a partial history never replaces the good one (noqa: BLE001)
             try:
                 os.unlink(tmp)
             except OSError:
@@ -943,7 +1016,7 @@ class ActivityCenter:
                 operations.append(
                     ApplicationOperation.model_validate(item)
                 )
-            except Exception:
+            except Exception:  # error-boundary: record lane — an invalid persisted record is dropped with a logged warning; one poisoned row never loses the healthy history (noqa: BLE001)
                 _LOGGER.warning(
                     'dropping invalid activity record from %s', path
                 )

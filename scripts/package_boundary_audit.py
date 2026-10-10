@@ -119,7 +119,8 @@ PACKAGE_LAYERS: dict[str, dict[str, tuple[str, ...]]] = {
             'cad_adaptive_measurement_design', 'cad_impedance_measurement',
             'cad_measurement_authorities', 'cad_measurement_disposition',
             'cad_measurement_ir', 'cad_measurement_jobs',
-            'cad_measurement_models', 'cad_measurement_pose',
+            'cad_measurement_models', 'cad_measurement_plan',
+            'cad_measurement_pose',
             'cad_measurement_quality', 'cad_measurement_runner',
             'cad_measurement_session', 'cad_measurement_state',
             'cad_measurement_stimulus', 'cad_measurement_target_pattern',
@@ -127,35 +128,217 @@ PACKAGE_LAYERS: dict[str, dict[str, tuple[str, ...]]] = {
             'cad_measurement_uncertainty', 'cad_measurements',
             'cad_moving_mic_measurement',
             'cad_prediction_measurement_registration',
+            'cad_remeasure_queue',
             'cad_spatial_ir_measurement', 'cad_spatial_ir_metrics',
             'measurement_analysis', 'measurement_evidence_display',
             'measurement_instrument_onboarding', 'measurement_journey',
             'measurement_playback_safety',
         ),
         'services': (
-            'cad_measurement_effective', 'cad_measurement_loop',
+            'cad_measurement_loop',
             'cad_measurement_quality_producer',
             'cad_prediction_measurement_service',
+            'cad_remeasure_queue_service',
             'cad_system_variant_measurement_campaign',
             'measurement_target_service', 'measurement_workflow',
         ),
         'persistence': (
             'cad_measurement_evidence_repository',
+            'cad_measurement_effective',
+            'cad_measurement_pose_observation_repository',
             'cad_measurement_quality_repository',
             'cad_measurement_repository',
             'cad_measurement_runner_repository',
             'cad_measurement_setup_repository',
+            'cad_target_pattern_repository',
             'cad_prediction_measurement_registration_repository',
+            'cad_remeasure_queue_repository',
         ),
         'ui': (
             'measurement_authority_dialogs', 'measurement_explanations',
             'measurement_page_workspace', 'measurement_record_surfaces',
             'optimization_measurement_controller',
+            'reflection_correspondence_panel',
+        ),
+    },
+    'capture': {
+        'domain': (
+            'capture_binary_formats', 'capture_bundle',
+            'capture_compatibility', 'capture_mesh_ingestion',
+            'capture_mission', 'capture_plan_schema', 'capture_reference',
+            'capture_schema_eval', 'capture_watch_failures',
+            'capture_watch_guard',
+        ),
+        'services': (
+            'capture_authoring', 'capture_connected_space',
+            'capture_entity_promotion', 'capture_import',
+            'capture_receiver', 'capture_retention',
+        ),
+        'persistence': (
+            'capture_inbox', 'capture_ingestion_transaction',
+            'capture_semantic_promotion',
+        ),
+        'ui': (
+            'capture_receiver_controller', 'capture_receiver_settings',
+            'capture_retention_ui', 'capture_watch_runner',
+        ),
+    },
+    'calibration': {
+        'domain': (
+            'cad_calibration', 'cad_calibration_deployment',
+            'cad_calibration_lifecycle',
+            'cad_calibration_wizard_records', 'cad_external_calibration',
+            'cad_mic_response_calibration', 'cad_model_calibration',
+        ),
+        'services': (
+            'cad_calibration_wizard', 'cad_calibration_workflow',
+        ),
+        'persistence': (
+            'cad_calibration_deployment_repository',
+            'cad_calibration_lifecycle_repository',
+            'cad_calibration_repository',
+            'cad_calibration_wizard_repository',
+            'cad_calibration_workflow_repository',
+            'cad_model_calibration_repository',
+        ),
+    },
+    'acoustics': {
+        'domain': (
+            'acoustic_bakeoff',
+            'acoustic_bakeoff_mfem_concave_experiment',
+            'acoustic_bakeoff_mfem_modal_experiment',
+            'acoustic_bakeoff_mfem_spatial_experiment',
+            'acoustic_bakeoff_mfem_transient_experiment',
+            'acoustic_bakeoff_observation', 'acoustic_bakeoff_readiness',
+            'acoustic_benchmark', 'acoustic_metric_applicability',
+            'acoustic_pffdtd_causal_boundary',
+            'acoustic_pffdtd_polyhedral_geometry',
+            'acoustic_pyroom_stochastic', 'acoustic_spatial_decomposition',
+            'acoustic_validation_envelope', 'acoustics',
+            'cad_acoustic_construction', 'cad_acoustic_environment',
+            'cad_acoustic_geometry_derivation', 'cad_acoustic_index',
+            'cad_acoustic_material', 'cad_acoustic_portal_coupling',
+            'cad_acoustic_snapshot', 'cad_acoustic_solver_result',
+            'cad_acoustic_solver_adapter', 'cad_acoustic_source_pose',
+            'cad_acoustic_target', 'cad_candidate_wave_contracts',
+            'cad_geometric_acoustics_contracts',
+            'cad_hybrid_numerical_composition',
+            'cad_acoustic_treatment', 'cad_acoustic_treatment_comparison',
+            'cad_diffuseness_applicability', 'cad_display_acoustic_boundary',
+            'cad_fixture_scattering', 'cad_geometric_acoustics_portal',
+            'cad_geometric_acoustics_response', 'cad_hybrid_acoustic_result',
+            'cad_hybrid_composition_validation',
+            'cad_hybrid_grid_reconciliation',
+            'cad_hybrid_handoff_authority', 'cad_hybrid_late_energy',
+            'cad_hybrid_prediction_objective_contracts',
+            'cad_hybrid_stitching', 'cad_measured_modal_analysis',
+            'cad_modal_decay_view', 'cad_observer_scattering',
+            'cad_occupancy_acoustics', 'cad_pffdtd_resource_estimator',
+            'cad_scattering_model_authority', 'cad_seating_acoustics',
+            'cad_solver_capability_manifest', 'cad_solver_confidence_bound',
+            'cad_solver_reproducibility', 'cad_sound_isolation',
+            'cad_sound_strength', 'cad_surface_scattering',
+            'cad_ulf_acoustics', 'cad_wave_excitation',
+            'cad_wave_fidelity_authority', 'cad_wave_qualification',
+            'cad_wave_source_model', 'nonconvergence_modal_reference',
+            'pffdtd_boundary_halo',
+        ),
+        'services': (
+            'acoustic_pffdtd_adapter', 'acoustic_pffdtd_impedance_adapter',
+            'acoustic_pffdtd_polyhedral_executor',
+            'acoustic_treatment_service', 'cad_acoustic_object_promotion',
+            'cad_candidate_wave_execution',
+            'cad_geometric_acoustics_adapter',
+            'cad_hybrid_prediction_provider',
+            'cad_hybrid_prediction_provider_integration',
+            'cad_stochastic_ray_receiver', 'solver_output_ledger',
+        ),
+        'persistence': (
+            'cad_acoustic_environment_repository',
+            'cad_acoustic_material_repository',
+            'cad_acoustic_metrology_repository',
+            'cad_acoustic_snapshot_repository',
+            'cad_acoustic_solver_dispatch_repository',
+            'cad_acoustic_solver_result_repository',
+            'cad_acoustic_source_pose_repository',
+            'cad_acoustic_treatment_comparison_repository',
+            'cad_acoustic_treatment_repository',
+            'cad_diffuseness_applicability_repository',
+            'cad_hybrid_acoustic_result_repository',
+            'cad_hybrid_composition_validation_repository',
+            'cad_hybrid_handoff_repository',
+            'cad_late_energy_decay_repository',
+            'cad_modal_decay_view_repository',
+            'cad_numerical_hybrid_response_repository',
+            'cad_path_frequency_response_repository',
+            'cad_scattering_model_repository',
+            'cad_seating_acoustics_repository',
+            'cad_solver_confidence_bound_repository',
+            'cad_stitched_hybrid_response_repository',
+            'cad_wave_excitation_repository',
+            'cad_wave_fidelity_repository',
+        ),
+        'ui': (
+            'room_acoustics_panel', 'solver_output_diagnostics_ui',
+        ),
+    },
+    'optimization': {
+        'domain': (
+            'cad_joint_optimization',
+            'cad_multi_sub_optimization',
+            'cad_objective_authority',
+            'cad_objective_models',
+            'cad_objectives',
+            'cad_optimizer_qualification',
+            'optimization_journey',
+            'optimization_objectives',
+            'optimization_robustness',
+            'optimization_robustness_multidimensional',
+            'optimization_robustness_uncertainty',
+            'optimization_robustness_validation',
+            'pareto',
+            'placement_constraints',
+        ),
+        'services': (
+            'joint_optimization_context',
+            'optimization_robustness_overlay',
+            'optimization_robustness_presenter',
+            'robustness_authoring_context',
+        ),
+        'persistence': (
+            'cad_joint_optimization_repository',
+            'cad_multi_sub_optimization_repository',
+            'cad_objective_repository',
+            'cad_optimizer_qualification_repository',
+            'cad_proposal_robust_pareto',
+            'cad_proposal_robustness',
+            'cad_robust_design_repository',
+            'cad_robust_pareto',
+            'cad_robustness_repository',
+            'cad_robustness_validation_repository',
+        ),
+        'ui': (
+            'joint_optimization_panel',
+            'multi_sub_optimization_panel',
+            'optimization_adaptive_controller',
+            'optimization_adaptive_extended_controller',
+            'optimization_extended_controller',
+            'optimization_robustness_controller',
+            'optimization_search_controller',
+            'optimization_search_domain',
+            'optimization_validation_controller',
+            'optimization_workflow_controller',
+            'optimization_workflow_workspace',
+            'robustness_authoring_panel',
         ),
     },
 }
 PACKAGE_DIRECTION = {
     'measurement': 'ui -> services -> persistence -> domain',
+    'capture': 'ui -> services -> persistence -> domain',
+    'calibration': 'ui -> services -> persistence -> domain',
+    'acoustics': 'ui -> services -> persistence -> domain',
+    'optimization': 'ui -> services -> persistence -> domain',
 }
 """Documented import direction per package."""
 
@@ -201,8 +384,9 @@ SIZE_EXEMPTIONS: dict[str, str] = {
     'room_workspace': 'workspace composition; extract per-stage controllers',
     'measurement_page_workspace': '#815 catch-boundary cleanup precedes split',
     'measurement_evidence_display': 'display composition; split per panel',
-    'capture_ingestion_transaction': 'transaction pipeline; stage modules',
     'workflow_application': 'composition root; keep wiring, move widgets',
+    'application_pages': 'page composition root; extract per-destination panels',
+    'room_viewport': '3D viewport; split overlays from the canvas core',
 }
 """Keyed by module *stem* — survives moves into declared packages."""
 
@@ -356,11 +540,11 @@ def _touches_upper_layer(component: tuple[str, ...], layers: dict[str, str]) -> 
 
 #: Known small cycles — debt recorded for the #807 decomposition plan;
 #: each must shrink or be split, but none may grow members.
-KNOWN_CYCLES: frozenset[tuple[str, ...]] = frozenset({
-    ('dirty_state_dialog', 'workflow_shell'),
-    ('project_bundle', 'project_library_repository'),
-    ('cad_project_template', 'project_setup_intent'),
-})
+# All three previously pinned pairs were resolved by the #807 refactor slice:
+# dirty_state_dialog takes a structural _MountLike Protocol (shell keeps its
+# lazy import), project_bundle reads the htdt_project_documents row directly,
+# and the template-brief materializers moved into cad_project_template.
+KNOWN_CYCLES: frozenset[tuple[str, ...]] = frozenset()
 
 
 def _violation(rule: str, module: str, detail: str) -> dict[str, str]:
@@ -399,7 +583,7 @@ def audit(root: Path = ROOT) -> dict:
         if is_shim(node):
             # The shim's layer is its target's: the single forwarding edge is
             # then layer-identical on both ends and can never violate.
-            impl = f'measurement.{MOVED[stem][1]}.{stem}'
+            impl = f'{MOVED[stem][0]}.{MOVED[stem][1]}.{stem}'
             layers[node] = classify(impl, stem, qt_imports.get(impl, False))
             package_layers[node] = 'shim'
             continue
@@ -571,7 +755,8 @@ def diff_against_baseline(report: dict, baseline_path: Path) -> dict:
     now_viol = {violation_key(v): v for v in report['violations']}
 
     new_violations = sorted(
-        v for k, v in now_viol.items() if k not in base_viol)
+        (v for k, v in now_viol.items() if k not in base_viol),
+        key=violation_key)
     resolved = sorted(k for k in base_viol if k not in now_viol)
 
     base_cycles = [set(c) for c in base['cycles']]

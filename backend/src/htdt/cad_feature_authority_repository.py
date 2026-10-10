@@ -452,6 +452,49 @@ class CadFeatureAuthorityRepository:
             return None
         return RackLayout.model_validate_json(rows[0]['payload_json'])
 
+    def list_rack_definitions(
+        self, document_id: str | None = None
+    ) -> tuple[RackDefinition, ...]:
+        """Rack definitions visible to a document.
+
+        Mirrors the registry scope rule — project-bound records plus the
+        global (unbound) library satisfy a document; another project's
+        records never do. ``document_id=None`` lists every row.
+        """
+        rows = (
+            self._rows('cad_rack_definitions')
+            if document_id is None
+            else self._rows(
+                'cad_rack_definitions',
+                where='document_id=? OR document_id IS NULL',
+                args=(document_id,),
+            )
+        )
+        return tuple(
+            RackDefinition.model_validate_json(row['payload_json'])
+            for row in rows
+        )
+
+    def list_rack_layouts(
+        self, rack_id: str, document_id: str | None = None
+    ) -> tuple[RackLayout, ...]:
+        """Persisted layouts for one rack, oldest → newest.
+
+        Layouts are content-keyed append-only rows: each explicit update is
+        a new row, so the latest entry is the current layout and earlier
+        ones are its recorded history. Scope follows
+        :meth:`list_rack_definitions`.
+        """
+        where = 'rack_id=?'
+        args: tuple[Any, ...] = (rack_id,)
+        if document_id is not None:
+            where += ' AND (document_id=? OR document_id IS NULL)'
+            args = (rack_id, document_id)
+        return tuple(
+            RackLayout.model_validate_json(row['payload_json'])
+            for row in self._rows('cad_rack_layouts', where=where, args=args)
+        )
+
     # ------------------------------------------------------------------
     # Project BOM (#639)
 

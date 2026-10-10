@@ -20,6 +20,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import pytest
 from PySide6.QtCore import QEvent
 from PySide6.QtWidgets import QApplication
+from shiboken6 import isValid
 
 from htdt.cad_measurement_repository import CadMeasurementRepository
 from htdt.cad_repository import SceneRepository
@@ -83,6 +84,32 @@ def _seed_data(data_dir: Path) -> None:
     asset = data_dir / f'measurement-assets/{digest}'
     asset.parent.mkdir(parents=True, exist_ok=True)
     asset.write_bytes(raw)
+
+
+def _controller(data_dir: Path) -> DataManagementController:
+    backend = DataManagementBackend(data_dir)
+    lifecycle = ApplicationDataLifecycle(
+        freeze_mutations=lambda: None,
+        release_data_handles=lambda: None,
+        reopen_data_handles=lambda: None,
+        thaw_mutations=lambda: None,
+    )
+    return DataManagementController(backend, lifecycle)
+
+
+def _kill_thread_cpp(thread, app: QApplication) -> None:
+    """Destroy the C++ QThread object while its task record still lives.
+
+    The reported REV73 crash needs a *stale record*: ``_tasks``/``_active``
+    referencing a QThread whose C++ object is already deleted. It happens
+    when ``finished -> deleteLater`` is delivered before the record drop —
+    reproduced here by never pumping the finished metacalls and flushing a
+    receiver-typed DeferredDelete, the only delivery this Qt build honors.
+    Every method call on the dead wrapper then raises ``RuntimeError:
+    Internal C++ object (QThread) already deleted``.
+    """
+    thread.deleteLater()
+    app.sendPostedEvents(thread, QEvent.Type.DeferredDelete)
 
 
 def test_pool_destroyed_without_shutdown_cancels_workers(app) -> None:
@@ -260,3 +287,291 @@ def test_deferred_delete_needs_typed_delivery(app) -> None:
 
     app.sendPostedEvents(widget, QEvent.Type.DeferredDelete)
     assert not isValid(widget)  # typed delivery always does
+
+
+def test_detach_releases_record_whose_thread_already_died(app) -> None:
+    """REV73 defect: ``_detach`` on a record whose QThread C++ object is
+    already deleted raised ``RuntimeError`` from the dict-pin line itself —
+    leaving the stale record in ``_tasks`` and, inside ``_detach_all``,
+    aborting the whole detach loop so live threads died with the pool.
+
+    The fixed contract: release the stale bookkeeping, pin nothing (a dead
+    key can never be released by finished/destroyed), and never let the
+    vanished task count as running.
+    """
+    pool = NativeWorkerPool(shutdown_timeout_ms=50)
+    baseline = lingering_thread_count()
+    thread, _worker = pool.start("dead-on-detach", lambda _cancel: None)
+    # worker.completed -> thread.quit is queued to the UI thread, so the
+    # worker's exec loop only exits once quit() is requested directly —
+    # finishing natively while its finished metacalls are still unpumped.
+    thread.quit()
+    assert thread.wait(5000)
+    _kill_thread_cpp(thread, app)
+    assert not isValid(thread)
+    # The finished metacalls were never pumped, so the record outlived
+    # the C++ object — the stale-record state behind the crash.
+    assert "dead-on-detach" in pool.tasks
+
+    pool._detach("dead-on-detach")
+
+    assert "dead-on-detach" not in pool.tasks
+    assert lingering_thread_count() == baseline
+    # The vanished worker must not be re-reported as running.
+    assert pool.active_count == 0
+    app.processEvents()  # late finished metacall: dead sender, must not raise
+    assert "dead-on-detach" not in pool.tasks
+    _destroy(pool)
+
+
+def test_detach_after_natural_finish_releases_without_linger(app) -> None:
+    """A thread that finished before ``_detach`` is unpinned immediately —
+    the record drops and nothing leaks into ``_LINGERING_THREADS``."""
+    pool = NativeWorkerPool(shutdown_timeout_ms=50)
+    baseline = lingering_thread_count()
+    thread, _worker = pool.start("already-finished", lambda _cancel: None)
+    thread.quit()
+    assert thread.wait(5000)
+    # C++ object still alive (deleteLater metacall not yet pumped): detach
+    # must take the finished-check path, not the dead-object path.
+    assert isValid(thread)
+    assert "already-finished" in pool.tasks
+
+    pool._detach("already-finished")
+
+    assert "already-finished" not in pool.tasks
+    assert lingering_thread_count() == baseline
+    _destroy(pool)
+
+
+def test_shutdown_releases_dead_record_as_stopped(app) -> None:
+    """``_stop_tracked`` must not let a stale record raise RuntimeError out
+    of ``shutdown()``: a thread whose C++ object is gone cannot be running
+    (~QThread on a live thread aborts the process), so it counts as
+    stopped — honestly, never as lingering."""
+    pool = NativeWorkerPool(shutdown_timeout_ms=50)
+    baseline = lingering_thread_count()
+    thread, _worker = pool.start("dead-in-shutdown", lambda _cancel: None)
+    thread.quit()
+    assert thread.wait(5000)
+    _kill_thread_cpp(thread, app)
+    assert "dead-in-shutdown" in pool.tasks
+
+    report = pool.shutdown()
+
+    assert report.stopped_keys == ("dead-in-shutdown",)
+    assert report.lingering_keys == ()
+    assert report.all_stopped is True
+    assert "dead-in-shutdown" not in pool.tasks
+    assert lingering_thread_count() == baseline
+    _destroy(pool)
+
+
+def test_restart_releases_dead_record_before_start(app) -> None:
+    """Key reuse calls ``_detach`` on the old record first: a dead old
+    thread must release quietly so the fresh task starts — the old worker
+    must not resurrect under the same key."""
+    pool = NativeWorkerPool(shutdown_timeout_ms=50)
+    baseline = lingering_thread_count()
+    old_thread, _old_worker = pool.start("dup-dead", lambda _cancel: None)
+    old_thread.quit()
+    assert old_thread.wait(5000)
+    _kill_thread_cpp(old_thread, app)
+    assert "dup-dead" in pool.tasks
+
+    started = Event()
+
+    def fresh(cancel_event: Event) -> None:
+        started.set()
+        cancel_event.wait(5.0)
+
+    new_thread, _new_worker = pool.start("dup-dead", fresh)
+    assert _pump_until(started.is_set)
+    assert new_thread is not old_thread
+    record = pool.tasks["dup-dead"]
+    assert record[0] is new_thread
+    assert lingering_thread_count() == baseline
+
+    report = pool.shutdown(timeout_ms=2000)
+    assert report.stopped_keys == ("dup-dead",)
+    _destroy(pool)
+
+
+def test_stale_finished_metacall_cannot_drop_restarted_record(
+    app, monkeypatch
+) -> None:
+    """A ``finished`` queued by a superseded thread must never release the
+    fresh task's record — even when its stored sender pointer resolves to
+    the new thread's reused C++ address.
+
+    The queued metacall holds the emitter's raw pointer; once the dead
+    QThread's address is recycled by the replacement task's QThread,
+    ``sender()`` returns the *live new object* — pointer comparison cannot
+    tell a stale emission from a genuine one (the ``_WorkerCompletionRelay``
+    hazard, one layer down). Delivery must therefore carry the Python
+    thread object and gate on identity.
+    """
+    pool = NativeWorkerPool(shutdown_timeout_ms=50)
+    baseline = lingering_thread_count()
+    old_thread, _old_worker = pool.start("dup-dead", lambda _cancel: None)
+    old_thread.quit()
+    assert old_thread.wait(5000)
+    _kill_thread_cpp(old_thread, app)
+    assert "dup-dead" in pool.tasks
+
+    started = Event()
+    finished_calls: list[str] = []
+
+    def fresh(cancel_event: Event) -> None:
+        started.set()
+        cancel_event.wait(5.0)
+
+    new_thread, _new_worker = pool.start(
+        "dup-dead", fresh, on_finished=finished_calls.append
+    )
+    assert _pump_until(started.is_set)
+    assert new_thread is not old_thread
+
+    # Deliver the stale finished for the superseded thread. On the
+    # identity-bound path it arrives as ``_thread_finished(old_thread)``;
+    # before that, the slot resolved the emitter through ``sender()`` —
+    # simulate the reused-address resolution by answering ``sender()``
+    # with the live new thread.
+    try:
+        pool._thread_finished(old_thread)
+    except TypeError:
+        monkeypatch.setattr(pool, "sender", lambda: new_thread)
+        pool._thread_finished()
+
+    assert "dup-dead" in pool.tasks
+    assert pool.tasks["dup-dead"][0] is new_thread
+    assert not finished_calls
+    assert lingering_thread_count() == baseline
+
+    report = pool.shutdown(timeout_ms=2000)
+    assert report.stopped_keys == ("dup-dead",)
+    _destroy(pool)
+
+
+def test_pool_destroyed_with_dead_record_still_detaches_live_thread(app) -> None:
+    """The reported crash path: inside ``_detach_all`` one stale record
+    raised mid-loop, so the sibling *live* thread was never detached and
+    ``~QThread`` then destroyed it while running — a fatal abort.
+
+    Post-fix: the dead record is released and the live thread is detached
+    to module ownership as designed — it keeps running after the pool dies.
+    """
+    pool = NativeWorkerPool(shutdown_timeout_ms=50)
+    baseline = lingering_thread_count()
+    started = Event()
+
+    def watching(cancel_event: Event) -> None:
+        started.set()
+        cancel_event.wait(5.0)
+
+    dead_thread, _dead_worker = pool.start("stale", lambda _cancel: None)
+    dead_thread.quit()
+    assert dead_thread.wait(5000)
+    _kill_thread_cpp(dead_thread, app)
+    assert "stale" in pool.tasks
+    live_thread, live_worker = pool.start("live", watching)
+    assert _pump_until(started.is_set)
+
+    _destroy(pool)
+
+    # The live thread survived its owner: still running, re-owned at
+    # module scope — and the dead record is simply gone.
+    assert live_thread.isRunning() is True
+    assert lingering_thread_count() == baseline + 1
+    assert live_worker.cancel_event.is_set()
+    # The detached pair still cleans itself up once the callable returns.
+    assert _pump_until(lambda: live_thread.isFinished())
+    assert _pump_until(lambda: lingering_thread_count() == baseline)
+
+
+def test_late_finished_metacall_for_dead_sender_drops_record(app) -> None:
+    """A ``finished`` delivered after its sender died arrives with
+    ``sender() is None`` (PySide6): the slot must release every stale
+    record instead of leaving dead wrappers in ``_tasks`` to crash the
+    next ``_detach``/``_stop_tracked``/``start``."""
+    pool = NativeWorkerPool(shutdown_timeout_ms=50)
+    baseline = lingering_thread_count()
+    thread, _worker = pool.start("dead-sender", lambda _cancel: None)
+    thread.quit()
+    assert thread.wait(5000)
+    _kill_thread_cpp(thread, app)
+    assert "dead-sender" in pool.tasks
+
+    app.processEvents()  # delivers the queued finished -> dead sender
+
+    assert "dead-sender" not in pool.tasks
+    assert lingering_thread_count() == baseline
+    _destroy(pool)
+
+
+def _instant_backup(data_dir, destination, *, allow_stale=False, is_cancelled=None):
+    """Worker-side stand-in that returns immediately."""
+    return object()
+
+
+def test_detach_active_thread_releases_when_op_thread_already_died(
+    app, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Same defect on the data-management twin: ``_detach_active_thread``
+    with a stale ``_active`` (controller destroyed after the op thread's
+    C++ object was deleted) pinned the dead wrapper then raised on
+    ``setParent`` — RuntimeError out of a ``destroyed`` handler plus a
+    leaked ``_LINGERING_OP_THREADS`` key."""
+    data_dir = tmp_path / 'data'
+    _seed_data(data_dir)
+    controller = _controller(data_dir)
+    monkeypatch.setattr(
+        'htdt.data_management.native_create_backup', _instant_backup
+    )
+    baseline = lingering_op_thread_count()
+
+    controller.create_backup(tmp_path / 'out.htdt-backup')
+    active = controller._active
+    assert active is not None
+    # worker.finished -> thread.quit is queued to the UI thread; quit()
+    # directly so the op thread finishes natively while its finished
+    # metacalls stay unpumped.
+    active.thread.quit()
+    assert active.thread.wait(5000)
+    _kill_thread_cpp(active.thread, app)
+    assert not isValid(active.thread)
+    # The finished metacall was never pumped, so _active still holds the
+    # dead thread — the stale-record state the sibling session hit.
+
+    controller._detach_active_thread()
+
+    assert controller._active is None
+    assert lingering_op_thread_count() == baseline
+    assert controller.can_close_application is True
+    _destroy(controller)
+
+
+def test_controller_destroyed_with_dead_op_thread_leaves_no_lingering(
+    app, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The full crash path through ``destroyed``: the controller dies
+    while ``_active`` references a deleted QThread — detach must release
+    it without raising inside the destroyed handler and without leaking."""
+    data_dir = tmp_path / 'data'
+    _seed_data(data_dir)
+    controller = _controller(data_dir)
+    monkeypatch.setattr(
+        'htdt.data_management.native_create_backup', _instant_backup
+    )
+    baseline = lingering_op_thread_count()
+
+    controller.create_backup(tmp_path / 'out.htdt-backup')
+    active = controller._active
+    assert active is not None
+    active.thread.quit()
+    assert active.thread.wait(5000)
+    _kill_thread_cpp(active.thread, app)
+
+    _destroy(controller)
+
+    assert lingering_op_thread_count() == baseline

@@ -534,7 +534,7 @@ def run_conformance_harness(
                         )
             else:
                 detail = f'unknown operation {case.operation!r}'
-        except Exception as exc:  # harness records, never crashes
+        except Exception as exc:  # error-boundary: harness lane — a crashing case records an honest FAIL with the exception identity, never a pass (noqa: BLE001)
             status = 'FAIL'
             detail = f'{type(exc).__name__}: {exc}'
 

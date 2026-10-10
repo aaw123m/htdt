@@ -27,6 +27,7 @@ from ..domain.cad_measurement_quality import dataset_sha256
 from ..domain.cad_measurements import import_transformation_sha256, verify_imported_dataset
 from ...cad_repository import SceneRepository, SceneRevision
 from ...cad_scene import acoustic_reference_position, scene_content_hash
+from ...cad_search import iter_cad_candidate_pages
 from ...cad_search_repository import CadSearchRepository
 from ...comparison import ComparisonResult, FrequencyResponse, replay_comparison_result
 from ...managed_assets import (
@@ -44,7 +45,7 @@ from typing import TYPE_CHECKING
 from ...clock import utc_now_iso as _utc_now
 
 if TYPE_CHECKING:
-    from ..services.cad_measurement_loop import CadMeasurementPlan
+    from ..domain.cad_measurement_plan import CadMeasurementPlan
 
 
 class MeasurementPlanConflictError(ValueError):
@@ -422,7 +423,7 @@ class CadMeasurementRepository:
                 verified[measurement_id] = self._row_to_dataset(
                     row, datasets=datasets, asset_rows=asset_rows
                 )
-            except Exception as exc:
+            except Exception as exc:  # error-boundary: row read — a row-decode failure lands in errors verbatim; one poisoned row never loses the healthy datasets (noqa: BLE001)
                 errors[measurement_id] = exc
         return verified, errors
 
@@ -1423,8 +1424,8 @@ class CadMeasurementRepository:
         is revalidated on every save, so the builder remains a convenience and
         not the only integrity boundary.
         """
-        from ..services.cad_measurement_loop import CadMeasurementPlan, _resolve_candidate
-        from ...cad_search import candidate_preview_document
+        from ..domain.cad_measurement_plan import CadMeasurementPlan
+        from ...cad_search import candidate_preview_document, iter_cad_candidate_pages
         if not isinstance(plan, CadMeasurementPlan):
             raise TypeError('plan must be CadMeasurementPlan')
         plan = CadMeasurementPlan.model_validate(plan.model_dump(mode='python'))
@@ -1517,7 +1518,7 @@ class CadMeasurementRepository:
         A pre-existing fork, a measured-first root or history continuing past
         a measured terminal is surfaced as ``ValueError`` rather than guessed.
         """
-        from ..services.cad_measurement_loop import CadMeasurementPlan
+        from ..domain.cad_measurement_plan import CadMeasurementPlan
         with closing(self._read()) as connection, connection:
             rows = connection.execute(
                 'SELECT * FROM cad_measurement_plans WHERE search_spec_id=? ORDER BY seq ASC',
@@ -1570,3 +1571,11 @@ class CadMeasurementRepository:
                 order.append(plan.plan_id)
             latest[plan.plan_id] = plan
         return tuple(latest[plan_id] for plan_id in order)
+
+
+def _resolve_candidate(scene_repository: SceneRepository, spec, candidate_id: str):
+    for page in iter_cad_candidate_pages(scene_repository, spec):
+        for candidate in page.candidates:
+            if candidate.candidate_id == candidate_id:
+                return candidate, page.candidate_set_sha256
+    raise ValueError('candidate does not belong to SearchSpec candidate set')

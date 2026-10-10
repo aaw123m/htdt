@@ -7,7 +7,7 @@ from contextlib import closing
 from typing import Literal
 from uuid import uuid4
 
-from ..services.cad_measurement_effective import CadEffectiveMeasurementResolver
+from .cad_measurement_effective import CadEffectiveMeasurementResolver
 from ..domain.cad_measurement_quality import dataset_sha256, measurement_sha256
 from .cad_measurement_quality_repository import CadMeasurementQualityRepository
 from ..domain.cad_measurement_runner import (

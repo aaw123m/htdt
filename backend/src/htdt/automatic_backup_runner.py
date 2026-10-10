@@ -119,7 +119,7 @@ class AutomaticBackupRunner(QObject):
                 self._on_completed,
                 on_finished=self._job_finished,
             )
-        except Exception:
+        except Exception:  # error-boundary: state recovery before re-raise — any pool-start failure clears _in_flight so later ticks are never absorbed forever (noqa: BLE001)
             # A raise (e.g. pool shut down) must not leave ``_in_flight``
             # stuck — every later tick would be absorbed forever.
             self._in_flight = False

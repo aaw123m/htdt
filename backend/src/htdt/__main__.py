@@ -152,7 +152,7 @@ def reserve_listening_socket(host: str = HOST, preferred_port: int = DEFAULT_POR
         fallback.bind((host, 0))
         fallback.listen(2048)
         return fallback, int(fallback.getsockname()[1])
-    except Exception:
+    except Exception:  # error-boundary: cleanup before re-raise — a bind/listen failure closes the fallback socket so it is never leaked (noqa: BLE001)
         fallback.close()
         raise
 

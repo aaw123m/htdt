@@ -55,6 +55,7 @@ from .native_backup import inspect_backup
 from .project_bundle import import_project_bundle
 from .project_library_repository import ProjectLibraryRepository
 from .user_facing_error import operation_error_message
+from .error_boundary import EXPECTED_OPERATION_ERRORS
 
 
 _LOGGER = logging.getLogger('htdt.native')
@@ -106,7 +107,7 @@ def route_launch_intent(
             return route_capture_intent(intent, repository=repository)
         if intent.kind == 'preview_backup':
             return route_backup_intent(intent)
-    except Exception as exc:  # pragma: no cover - last-resort guard
+    except Exception as exc:  # error-boundary: last-resort router guard — any routing failure logs (exception) and yields an honest 'failed' result; routing never crashes the launch (noqa: BLE001)
         _LOGGER.exception('launch intent routing raised: %s', intent.path)
         return _result(
             intent, 'failed',
@@ -135,7 +136,7 @@ def route_open_project_intent(
     if zipfile.is_zipfile(path):
         try:
             imported = import_project_bundle(repository, path)
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: import surface — expected failures log and yield an honest 'failed' result verbatim; unexpected errors propagate to the router guard
             _LOGGER.info('project bundle import failed for %s: %s', path, exc)
             return _result(
                 intent, 'failed',
@@ -302,7 +303,7 @@ def route_capture_intent(
             scope=CAPTURE_STAGE_SCOPE,
             source_detail=str(path),
         )
-    except Exception as exc:
+    except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: staging surface — expected failures log and yield an honest 'failed' result verbatim; unexpected errors propagate to the router guard
         _LOGGER.info('capture inbox staging failed for %s: %s', bundle_path, exc)
         return _result(
             intent, 'failed',
@@ -334,7 +335,7 @@ def route_backup_intent(
         )
     try:
         manifest, staged_schema = inspect_backup(path)
-    except Exception as exc:
+    except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: validation surface — expected failures log and yield an honest 'invalid_or_unsupported' result verbatim; unexpected errors propagate to the router guard
         _LOGGER.info('backup validation failed for %s: %s', path, exc)
         return _result(
             intent,

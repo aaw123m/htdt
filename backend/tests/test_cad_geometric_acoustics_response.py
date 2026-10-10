@@ -38,7 +38,6 @@ from htdt.cad_geometric_acoustics_adapter import (
 )
 from htdt.cad_geometric_acoustics_response import (
     ANALYTIC_OMNI_DIRECTIVITY_MODEL,
-    CadPathFrequencyResponseRepository,
     ComplexTransferSample,
     build_acoustic_environment_authority,
     build_deterministic_path_frequency_response,
@@ -56,6 +55,7 @@ from htdt.cad_geometric_acoustics_response import (
 from htdt.cad_repository import SceneRepository
 from htdt.cad_scene import Direction3, Position3
 from htdt.r120_geometry_compiler import ExactExternalAuthorityRef
+from htdt.acoustics.persistence.cad_path_frequency_response_repository import CadPathFrequencyResponseRepository
 
 
 H = '1' * 64

@@ -16,7 +16,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 from math import isfinite, sqrt
-from typing import Any
+from typing import Any, Protocol
 from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -25,7 +25,7 @@ from ...cad_listener_pose import (
     ListenerPoseAuthority,
     pose_acoustic_reference_position,
 )
-from ...cad_repository import SceneRepository, SceneRevision
+from ...cad_scene_revisions import SceneRevision
 from ...cad_scene import (
     Position3,
     SceneDocument,
@@ -244,6 +244,17 @@ class MeasurementTargetDrift:
     initial_drift_m: float
 
 
+class _SceneHeadSource(Protocol):
+    """Anything that resolves a document's current head revision.
+
+    ``SceneRepository`` satisfies this structurally; declaring the surface
+    here keeps the drift computation at domain rank without importing the
+    persistence layer (#807).
+    """
+
+    def current_head(self, document_id: str) -> SceneRevision | None: ...
+
+
 def _distance(a: Position3, b: Position3) -> float:
     return sqrt(
         (a.x_m - b.x_m) ** 2 + (a.y_m - b.y_m) ** 2 + (a.z_m - b.z_m) ** 2
@@ -251,7 +262,7 @@ def _distance(a: Position3, b: Position3) -> float:
 
 
 def measurement_target_drift(
-    scene_repository: SceneRepository,
+    scene_repository: _SceneHeadSource,
     lineage: CadMeasurementTargetLineage,
 ) -> MeasurementTargetDrift | None:
     """Current drift between a lineage-bound point and its source seat.

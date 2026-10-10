@@ -37,7 +37,6 @@ from htdt.cad_geometric_acoustics_response import (
 )
 from htdt.cad_hybrid_grid_reconciliation import HybridNumericalFailureCode
 from htdt.cad_hybrid_numerical_composition import (
-    CadNumericalHybridResponseRepository,
     NumericalHybridResponseArtifact,
     build_hybrid_convention_normalization_authority,
     build_numerical_hybrid_composition_spec,
@@ -101,6 +100,7 @@ from htdt.comparison import FrequencyResponse
 from htdt.optimization_objectives import ResponseObjectiveSpec
 from htdt.r120_geometry_compiler import ExactExternalAuthorityRef
 from scripts.run_r130a_candidate_wave_execution import _fixture as r130_fixture
+from htdt.acoustics.persistence.cad_numerical_hybrid_response_repository import CadNumericalHybridResponseRepository
 
 
 def _canonical(value: object) -> str:

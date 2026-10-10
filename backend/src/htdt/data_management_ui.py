@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Protocol
 
+from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -14,16 +15,19 @@ from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
+    QMenu,
     QMessageBox,
     QProgressBar,
     QPushButton,
     QScrollArea,
     QSizePolicy,
     QSpinBox,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
 
+from .modal_transient import exec_transient
 from . import file_dialog_memory
 from .data_management import (
     BackupCreateResult,
@@ -45,6 +49,7 @@ from .automatic_backup import (
 )
 from .data_relocation import ManagedDataRelocationPlan
 from .legacy_data import inspect_legacy_store
+from .restore_drill import RestoreDrillResult, latest_drill_result
 from .storage_maintenance import (
     StorageGcResult,
     StorageReport,
@@ -61,6 +66,11 @@ from .ui_theme import (
     set_typography_role,
 )
 from .user_facing_error import operation_error_message
+from .error_boundary import (
+    EXPECTED_OPERATION_ERRORS,
+    is_authority_failure,
+    report_boundary_failure,
+)
 
 
 _BACKUP_SUFFIX = ".htdt-backup"
@@ -77,6 +87,8 @@ class DataManagementDialogProvider(Protocol):
     def choose_restore_file(self, parent: QWidget) -> Path | None: ...
 
     def choose_relocation_destination(self, parent: QWidget) -> Path | None: ...
+
+    def choose_drill_sandbox(self, parent: QWidget) -> Path | None: ...
 
 
 class QtDataManagementDialogProvider:
@@ -122,6 +134,15 @@ class QtDataManagementDialogProvider:
         )
         return None if not selected else Path(selected)
 
+    def choose_drill_sandbox(self, parent: QWidget) -> Path | None:
+        selected = file_dialog_memory.get_existing_directory(
+            parent,
+            "復元テスト用の隔離フォルダーを選択（本番データは変更されません）",
+            'data.drill_sandbox',
+            default_dir=str(Path.home()),
+        )
+        return None if not selected else Path(selected)
+
 
 RestoreConfirmation = Callable[[QWidget, RestorePreview], bool]
 RelocationConfirmation = Callable[[QWidget, ManagedDataRelocationPlan], bool]
@@ -147,7 +168,7 @@ def _default_relocate_confirmation(
         QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel
     )
     box.setDefaultButton(QMessageBox.StandardButton.Cancel)
-    return box.exec() == QMessageBox.StandardButton.Yes
+    return exec_transient(box) == QMessageBox.StandardButton.Yes
 
 
 def _default_restore_confirmation(parent: QWidget, preview: RestorePreview) -> bool:
@@ -167,7 +188,7 @@ def _default_restore_confirmation(parent: QWidget, preview: RestorePreview) -> b
         QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel
     )
     box.setDefaultButton(QMessageBox.StandardButton.Cancel)
-    return box.exec() == QMessageBox.StandardButton.Yes
+    return exec_transient(box) == QMessageBox.StandardButton.Yes
 
 
 def _default_backup_name(now: datetime | None = None) -> str:
@@ -350,6 +371,149 @@ class BackupMetadataView(QFrame):
                 if metadata.stale_authority_count > 0
                 else SemanticState.SUCCESS,
             )
+
+
+class _GenerationsRow(QWidget):
+    """Saved-backup picker row that folds its secondary action into 操作 ▾.
+
+    Same adaptive pattern as CaptureInboxPage._sync_action_layout: the
+    fold trigger is the row's required width vs the width it is actually
+    given (high-DPI shrinks logical width — exactly the crowded case).
+    Hidden secondary widgets stop counting toward minimumSizeHint, so a
+    seeded fold keeps the page inside narrow windows; the overflow menu
+    runs the exact same slots the folded buttons do.
+    """
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._collapsed_actions: bool | None = None
+        self._secondary_widgets: list[QWidget] = []
+        self.actions_menu = QMenu(self)
+        self.actions_overflow = QToolButton(self)
+        self.actions_overflow.setText("操作 ▾")
+        self.actions_overflow.setToolTip(
+            "幅が狭いときのバックアップ世代操作の一覧です"
+        )
+        self.actions_overflow.setAccessibleName(
+            "保存済みバックアップのその他の操作"
+        )
+        self.actions_overflow.setPopupMode(
+            QToolButton.ToolButtonPopupMode.InstantPopup
+        )
+        self.actions_overflow.setMenu(self.actions_menu)
+        self.actions_overflow.setVisible(False)
+        self.row_layout = QHBoxLayout(self)
+        self.row_layout.setContentsMargins(0, 0, 0, 0)
+        self.row_layout.setSpacing(10)
+
+    def add_secondary_action(
+        self,
+        widget: QWidget,
+        label: str,
+        slot,
+    ) -> QAction:
+        """Register a foldable widget plus its overflow-menu mirror.
+
+        The menu action runs the exact same slot, so folded actions stay
+        reachable — mis-taps and dead ends cannot happen on narrow rows.
+        """
+        self._secondary_widgets.append(widget)
+        action = self.actions_menu.addAction(label)
+        action.triggered.connect(slot)
+        return action
+
+    def finish_actions(self) -> None:
+        """Append 操作 ▾ and seed the fold state.
+
+        Hidden secondary widgets don't count toward minimumSizeHint, so
+        seeding keeps the page's minimum width inside the scroll viewport
+        until the first real resizeEvent recomputes and unfolds when it
+        fits.
+        """
+        self.row_layout.addWidget(self.actions_overflow)
+        self._sync_action_layout()
+
+    def resizeEvent(self, event) -> None:  # noqa: N802
+        super().resizeEvent(event)
+        self._sync_action_layout()
+
+    def _actions_required_width(self) -> int:
+        """Width the row needs to show every control unclipped.
+
+        Computed from child size hints so it stays correct whether the
+        row is currently folded or not (hidden widgets keep their hints);
+        the stretch-factor generations combo contributes only its
+        minimum — folding guards the fixed controls, not its slack.
+        """
+        total = 0
+        visible = 0
+        for index in range(self.row_layout.count()):
+            item = self.row_layout.itemAt(index)
+            widget = item.widget()
+            if widget is self.actions_overflow:
+                continue  # replaces the secondary set, never coexists
+            if widget is not None and self.row_layout.stretch(index) > 0:
+                total += widget.minimumSizeHint().width()
+                visible += 1
+            elif widget is not None:
+                total += widget.sizeHint().width()
+                visible += 1
+            else:
+                total += item.sizeHint().width()
+        if visible > 1:
+            total += self.row_layout.spacing() * (visible - 1)
+        return total
+
+    def _available_width(self) -> int:
+        """Width the scroll viewport can actually grant this row.
+
+        The row's own width() is granted from its minimumSizeHint, so a
+        too-wide row never sees the shortage — the real constraint is the
+        enclosing QScrollArea's viewport minus the fixed chrome stacked
+        between the viewport and this row (content/card margins).
+        """
+        margins = self.row_layout.contentsMargins()
+        chrome = margins.left() + margins.right()
+        scroll_area: QScrollArea | None = None
+        node = self.parentWidget()
+        while node is not None:
+            if isinstance(node, QScrollArea):
+                scroll_area = node
+                break
+            node = node.parentWidget()
+        if scroll_area is None:
+            return self.width() - chrome
+        viewport_widget = scroll_area.viewport()
+        node = self.parentWidget()
+        while node is not None and node is not viewport_widget:
+            layout = node.layout()
+            if layout is not None:
+                edge = layout.contentsMargins()
+                chrome += edge.left() + edge.right()
+            node = node.parentWidget()
+        return scroll_area.viewport().width() - chrome
+
+    def _sync_action_layout(self) -> None:
+        """Fold secondary actions into 操作 ▾ when the row cannot fit.
+
+        Trigger = required row width vs the width the row is given — a
+        fixed pixel threshold can sit below the row's own minimum and
+        never fire. The primary restore action never collapses, the
+        same rule CaptureInboxPage applies to its primary triage ops.
+        """
+        available = self._available_width()
+        required = self._actions_required_width()
+        if self._collapsed_actions is True:
+            # Small hysteresis so a borderline resize doesn't flap open.
+            collapse = required > available - 24
+        else:
+            collapse = required > available
+        if self._collapsed_actions == collapse:
+            return
+        self._collapsed_actions = collapse
+        for widget in self._secondary_widgets:
+            widget.setVisible(not collapse)
+        self.actions_overflow.setVisible(collapse)
 
 
 class DataManagementWidget(QWidget):
@@ -576,16 +740,22 @@ class DataManagementWidget(QWidget):
         # remembering where a backup file lived. List every restorable
         # archive the app knows about (automatic generations + pre-upgrade
         # recovery copies) so the user can pick one directly.
-        self.generations_row = QWidget(operations_card)
-        generations_layout = QHBoxLayout(self.generations_row)
-        generations_layout.setContentsMargins(0, 0, 0, 0)
-        generations_layout.setSpacing(10)
+        self.generations_row = _GenerationsRow(operations_card)
+        generations_layout = self.generations_row.row_layout
         generations_label = QLabel(
             "保存済みバックアップ:", self.generations_row
         )
         generations_layout.addWidget(generations_label)
         self.generations_combo = QComboBox(self.generations_row)
         self.generations_combo.setObjectName("dataManagementGenerationsCombo")
+        # Auto-backup names run ~55 chars — AdjustToContents would pin the
+        # row's minimum width to the longest archive name and defeat the
+        # scroll viewport. The popup list still shows full names; the
+        # closed combo just clips the selected text when it must shrink.
+        self.generations_combo.setMinimumContentsLength(12)
+        self.generations_combo.setSizeAdjustPolicy(
+            QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+        )
         generations_layout.addWidget(self.generations_combo, 1)
         self.generation_restore_button = QPushButton(
             "このバックアップを検証して復元…", self.generations_row
@@ -601,7 +771,72 @@ class DataManagementWidget(QWidget):
             self._preview_selected_generation
         )
         generations_layout.addWidget(self.generation_restore_button)
+        self.drill_button = QPushButton(
+            "このバックアップを復元テスト…", self.generations_row
+        )
+        self.drill_button.setObjectName("dataManagementDrillButton")
+        self.drill_button.setToolTip(
+            '選択したバックアップを隔離フォルダーへ実際に復元して検証します'
+            '（本番データは変更されません）'
+        )
+        set_control_size(self.drill_button, ControlSize.STANDARD)
+        self.drill_button.clicked.connect(self._run_restore_drill)
+        generations_layout.addWidget(self.drill_button)
+        # #992: the drill action is secondary — it folds into 操作 ▾ when
+        # the row cannot fit, while the primary restore action never
+        # collapses. The menu action mirrors the same slot.
+        self._drill_menu_action = self.generations_row.add_secondary_action(
+            self.drill_button,
+            "このバックアップを復元テスト…",
+            self._run_restore_drill,
+        )
+        self.generations_row.finish_actions()
         operations_layout.addWidget(self.generations_row)
+
+        self.last_drill_label = QLabel(operations_card)
+        self.last_drill_label.setObjectName("dataManagementLastDrillLabel")
+        self.last_drill_label.setWordWrap(True)
+        self.last_drill_label.setAccessibleName("前回の復元テスト結果")
+        set_typography_role(self.last_drill_label, TypographyRole.SECONDARY)
+        self.last_drill_label.hide()
+        operations_layout.addWidget(self.last_drill_label)
+
+        self.drill_result_card = QFrame(operations_card)
+        self.drill_result_card.setObjectName("dataManagementDrillResultCard")
+        set_surface_role(self.drill_result_card, SurfaceRole.RAISED)
+        drill_layout = QVBoxLayout(self.drill_result_card)
+        drill_layout.setContentsMargins(14, 12, 14, 12)
+        drill_layout.setSpacing(8)
+        self.drill_verdict_label = QLabel(self.drill_result_card)
+        self.drill_verdict_label.setObjectName(
+            "dataManagementDrillVerdict"
+        )
+        self.drill_verdict_label.setWordWrap(True)
+        set_typography_role(
+            self.drill_verdict_label, TypographyRole.SECTION_TITLE
+        )
+        drill_layout.addWidget(self.drill_verdict_label)
+        self.drill_checks_label = QLabel(self.drill_result_card)
+        self.drill_checks_label.setObjectName(
+            "dataManagementDrillChecks"
+        )
+        self.drill_checks_label.setWordWrap(True)
+        self.drill_checks_label.setAccessibleName(
+            "復元テストの検証項目"
+        )
+        set_typography_role(self.drill_checks_label, TypographyRole.BODY)
+        drill_layout.addWidget(self.drill_checks_label)
+        self.drill_claims_label = QLabel(self.drill_result_card)
+        self.drill_claims_label.setObjectName(
+            "dataManagementDrillClaims"
+        )
+        self.drill_claims_label.setWordWrap(True)
+        set_typography_role(
+            self.drill_claims_label, TypographyRole.SECONDARY
+        )
+        drill_layout.addWidget(self.drill_claims_label)
+        self.drill_result_card.hide()
+        operations_layout.addWidget(self.drill_result_card)
         layout.addWidget(operations_card)
 
         # Round9-prefs deferred item: the automatic-backup policy already
@@ -801,6 +1036,9 @@ class DataManagementWidget(QWidget):
         controller.backup_created.connect(self._on_backup_created)
         controller.restore_preview_ready.connect(self._on_restore_preview_ready)
         controller.restore_completed.connect(self._on_restore_completed)
+        controller.restore_drill_completed.connect(
+            self._on_drill_completed
+        )
         controller.relocation_completed.connect(self._on_relocation_completed)
         controller.storage_scan_completed.connect(self._on_storage_scan_completed)
         controller.storage_gc_completed.connect(self._on_storage_gc_completed)
@@ -808,6 +1046,7 @@ class DataManagementWidget(QWidget):
         controller.operation_cancelled.connect(self._on_operation_cancelled)
 
         self._refresh_generations()
+        self._refresh_last_drill()
         if self._restart_required:
             self._show_restart_required(
                 "データを安全に読み直せませんでした。HTDTを再起動してください。"
@@ -917,7 +1156,7 @@ class DataManagementWidget(QWidget):
             return
         try:
             report = self.controller.revalidate()
-        except Exception as exc:  # noqa: BLE001 - surface, never crash the page
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: op surface — expected failures show a verbatim error state; unexpected errors propagate to diagnostics
             self._show_status(
                 "再検証を完了できませんでした",
                 operation_error_message(exc),
@@ -946,12 +1185,18 @@ class DataManagementWidget(QWidget):
             generations = list_restorable_backups(
                 self.controller.backend.data_dir
             )
-        except Exception:  # noqa: BLE001 - listing must never break the page
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: listing read — expected failures report and degrade to no rows; sealed-store failures propagate
+            if is_authority_failure(exc):
+                raise
+            report_boundary_failure(exc, operation='バックアップ一覧の読み取り')
             generations = ()
         self.generations_combo.clear()
         for path in generations:
             self.generations_combo.addItem(path.name, str(path))
         self.generations_row.setVisible(bool(generations))
+        # Longest-name content changed — the fold trigger depends on the
+        # row's required width, so resync while the viewport keeps its size.
+        self.generations_row._sync_action_layout()
         self._refresh_actions()
 
     def _preview_selected_generation(self) -> None:
@@ -965,6 +1210,106 @@ class DataManagementWidget(QWidget):
         self.result_metadata.hide()
         self.pre_restore_label.hide()
         self.controller.preview_restore(Path(selected))
+
+    def _run_restore_drill(self) -> None:
+        """#992: start an isolated restore rehearsal for the selected
+        backup — the drill only ever writes inside the chosen sandbox."""
+        if self._busy or self._restart_required:
+            return
+        selected = self.generations_combo.currentData()
+        if not selected:
+            return
+        sandbox = self.dialogs.choose_drill_sandbox(self)
+        if sandbox is None:
+            return
+        self._hide_status()
+        self.drill_result_card.hide()
+        self.controller.restore_drill(Path(selected), Path(sandbox))
+
+    def _on_drill_completed(self, result: RestoreDrillResult) -> None:
+        verdict_titles = {
+            'restorable': 'このバックアップは復元可能です',
+            'restorable_with_conditions': '条件付きで復元可能です',
+            'failed': 'このバックアップは復元できません',
+            'not_verifiable': '復元可否を検証できませんでした',
+        }
+        verdict_states = {
+            'restorable': SemanticState.SUCCESS,
+            'restorable_with_conditions': SemanticState.WARNING,
+            'failed': SemanticState.ERROR,
+            'not_verifiable': SemanticState.WARNING,
+        }
+        self.drill_verdict_label.setText(
+            f"{verdict_titles.get(result.verdict, result.verdict)} — "
+            f"{result.backup_name}"
+        )
+        set_semantic_state(
+            self.drill_verdict_label,
+            verdict_states.get(result.verdict, SemanticState.WARNING),
+        )
+        status_marks = {
+            'passed': '✓',
+            'failed': '✗',
+            'conditional': '△',
+            'unknown': '?',
+            'skipped': '—',
+        }
+        lines = [
+            f"{status_marks.get(check.status, '?')} {check.detail_ja}"
+            for check in result.checks
+        ]
+        self.drill_checks_label.setText('\n'.join(lines))
+        claims_ja = {
+            'archive_verified': 'アーカイブ検証済み',
+            'isolated_restore_succeeded': '隔離復元の成功',
+            'same_machine_opened': '同一環境でのオープン成功',
+        }
+        non_claims_ja = {
+            'other_pc_migration': '別PCへの移行可否',
+            'physical_disaster_recovery': '物理障害からの復旧',
+            'operator_acceptance': '運用者による受け入れ',
+        }
+        proven = '、'.join(
+            claims_ja.get(c, c) for c in result.claims
+        ) or 'なし'
+        unproven = '、'.join(
+            non_claims_ja.get(c, c) for c in result.non_claims
+        )
+        self.drill_claims_label.setText(
+            f'証明済み: {proven}\n'
+            f'このテストでは証明していません: {unproven}'
+        )
+        self.drill_result_card.show()
+        self._show_status(
+            verdict_titles.get(result.verdict, result.verdict),
+            f'演習ログ: {Path(result.sandbox_dir).parent} / '
+            f'結果はデータ管理の履歴にも記録されました',
+            verdict_states.get(result.verdict, SemanticState.WARNING),
+        )
+        self._refresh_last_drill()
+
+    def _refresh_last_drill(self) -> None:
+        try:
+            latest = latest_drill_result(self.controller.backend.data_dir)
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: journal read — expected failures report and degrade to 'no drill' honestly; sealed-store failures propagate
+            if is_authority_failure(exc):
+                raise
+            report_boundary_failure(exc, operation='ドリル結果の読み取り')
+            latest = None
+        if latest is None:
+            self.last_drill_label.hide()
+            return
+        verdict_ja = {
+            'restorable': '復元可能',
+            'restorable_with_conditions': '条件付きで復元可能',
+            'failed': '復元不可',
+            'not_verifiable': '検証不可',
+        }.get(latest.verdict, latest.verdict)
+        self.last_drill_label.setText(
+            f'前回の復元テスト: {verdict_ja} — '
+            f'{latest.backup_name}（{latest.finished_at_utc}）'
+        )
+        self.last_drill_label.show()
 
     def showEvent(self, event) -> None:  # noqa: N802
         # Generations created while the dialog was hidden appear on show.
@@ -1081,7 +1426,10 @@ class DataManagementWidget(QWidget):
 
         try:
             report = inspect_legacy_store(self.controller.backend.data_dir)
-        except Exception:  # noqa: BLE001 - warning must never break the page
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: legacy probe — expected failures report and hide the warning honestly; sealed-store failures propagate
+            if is_authority_failure(exc):
+                raise
+            report_boundary_failure(exc, operation='レガシーストアの検査')
             self.legacy_label.hide()
             return
         if report.state == 'populated':
@@ -1154,7 +1502,7 @@ class DataManagementWidget(QWidget):
         )
         box.button(QMessageBox.StandardButton.Yes).setText("削除を実行")
         box.setDefaultButton(QMessageBox.StandardButton.No)
-        if box.exec() != QMessageBox.StandardButton.Yes:
+        if exec_transient(box) != QMessageBox.StandardButton.Yes:
             return
         self.controller.gc_storage()
 
@@ -1351,6 +1699,8 @@ class DataManagementWidget(QWidget):
         self.storage_button.setEnabled(available)
         self.generations_combo.setEnabled(available)
         self.generation_restore_button.setEnabled(available)
+        self.drill_button.setEnabled(available)
+        self._drill_menu_action.setEnabled(available)
         for control in (
             self.backup_policy_enabled,
             self.backup_interval_spin,

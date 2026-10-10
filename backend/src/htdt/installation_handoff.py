@@ -572,7 +572,10 @@ def _write_staged_text(path: Path, content: str) -> None:
 
 
 def write_handoff_package(
-    handoff: InstallationHandoff, directory: str | Path
+    handoff: InstallationHandoff,
+    directory: str | Path,
+    *,
+    exclude_members: frozenset[str] = frozenset(),
 ) -> dict[str, Path]:
     """Write the handoff package into ``directory`` and return its paths.
 
@@ -612,6 +615,14 @@ def write_handoff_package(
         'settings': '\ufeff' + render_settings_csv(handoff),
         'entities': '\ufeff' + render_installation_csv(handoff.output),
     }
+    # #989 export preflight: members the review excluded are dropped
+    # before the manifest is rendered, so the manifest's digests always
+    # describe exactly the shipped set — never a withheld file. They
+    # leave the filename map too: staged/promote iterate it, so a key
+    # still listed there would KeyError on its missing content.
+    for excluded_key in exclude_members:
+        member_contents.pop(excluded_key, None)
+        member_filenames.pop(excluded_key, None)
     manifest_content = render_handoff_manifest_json(
         handoff,
         files={
@@ -669,7 +680,7 @@ def write_handoff_package(
                     backups[key] = backup
                 os.replace(staged[key], final)
                 promoted.append(key)
-        except Exception:
+        except Exception:  # error-boundary: rollback before re-raise — any promote failure restores the previous complete generation so a partial handoff never looks finished (noqa: BLE001)
             # Roll back to the previous complete generation: restore every
             # file moved aside into backup (promoted or merely displaced by
             # a later failure) and drop members that had no predecessor.
@@ -681,7 +692,7 @@ def write_handoff_package(
                 elif key in promoted:
                     final.unlink(missing_ok=True)
             raise
-    except Exception:
+    except Exception:  # error-boundary: cleanup before re-raise — any stage/promote failure removes the staging tree so partial work never persists (noqa: BLE001)
         shutil.rmtree(staging, ignore_errors=True)
         raise
     shutil.rmtree(staging, ignore_errors=True)

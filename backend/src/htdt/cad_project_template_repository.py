@@ -148,7 +148,7 @@ class CadProjectTemplateRepository:
                 result = self._save_instantiation_in_transaction(
                     connection, instantiation
                 )
-            except BaseException:
+            except BaseException:  # error-boundary: save atomicity — rollback must run on ANY failure (including KeyboardInterrupt) before the original error re-raises (noqa: BLE001)
                 connection.rollback()
                 raise
             connection.commit()

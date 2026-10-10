@@ -104,8 +104,7 @@ def _total_memory_bytes() -> int:
             if ctypes.windll.kernel32.GlobalMemoryStatusEx(
                     ctypes.byref(stat)):
                 return int(stat.ullTotalPhys)
-        except Exception:
-            # error-boundary: platform probe — fall through to failure
+        except Exception:  # error-boundary: platform probe — a memory-status probe failure falls through to an honest 'unknown' result (noqa: BLE001)
             pass
         return 0
     try:

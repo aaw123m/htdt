@@ -2135,7 +2135,7 @@ def _run_sweep_acquisition(
                 continue
             engine.arm(arming(request))
             outcome = engine.start()
-        except Exception:
+        except Exception:  # error-boundary: per-channel lane — a crashing engine config/run lands the channel in engine_results with the failed engine, never aborts the sweep (noqa: BLE001)
             engine_results.append((channel, engine))
             continue
         engine_results.append((channel, engine))

@@ -9,8 +9,16 @@ from pathlib import Path
 from typing import Protocol, cast
 from uuid import uuid4
 
-from PySide6.QtCore import QSignalBlocker, QSize, Qt, Signal
-from PySide6.QtGui import QColor, QCursor, QGuiApplication, QKeySequence, QShortcut
+from PySide6.QtCore import QSignalBlocker, QSize, Qt, QTimer, Signal
+from PySide6.QtGui import (
+    QAction,
+    QActionGroup,
+    QColor,
+    QCursor,
+    QGuiApplication,
+    QKeySequence,
+    QShortcut,
+)
 from PySide6.QtWidgets import (
     QAbstractSpinBox,
     QApplication,
@@ -40,6 +48,7 @@ from PySide6.QtWidgets import (
     QWidgetAction,
 )
 
+from .modal_transient import exec_transient
 from . import file_dialog_memory
 from .cad_document import (
     CommandHistoryEntry,
@@ -92,6 +101,8 @@ from .cad_direct_view import (
     evaluate_direct_view_geometry,
 )
 from .cad_direct_view_repository import CadDirectViewRepository
+from .cad_lighting_repository import CadLightingRepository
+from .cad_spatial_image_repository import CadSpatialImageRepository
 from .cad_video_geometry_repository import CadVideoGeometryRepository
 from .cad_video_workspace import (
     CadVideoWorkspaceRepository,
@@ -135,15 +146,8 @@ from .cad_screen_transfer import (
     transfer_capability_label,
 )
 from .cad_equipment import EquipmentDataProvenance, FrequencyDomain
-from .cad_acoustic_environment import (
-    AcousticEnvironmentProfile,
-    CadAcousticEnvironmentRepository,
-)
-from .cad_acoustic_material import CadAcousticMaterialRepository
+from .cad_acoustic_environment import AcousticEnvironmentProfile
 from .cad_acoustic_treatment_repository import CadAcousticTreatmentRepository
-from .cad_acoustic_treatment_comparison import (
-    CadAcousticTreatmentComparisonRepository,
-)
 from .r120_geometry_compiler import ExactExternalAuthorityRef
 from .cad_geometric_constraints import (
     AuthoringConstraint,
@@ -278,6 +282,21 @@ from .room_viewport import (
     RoomViewport3D,
 )
 from .room_field_overlay import FieldOverlay3DRequest, RoomFieldOverlayController
+from .room_campaign_overlay import RoomCampaignOverlayController
+from .room_survey_overlay import (
+    MODE_LABELS,
+    SURVEY_OVERLAY_MODES,
+    RoomSurveyOverlayController,
+)
+from .room_treatment_overlay import RoomTreatmentOverlayController
+from .fabrication_preview import FabricationPreviewController
+from .room_screen_quality_map import ScreenQualityMapController
+from .room_coverage_overlay import (
+    CoverageOverlayRequest,
+    RoomSeatCoverageOverlayController,
+)
+from .room_seat_coverage_panel import RoomSeatCoveragePanel
+from .room_directivity_panel import RoomDirectivityPanel
 from .room_viewport import (
     UnderlayRenderItem,
 )
@@ -303,19 +322,38 @@ from .user_facing_error import (
     log_operation_error,
     operation_error_message,
     to_user_facing_error,
-    warn_user,
 )
+from .operation_error_dialog import warn_user
+from .window_state import WorkspaceViewState
 from .workflow_shell import WorkspaceMount
 from .workflow_navigation import WorkspaceDeepLink, WorkspaceId
 from .workspace_dirty_state import DirtyResolutionAction, WorkspaceDirtyState
 from .system_expansion_workflow import SystemExpansionWorkflowService
 from .system_expansion_widgets import SystemExpansionRoomPanel
 from .standards_workspace import StandardsCriterionPanel
+from .cable_run_panel import CableRunPanel
 from .installation_panel import InstallationPanel
+from .rack_workspace import RackWorkspacePanel
 from .length_spinbox import MetricSpinBox, PendingTextSpinBox
+from .room_lighting_panel import RoomLightingPreviewPanel
+from .room_lighting_preview import build_lighting_scene_preview
+from .room_operational_clearance import build_operational_clearance_preview
+from .room_operational_clearance_panel import RoomOperationalClearancePanel
+from .installation_feasibility_viewmodel import (
+    build_installation_feasibility_preview,
+)
+from .installation_feasibility_panel import (
+    RoomInstallationFeasibilityPanel,
+)
+from .cad_room_qualification_repository import CadRoomQualificationRepository
 from .room_objects_panel import RoomObjectsPanel
 from .room_constraints_panel import RoomConstraintsPanel
 from .room_measure_input import RoomMeasureController, RoomMeasurePanel
+from .cable_run_waypoint import (
+    CableRunWaypointController,
+    CableRunWaypointPanel,
+)
+from .cad_cable_run_inspection import inspect_cable_runs
 from .room_history_panel import RoomHistoryPanel
 from .seat_priority_panel import SeatPriorityPanel
 from .room_video_panel import (
@@ -330,6 +368,9 @@ from .room_journey import (
     current_journey_step,
     evaluate_room_journey,
 )
+from .acoustics.persistence.cad_acoustic_environment_repository import CadAcousticEnvironmentRepository
+from .acoustics.persistence.cad_acoustic_material_repository import CadAcousticMaterialRepository
+from .acoustics.persistence.cad_acoustic_treatment_comparison_repository import CadAcousticTreatmentComparisonRepository
 
 
 ROOM_CONTEXT_IDS = (
@@ -462,6 +503,9 @@ class RoomWorkspaceController:
         self.video_workspace_repository = CadVideoWorkspaceRepository(repository.path)
         self.video_workspace: VideoGeometryWorkspace | None = None
         self.video_geometry_repository = CadVideoGeometryRepository(repository)
+        # #1003: append-only spatial image authority store — the quality
+        # map re-reads plans/sets/maps/evaluations per render.
+        self.spatial_image_repository = CadSpatialImageRepository(repository)
         self.screen_transfer_repository = CadScreenTransferRepository(
             repository.path, repository
         )
@@ -3130,6 +3174,21 @@ class SelectionInspector(QFrame):
         self.form_host = form_host
         self.set_entity(None, editable=False)
 
+    def expanded_sections(self) -> dict[str, bool]:
+        """#973: collapsible-section expansion states for view-state capture."""
+        states: dict[str, bool] = {}
+        for key, section in self._sections.items():
+            if isinstance(section.header, QToolButton):
+                states[key] = section.header.isChecked()
+        return states
+
+    def set_expanded_sections(self, states: dict[str, bool]) -> None:
+        for key, expanded in states.items():
+            section = self._sections.get(key)
+            if section is None or not isinstance(section.header, QToolButton):
+                continue
+            section.header.setChecked(bool(expanded))
+
     @staticmethod
     def _hint(form: QFormLayout, field: QWidget, text: str) -> None:
         """Attach an explanation to a field and its auto-created row label."""
@@ -3818,7 +3877,11 @@ class ContextToolStrip(QFrame):
             ("fit-scene", "全体表示"),
             ("view-menu", "ビュー"),
         ),
-        "acoustics": (("toggle-acoustics", "音響表示"), ("fit-scene", "全体表示")),
+        "acoustics": (
+            ("toggle-acoustics", "音響表示"),
+            ("reflection-correspondence", "反射対応"),
+            ("fit-scene", "全体表示"),
+        ),
         "history": (("fit-scene", "全体表示"),),
     }
 
@@ -3832,6 +3895,7 @@ class ContextToolStrip(QFrame):
         "focus-selection": "選択した物体にカメラを合わせます",
         "fit-scene": "部屋全体が見えるようカメラを調整します",
         "toggle-acoustics": "音響予測結果の3Dオーバーレイ表示を切り替えます",
+        "reflection-correspondence": "実測ETCと予測反射パスの対応レビューを測定ワークスペースで開きます",
     }
 
     GUIDANCE = {
@@ -3916,7 +3980,12 @@ class OverlayControls(QFrame):
         self.focus = QCheckBox("選択に集中")
         self.focus.setToolTip("選択中の物体以外を薄く表示し、編集対象に集中しやすくします")
         self.grid.setChecked(True)
-        for toggle in (self.grid, self.labels, self.acoustics, self.focus):
+        for toggle in (
+            self.grid,
+            self.labels,
+            self.acoustics,
+            self.focus,
+        ):
             toggle.toggled.connect(lambda checked=False: self.changed.emit())
             self._layout.addWidget(toggle)
 
@@ -3965,6 +4034,32 @@ class OverlayControls(QFrame):
         self.focus_action.toggled.connect(self.focus.setChecked)
         self.labels.toggled.connect(self.labels_action.setChecked)
         self.focus.toggled.connect(self.focus_action.setChecked)
+        # #1004: survey overlay master toggle lives in the 表示… menu
+        # only — like the treatment overlay it adds zero toolbar width so
+        # the compact-layout minimum is unchanged. ``self.survey`` is the
+        # checkable action itself (same toggled/setChecked API the
+        # workspace and panel bind to); the overlay only reads it — the
+        # authority itself is never touched.
+        self.survey = self.more_menu.addAction("測量")
+        self.survey.setCheckable(True)
+        self.survey.setToolTip(
+            "竣工測量の証跡階層・不確かさ・検証状態をCAD面に重ねて表示します"
+        )
+        self.survey.toggled.connect(lambda checked=False: self.changed.emit())
+        survey_modes_menu = self.more_menu.addMenu("測量モード")
+        self._survey_mode = 'verification'
+        self._survey_mode_group = QActionGroup(self.more_menu)
+        self._survey_mode_group.setExclusive(True)
+        self._survey_mode_actions: dict[str, QAction] = {}
+        for mode in SURVEY_OVERLAY_MODES:
+            action = survey_modes_menu.addAction(MODE_LABELS[mode])
+            action.setCheckable(True)
+            self._survey_mode_group.addAction(action)
+            self._survey_mode_actions[mode] = action
+            action.triggered.connect(
+                lambda checked=False, m=mode: self.set_survey_mode(m)
+            )
+        self._survey_mode_actions['verification'].setChecked(True)
         self.more_menu.addSeparator()
         self.grid_snap_action = self.more_menu.addAction("グリッド吸着")
         self.grid_snap_action.setCheckable(True)
@@ -4045,12 +4140,32 @@ class OverlayControls(QFrame):
         )
         self._layout.setSpacing(4 if compact else 10)
 
+    @property
+    def survey_mode(self) -> str | None:
+        """Active #1004 mode, or None while the survey toggle is off."""
+
+        if not self.survey.isChecked():
+            return None
+        return self._survey_mode
+
+    def set_survey_mode(self, mode: str) -> None:
+        """Select a #1004 display mode and arm the survey toggle."""
+
+        if mode not in SURVEY_OVERLAY_MODES:
+            raise ValueError(f'unknown survey overlay mode {mode!r}')
+        self._survey_mode = mode
+        self._survey_mode_actions[mode].setChecked(True)
+        if not self.survey.isChecked():
+            self.survey.setChecked(True)
+        self.changed.emit()
+
     def state(self) -> RoomOverlayState:
         return RoomOverlayState(
             grid=self.grid.isChecked(),
             labels=self.labels.isChecked(),
             acoustics=self.acoustics.isChecked(),
             focus_selection=self.focus.isChecked(),
+            survey_mode=self.survey_mode,
         )
 
 
@@ -4099,6 +4214,7 @@ class RoomWorkspace(QWidget):
         super().__init__(parent)
         self.setObjectName("roomWorkspace")
         set_surface_role(self, SurfaceRole.BASE)
+        self._activity_center = None
         self.controller = RoomWorkspaceController(repository, document_id)
         self.listener_pose_repository = CadListenerPoseRepository(
             repository.path, repository
@@ -4107,6 +4223,14 @@ class RoomWorkspace(QWidget):
             repository.path, repository
         )
         self.prediction_repository = CadPredictionRepository(repository)
+        self.lighting_repository = CadLightingRepository(repository)
+        # #1013 seam: fixture/zone/commissioning inventory is not yet
+        # persisted — a provider callable returns (fixtures, zones,
+        # records) for the current document. None = empty inventory; the
+        # preview then honestly reports every scene ref as unresolved
+        # instead of inventing placements.
+        self.lighting_inventory_provider = None
+        self._lighting_scene_cache: tuple[str, object] | None = None
         self._on_navigate = on_navigate
         self.current_context = "geometry"
         self.active_axis_constraint: str | None = None
@@ -4139,6 +4263,105 @@ class RoomWorkspace(QWidget):
         # #999 3D field overlay: armed request + current-head staleness live
         # in the controller; resolve() runs inside _render's deferred block.
         self.field_overlay = RoomFieldOverlayController(repository)
+        # #1009 treatment coverage overlay: same current-head resolve
+        # discipline — footprints are re-derived per render and a scene
+        # edit can never leave a stale patch drawn.
+        self.treatment_overlay = RoomTreatmentOverlayController(
+            repository,
+            self.controller.treatment_repository,
+            document_id,
+        )
+        # #1008 fabrication preview: armed only by an issued
+        # TreatmentFabricationPackage; same current-head resolve discipline
+        # — a package revision swap or close never leaves stale actors.
+        self.fabrication_preview = FabricationPreviewController(
+            repository,
+            self.controller.treatment_repository,
+            document_id,
+        )
+        # #1006 campaign spatial overlay: armed ONLY through the
+        # measurement-page deep link (read/select surface) — the same
+        # current_head staleness discipline as #999/#1009 lapses a design
+        # pinned to a superseded revision on the next render.
+        from .cad_spatial_campaign_repository import (
+            CadSpatialCampaignRepository,
+        )
+        from .measurement.persistence.cad_measurement_runner_repository import (
+            CadMeasurementRunnerRepository,
+        )
+
+        self.campaign_overlay = RoomCampaignOverlayController(
+            repository,
+            document_id,
+            spatial_repository=CadSpatialCampaignRepository(repository),
+            runner_repository=CadMeasurementRunnerRepository(repository),
+        )
+        # #1003 screen quality map: per-render resolve against the current
+        # head + the workspace's live video evaluation.
+        self.quality_map = ScreenQualityMapController(
+            repository,
+            self.controller.spatial_image_repository,
+            document_id,
+        )
+        # #1004 survey overlay: the controller owns the survey repository
+        # and re-pins every authority hash per render — a scene edit or a
+        # survey/project identity change can never leave stale colours.
+        self.survey_overlay = RoomSurveyOverlayController(
+            repository,
+            document_id,
+        )
+        self.survey_panel = None
+        # #1001: per-seat coverage markers — sealed CoverageEvaluation rows
+        # are read ONLY through CadCoverageRepository (which re-resolves the
+        # scenario, scene/variant/equipment/directivity authorities and
+        # replays the pinned evaluator on every read); the overlay resolves
+        # against the CURRENT head per render so a scene edit can never
+        # leave a superseded marker painted.
+        from .cad_coverage_aim_repository import CadCoverageAimRepository
+        from .cad_coverage_repository import CadCoverageRepository
+        from .cad_directivity_repository import CadDirectivityRepository
+        from .cad_seat_priority import CadSeatPriorityProfileRepository
+
+        self.coverage_repository = CadCoverageRepository(
+            repository,
+            self.system_expansion.variant_repository,
+            self.system_expansion.equipment_repository,
+            CadDirectivityRepository(
+                repository, self.system_expansion.equipment_repository
+            ),
+        )
+        self.coverage_overlay = RoomSeatCoverageOverlayController(
+            repository,
+            self.system_expansion.variant_repository,
+            self.coverage_repository,
+            document_id,
+            aim_repository=CadCoverageAimRepository(repository),
+            priority_repository=CadSeatPriorityProfileRepository(repository),
+        )
+        # #1000: per-speaker directivity balloons — measured datasets are
+        # read ONLY through CadDirectivityRepository (re-verified + replayed
+        # on every read); orientation keys to the installed aim via the
+        # same source-frame convention as the coverage evaluator. No
+        # dataset/aim → honest UNKNOWN marker, never a synthesized lobe.
+        from .cad_installation_context_repository import (
+            CadInstallationContextRepository,
+        )
+        from .room_directivity_overlay import (
+            RoomDirectivityOverlayController,
+        )
+
+        self.directivity_overlay = RoomDirectivityOverlayController(
+            repository,
+            self.system_expansion.equipment_repository,
+            CadDirectivityRepository(
+                repository, self.system_expansion.equipment_repository
+            ),
+            CadInstallationContextRepository(
+                repository, self.system_expansion.equipment_repository
+            ),
+            document_id,
+            aim_repository=CadCoverageAimRepository(repository),
+        )
         # Esc exits probe mode only — armed while 3D probing so normal Esc
         # behaviour elsewhere is untouched.
         self._field_probe_esc = QShortcut(
@@ -4244,6 +4467,14 @@ class RoomWorkspace(QWidget):
         proposed_signal = getattr(viewport_widget, "proposedEntitySelected", None)
         if proposed_signal is not None and hasattr(proposed_signal, "connect"):
             proposed_signal.connect(self._proposal_entity_selected)
+        # #983: the overlapping-pick chooser asks the workspace for edit-
+        # blocking reasons it cannot see (document-wide `can_edit` False);
+        # lock/hidden rows resolve inside the viewport from render state.
+        setattr(
+            viewport_widget,
+            "pick_candidate_reason_provider",
+            self._pick_candidate_uneditable_reason,
+        )
         viewport_layout.addWidget(viewport_widget, 1)
 
         # The viewport and the right-hand panel stack share a splitter so the
@@ -4277,6 +4508,11 @@ class RoomWorkspace(QWidget):
         self.objects_panel.hideRequested.connect(self._objects_hidden)
         self.objects_panel.lockRequested.connect(self._objects_locked)
         self.objects_panel.deleteRequested.connect(self._objects_delete)
+        self.objects_panel.isolationRequested.connect(self._objects_isolate)
+        self.objects_panel.isolationClearRequested.connect(
+            self._objects_clear_isolation
+        )
+        self.objects_panel.focusRequested.connect(self._objects_focus)
         self.measure_controller = RoomMeasureController(self, self.viewport)
         self.measure_panel = RoomMeasurePanel(self.measure_controller)
         self.measure_controller.stateChanged.connect(self._measure_state_changed)
@@ -4323,11 +4559,48 @@ class RoomWorkspace(QWidget):
         self.video_panel.createDisplaySpecRequested.connect(
             self._video_create_display_spec
         )
+        self.video_panel.qualityMapChanged.connect(self._quality_map_changed)
+        self.video_panel.qualityMapRemeasureRequested.connect(
+            self._quality_map_remeasure
+        )
+        # #1013: read-only 「照明シーン」 preview on the Room/Video surface.
+        # The toggle only repaints explanation glyphs — it never sends to
+        # a device; apply/read-back stay on the approved action path.
+        self.lighting_panel = RoomLightingPreviewPanel()
+        self.lighting_panel.previewToggled.connect(
+            lambda _checked=False: self._render()
+        )
+        # #1010: read-only 「運用クリアランス」 layer — declared zone XY
+        # footprints + conflict highlights; never authors geometry.
+        self.clearance_panel = RoomOperationalClearancePanel()
+        self.clearance_panel.changed.connect(lambda: self._render())
+        # #1005: read-only 設置実現性検査 layer — authority verdicts only;
+        # UNKNOWN is an on-site-confirmation state, never a red failure.
+        self.feasibility_panel = RoomInstallationFeasibilityPanel()
+        self.feasibility_panel.changed.connect(lambda: self._render())
         # UX140B: リスニング集団 (seat-priority profile authoring) — the
         # legacy TheaterEditorWindow dock's workflow mount; it edits the
         # same seats the placement context owns.
         self.seat_priority_panel = SeatPriorityPanel(repository, document_id)
         self.seat_priority_panel.refresh(self.controller.committed_document)
+        # #1001: 座席カバレッジ表示 — read-only per-seat marker surface. The
+        # toggle arms the overlay with the selectors' request; the table and
+        # detail bind whatever the resolver produced this render (including
+        # honest blocked/unknown states — never a substitute marker).
+        self.seat_coverage_panel = RoomSeatCoveragePanel()
+        self.seat_coverage_panel.changed.connect(
+            self._seat_coverage_changed
+        )
+        self.seat_coverage_panel.seatSelected.connect(
+            self._seat_coverage_seat_selected
+        )
+        # #1000: 指向性バルーン表示 — read-only measured-balloon surface;
+        # the toggle arms the resolver, the panel binds whatever it
+        # produced (mesh / points / honest UNKNOWN — never a fake lobe).
+        self.directivity_panel = RoomDirectivityPanel()
+        self.directivity_panel.changed.connect(
+            self._directivity_changed
+        )
         # REV44-INSTALL: per-speaker installation context + scene datum
         # registration — equipment assignment already lives here, so the
         # authority writers mount on the same placement page.
@@ -4336,6 +4609,53 @@ class RoomWorkspace(QWidget):
             self.system_expansion.equipment_repository,
             document_id,
         )
+        # #990: scene→Library deep link — open the selected equipment
+        # definition in the reference library (reference only).
+        self.installation_panel.libraryRequested.connect(
+            self._open_equipment_in_library
+        )
+        # #1012: ラック配置ワークスペース — the #562 rack authority's 2D RU
+        # elevation + fit surface; lives with the equipment-assignment
+        # context like the installation writers above it.
+        self.rack_workspace_panel = RackWorkspacePanel(
+            repository, document_id
+        )
+        # REV73: #1011 cable wiring listing — read-only runs + honest
+        # endpoint/経路未登録 overlay state for the 3D view.
+        self.cable_run_panel = CableRunPanel(repository, document_id)
+        self._cable_route_items: tuple = ()
+        self.cable_run_panel.routeSelectionChanged.connect(
+            self._cable_route_selection_changed
+        )
+        # #1011 M3: waypoint authoring — a dedicated recording mode that
+        # borrows the measure controller's shape: armed picks feed the
+        # point list, the draft polyline is a non-persistent overlay, and
+        # commit goes through the geometry authority's save path only.
+        self.cable_waypoint_controller = CableRunWaypointController(
+            self,
+            self.viewport,
+            cable_run_repository=self.cable_run_panel.cable_run_repository,
+            geometry_repository=self.cable_run_panel.geometry_repository,
+            inspection_provider=self._cable_run_inspection,
+        )
+        self.cable_waypoint_panel = CableRunWaypointPanel(
+            self.cable_waypoint_controller
+        )
+        self.cable_run_panel.set_waypoint_panel(self.cable_waypoint_panel)
+        self.cable_run_panel.waypointAuthoringRequested.connect(
+            self._begin_cable_waypoint_recording
+        )
+        self.cable_waypoint_controller.committed.connect(
+            self._cable_waypoint_committed
+        )
+        self.cable_waypoint_controller.stateChanged.connect(
+            lambda: self._render()
+        )
+        waypoint_signal = getattr(viewport_widget, 'waypointPicked', None)
+        if waypoint_signal is not None and hasattr(
+            waypoint_signal, 'connect'
+        ):
+            waypoint_signal.connect(self._cable_waypoint_picked)
         placement_body = QWidget()
         placement_layout = QVBoxLayout(placement_body)
         placement_layout.setContentsMargins(0, 0, 0, 0)
@@ -4343,9 +4663,16 @@ class RoomWorkspace(QWidget):
         placement_layout.addWidget(self.system_expansion_panel)
         placement_layout.addWidget(self.constraints_panel)
         placement_layout.addWidget(self.video_panel)
+        placement_layout.addWidget(self.lighting_panel)
+        placement_layout.addWidget(self.clearance_panel)
+        placement_layout.addWidget(self.feasibility_panel)
         placement_layout.addWidget(self.seat_priority_panel)
+        placement_layout.addWidget(self.seat_coverage_panel)
+        placement_layout.addWidget(self.directivity_panel)
         placement_layout.addWidget(self.standards_panel)
         placement_layout.addWidget(self.installation_panel)
+        placement_layout.addWidget(self.rack_workspace_panel)
+        placement_layout.addWidget(self.cable_run_panel)
         placement_layout.addStretch(1)
         # Narrow-column safety: every combo in this column shrinks to a short
         # minimum, every line edit and spin box may squeeze below its size
@@ -4451,6 +4778,10 @@ class RoomWorkspace(QWidget):
         self._refresh(reset_camera=changed)
 
     def before_deactivate(self) -> tuple[bool, str | None]:
+        if self.cable_waypoint_controller.is_active:
+            # Recording state is in-memory only — leaving the page drops
+            # it like the measure tool rather than blocking navigation.
+            self.cable_waypoint_controller.cancel()
         if self.measure_controller.is_active:
             self.measure_controller.cancel()
         if self.geometry_input is not None and self.geometry_input.is_active:
@@ -4497,6 +4828,33 @@ class RoomWorkspace(QWidget):
         self.right_stack.addWidget(self._geometry_page)
         if self.current_context == "geometry":
             self.right_stack.setCurrentWidget(self._geometry_page)
+
+    def bind_survey_overlay(self, panel) -> None:
+        """Wire a RoomSurveyPanel into the #1004 overlay loop.
+
+        The panel's mode combo is a second view onto the OverlayControls
+        mode group — both drive the same ``survey_mode`` state so they can
+        never disagree.
+        """
+
+        self.survey_panel = panel
+        panel.modeChanged.connect(self._survey_mode_selected)
+
+    def set_survey_mode(self, mode: str) -> None:
+        """Arm the survey overlay and select its display mode (#1004)."""
+
+        # set_survey_mode emits changed → _render; no second render here.
+        self.overlay_controls.set_survey_mode(mode)
+
+    def _survey_mode_selected(self, mode: object) -> None:
+        """Panel combo → the shared overlay-controls survey state."""
+
+        if mode == 'off':
+            if self.overlay_controls.survey.isChecked():
+                # toggled → changed → _render
+                self.overlay_controls.survey.setChecked(False)
+            return
+        self.set_survey_mode(str(mode))
 
     def attach_acoustics_panel(self, panel: QWidget) -> None:
         if self._acoustics_page is not None:
@@ -4556,12 +4914,38 @@ class RoomWorkspace(QWidget):
             )
             panel.set_report(controller.report)
             panel.set_proposal(controller.proposal)
+            derive_enabled = (
+                controller.acceptance is not None
+                and controller.revision is None
+            )
+            # #975: the on-screen disabled-reason text must name the
+            # real block — the controller knows which stage gate it.
+            derive_blocked = derive_resolution = None
+            if not derive_enabled:
+                if controller.revision is not None:
+                    derive_blocked = (
+                        '派生リビジョンはこの受理レコードから生成済みです'
+                    )
+                    derive_resolution = (
+                        '別の派生が必要な場合は、修復提案への決定を'
+                        'やり直して受理レコードを再記録してください'
+                    )
+                elif controller.proposal is None:
+                    derive_blocked = '修復提案がまだありません'
+                    derive_resolution = (
+                        '診断を実行して修復提案を作成してください'
+                    )
+                else:
+                    derive_blocked = '修復提案への決定が未完了です'
+                    derive_resolution = (
+                        '各提案の承認/却下をすべて記録して'
+                        '受理レコードを生成してください'
+                    )
             panel.set_stage(
                 has_subject=controller.subject is not None,
-                derive_enabled=(
-                    controller.acceptance is not None
-                    and controller.revision is None
-                ),
+                derive_enabled=derive_enabled,
+                derive_blocked=derive_blocked,
+                derive_resolution=derive_resolution,
             )
             if controller.verdict is not None:
                 evidence = controller.verdict_evidence_state()
@@ -4681,6 +5065,81 @@ class RoomWorkspace(QWidget):
             self._set_status(f'{len(scene_ids)} 件の対象を選択しました')
         self._render()
 
+    def set_activity_center(self, activity_center) -> None:
+        """Wire the app ActivityCenter for long-running intake ops (#974)."""
+
+        self._activity_center = activity_center
+
+    def _submit_sync_op(
+        self,
+        *,
+        operation_kind: str,
+        title: str,
+        input_authority_refs: tuple[str, ...] = (),
+    ) -> str | None:
+        """Register a synchronous (UI-thread) import op (#974).
+
+        The op is honest: EXCLUSIVE + NOT_CANCELLABLE because the work
+        blocks the thread it runs on — navigation can never interleave,
+        so the record is submitted and completed in one call.
+        """
+
+        center = self._activity_center
+        if center is None:
+            return None
+        from .activity_center import (
+            Cancellability,
+            NavigationPolicy,
+            OperationClass,
+            OperationTransitionError,
+            RetryPolicy,
+        )
+
+        try:
+            operation_id = center.submit(
+                operation_kind=operation_kind,
+                operation_class=OperationClass.EXTERNAL_IO,
+                title=title,
+                document_ref=self.document_id,
+                input_authority_refs=input_authority_refs,
+                cancellability=Cancellability.NOT_CANCELLABLE,
+                retry_policy=RetryPolicy.NONE,
+                navigation_policy=NavigationPolicy.EXCLUSIVE,
+                navigation_block_reason=(
+                    '取込処理はメインスレッドで実行中です'
+                ),
+                deep_link=WorkspaceDeepLink(WorkspaceId.ROOM, 'geometry'),
+            )
+            center.mark_running(operation_id)
+        except OperationTransitionError:
+            return None
+        return operation_id
+
+    def _finish_sync_op(
+        self,
+        operation_id: str | None,
+        *,
+        error: object = None,
+        result_summary: str | None = None,
+    ) -> None:
+        center = self._activity_center
+        if operation_id is None or center is None:
+            return
+        from .activity_center import OperationTransitionError
+
+        try:
+            if error is not None:
+                center.fail(
+                    operation_id,
+                    error_summary=operation_error_message(error),
+                )
+            else:
+                center.complete(
+                    operation_id, result_summary=result_summary
+                )
+        except (KeyError, OperationTransitionError):
+            pass
+
     def _geometry_intake_import_ifc(self) -> None:
         controller = self.geometry_intake_controller
         path_text, _ = file_dialog_memory.get_open_file_name(
@@ -4691,6 +5150,10 @@ class RoomWorkspace(QWidget):
         )
         if not path_text:
             return
+        op_id = self._submit_sync_op(
+            operation_kind='room.ifc_import',
+            title='IFC の取り込み',
+        )
         try:
             source = Path(path_text).read_bytes()
             artifact, _subject = controller.import_ifc_source(
@@ -4698,10 +5161,17 @@ class RoomWorkspace(QWidget):
             )
             report, proposal = controller.run_health_check()
         except (OSError, ValueError) as exc:
+            self._finish_sync_op(op_id, error=exc)
             self._set_operation_error(
                 'IFC の取り込みに失敗しました', exc
             )
             return
+        self._finish_sync_op(
+            op_id,
+            result_summary=(
+                f'{artifact.file_name} · 欠陥 {len(report.defects)} 件'
+            ),
+        )
         self._sync_geometry_intake_panel()
         self._set_status(
             f'IFC「{artifact.file_name}」を取り込みました: '
@@ -4807,6 +5277,139 @@ class RoomWorkspace(QWidget):
             )
             return
         self._sync_geometry_intake_panel()
+
+    # --- IFC diff review (#981) ----------------------------------------------
+
+    def bind_ifc_diff_review(self, controller, panel) -> None:
+        """Wire the IfcDiffReviewPanel into the intake controller. The
+        panel only renders correspondence rows and forwards operator
+        intent; the controller owns the transactional apply."""
+        self.ifc_diff_controller = controller
+        self.ifc_diff_panel = panel
+        panel.importRevisionRequested.connect(self._ifc_diff_import)
+        panel.reloadRequested.connect(self._ifc_diff_reload)
+        panel.diffDecisionRequested.connect(self._ifc_diff_decision)
+        panel.allDecisionsRequested.connect(self._ifc_diff_all_decisions)
+        panel.applyRequested.connect(self._ifc_diff_apply)
+        panel.locateRequested.connect(self._ifc_diff_locate)
+        try:
+            controller.resume_diff_state()
+        except ValueError:
+            pass
+        self._sync_ifc_diff_panel()
+
+    def _sync_ifc_diff_panel(self) -> None:
+        controller = getattr(self, 'ifc_diff_controller', None)
+        panel = getattr(self, 'ifc_diff_panel', None)
+        if controller is None or panel is None:
+            return
+        panel.set_rows(
+            controller.diff_rows,
+            {
+                key: decision.decision
+                for key, decision in controller.diff_decisions.items()
+            },
+        )
+
+    def _ifc_diff_import(self) -> None:
+        controller = self.ifc_diff_controller
+        path_text, _ = file_dialog_memory.get_open_file_name(
+            self,
+            '改訂 IFC ファイルをインポート',
+            'room.import_ifc_revision',
+            'IFC ファイル (*.ifc);;すべてのファイル (*)',
+        )
+        if not path_text:
+            return
+        op_id = self._submit_sync_op(
+            operation_kind='room.ifc_diff_import',
+            title='改訂 IFC の取り込み',
+        )
+        try:
+            source = Path(path_text).read_bytes()
+            artifact, delta, rows = controller.import_revised_ifc_source(
+                source, file_name=Path(path_text).name
+            )
+        except (OSError, ValueError) as exc:
+            self._finish_sync_op(op_id, error=exc)
+            self._set_operation_error(
+                '改訂 IFC の取り込みに失敗しました', exc
+            )
+            return
+        self._finish_sync_op(
+            op_id,
+            result_summary=(
+                f'{artifact.file_name} · 差分 {len(rows)} 行'
+                f'（{delta.delta_id[:12]}）'
+            ),
+        )
+        self._sync_ifc_diff_panel()
+        self._set_status(
+            f'改訂 IFC「{artifact.file_name}」を取り込みました: '
+            f'差分 {len(rows)} 行 '
+            f'(差分レコード {delta.delta_id}) — '
+            'レビューして適用してください'
+        )
+
+    def _ifc_diff_reload(self) -> None:
+        controller = self.ifc_diff_controller
+        try:
+            controller.resume_diff_state()
+        except ValueError as exc:
+            self._set_operation_error(
+                '差分の再読込に失敗しました', exc
+            )
+            return
+        self._sync_ifc_diff_panel()
+        self._sync_geometry_intake_panel()
+        self._set_status('差分レビュー状態を再読込しました')
+
+    def _ifc_diff_decision(self, row_key, decision) -> None:
+        controller = self.ifc_diff_controller
+        try:
+            controller.submit_diff_decision(str(row_key), str(decision))
+        except ValueError as exc:
+            self._set_operation_error(
+                '差分行の決定を記録できませんでした', exc
+            )
+            return
+        self._sync_ifc_diff_panel()
+
+    def _ifc_diff_all_decisions(self, decision) -> None:
+        controller = self.ifc_diff_controller
+        try:
+            controller.set_all_diff_decisions(str(decision))
+        except ValueError as exc:
+            self._set_operation_error(
+                '差分行の一括決定を記録できませんでした', exc
+            )
+            return
+        self._sync_ifc_diff_panel()
+
+    def _ifc_diff_apply(self) -> None:
+        controller = self.ifc_diff_controller
+        try:
+            apply_record, report, proposal = controller.apply_ifc_diff()
+        except (ValueError, KeyError) as exc:
+            self._set_operation_error(
+                '差分の適用に失敗しました', exc
+            )
+            return
+        self._sync_ifc_diff_panel()
+        self._sync_geometry_intake_panel()
+        self._render()
+        self._set_status(
+            f'差分を適用しました ({apply_record.apply_id[:20]}…): '
+            f'承認 {len(apply_record.applied_row_keys)} / '
+            f'スキップ {len(apply_record.skipped_row_keys)} / '
+            f'未決定 {len(apply_record.pending_row_keys)} — '
+            f'欠陥 {len(report.defects)} 件 / '
+            f'修復提案 {len(proposal.actions)} 件'
+        )
+
+    def _ifc_diff_locate(self, part_ids) -> None:
+        """Locate diff-row parts — same anchor path as intake locate."""
+        self._geometry_intake_locate(part_ids)
 
     def set_prediction_results(self, results: object) -> None:
         self.prediction_results = results if isinstance(results, tuple) else ()
@@ -5022,6 +5625,7 @@ class RoomWorkspace(QWidget):
             self._pre_isolation_hidden = set(self.controller.view_state.hidden_ids)
         self.controller.isolate_entities(set(selection))
         self._render()
+        self._sync_objects_panel()
         self._set_status("選択項目のみ表示しています")
         return True
 
@@ -5042,6 +5646,7 @@ class RoomWorkspace(QWidget):
             self._pre_isolation_hidden = set(self.controller.view_state.hidden_ids)
         self.controller.isolate_entities(keep)
         self._render()
+        self._sync_objects_panel()
         self._set_status(
             f"「{SelectionInspector.KIND_LABELS.get(kind, kind)}」のみ表示しています"
         )
@@ -5053,6 +5658,7 @@ class RoomWorkspace(QWidget):
         self.controller.set_hidden_ids(self._pre_isolation_hidden)
         self._pre_isolation_hidden = None
         self._render()
+        self._sync_objects_panel()
         self._set_status("分離を解除しました")
         return True
 
@@ -5831,7 +6437,7 @@ class RoomWorkspace(QWidget):
             document=self.controller.document,
             existing=existing[0][1] if existing else None,
         )
-        if dialog.exec() != QDialog.DialogCode.Accepted:
+        if exec_transient(dialog) != QDialog.DialogCode.Accepted:
             return False
         spec = dialog.spec()
         if spec is None:
@@ -5878,12 +6484,32 @@ class RoomWorkspace(QWidget):
             self.controller.cancel_underlay_calibration()
             self._set_status("校正を中止しました")
             return True
+        if self.cable_waypoint_controller.is_active:
+            self.cable_waypoint_controller.cancel()
+            self._render()
+            return True
         if self.measure_controller.is_active:
             self.measure_controller.cancel()
             self._render()
             return True
         if self.transform_input is not None and self.transform_input.is_active:
             return bool(self.transform_input.cancel())
+        # Issue #982: an armed geometry-change preview is cancelled first —
+        # Esc drops the pending change before it can exit edit mode. The
+        # geometry panel may be wrapped in a dock container (the workflow
+        # shell attaches the dock, not the panel) — resolve the inner panel
+        # by its objectName when the container lacks the method.
+        geometry_panel = getattr(self, "geometry_panel", None)
+        preview_candidates = [geometry_panel]
+        if isinstance(geometry_panel, QWidget):
+            inner = geometry_panel.findChild(QWidget, "roomGeometryPanel")
+            if inner is not None:
+                preview_candidates.append(inner)
+        for candidate in preview_candidates:
+            cancel_preview = getattr(candidate, "cancel_pending_preview", None)
+            if callable(cancel_preview) and cancel_preview():
+                self._set_status("変更プレビューを取り消しました")
+                return True
         if self.geometry_input is not None and self.geometry_input.is_active:
             return bool(self.geometry_input.cancel())
         if self.controller.working.has_preview:
@@ -5930,6 +6556,19 @@ class RoomWorkspace(QWidget):
             clear_field = getattr(self.viewport, 'clear_field_overlay', None)
             if callable(clear_field):
                 clear_field()
+            clear_treatment = getattr(
+                self.viewport, 'clear_treatment_overlay', None
+            )
+            if callable(clear_treatment):
+                clear_treatment()
+        if context_id != 'geometry':
+            # #1004: survey overlay colours live only on the geometry
+            # context; a context switch or head change must not leak them.
+            clear_survey = getattr(
+                self.viewport, 'clear_survey_overlay', None
+            )
+            if callable(clear_survey):
+                clear_survey()
         self._update_responsive_layout()
         if context_id == "geometry" and self._geometry_page is not None:
             self.right_stack.setCurrentWidget(self._geometry_page)
@@ -5944,9 +6583,15 @@ class RoomWorkspace(QWidget):
             self.standards_panel.refresh_targets()
             self.standards_panel.refresh()
             self.installation_panel.refresh()
+            self.rack_workspace_panel.refresh()
+            self.cable_run_panel.refresh()
+            self._refresh_cable_waypoint_session()
             self._sync_constraints_panel()
             self._sync_video_panel()
             self._sync_seat_priority_panel()
+            # Lighting-scene identity line must be current on entry, not
+            # only after the first _refresh (#1013).
+            self._current_lighting_scene()
             self.right_stack.setCurrentWidget(self.placement_panel)
         elif context_id == "acoustics":
             self.overlay_controls.acoustics.setChecked(True)
@@ -5994,6 +6639,97 @@ class RoomWorkspace(QWidget):
             return
         self._after_selection_changed()
 
+    # ------------------------------------------------------------------
+    # #973: view-state capture/restore — UX convenience only. Snapshots
+    # re-show where the user was; a vanished entity deselects + focuses
+    # the inspector rather than guessing a nearest row.
+
+    def capture_view_state(self) -> WorkspaceViewState | None:
+        """Mount port: snapshot the current context's view state."""
+        area = self._context_scroll_area()
+        scroll = (
+            None if area is None else area.verticalScrollBar().value()
+        )
+        sizes = self._content_splitter.sizes()
+        total = sum(sizes)
+        return WorkspaceViewState(
+            scroll_offset=scroll,
+            selected_entity=self.controller.view_state.selected_id,
+            expanded_panels=tuple(
+                key
+                for key, expanded in self.inspector.expanded_sections().items()
+                if expanded
+            ),
+            splitter_ratio=(sizes[-1] / total) if total > 0 else None,
+        )
+
+    def restore_view_state(self, state: WorkspaceViewState) -> None:
+        """Mount port: re-apply a captured view state for the current
+        context — selection resolves against the live document, never a
+        nearest-row guess."""
+        selected_id = state.selected_entity
+        if selected_id:
+            if self._entity_present(selected_id):
+                self.select_entity(selected_id)
+            else:
+                # The saved entity vanished (deleted/other head) —
+                # deselect + parent focus.
+                self.select_entity(None)
+                self.inspector.setFocus(Qt.FocusReason.OtherFocusReason)
+        current = self.inspector.expanded_sections()
+        wanted = set(state.expanded_panels or ())
+        self.inspector.set_expanded_sections(
+            {key: key in wanted for key in current}
+        )
+        if state.splitter_ratio is not None:
+            sizes = self._content_splitter.sizes()
+            total = sum(sizes)
+            if total > 0 and len(sizes) == 2:
+                last = int(
+                    round(total * max(0.0, min(1.0, state.splitter_ratio)))
+                )
+                self._content_splitter.setSizes([total - last, last])
+        area = self._context_scroll_area()
+        if area is not None and state.scroll_offset is not None:
+            bar = area.verticalScrollBar()
+            offset = state.scroll_offset
+            bar.setValue(min(offset, bar.maximum()))
+            # Layout can still settle after mount/refresh — re-apply once
+            # idle; the bar as receiver drops the call when dead.
+            QTimer.singleShot(
+                0, bar,
+                lambda: bar.setValue(min(offset, bar.maximum())),
+            )
+
+    def _context_scroll_area(self) -> QScrollArea | None:
+        widget = self.right_stack.currentWidget()
+        if widget is None:
+            return None
+        if isinstance(widget, QScrollArea):
+            return widget
+        return widget.findChild(QScrollArea)
+
+    def _entity_present(self, entity_id: str) -> bool:
+        try:
+            entities = self.controller.document.entities
+        except (AttributeError, RuntimeError):
+            return False
+        return any(
+            entity.entity_id == entity_id for entity in entities
+        )
+
+    def _pick_candidate_uneditable_reason(self, entity_id: object) -> str | None:
+        """#983: edit-blocking reason for a pick-chooser candidate.
+
+        ``can_edit`` False means the whole document is off-limits (recovery
+        candidate, no room, or a live preview), so the reason applies to
+        every candidate. Selection itself stays allowed — selection is not
+        edit permission; the row just states why editing would refuse.
+        """
+        if not self.controller.can_edit:
+            return "編集不可"
+        return None
+
     def _entity_picked(self, entity_id: object, display_position: object = None) -> None:
         """Viewport pick: measure capture, Ctrl+click additive select, plain click."""
         target = str(entity_id)
@@ -6026,10 +6762,13 @@ class RoomWorkspace(QWidget):
     def _entities_marquee_selected(self, entity_ids: object, additive: object = False) -> None:
         """Left-drag marquee: replace selection, or Shift-extend it.
 
-        Measure mode swallows the gesture — a region of space is not an
-        endpoint, so the marquee is inert there rather than misfiring.
+        Measure and waypoint-recording modes swallow the gesture — a
+        region of space is not an endpoint, so the marquee is inert
+        there rather than misfiring.
         """
         if self.measure_controller.is_active:
+            return
+        if self.cable_waypoint_controller.is_active:
             return
         ids = [str(item) for item in entity_ids]
         self.controller.set_selection_many(ids, additive=bool(additive))
@@ -6039,6 +6778,11 @@ class RoomWorkspace(QWidget):
         """Click on empty space: measure free-point or clear selection."""
         if self.field_overlay.probe_armed:
             self._field_probe_at(display_position)
+            return
+        # #1011 M3: while recording, an unpicked click still resolves to
+        # the room boundary plane — the honest surface the user aimed at.
+        if self.cable_waypoint_controller.is_active:
+            self.cable_waypoint_controller.record_at(display_position)
             return
         if self.measure_controller.is_active:
             self.measure_controller.pick_free_point(display_position)
@@ -6078,6 +6822,114 @@ class RoomWorkspace(QWidget):
         self.field3DProbeDisarmed.emit()
         self._render()
 
+    # -- fabrication package preview (#1008) ---------------------------------
+
+    def show_fabrication_preview(
+        self,
+        package,
+        *,
+        placement_instance_id: str | None = None,
+        force_neutral: bool = False,
+    ) -> None:
+        """Arm the read-only preview on an ISSUED sealed package."""
+
+        self.fabrication_preview.arm(
+            package,
+            placement_instance_id=placement_instance_id,
+            force_neutral=force_neutral,
+        )
+        if self.current_context != 'acoustics':
+            self.set_context('acoustics')
+        elif not self.overlay_controls.acoustics.isChecked():
+            self.overlay_controls.acoustics.setChecked(True)
+        self._render()
+
+    def clear_fabrication_preview(self) -> None:
+        self.fabrication_preview.disarm()
+        clear_fab = getattr(self.viewport, 'clear_fabrication_preview', None)
+        if callable(clear_fab):
+            clear_fab()
+        self._render()
+
+    def update_fabrication_preview_view(
+        self,
+        *,
+        section_fraction: float | None,
+        exploded_fraction: float,
+    ) -> None:
+        if not self.fabrication_preview.armed:
+            return
+        self.fabrication_preview.set_view(
+            section_fraction=section_fraction,
+            exploded_fraction=exploded_fraction,
+        )
+        self._render()
+
+    def select_fabrication_part(self, selection_key: str | None) -> None:
+        if not self.fabrication_preview.armed:
+            return
+        self.fabrication_preview.select(selection_key)
+        self._render()
+
+    # -- seat coverage overlay (#1001) ----------------------------------------
+
+    def _seat_coverage_changed(self) -> None:
+        """Panel toggle/selectors → arm or clear the coverage overlay."""
+        panel = self.seat_coverage_panel
+        if panel.coverage_enabled:
+            options, _notices = self.coverage_overlay.list_options()
+            panel.set_options(options)
+            self.coverage_overlay.arm(panel.request())
+        else:
+            self.coverage_overlay.clear()
+        self._render()
+
+    def _directivity_changed(self) -> None:
+        """Panel toggle/selectors → arm or clear the balloon overlay (#1000)."""
+        panel = self.directivity_panel
+        if panel.directivity_enabled:
+            options, _notices = self.directivity_overlay.list_options()
+            panel.set_options(options)
+            self.directivity_overlay.arm(panel.request())
+        else:
+            self.directivity_overlay.clear()
+        self._render()
+
+    def _seat_coverage_seat_selected(self, seat_entity_id) -> None:
+        """Table row → scene selection via the stable seat entity id."""
+        if seat_entity_id is not None:
+            self.select_entity(seat_entity_id)
+
+    def focus_campaign_overlay(self, target) -> 'TargetFocusResult':
+        """#1006 deep link: arm the read-only campaign overlay.
+
+        ``target.primary_id`` is either a design id (``spatial-campaign:*``),
+        a scene entity id (bounded cell→marker sync: the marker joined to
+        that entity's acoustic reference position is emphasized), or empty —
+        then the newest design and the executor's next-incomplete cell
+        drive the emphasis. Unknown ids still arm the overlay; the resolver
+        surfaces an honest notice instead of guessing.
+        """
+        from .workflow_shell import TargetFocusResult
+
+        primary = target.primary_id
+        design_id = (
+            primary
+            if isinstance(primary, str) and primary.startswith('spatial-campaign:')
+            else None
+        )
+        focus_entity_id = primary if design_id is None else None
+        self.campaign_overlay.arm(
+            design_id=design_id,
+            focus_entity_id=focus_entity_id,
+        )
+        if self.current_context != 'acoustics':
+            self.set_context('acoustics')
+        elif not self.overlay_controls.acoustics.isChecked():
+            self.overlay_controls.acoustics.setChecked(True)
+        self._render()
+        return TargetFocusResult(focused=True)
+
     def _field_probe_at(self, display_position) -> None:
         if display_position is None:
             return
@@ -6104,6 +6956,11 @@ class RoomWorkspace(QWidget):
             refresh = getattr(self.acoustics_panel, "refresh", None)
             if callable(refresh):
                 refresh()
+        seat_coverage_panel = getattr(self, 'seat_coverage_panel', None)
+        if seat_coverage_panel is not None:
+            seat_coverage_panel.select_seat(
+                self.controller.view_state.selected_id
+            )
         self._render()
 
     # -- snap preferences (#481) --------------------------------------------------
@@ -6132,12 +6989,49 @@ class RoomWorkspace(QWidget):
         with QSignalBlocker(controls.angle_step_spin):
             controls.angle_step_spin.setValue(vs.angle_step_deg)
 
-    def set_snap_feedback(self, label: str | None) -> None:
+    def set_snap_feedback(
+        self,
+        label: str | None,
+        *,
+        screen_position=None,
+        hud_lines=None,
+    ) -> None:
+        # ``screen_position`` (interactor DIP) + ``hud_lines`` feed the
+        # cursor-side HUD (#979); the lower-left renderer label stays as
+        # the viewport's fallback when no position is supplied.
         render = getattr(self.viewport, "render_snap_feedback", None)
         if callable(render):
-            render(label)
+            render(label, screen_position=screen_position, hud_lines=hud_lines)
         if label:
             self._set_status(f"吸着: {label}")
+        elif self.status.text().startswith("吸着:"):
+            # Only this path prefixes status with 吸着: — when feedback
+            # clears, the stale snap label must clear with it (#979).
+            self._set_status("")
+
+    def _open_equipment_in_library(self, definition_id: str) -> None:
+        """#990: open one equipment definition in the reference Library.
+
+        Reference only — navigation resolves the typed target and focuses
+        the library row; no binding or project data is touched.
+        """
+
+        if self._on_navigate is None:
+            return
+        from .navigation_target import (
+            NavigationIntent,
+            NavigationTargetKind,
+        )
+        from .workflow_navigation import ApplicationDestinationId
+
+        self._on_navigate(
+            WorkspaceDeepLink(
+                ApplicationDestinationId.LIBRARY,
+                entity_id=definition_id,
+                kind=NavigationTargetKind.EQUIPMENT_DEFINITION.value,
+                intent=NavigationIntent.PROVENANCE.value,
+            )
+        )
 
     # -- objects panel (#480/#482) -----------------------------------------------------
 
@@ -6151,6 +7045,7 @@ class RoomWorkspace(QWidget):
             hidden_ids=frozenset(self.controller.view_state.hidden_ids),
             locked_ids=frozenset(self.controller.view_state.locked_ids),
             kind_labels=SelectionInspector.KIND_LABELS,
+            isolation_active=self._pre_isolation_hidden is not None,
         )
 
     def _objects_selection(self, entity_ids: object, primary_id: object) -> None:
@@ -6206,6 +7101,15 @@ class RoomWorkspace(QWidget):
         if changed:
             self._refresh()
             self._set_status(f"{changed} 項目を削除しました（元に戻せます）")
+
+    def _objects_isolate(self) -> None:
+        self.isolate_selection()
+
+    def _objects_clear_isolation(self) -> None:
+        self.clear_isolation()
+
+    def _objects_focus(self) -> None:
+        self.fit_selection()
 
     # -- constraints (#486) ------------------------------------------------------------
 
@@ -6527,7 +7431,7 @@ class RoomWorkspace(QWidget):
         if screen is None:
             return
         dialog = ScreenTransferDialog(self)
-        if dialog.exec() != ScreenTransferDialog.DialogCode.Accepted:
+        if exec_transient(dialog) != ScreenTransferDialog.DialogCode.Accepted:
             return
         values = dialog.values()
         samples: list[TransferSample] = []
@@ -6733,12 +7637,50 @@ class RoomWorkspace(QWidget):
             screen_transfers,
             self.controller.direct_view_repository.list_specifications(),
         )
+        # #1003: repopulate the measurement-set combo on every sync — the
+        # append-only store may have gained sets since the last paint.
+        self.video_panel.sync_quality_map_sets(
+            self.controller.spatial_image_repository.list_measurement_sets(
+                self.controller.document_id
+            )
+        )
         missing = video_workspace_missing_inputs(
             self.controller.committed_document, workspace
         )
         self.video_panel.show_message(
             "未設定: " + "、".join(missing) if missing else "評価できます"
         )
+
+    # -- #1003 screen quality map -------------------------------------------
+
+    def _quality_map_sync_selection(self) -> None:
+        """Push the panel's current controls into the resolver selection."""
+
+        self.quality_map.select_set(self.video_panel.current_quality_map_set_id())
+        self.quality_map.select_quantity(
+            self.video_panel.current_quality_map_quantity()
+        )
+        self.quality_map.select_viewpoint(
+            self.video_panel.current_quality_map_viewpoint()
+        )
+        self.quality_map.set_heatmap_enabled(
+            self.video_panel.quality_map_heatmap_enabled()
+        )
+
+    def _quality_map_changed(self) -> None:
+        self._quality_map_sync_selection()
+        self.quality_map.invalidate()
+        self._render()
+
+    def _quality_map_remeasure(self) -> None:
+        """Deep link to the re-measure procedure (#1003)."""
+
+        if self._on_navigate is not None:
+            self._on_navigate(WorkspaceDeepLink(WorkspaceId.VIDEO, 'verify'))
+        else:
+            self._set_status(
+                '再測定・比較は映像調整ワークスペースで実行してください'
+            )
 
     def _sync_seat_priority_panel(self) -> None:
         # The panel rebuilds its member rows from the committed head —
@@ -6762,7 +7704,7 @@ class RoomWorkspace(QWidget):
 
     def _video_create_spec(self) -> None:
         dialog = ProjectorSpecDialog(self)
-        if dialog.exec() != ProjectorSpecDialog.DialogCode.Accepted:
+        if exec_transient(dialog) != ProjectorSpecDialog.DialogCode.Accepted:
             return
         values = dialog.values()
         if not values["specification_id"]:
@@ -6848,7 +7790,7 @@ class RoomWorkspace(QWidget):
         dialog = DisplaySpecDialog(
             self, length_policy=self.video_panel.length_policy()
         )
-        if dialog.exec() != DisplaySpecDialog.DialogCode.Accepted:
+        if exec_transient(dialog) != DisplaySpecDialog.DialogCode.Accepted:
             return
         values = dialog.values()
         if not values["specification_id"]:
@@ -7193,6 +8135,16 @@ class RoomWorkspace(QWidget):
         if tool_id == "toggle-acoustics":
             self.overlay_controls.acoustics.toggle()
             return
+        if tool_id == "reflection-correspondence":
+            # #1002: jump to the measurement workspace's correspondence
+            # review surface (declared pairings only — no re-matching).
+            if self._on_navigate is not None:
+                self._on_navigate(
+                    WorkspaceDeepLink(
+                        WorkspaceId.MEASUREMENT, 'correspondence'
+                    )
+                )
+            return
         if tool_id == "measure":
             self.toggle_measure()
             return
@@ -7441,7 +8393,7 @@ class RoomWorkspace(QWidget):
         except (EditStateError, RawMeshImportError, ValueError, OSError) as exc:
             self._set_operation_error("ジオメトリをインポートできませんでした", exc)
             return False
-        if dialog.exec() != QDialog.DialogCode.Accepted:
+        if exec_transient(dialog) != QDialog.DialogCode.Accepted:
             return False
         request = dialog.import_request()
         if request.destination == 'entity_body' and entity_id is not None:
@@ -7485,7 +8437,7 @@ class RoomWorkspace(QWidget):
                     "メッシュを縮小して適合", QMessageBox.ButtonRole.DestructiveRole
                 )
                 box.addButton(QMessageBox.StandardButton.Cancel)
-                box.exec()
+                exec_transient(box)
                 clicked = box.clickedButton()
                 if clicked is adopt:
                     entity = attach('adopt')
@@ -7571,9 +8523,16 @@ class RoomWorkspace(QWidget):
             self._sync_constraints_panel()
             self._sync_video_panel()
             self._sync_seat_priority_panel()
+            # Keep the lighting-scene summary honest while browsing the
+            # placement/video page even when the preview toggle is off.
+            self._current_lighting_scene()
             installation_panel = getattr(self, "installation_panel", None)
             if installation_panel is not None:
                 installation_panel.refresh()
+            cable_run_panel = getattr(self, "cable_run_panel", None)
+            if cable_run_panel is not None:
+                cable_run_panel.refresh()
+            self._refresh_cable_waypoint_session()
         if self.current_context == "history":
             self._sync_history_panel()
         if self.geometry_panel is not None:
@@ -7802,11 +8761,64 @@ class RoomWorkspace(QWidget):
             selection=tuple(selection),
         )
 
+    def _cable_route_selection_changed(self, item) -> None:
+        # #1011: the listing resolves which endpoints may be placed; the
+        # viewport only ever draws bound endpoints + recorded waypoints.
+        self._cable_route_items = () if item is None else (item,)
+        self._render()
+
+    # -- #1011 M3: waypoint authoring -----------------------------------------
+
+    def _cable_run_inspection(self, run_id: str):
+        """Resolve the current listing entry for one run (or None)."""
+
+        for inspection in inspect_cable_runs(
+            scene_repository=self.cable_run_panel.scene_repository,
+            document_id=self.cable_run_panel.document_id,
+            cable_run_repository=self.cable_run_panel.cable_run_repository,
+            geometry_repository=self.cable_run_panel.geometry_repository,
+            signal_path_repository=self.cable_run_panel.signal_path_repository,
+        ):
+            if inspection.run_id == run_id:
+                return inspection
+        return None
+
+    def _begin_cable_waypoint_recording(self, run_id: str) -> None:
+        if self.cable_waypoint_controller.begin(run_id):
+            # The session owns the placement page's attention — the card
+            # already lives under the cable-run listing it was started from.
+            self._render()
+
+    def _cable_waypoint_picked(self, domain_point) -> None:
+        self.cable_waypoint_controller.record_domain_point(domain_point)
+
+    def _cable_waypoint_committed(self, _geometry) -> None:
+        self.cable_run_panel.refresh()
+        self._render()
+
+    def _refresh_cable_waypoint_session(self) -> None:
+        controller = getattr(self, 'cable_waypoint_controller', None)
+        if controller is not None and controller.is_active:
+            controller.refresh_run()
+
     def _render(self, *, reset_camera: bool = False) -> None:
         overlays = replace(
             self.overlay_controls.state(),
             hidden_ids=frozenset(self.controller.view_state.hidden_ids),
             guides_visible=self._guides_visible,
+            lighting_scene=(
+                getattr(self, 'lighting_panel', None) is not None
+                and self.lighting_panel.preview_enabled
+            ),
+            operational_clearance=(
+                getattr(self, 'clearance_panel', None) is not None
+                and self.clearance_panel.preview_enabled
+            ),
+            operational_zone_kinds=(
+                self.clearance_panel.enabled_kinds
+                if getattr(self, 'clearance_panel', None) is not None
+                else frozenset()
+            ),
         )
         self._sync_aux_render_state()
         # The document rebuild plus each overlay renderer used to trigger a
@@ -7843,6 +8855,88 @@ class RoomWorkspace(QWidget):
             render_video = getattr(self.viewport, "render_video_overlay", None)
             if callable(render_video):
                 render_video(self._video_evaluation)
+            # #1003 screen quality map — resolved against the current head
+            # and the live evaluation every render; a scene edit or source
+            # SHA change can never leave stale markers painted.
+            render_quality = getattr(
+                self.viewport, 'render_screen_quality_overlay', None
+            )
+            if callable(render_quality):
+                if (
+                    self.current_context == 'placement'
+                    and self.video_panel.quality_map_overlay_enabled()
+                ):
+                    self._quality_map_sync_selection()
+                    quality_scene = self.quality_map.resolve(
+                        self._video_evaluation
+                    )
+                    if quality_scene is None:
+                        self.viewport.clear_screen_quality_overlay()
+                    else:
+                        self.video_panel.sync_quality_map(quality_scene)
+                        render_quality(quality_scene)
+                else:
+                    self.viewport.clear_screen_quality_overlay()
+            render_lighting = getattr(
+                self.viewport, 'render_lighting_scene_preview', None
+            )
+            lighting_preview = (
+                self._lighting_scene_preview()
+                if overlays.lighting_scene
+                else None
+            )
+            if callable(render_lighting):
+                render_lighting(lighting_preview)
+            lighting_panel = getattr(self, 'lighting_panel', None)
+            if lighting_panel is not None:
+                lighting_panel.show_preview(
+                    lighting_preview if overlays.lighting_scene else None
+                )
+            render_opclear = getattr(
+                self.viewport, 'render_operational_clearance_overlay', None
+            )
+            # #1010: conflicts are recomputed on every render from
+            # ``controller.document`` — which returns the live preview
+            # document during drags — so stale-revision results can never
+            # paint on screen.
+            opclear_preview = (
+                build_operational_clearance_preview(
+                    document=self.controller.document,
+                    enabled_kinds=overlays.operational_zone_kinds,
+                )
+                if overlays.operational_clearance
+                else None
+            )
+            if callable(render_opclear):
+                render_opclear(opclear_preview)
+            clearance_panel = getattr(self, 'clearance_panel', None)
+            if clearance_panel is not None:
+                clearance_panel.show_preview(
+                    opclear_preview
+                    if overlays.operational_clearance
+                    else None
+                )
+            # #1005: mounting-feasibility inspection — rebuilt from the
+            # live document + persisted context/service records on every
+            # render, so a scene edit or a changed assembly can never
+            # leave a stale verdict painted. The panel binds the fresh
+            # preview regardless of the 3D toggle; the viewport only
+            # draws while the toggle is on.
+            feasibility_preview = self._installation_feasibility_preview()
+            render_feasibility = getattr(
+                self.viewport, 'render_installation_feasibility_overlay',
+                None,
+            )
+            if callable(render_feasibility):
+                render_feasibility(
+                    feasibility_preview
+                    if getattr(self, 'feasibility_panel', None) is not None
+                    and self.feasibility_panel.preview_enabled
+                    else None
+                )
+            feasibility_panel = getattr(self, 'feasibility_panel', None)
+            if feasibility_panel is not None:
+                feasibility_panel.show_preview(feasibility_preview)
             if self.current_context == "placement" and self._proposed_variant_id is not None:
                 try:
                     proposal_entities = self.system_expansion.ghost_preview(
@@ -7870,6 +8964,13 @@ class RoomWorkspace(QWidget):
             )
             if callable(render_guidance):
                 render_guidance(self._visible_guidance_markers(overlays))
+            # #1011: cable-route overlay — endpoints + recorded waypoints
+            # only, never an invented line between endpoints.
+            render_cable_routes = getattr(
+                self.viewport, "render_cable_route_overlay", None
+            )
+            if callable(render_cable_routes):
+                render_cable_routes(self._cable_route_items)
             # #999: 3D field overlay — acoustics context + overlay ON +
             # armed request + CURRENT head; anything else draws nothing.
             render_field = getattr(self.viewport, 'render_field_overlay', None)
@@ -7890,6 +8991,244 @@ class RoomWorkspace(QWidget):
                             self.field3DProbeDisarmed.emit()
                 else:
                     self.viewport.clear_field_overlay()
+            # #1009: treatment coverage — acoustics context + overlay ON,
+            # resolved against the CURRENT head every render. A scene edit
+            # re-mints the head, so a stale patch cannot survive one render.
+            render_treatment = getattr(
+                self.viewport, 'render_treatment_overlay', None
+            )
+            if callable(render_treatment):
+                if (
+                    self.current_context == 'acoustics'
+                    and overlays.acoustics
+                ):
+                    overlay = self.treatment_overlay.resolve()
+                    if overlay is None or (
+                        not overlay.patches and not overlay.notices
+                    ):
+                        self.viewport.clear_treatment_overlay()
+                    else:
+                        render_treatment(overlay)
+                else:
+                    self.viewport.clear_treatment_overlay()
+            # #1008: fabrication preview — armed sealed package only,
+            # resolved against the CURRENT head every render; a package
+            # revision swap re-arms with a new sha and never replays the
+            # previous package's actors.
+            render_fab = getattr(
+                self.viewport, 'render_fabrication_preview', None
+            )
+            if callable(render_fab):
+                if (
+                    self.current_context == 'acoustics'
+                    and overlays.acoustics
+                    and self.fabrication_preview.armed
+                ):
+                    fab_scene = self.fabrication_preview.resolve()
+                    if fab_scene is None:
+                        self.viewport.clear_fabrication_preview()
+                    else:
+                        render_fab(fab_scene)
+                else:
+                    self.viewport.clear_fabrication_preview()
+            # #1006: campaign spatial markers — acoustics context + overlay
+            # ON + armed request + CURRENT head; the resolve runs per render
+            # so a superseded revision lapses immediately.
+            render_campaign = getattr(
+                self.viewport, 'render_campaign_overlay', None
+            )
+            if callable(render_campaign):
+                if (
+                    self.current_context == 'acoustics'
+                    and overlays.acoustics
+                    and self.campaign_overlay.armed
+                ):
+                    campaign_scene = self.campaign_overlay.resolve()
+                    if campaign_scene is None:
+                        self.viewport.clear_campaign_overlay()
+                    else:
+                        render_campaign(campaign_scene)
+                        if campaign_scene.notices:
+                            self._set_status(
+                                ' / '.join(campaign_scene.notices)
+                            )
+                else:
+                    self.viewport.clear_campaign_overlay()
+            # #1004: as-built survey overlay — geometry context only, the
+            # resolver re-checks the current head + every authority hash
+            # per render so stale survey colours cannot survive one frame.
+            render_survey = getattr(
+                self.viewport, 'render_survey_overlay', None
+            )
+            survey_scene = None
+            if callable(render_survey):
+                if (
+                    self.current_context == 'geometry'
+                    and overlays.survey_mode
+                ):
+                    survey_scene = self.survey_overlay.resolve(
+                        overlays.survey_mode
+                    )
+                    if survey_scene is None:
+                        self.viewport.clear_survey_overlay()
+                    else:
+                        render_survey(survey_scene)
+                else:
+                    self.viewport.clear_survey_overlay()
+            if self.survey_panel is not None:
+                self.survey_panel.show_scene(survey_scene)
+            # #1001: per-seat coverage markers — placement/acoustics context
+            # + acoustics overlay ON + panel toggle; the resolver re-reads
+            # the sealed evaluation through CadCoverageRepository against
+            # the CURRENT head each render, so a scene/variant/frequency
+            # change can never leave a stale marker or number painted.
+            render_coverage = getattr(
+                self.viewport, 'render_coverage_overlay', None
+            )
+            coverage_panel = getattr(self, 'seat_coverage_panel', None)
+            if callable(render_coverage):
+                coverage_scene = None
+                if (
+                    self.current_context in ('placement', 'acoustics')
+                    and overlays.acoustics
+                    and self.coverage_overlay.armed
+                ):
+                    coverage_scene = self.coverage_overlay.resolve(
+                        focus_seat_entity_id=(
+                            self.controller.view_state.selected_id
+                        )
+                    )
+                if coverage_scene is None:
+                    self.viewport.clear_coverage_overlay()
+                else:
+                    render_coverage(coverage_scene)
+                if coverage_panel is not None:
+                    coverage_panel.show_scene(coverage_scene)
+            # #1000: speaker directivity balloons — same current_head
+            # discipline; a scene edit / authority change lapses the
+            # drawn balloons on the next render.
+            render_directivity = getattr(
+                self.viewport, 'render_directivity_overlay', None
+            )
+            directivity_panel = getattr(self, 'directivity_panel', None)
+            if callable(render_directivity):
+                directivity_scene = None
+                if (
+                    self.current_context in ('placement', 'acoustics')
+                    and overlays.acoustics
+                    and self.directivity_overlay.armed
+                ):
+                    directivity_scene = self.directivity_overlay.resolve()
+                if directivity_scene is None:
+                    self.viewport.clear_directivity_overlay()
+                else:
+                    render_directivity(directivity_scene)
+                if directivity_panel is not None:
+                    directivity_panel.show_scene(directivity_scene)
+
+    def _current_lighting_scene(self):
+        """Current persisted LightingScene for this document, or None.
+
+        Cached per document id — the indexed read would otherwise run on
+        every viewport refresh. A selection changed mid-session after the
+        first read is NOT observed; anything that re-selects the scene
+        must reset ``self._lighting_scene_cache``.
+        """
+        document_id = self.controller.document_id
+        if (
+            self._lighting_scene_cache is not None
+            and self._lighting_scene_cache[0] == document_id
+        ):
+            return self._lighting_scene_cache[1]
+        scene = self.lighting_repository.current_scene(document_id)
+        self._lighting_scene_cache = (document_id, scene)
+        self.lighting_panel.show_scene(scene)
+        return scene
+
+    def _lighting_inventory(self) -> tuple:
+        """(fixtures, zones, commissioning_records) for the preview.
+
+        ``lighting_inventory_provider`` is the seam a future lighting
+        inventory store plugs into; with none installed the inventory is
+        empty and every scene ref surfaces as unresolved.
+        """
+        provider = self.lighting_inventory_provider
+        if provider is None:
+            return (), (), ()
+        return provider()
+
+    def _lighting_scene_preview(self):
+        scene = self._current_lighting_scene()
+        if scene is None:
+            return None
+        fixtures, zones, records = self._lighting_inventory()
+        return build_lighting_scene_preview(
+            document=self.controller.document,
+            scene=scene,
+            fixtures=fixtures,
+            zones=zones,
+            commissioning_records=records,
+        )
+
+    def _installation_feasibility_preview(self):
+        """#1005 preview — fresh contexts + service envelopes every call.
+
+        ``controller.document`` returns the live preview document during
+        drags, and both authority stores are re-read here, so a scene
+        edit, a newly saved mounting record or an assembly change lapses
+        every glyph on the next render pass.
+        """
+        if getattr(self, 'feasibility_panel', None) is None:
+            return None
+        document_id = self.controller.document_id
+        contexts: tuple = ()
+        context_repo = getattr(
+            self.installation_panel, 'context_repository', None
+        )
+        if context_repo is not None:
+            contexts = tuple(
+                context_repo.latest_contexts_for_document(
+                    document_id
+                ).values()
+            )
+        if not contexts:
+            return None
+        clearances: dict[str, float] = {}
+        qualification = getattr(self, '_qualification_repository', None)
+        if qualification is None:
+            try:
+                qualification = CadRoomQualificationRepository(
+                    self.controller.repository
+                )
+            except EXPECTED_OPERATION_ERRORS as exc:
+                if is_authority_failure(exc):
+                    raise  # store failures never masquerade as 'no clearances'
+                report_boundary_failure(exc, operation='運用クリアランスの確認')
+                qualification = None
+            self._qualification_repository = qualification
+        if qualification is not None:
+            try:
+                for envelope in qualification.service_envelopes.list(
+                    document_id
+                ):
+                    ref_id = envelope.device_ref.ref_id
+                    if (
+                        envelope.service_clearance_m is not None
+                        and ref_id not in clearances
+                    ):
+                        clearances[ref_id] = float(
+                            envelope.service_clearance_m
+                        )
+            except EXPECTED_OPERATION_ERRORS as exc:
+                if is_authority_failure(exc):
+                    raise  # store failures never masquerade as 'no clearances'
+                report_boundary_failure(exc, operation='運用クリアランスの確認')
+                clearances = {}
+        return build_installation_feasibility_preview(
+            document=self.controller.document,
+            contexts=contexts,
+            service_clearances=clearances,
+        )
 
     def _set_status(self, text: str, *, error: bool = False) -> None:
         self.status.setText(text)
@@ -8156,12 +9495,20 @@ def build_room_workspace_mount(
         viewport_factory=viewport_factory,
         on_navigate=on_navigate,
     )
+    from .navigation_target import NavigationTargetKind
+
     return WorkspaceMount.from_widget(
         workspace,
         on_activate=workspace.activate,
         before_deactivate=workspace.before_deactivate,
         on_context_changed=workspace.set_context,
         on_entity_requested=workspace.select_entity,
+        # #1006: the measurement-page 「3Dで測定位置を確認」 deep link lands
+        # here — the overlay is armed by the workspace, never auto-shown.
+        focus_kinds={NavigationTargetKind.MEASUREMENT_CAMPAIGN},
+        focus_target=workspace.focus_campaign_overlay,
+        capture_view_state=getattr(workspace, "capture_view_state", None),
+        restore_view_state=getattr(workspace, "restore_view_state", None),
     )
 
 

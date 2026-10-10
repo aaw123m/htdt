@@ -3213,6 +3213,17 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
     CREATE TABLE IF NOT EXISTS cad_ifc_exports ( seq INTEGER PRIMARY KEY AUTOINCREMENT, export_id TEXT NOT NULL UNIQUE, export_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, mode TEXT NOT NULL, source_artifact_id TEXT, step_sha256 TEXT NOT NULL, created_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
     """
     ,
+    # REV74: #981 IFC diff-review apply authority — sealed, append-only
+    # record of each operator-approved diff apply: the delta it resolved,
+    # both import artifacts, the merged subject and every row decision.
+    """
+    CREATE TABLE IF NOT EXISTS cad_ifc_diff_applies ( seq INTEGER PRIMARY KEY AUTOINCREMENT, apply_id TEXT NOT NULL UNIQUE, apply_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, delta_id TEXT NOT NULL, prior_artifact_id TEXT NOT NULL, new_artifact_id TEXT NOT NULL, merged_subject_id TEXT NOT NULL, applied_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_ifc_diff_apply_doc ON cad_ifc_diff_applies(document_id, seq ASC)
+    """
+    ,
     """
     CREATE TABLE IF NOT EXISTS cad_performance_fact_profiles ( seq INTEGER PRIMARY KEY AUTOINCREMENT, profile_id TEXT NOT NULL UNIQUE, profile_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, publisher TEXT NOT NULL, family TEXT NOT NULL, document_reference TEXT NOT NULL, maturity_state TEXT NOT NULL, payload_json TEXT NOT NULL )
     """
@@ -5881,6 +5892,14 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
     ,
     """
     CREATE INDEX IF NOT EXISTS idx_cenv_doc ON cad_accuracy_cost_envelopes(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_prerun_estimates ( seq INTEGER PRIMARY KEY AUTOINCREMENT, estimate_id TEXT NOT NULL UNIQUE, estimate_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, job_kind TEXT NOT NULL, solver_id TEXT NOT NULL, confidence TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_prest_doc ON cad_prerun_estimates(document_id, seq ASC)
     """
     ,
     """
@@ -9298,6 +9317,37 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
         CREATE INDEX IF NOT EXISTS idx_garun_verdict ON cad_gate_acceptance_runs(verdict, seq ASC)
     """
     ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_cable_run_geometries ( seq INTEGER PRIMARY KEY AUTOINCREMENT, geometry_id TEXT NOT NULL, version TEXT NOT NULL, document_id TEXT NOT NULL, run_id TEXT NOT NULL, run_version TEXT NOT NULL, run_semantic_sha256 TEXT NOT NULL, geometric_length_m REAL NOT NULL, semantic_sha256 TEXT NOT NULL UNIQUE, payload_json TEXT NOT NULL, recorded_at_utc TEXT NOT NULL, UNIQUE(geometry_id, version) )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_cable_run_geometry_doc ON cad_cable_run_geometries(document_id, seq ASC)
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_cable_run_geometry_run ON cad_cable_run_geometries(run_id, run_version, seq ASC)
+    """
+    ,
+    # REV73: #968 re-measurement queue authority — sealed deterministic
+    # queues pinned to the quality evaluation set, plus the append-only
+    # sealed terminal events (dismissed / converted) of queued items.
+    """
+        CREATE TABLE IF NOT EXISTS cad_remeasure_queues ( seq INTEGER PRIMARY KEY AUTOINCREMENT, queue_id TEXT NOT NULL UNIQUE, queue_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, scene_revision_id TEXT NOT NULL, evaluation_set_sha256 TEXT NOT NULL, item_count INTEGER NOT NULL, created_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_rqueue_doc ON cad_remeasure_queues(document_id, seq ASC)
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_remeasure_queue_events ( seq INTEGER PRIMARY KEY AUTOINCREMENT, event_id TEXT NOT NULL UNIQUE, event_sha256 TEXT NOT NULL UNIQUE, queue_id TEXT NOT NULL, measurement_id TEXT NOT NULL, kind TEXT NOT NULL, created_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_rqev_queue ON cad_remeasure_queue_events(queue_id, seq ASC)
+    """
+    ,
 )
 
 
@@ -9834,6 +9884,7 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_ifc_import_artifacts',
     'cad_ifc_entity_mappings',
     'cad_ifc_revision_deltas',
+    'cad_ifc_diff_applies',
     'cad_ifc_intake_profiles',
     'cad_ifc_intake_evaluations',
     'cad_ifc_exports',
@@ -10120,6 +10171,7 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_solver_budget_profiles',
     'cad_compute_observations',
     'cad_accuracy_cost_envelopes',
+    'cad_prerun_estimates',
     'cad_jitter_profiles',
     'cad_jitter_observations',
     'cad_jitter_transfer_measurements',
@@ -10503,4 +10555,9 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     # REV72: #1030 lifecycle-gate operator plans + acceptance runs.
     'cad_gate_operator_plans',
     'cad_gate_acceptance_runs',
+    # REV73: #1011 cable-run route geometry authority (M2).
+    'cad_cable_run_geometries',
+    # REV73: #968 re-measurement queue authority.
+    'cad_remeasure_queues',
+    'cad_remeasure_queue_events',
 )

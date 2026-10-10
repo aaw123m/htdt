@@ -386,7 +386,7 @@ class AcceptanceRunRepository:
                 continue
             try:
                 content = store.read_verified(ref.sha256)
-            except Exception as exc:  # pragma: no cover - corruption path
+            except Exception as exc:  # error-boundary: per-evidence verify — any read failure is sealed as this evidence's problem (exception type named), never aborting the sweep (noqa: BLE001)
                 problems.append((ref.evidence_id, f'{type(exc).__name__}'))
                 continue
             if content is None:

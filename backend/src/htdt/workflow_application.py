@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -19,6 +20,7 @@ from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
     QFormLayout,
+    QHBoxLayout,
     QInputDialog,
     QLabel,
     QLineEdit,
@@ -31,6 +33,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .modal_transient import exec_transient
 from . import file_dialog_memory
 from .cad_input import (
     CAD_SCENE_COMMAND_IDS,
@@ -48,6 +51,7 @@ from .activity_center import (
     OperationClass,
     OperationState,
     OperationTransitionError,
+    RetryPolicy,
 )
 from .capture_inbox import CaptureInboxRepository
 from .capture_watch_failures import (
@@ -120,7 +124,7 @@ from .cad_repository import SceneRepository
 from .cad_roomsim_repository import CadRoomSimRepository
 from .cad_search_repository import CadSearchRepository
 from .cad_system_variant_repository import CadSystemVariantRepository
-from .export_io import claim_export_stem, write_export_files
+from .export_io import write_export_generation
 from .availability_reasons import availability_reason
 from .accessible_labels import wire_label_buddies
 from .command_palette import (
@@ -155,6 +159,10 @@ from .capture_watch_runner import CaptureWatchRunner
 from .storage_watch_runner import StorageWatchRunner
 from .data_management_ui import build_data_management_component
 from .reference_library_sources import build_reference_library_index
+from .reference_library_browser import (
+    build_reference_library_detail_resolver,
+    collect_usage_sites,
+)
 from .file_dialog_memory import FileDialogMemoryStore
 from .equipment_catalog_export import export_equipment_catalog_snapshot
 from .equipment_library import EquipmentLibraryDialog, EquipmentLibraryService
@@ -185,6 +193,7 @@ from .project_lifecycle import ProjectLibrary, ProjectNotFoundError
 from .project_bundle import (
     BUNDLE_EXTENSION,
     BundleImportConflictError,
+    collect_project_bundle,
     export_project_bundle,
     import_project_bundle,
 )
@@ -213,8 +222,8 @@ from .error_boundary import (
 from .user_facing_error import (
     operation_error_message,
     to_user_facing_error,
-    warn_user,
 )
+from .operation_error_dialog import warn_user
 from .workspace_dirty_state import (
     DirtyResolutionAction,
     WorkspaceDirtyState,
@@ -223,9 +232,14 @@ from .system_expansion_workflow import SystemExpansionWorkflowService
 from .support_diagnostics import (
     DiagnosticPackageBuilder,
     PackageCategory,
+    capture_receiver_probe,
     package_filename,
+    rew_api_probe,
     run_health_checks,
+    semantic_integrity_check,
+    vtk_probe,
 )
+from .support_health_runner import SupportHealthRunner
 from .workflow_help import GlossaryDialog, HelpDialog
 from .first_run_wizard import FirstRunWizardDialog
 from .first_run_wizard_state import (
@@ -363,6 +377,10 @@ _LAZY_IMPORTS = {
     'inbox_focus': ('.application_pages', 'inbox_focus'),
     'list_recent_revisions': ('.application_pages', 'list_recent_revisions'),
     'count_recent_revisions': ('.application_pages', 'count_recent_revisions'),
+    'list_revisions_page': (
+        '.application_pages',
+        'list_revisions_page',
+    ),
     'list_known_document_ids': (
         '.application_pages',
         'list_known_document_ids',
@@ -446,6 +464,7 @@ _LAZY_IMPORTS = {
     ),
     'RoomAcousticsTabs': ('.room_acoustics_panel', 'RoomAcousticsTabs'),
     'RoomTreatmentPanel': ('.room_acoustics_panel', 'RoomTreatmentPanel'),
+    'RoomSurveyPanel': ('.room_survey_panel', 'RoomSurveyPanel'),
     'SurfaceMaterialPanel': ('.room_acoustics_panel', 'SurfaceMaterialPanel'),
     'ReflectionGuidancePanel': (
         '.reflection_guidance_ui',
@@ -465,6 +484,10 @@ _LAZY_IMPORTS = {
     'GeometryIntakeController': (
         '.geometry_intake_controller',
         'GeometryIntakeController',
+    ),
+    'IfcDiffReviewPanel': (
+        '.ifc_diff_review_panel',
+        'IfcDiffReviewPanel',
     ),
 }
 
@@ -682,31 +705,35 @@ class _AnalysisExportWriteResult:
 
 
 def _write_analysis_export(
-    target: Path, export: AnalysisExportBundle
+    target: Path,
+    export: AnalysisExportBundle,
+    *,
+    exclude_members: frozenset[str] = frozenset(),
 ) -> tuple[Path, ...]:
-    """Claim one ``analysis-N`` stem and publish the three members atomically.
+    """Publish the three members as one ``analysis-N/`` generation dir.
 
     One generation per stem: re-exporting into the same folder never
     overwrites or mixes with a previous export — a fresh ``analysis-N``
-    stem is claimed and the three members are published atomically or not
-    at all.
+    directory is reserved, staged and published as a whole or not at
+    all (see :func:`htdt.export_io.write_export_generation`).
+    ``exclude_members`` drops member filenames the export preflight
+    withheld (#989).
     """
-    stem = claim_export_stem(
+    generation = write_export_generation(
         target,
         'analysis',
-        ('_export.csv', '_export.json', '_report.html'),
+        {
+            name: content
+            for name, content in {
+                'export.csv': render_analysis_csv(export),
+                'export.json': render_analysis_json(export),
+                'report.html': render_analysis_html(export),
+            }.items()
+            if name not in exclude_members
+        },
+        bom_suffixes=('.csv',),
     )
-    return tuple(
-        write_export_files(
-            target,
-            {
-                f'{stem}_export.csv': render_analysis_csv(export),
-                f'{stem}_export.json': render_analysis_json(export),
-                f'{stem}_report.html': render_analysis_html(export),
-            },
-            bom_suffixes=('.csv',),
-        ).values()
-    )
+    return generation.members
 
 
 class WorkflowApplicationComposition:
@@ -816,7 +843,19 @@ class WorkflowApplicationComposition:
                 WorkspaceId.OPTIMIZATION: self._make_optimization,
                 WorkspaceId.PRESENTATION: self._make_presentation,
                 WorkspaceId.VIDEO: self._make_video,
-            }
+            },
+            # Unmounted destinations resolve capabilities from the
+            # registration — declare room's focus kinds so a deep link
+            # (e.g. the campaign 3D view) is focusable on the FIRST click,
+            # not only after the mount exists (#1006 first-click fix).
+            focus_kinds={
+                WorkspaceId.ROOM: frozenset({
+                    NavigationTargetKind.SCENE_ENTITY,
+                    NavigationTargetKind.SCENE_REVISION,
+                    NavigationTargetKind.INSTALLED_EQUIPMENT_INSTANCE,
+                    NavigationTargetKind.MEASUREMENT_CAMPAIGN,
+                }),
+            },
         ) + self._application_registrations()
         self.shell = WorkflowShellWindow(registrations)
         self.registry.set_deep_link_handler(self.shell.handle_deep_link)
@@ -861,6 +900,13 @@ class WorkflowApplicationComposition:
         # data root so the next session can see what ran/failed last.
         self.activity_center = ActivityCenter()
         self.activity_center.subscribe(self._persist_activity_history)
+        # #974: the shell strip mirrors registry state from every
+        # workspace; the open button lands on the Activity destination
+        # through the normal guarded navigate path.
+        self.shell.activity_strip.bind(self.activity_center)
+        self.shell.activity_strip.openRequested.connect(
+            lambda: self.shell.navigate(ApplicationDestinationId.ACTIVITY)
+        )
         # Round10: uncaught exceptions also land here as failed
         # pseudo-operations — the status-bar line fades, this record does
         # not. Bounded per session so a crash-looping slot cannot flood the
@@ -1055,6 +1101,10 @@ class WorkflowApplicationComposition:
                 _LOGGER.warning('saved window geometry could not be applied')
         if state.contexts:
             self.shell.seed_selected_contexts(state.contexts)
+        # #973: seed before navigate() so the restore fires inside the
+        # same switch that lands the saved workspace.
+        if state.view_states:
+            self.shell.seed_view_states(state.view_states)
         if state.workspace is not None:
             try:
                 if state.workspace != str(self.shell.current_workspace_id):
@@ -1083,12 +1133,16 @@ class WorkflowApplicationComposition:
         except RuntimeError:
             workspace = None
         geometry = bytes(self.shell.saveGeometry().toBase64()).decode('ascii')
+        # #973: capture live view states from every mount — including the
+        # still-active one — before serializing.
+        self.shell.collect_view_states()
         save_window_state(
             self.data_dir,
             PersistedWindowState(
                 geometry_b64=geometry,
                 workspace=None if workspace is None else str(workspace),
                 contexts=self.shell.selected_contexts(),
+                view_states=self.shell.view_states(),
             ),
             project_ref=self._window_state_project_ref(),
         )
@@ -1723,7 +1777,7 @@ class WorkflowApplicationComposition:
             f'[diag: {entry.diagnostic_id}]\n{note_path}\n\n'
             'サポートへ共有する場合は診断パッケージに含めてください。'
         )
-        box.exec()
+        exec_transient(box)
 
     def _shutdown_background_runners(self) -> None:
         for runner in (
@@ -1819,12 +1873,74 @@ class WorkflowApplicationComposition:
         dialog = QDialog(self.shell)
         dialog.setWindowTitle(title)
         layout = QVBoxLayout(dialog)
+        # #986: same search/sort/state vocabulary as the Projects page —
+        # rows stay pinned to stable project_id in UserRole; the display
+        # name is never the identity.
+        from .application_pages import (
+            PROJECT_FILTER_ALL,
+            PROJECT_FILTER_ARCHIVED,
+            PROJECT_SORT_CREATED,
+            PROJECT_SORT_NAME,
+            PROJECT_SORT_RECENT,
+            filter_project_entries,
+        )
+
+        search_edit = QLineEdit(dialog)
+        search_edit.setPlaceholderText("プロジェクト名で検索…")
+        search_edit.setAccessibleName("プロジェクト名で検索")
+        search_edit.setToolTip("表示名の部分一致で一覧を絞り込みます")
+        layout.addWidget(search_edit)
+        controls = QHBoxLayout()
+        sort_combo = QComboBox(dialog)
+        for _label, _key in (
+            ("最近使った順", PROJECT_SORT_RECENT),
+            ("作成日時", PROJECT_SORT_CREATED),
+            ("名前", PROJECT_SORT_NAME),
+        ):
+            sort_combo.addItem(_label, _key)
+        sort_combo.setToolTip("一覧の並べ替え方法を選びます")
+        controls.addWidget(sort_combo)
+        state_combo = QComboBox(dialog)
+        for _label, _key in (
+            ("全件", PROJECT_FILTER_ALL),
+            ("アーカイブ済み", PROJECT_FILTER_ARCHIVED),
+        ):
+            state_combo.addItem(_label, _key)
+        state_combo.setToolTip("アーカイブ済みのみ表示します")
+        controls.addWidget(state_combo)
+        layout.addLayout(controls)
         listing = QListWidget(dialog)
-        for entry in entries:
-            item = QListWidgetItem(entry.display_name)
-            item.setData(Qt.ItemDataRole.UserRole, entry.project_id)
-            listing.addItem(item)
-        listing.setCurrentRow(0)
+
+        def _refill() -> None:
+            current_id = None
+            item = listing.currentItem()
+            if item is not None:
+                current_id = item.data(Qt.ItemDataRole.UserRole)
+            listing.clear()
+            restore_row = 0
+            for row, entry in enumerate(
+                filter_project_entries(
+                    entries,
+                    text=search_edit.text(),
+                    sort=sort_combo.currentData(),
+                    state=state_combo.currentData(),
+                )
+            ):
+                item = QListWidgetItem(
+                    entry.display_name
+                    + ("（アーカイブ済み）" if entry.archived else "")
+                )
+                item.setData(Qt.ItemDataRole.UserRole, entry.project_id)
+                listing.addItem(item)
+                if current_id is not None and entry.project_id == current_id:
+                    restore_row = row
+            if listing.count():
+                listing.setCurrentRow(restore_row)
+
+        search_edit.textChanged.connect(lambda *_a: _refill())
+        sort_combo.currentIndexChanged.connect(lambda *_a: _refill())
+        state_combo.currentIndexChanged.connect(lambda *_a: _refill())
+        _refill()
         # Enter/Return or double-click on a row accepts the dialog — the
         # picker's primary gesture, matching the command palette's list.
         listing.itemActivated.connect(lambda *_item: dialog.accept())
@@ -1837,7 +1953,7 @@ class WorkflowApplicationComposition:
         buttons.accepted.connect(dialog.accept)
         buttons.rejected.connect(dialog.reject)
         layout.addWidget(buttons)
-        if dialog.exec() != QDialog.DialogCode.Accepted:
+        if exec_transient(dialog) != QDialog.DialogCode.Accepted:
             return None
         item = listing.currentItem()
         if item is None:
@@ -1888,7 +2004,7 @@ class WorkflowApplicationComposition:
         buttons.accepted.connect(dialog.accept)
         buttons.rejected.connect(dialog.reject)
         layout.addWidget(buttons)
-        if dialog.exec() != QDialog.DialogCode.Accepted:
+        if exec_transient(dialog) != QDialog.DialogCode.Accepted:
             return None
         item = listing.currentItem()
         if item is None:
@@ -2253,6 +2369,7 @@ class WorkflowApplicationComposition:
         title = "テンプレートを保存できません"
         while True:
             if dialog.exec() != QDialog.DialogCode.Accepted:
+                dialog.deleteLater()
                 return
             name = name_edit.text().strip()
             version = version_edit.text().strip() or '1'
@@ -2261,6 +2378,8 @@ class WorkflowApplicationComposition:
             QMessageBox.warning(
                 self.shell, title, "テンプレート名を入力してください"
             )
+        # Transient dialog re-shown in a loop: delete once it exits.
+        dialog.deleteLater()
 
         reference_choice = reference_combo.currentData()
         try:
@@ -2309,13 +2428,130 @@ class WorkflowApplicationComposition:
         #927: the dirty/running state is resolved BEFORE the bundle is
         written so the serialized project is always one exact generation —
         and the default file name stamps that generation's head revision.
+
+        #989: before any destination is chosen the dependency closure is
+        collected and reviewed through the export preflight — per-table/
+        per-asset classifications, sizes, risk flags and the send scope
+        (完全再現用 / 外部レビュー用). External shares build an allowlist
+        ``ExportRedactionManifest``; denied elements are physically
+        omitted from the archive and recorded as omissions.
         """
         if not self._require_bound_project() or self._bundle_busy:
             return
         decision = self._project_snapshot_decision('エクスポート')
         if decision is None:
             return
+        self._begin_bundle_job("エクスポート内容を検査しています…")
+        self._bundle_pool.start(
+            "project.bundle.export.preflight",
+            lambda _cancel_event: collect_project_bundle(
+                self.repository, self.document_id
+            ),
+            self._bundle_job_completed,
+        )
+
+    def _bundle_preflight_done(self, plan, error) -> None:
+        """UI half of the bundle preflight (#989): review → manifest → write."""
+        from .cad_code_policy_repository import CadCodePolicyRepository
+        from .export_preflight import (
+            BUNDLE_VERDICT_MEMBER,
+            PreflightPlan,
+            analyze_bundle_plan,
+            build_manifest,
+            ensure_export_policy,
+            evaluate_elements,
+            record_confirmations,
+            stored_classification_map,
+            verdict_payload,
+        )
+        from .export_preflight_dialog import ExportPreflightDialog
+
+        if isinstance(error, Exception):
+            warn_user(self.shell, "エクスポート内容を検査できませんでした", error)
+            return
+        if plan is None:
+            return
+        code_repository = CadCodePolicyRepository(self.repository)
+        stored = stored_classification_map(code_repository, self.document_id)
         head = self.repository.current_head(self.document_id)
+        preflight = PreflightPlan(
+            export_kind='project_bundle',
+            document_id=self.document_id,
+            source_revision_id=plan.head_revision_id,
+            source_sha256=(
+                None if head is None else head.content_hash
+            ),
+            elements=analyze_bundle_plan(plan, stored),
+            payload=plan,
+        )
+        dialog = ExportPreflightDialog(
+            preflight,
+            title='プロジェクトのエクスポート',
+            default_scope='private_archive',
+            parent=self.shell,
+        )
+        if exec_transient(dialog) != ExportPreflightDialog.DialogCode.Accepted:
+            return
+        scope = dialog.scope()
+        # The operator's confirmations become sealed authority before the
+        # manifest/eligibility evaluation reads them.
+        record_confirmations(code_repository, preflight)
+        preflight.policy = ensure_export_policy(
+            code_repository, self.document_id
+        )
+        write_plan = plan
+        if scope == 'external_review':
+            try:
+                build_manifest(
+                    code_repository,
+                    preflight,
+                    bundle_kind='client_package',
+                    policy=preflight.policy,
+                )
+            except ValueError as exc:
+                QMessageBox.warning(self.shell, "出力できません", str(exc))
+                return
+            blockers = evaluate_elements(preflight)
+            if blockers:
+                QMessageBox.warning(
+                    self.shell,
+                    "出力できません",
+                    "外部送付の条件を満たさない項目があります:\n"
+                    + "\n".join(blockers),
+                )
+                return
+            write_plan = plan.apply_exclusions(
+                exclude_tables=frozenset(
+                    element.element_id[len('table:'):]
+                    for element in preflight.excluded()
+                    if element.kind == 'table'
+                ),
+                exclude_asset_digests=frozenset(
+                    element.element_id[len('asset:'):]
+                    for element in preflight.excluded()
+                    if element.kind == 'asset'
+                ),
+                exclusion_reason=(
+                    'export preflight: excluded from external sharing '
+                    '(classification/rights unconfirmed or non-exportable)'
+                ),
+            )
+            preflight.payload = write_plan
+        # The reviewed plan pins the head at collection time — a mid-flow
+        # source change invalidates the review and forces a fresh pass.
+        current = self.repository.current_head(self.document_id)
+        if (
+            write_plan.head_revision_id is not None
+            and current is not None
+            and current.revision_id != write_plan.head_revision_id
+        ):
+            QMessageBox.warning(
+                self.shell,
+                "再検査が必要です",
+                "検査中にプロジェクトの内容が変更されました。"
+                "最新の内容で再度エクスポート検査を行ってください。",
+            )
+            return
         revision_tag = (
             '' if head is None else f'-{head.revision_id[:8]}'
         )
@@ -2332,6 +2568,17 @@ class WorkflowApplicationComposition:
         )
         if not selected:
             return
+        # The approved verdict travels inside the archive so a receiver
+        # can inspect what passed review and what was withheld.
+        preflight_verdict = verdict_payload(
+            preflight,
+            scope=scope,
+            destination=selected,
+            written_members=list(write_plan.member_names()),
+        )
+        self._last_export_preflight = (
+            preflight, scope, selected, list(write_plan.member_names())
+        )
         # Runs on the bundle worker pool — a large project's snapshot
         # + zip walk used to freeze the UI thread for tens of seconds
         # (#REV19). The pool relays the completion onto the UI thread, so
@@ -2346,9 +2593,139 @@ class WorkflowApplicationComposition:
                 self.repository,
                 self.document_id,
                 Path(selected),
+                write_plan=write_plan,
+                extra_members={
+                    BUNDLE_VERDICT_MEMBER: json.dumps(
+                        preflight_verdict, ensure_ascii=False, indent=2,
+                        sort_keys=True,
+                    ).encode('utf-8'),
+                },
             ),
             self._bundle_job_completed,
         )
+
+    def _run_export_preflight(
+        self,
+        preflight,
+        *,
+        title: str,
+        bundle_kind: str,
+        default_scope: str,
+    ) -> bool:
+        """Shared preflight flow for member-file exports (#989).
+
+        Shows the review dialog, persists the operator's confirmed
+        classifications + export policy, and for external scope builds
+        the allowlist ``ExportRedactionManifest`` and runs the canonical
+        eligibility gate. Returns True when the export may proceed —
+        ``preflight`` then carries the approved include/exclude marks.
+        """
+        from .cad_code_policy_repository import CadCodePolicyRepository
+        from .export_preflight import (
+            build_manifest,
+            ensure_export_policy,
+            evaluate_elements,
+            record_confirmations,
+        )
+        from .export_preflight_dialog import ExportPreflightDialog
+
+        code_repository = CadCodePolicyRepository(self.repository)
+        dialog = ExportPreflightDialog(
+            preflight,
+            title=title,
+            default_scope=default_scope,
+            parent=self.shell,
+        )
+        if exec_transient(dialog) != ExportPreflightDialog.DialogCode.Accepted:
+            return False
+        scope = dialog.scope()
+        record_confirmations(code_repository, preflight)
+        preflight.policy = ensure_export_policy(
+            code_repository, self.document_id
+        )
+        if scope == 'external_review':
+            try:
+                build_manifest(
+                    code_repository,
+                    preflight,
+                    bundle_kind=bundle_kind,
+                    policy=preflight.policy,
+                )
+            except ValueError as exc:
+                QMessageBox.warning(self.shell, "出力できません", str(exc))
+                return False
+            blockers = evaluate_elements(preflight)
+            if blockers:
+                QMessageBox.warning(
+                    self.shell,
+                    "出力できません",
+                    "外部送付の条件を満たさない項目があります:\n"
+                    + "\n".join(blockers),
+                )
+                return False
+        self._last_export_preflight = (preflight, scope)
+        return True
+
+    def _export_postcheck(self, preflight_state) -> list[str]:
+        """Post-export verification for #989 — inspect + verdict sidecar.
+
+        Returns extra detail lines for the completion dialog. Runs on the
+        UI thread after the write job: re-opens the artifact, checks the
+        member set against the approved selection and re-scans for
+        secret-like content, then saves the verdict JSON beside the
+        output. Nothing is transmitted anywhere.
+        """
+        from .export_preflight import (
+            inspect_exported,
+            verdict_payload,
+            write_verdict_sidecar,
+        )
+
+        if not preflight_state:
+            return []
+        preflight, scope, destination, expected = preflight_state
+        if expected is None:
+            payload = preflight.payload
+            expected = (
+                list(payload.member_names())
+                if hasattr(payload, 'member_names')
+                else preflight.expected_member_names()
+            )
+        lines: list[str] = []
+        try:
+            inspection = inspect_exported(
+                Path(destination), expected_members=expected
+            )
+            payload = verdict_payload(
+                preflight,
+                scope=scope,
+                destination=destination,
+                written_members=inspection.get('actual_members', []),
+                inspection=inspection,
+            )
+            sidecar = write_verdict_sidecar(Path(destination), payload)
+            verdict = inspection.get('verdict')
+            if verdict == 'ok':
+                lines.append(
+                    '検査: 出力内容は承認済みの選択と一致し、'
+                    '機密パターンは検出されませんでした。'
+                )
+            else:
+                lines.append(
+                    f'検査: {verdict} — 詳細は検査レコードを確認してください。'
+                )
+            if preflight.reproducibility() == 'degraded':
+                lines.append(
+                    '再現性: degraded — 除外項目あり（incomplete）。'
+                )
+            if preflight.manifest is not None:
+                lines.append(
+                    f'出力マニフェスト: {preflight.manifest.manifest_id}'
+                )
+            lines.append(f'検査レコード: {sidecar.name}')
+        except Exception as exc:  # error-boundary: export sidecar — inspection must never break the export; the failure is written into the output lines (noqa: BLE001)
+            lines.append(f'検査レコードの保存に失敗: {exc}')
+        return lines
 
     def _import_project_bundle(self) -> None:
         """#488: staged import; a document-id collision is offered the
@@ -2695,29 +3072,37 @@ class WorkflowApplicationComposition:
 
     def _open_help_topic(self, topic_id: str) -> bool:
         if topic_id == 'help.shortcuts':
-            HelpDialog.shortcuts(self.registry, parent=self.shell).exec()
+            exec_transient(
+                HelpDialog.shortcuts(self.registry, parent=self.shell)
+            )
             return True
         if topic_id == 'help.palette':
-            HelpDialog.palette_usage(parent=self.shell).exec()
+            exec_transient(
+                HelpDialog.palette_usage(parent=self.shell)
+            )
             return True
         if topic_id == 'help.glossary':
             # REV32-TERMS: the TermId-registry-driven glossary surface.
-            GlossaryDialog(
-                self.help_registry,
-                locale=self._presentation_locale(),
-                parent=self.shell,
-            ).exec()
+            exec_transient(
+                GlossaryDialog(
+                    self.help_registry,
+                    locale=self._presentation_locale(),
+                    parent=self.shell,
+                )
+            )
             return True
         topic = self.help_registry.get(topic_id)
         if topic is None:
             return False
-        HelpDialog.topic(
-            topic,
-            locale=self._presentation_locale(),
-            command_registry=self.registry,
-            help_registry=self.help_registry,
-            parent=self.shell,
-        ).exec()
+        exec_transient(
+            HelpDialog.topic(
+                topic,
+                locale=self._presentation_locale(),
+                command_registry=self.registry,
+                help_registry=self.help_registry,
+                parent=self.shell,
+            )
+        )
         return True
 
     def _open_project(self, document_id: str) -> None:
@@ -2757,6 +3142,10 @@ class WorkflowApplicationComposition:
         # live context map leaks into the target project.
         self._save_window_state()
         self.shell.dispose_data_workspaces()
+        # #973: the outgoing project's view states are already persisted
+        # under ITS ref — drop the map so the rebuild navigation below
+        # can never replay them into the target project's mounts.
+        self.shell.reset_view_states()
         self._unbind_workspace_commands()
         self._bind_project_entry(opened)
         # #775: legacy entries recorded without project identity must never
@@ -3111,15 +3500,17 @@ class WorkflowApplicationComposition:
         _self = sys.modules[__name__]
 
         def list_revisions(
-            document_id: str | None, limit: int, offset: int
+            document_id: str | None, limit: int, after: str | None
         ) -> tuple:
-            # document_id=None is the page's explicit global-scope request.
-            return _self.list_recent_revisions(
+            # document_id=None is the page's explicit global-scope request;
+            # ``after`` is the opaque keyset cursor from the previous page
+            # (#1017 — None reads the newest window).
+            return _self.list_revisions_page(
                 self.repository,
                 limit,
                 scope='global' if document_id is None else 'project',
                 document_id=document_id,
-                offset=offset,
+                after=after,
             )
 
         def count_revisions(document_id: str | None) -> int:
@@ -3163,6 +3554,8 @@ class WorkflowApplicationComposition:
             list_operations=operations,
             list_events=list_events,
             open_link=self._open_activity_link,
+            cancel_operation=self._cancel_activity_operation,
+            retry_operation=self._retry_activity_operation,
             document_id=self.document_id or None,
             project_refs=project_refs,
             document_label=lambda doc_id: library_names.get(doc_id, doc_id),
@@ -3188,6 +3581,67 @@ class WorkflowApplicationComposition:
             on_activate=page.refresh,
             focus_target=lambda target: _self.activity_focus(page, target),
         )
+
+    def _cancel_activity_operation(self, operation_id: str) -> bool:
+        """Activity-page cancel: request cooperative cancellation (#974).
+
+        The center flips the record to CANCELLATION_REQUESTED and invokes
+        the adapter's live cancel callback — the operation only reaches
+        CANCELLED once its executor actually confirms.
+        """
+
+        try:
+            return self.activity_center.request_cancel(operation_id)
+        except (KeyError, OperationTransitionError):
+            return False
+
+    def _retry_activity_operation(self, operation_id: str) -> bool:
+        """Activity-page retry: dispatch through the op's adapter retrier (#974).
+
+        SAFE_NEW_ATTEMPT attempts stay linked to the original record via
+        ``center.retry`` — the adapter pre-binds its executor key to the
+        new attempt id, then the registry creates it. UNSAFE re-runs are
+        deliberately not linked attempts: the page has already collected
+        the explicit re-authorization, so the adapter submits a fresh
+        operation of its own.
+        """
+
+        center = self.activity_center
+        snapshot = center.get(operation_id)
+        if snapshot is None or snapshot.is_active:
+            return False
+        payload = center.domain_payload_of(operation_id)
+        if not isinstance(payload, dict):
+            return False
+        if snapshot.retry_policy == RetryPolicy.SAFE_NEW_ATTEMPT:
+            retrier = payload.get('retry')
+            if retrier is None:
+                return False
+            new_operation_id = f'op-{uuid4().hex[:12]}'
+            try:
+                request = retrier(snapshot, new_operation_id)
+            except EXPECTED_OPERATION_ERRORS:
+                return False
+            if request is None:
+                return False
+            try:
+                center.retry(
+                    operation_id,
+                    retry_factory=lambda _op: request,
+                    new_operation_id=new_operation_id,
+                )
+            except (KeyError, OperationTransitionError):
+                return False
+            return True
+        if snapshot.retry_policy == RetryPolicy.UNSAFE:
+            rerun = payload.get('rerun')
+            if rerun is None:
+                return False
+            try:
+                return rerun(snapshot) is not None
+            except EXPECTED_OPERATION_ERRORS:
+                return False
+        return False
 
     def _open_activity_link(self, uri: str) -> bool:
         try:
@@ -3231,13 +3685,37 @@ class WorkflowApplicationComposition:
                 raise
             report_boundary_failure(exc, operation='参考ライブラリ索引の構築')
             library_index = None
+        detail_resolver = None
+        usage_resolver = None
+        open_target = None
+        if library_index is not None:
+            # #990: read-only projections rebuilt per refresh — the detail
+            # factory re-opens the canonical repositories each call so
+            # entries added via 管理 never show a stale 記録なし.
+            detail_resolver = (
+                lambda: build_reference_library_detail_resolver(
+                    self.repository, self.data_dir
+                )
+            )
+            usage_resolver = lambda: collect_usage_sites(  # noqa: E731
+                self.repository, self.document_id
+            )
+            open_target = lambda target: QTimer.singleShot(  # noqa: E731
+                0,
+                self.shell,
+                lambda: self.shell.navigate_to_target(target),
+            )
         page = sys.modules[__name__].ReferenceLibraryPage(
-            service.definitions, library_index=library_index
+            service.definitions,
+            library_index=library_index,
+            detail_resolver=detail_resolver,
+            usage_resolver=usage_resolver,
+            open_target=open_target,
         )
 
         def manage() -> None:
             dialog = EquipmentLibraryDialog(service, parent=page)
-            dialog.exec()
+            exec_transient(dialog)
             page.refresh()
 
         page.manage_requested.connect(manage)
@@ -3251,7 +3729,55 @@ class WorkflowApplicationComposition:
             ),
         )
 
+    def _support_health_job_factory(self):
+        """Freeze a health-check worker job from UI-thread snapshots (#1018).
+
+        Called on the UI thread inside ``SupportHealthRunner.start`` —
+        preferences and the live receiver object are read here, never on
+        the worker thread. Everything the job closes over is an immutable
+        snapshot taken at dispatch time.
+        """
+        data_dir = self.data_dir
+        rew_url = self.preferences.rew_api_base_url()
+        receiver = self.capture_receiver
+        if receiver is None:
+            receiver_state = {'enabled': False}
+        else:
+            receiver_state = {
+                'enabled': True,
+                'running': bool(receiver.running),
+                'requested_enabled': bool(receiver.requested_enabled),
+                'last_error': receiver.last_error,
+            }
+
+        def job(cancel_event) -> object:
+            return run_health_checks(
+                data_dir,
+                integrity_runner=lambda path: semantic_integrity_check(
+                    path, is_cancelled=cancel_event.is_set
+                ),
+                integration_probes=(
+                    rew_api_probe(rew_url),
+                    capture_receiver_probe(receiver_state),
+                    vtk_probe(),
+                ),
+                # This process owns the data-dir lock while a project is
+                # open — same honesty as the diagnostics export path.
+                owns_lock=True,
+            )
+
+        return job
+
     def _make_support(self) -> WorkspaceMount:
+        def open_activity_workspace(_parent) -> None:
+            self.shell.navigate_to_target(
+                NavigationTarget(
+                    kind=NavigationTargetKind.WORKSPACE,
+                    object_ids=(WorkspaceId.ACTIVITY.value,),
+                    preferred_destination=WorkspaceId.ACTIVITY,
+                )
+            )
+
         page = sys.modules[__name__].SupportPage(
             self.data_dir,
             status_provider=(
@@ -3264,6 +3790,21 @@ class WorkflowApplicationComposition:
             open_solver_diagnostics=self._open_solver_diagnostics,
             open_applicability_envelope=self._open_applicability_envelope,
             open_credential_vault=self._open_credential_vault,
+            health_runner=SupportHealthRunner(
+                self.data_dir,
+                getattr(self, 'activity_center', None),
+                self._support_health_job_factory,
+            ),
+            open_data_management=(
+                lambda _w: self.settings_dialog.open_settings()
+            ),
+            open_preferences=(
+                lambda _w: self.settings_dialog.open_preferences()
+            ),
+            open_capture_settings=(
+                lambda _w: self.settings_dialog.open_capture_settings()
+            ),
+            open_activity=open_activity_workspace,
         )
 
         def focus_target(target: NavigationTarget) -> TargetFocusResult:
@@ -3290,6 +3831,9 @@ class WorkflowApplicationComposition:
             self.data_dir,
             rew_base_url=self.preferences.rew_api_base_url,
         )
+        set_activity_center = getattr(page, 'set_activity_center', None)
+        if set_activity_center is not None:
+            set_activity_center(getattr(self, 'activity_center', None))
         return WorkspaceMount.from_widget(page, on_activate=page.refresh)
 
     def _make_verification_wizard(self) -> WorkspaceMount:
@@ -3346,7 +3890,7 @@ class WorkflowApplicationComposition:
             initial_node_id=initial_node_id,
             parent=parent,
         )
-        dialog.exec()
+        exec_transient(dialog)
 
     def _open_applicability_envelope(self, parent: QWidget) -> None:
         """Compose the seven-dimension applicability envelope and open it
@@ -3373,7 +3917,7 @@ class WorkflowApplicationComposition:
             evaluated_at_utc=datetime.now(timezone.utc).isoformat(),
         )
         dialog = _self.ApplicabilityEnvelopeDialog(envelope, parent=parent)
-        dialog.exec()
+        exec_transient(dialog)
 
     def _open_credential_vault(self, parent: QWidget) -> None:
         """Open the credential-vault operator surface for the current
@@ -3395,7 +3939,7 @@ class WorkflowApplicationComposition:
         dialog = _self.CredentialVaultDialog(
             service, self.document_id, parent=parent,
         )
-        dialog.exec()
+        exec_transient(dialog)
 
     # -- first-run wizard (#886) ----------------------------------------
 
@@ -3553,7 +4097,7 @@ class WorkflowApplicationComposition:
             open_reference_theater=(
                 self._open_reference_theater_project),
         )
-        dialog.exec()
+        exec_transient(dialog)
         self._save_wizard_record(dialog)
 
     def _maybe_show_first_run_wizard(self) -> None:
@@ -3625,7 +4169,7 @@ class WorkflowApplicationComposition:
             ),
             parent=parent,
         )
-        dialog.exec()
+        exec_transient(dialog)
 
     def _export_diagnostics_package(self, parent) -> str | None:
         """Build the bounded support bundle via DiagnosticPackageBuilder (#604).
@@ -3694,7 +4238,7 @@ class WorkflowApplicationComposition:
             restage=lambda include: builder.preview(_plan(include)),
             parent=parent,
         )
-        if dialog.exec() != SupportBundlePreviewDialog.DialogCode.Accepted:
+        if exec_transient(dialog) != SupportBundlePreviewDialog.DialogCode.Accepted:
             return None
         # Persist the operator's opt-in choice so it stays sticky.
         if dialog.include_project_ids != initial_opt_in:
@@ -3770,7 +4314,7 @@ class WorkflowApplicationComposition:
         # Summary "開く" links queue inside the modal and accept() it;
         # navigate only after exec() returns so the destination is never
         # focused behind the still-open wizard (round-7 deferred fix).
-        if wizard.exec() == wizard.DialogCode.Accepted:
+        if exec_transient(wizard) == wizard.DialogCode.Accepted:
             self._open_project(wizard.created_document_id)
         for link in wizard.take_pending_navigations():
             self._navigate_target(link)
@@ -4078,6 +4622,9 @@ class WorkflowApplicationComposition:
             self.repository,
             self.document_id,
             navigate=self._navigate_target,
+            # #985: package exports register their worker-lane jobs in the
+            # shared ActivityCenter (progress/cancel/history).
+            activity_center=getattr(self, 'activity_center', None),
         )
 
         def activate() -> None:
@@ -4115,6 +4662,7 @@ class WorkflowApplicationComposition:
             self.document_id,
             on_navigate=self._navigate_target,
         )
+        workspace.set_activity_center(getattr(self, 'activity_center', None))
         if not isinstance(workspace.viewport, _self.RoomViewport3D):
             raise TypeError("UX120 Room workspace requires RoomViewport3D")
 
@@ -4129,6 +4677,12 @@ class WorkflowApplicationComposition:
         installation_panel = getattr(workspace, 'installation_panel', None)
         if installation_panel is not None:
             bind_length_policy_widget(installation_panel, preferences)
+        rack_workspace_panel = getattr(workspace, 'rack_workspace_panel', None)
+        if rack_workspace_panel is not None:
+            bind_length_policy_widget(rack_workspace_panel, preferences)
+        cable_run_panel = getattr(workspace, 'cable_run_panel', None)
+        if cable_run_panel is not None:
+            bind_length_policy_widget(cable_run_panel, preferences)
 
         geometry_input = _self.RoomGeometryInputController(workspace, workspace.viewport)
         workspace.attach_geometry_input(geometry_input)
@@ -4148,12 +4702,23 @@ class WorkflowApplicationComposition:
             dispatch_repository=prediction_lane.dispatch_repository,
         )
         intake_panel = _self.GeometryIntakePanel()
+        # #981: the diff-review panel mounts alongside the intake panel —
+        # re-imported IFC revisions are reconciled here before apply.
+        diff_panel = _self.IfcDiffReviewPanel()
+        # #1004: the survey panel mounts on the geometry dock — the click
+        # target for authority detail (campaign/instrument/calibration,
+        # hashes, blocked-task reasons) since overlay actors stay
+        # unpickable. Mode combo mirrors the OverlayControls 測量 group.
+        survey_panel = _self.RoomSurveyPanel(workspace.survey_overlay)
         geometry_dock = QWidget()
         dock_layout = QVBoxLayout(geometry_dock)
         dock_layout.setContentsMargins(0, 0, 0, 0)
         dock_layout.addWidget(geometry_panel)
         dock_layout.addWidget(intake_panel)
+        dock_layout.addWidget(diff_panel)
+        dock_layout.addWidget(survey_panel)
         dock_layout.addStretch(1)
+        workspace.bind_survey_overlay(survey_panel)
 
         def _refresh_geometry_dock() -> None:
             refresh = getattr(geometry_panel, 'refresh', None)
@@ -4164,6 +4729,7 @@ class WorkflowApplicationComposition:
         geometry_dock.refresh = _refresh_geometry_dock  # type: ignore[attr-defined]
         workspace.attach_geometry_panel(geometry_dock)
         workspace.bind_geometry_intake(intake_controller, intake_panel)
+        workspace.bind_ifc_diff_review(intake_controller, diff_panel)
         bind_length_policy_widget(geometry_panel, preferences)
         bind_length_policy_widget(workspace.video_panel, preferences)
         transform_input = _self.RoomEntityTransformController(workspace, workspace.viewport)
@@ -4171,6 +4737,9 @@ class WorkflowApplicationComposition:
         # Hard placement constraints (#486): reject drag commits that would
         # introduce a violation, mirroring the legacy dock's blocking gate.
         transform_input.commit_gate = workspace.controller.move_commit_gate
+        # #979: HUD readouts and numeric entry present in the user's display
+        # unit; internal authority stays SI metres.
+        bind_length_policy_widget(transform_input, preferences)
         workspace.optimizeRequested.connect(
             lambda: self.shell.navigate(WorkspaceId.OPTIMIZATION)
         )
@@ -4179,6 +4748,7 @@ class WorkflowApplicationComposition:
             workspace.controller,
             parent=workspace,
             provider_repository=prediction_lane.provider_repository,
+            activity_center=getattr(self, 'activity_center', None),
         )
         prediction_panel = _self.RoomPredictionPanel(
             prediction, prediction_lane=prediction_lane
@@ -4201,6 +4771,12 @@ class WorkflowApplicationComposition:
             )
         material_panel = _self.SurfaceMaterialPanel(workspace.controller)
         treatment_panel = _self.RoomTreatmentPanel(workspace.controller)
+        # #1009: the 被覆 section renders the resolved overlay scene —
+        # the same authority the viewport draws from.
+        treatment_panel.coverage_provider = workspace.treatment_overlay.resolve
+        # #1008: the 製作プレビュー dialog arms/clears the read-only
+        # fabrication overlay through the workspace facade.
+        treatment_panel.fabrication_host = workspace
         # #876/REV36: persisted R150 path artifacts replay into ranked
         # reflection guidance — a read-only dock tab next to prediction.
         guidance_panel = _self.ReflectionGuidancePanel(workspace.controller)
@@ -4273,6 +4849,7 @@ class WorkflowApplicationComposition:
                     or geometry_input.is_active
                     or workspace.controller.working.has_preview
                     or workspace.measure_controller.is_active
+                    or workspace.cable_waypoint_controller.is_active
                     or bool(workspace.controller.view_state.selection),
                     'command.blocked.nothing_to_cancel',
                 ),
@@ -4501,7 +5078,9 @@ class WorkflowApplicationComposition:
             return workspace.before_deactivate()
 
         def dirty_state() -> WorkspaceDirtyState:
-            if prediction.before_deactivate()[0] is False:
+            # #974: navigation is allowed mid-run, but a close still
+            # resolves in-flight work through the stop_busy path.
+            if prediction.is_busy:
                 return 'busy'
             return workspace.controller.dirty_state()
 
@@ -4528,6 +5107,10 @@ class WorkflowApplicationComposition:
                     focused=False,
                     message='対象のリビジョンが履歴にありません',
                 )
+            if target.kind is NavigationTargetKind.MEASUREMENT_CAMPAIGN:
+                # #1006: 「3Dで測定位置を確認」 — arm the read-only campaign
+                # overlay (design id or a selected cell's target entity).
+                return workspace.focus_campaign_overlay(target)
             entity_id = target.primary_id
             if target.kind is NavigationTargetKind.INSTALLED_EQUIPMENT_INSTANCE:
                 # Instances are their own authority; focus the bound scene
@@ -4573,6 +5156,7 @@ class WorkflowApplicationComposition:
                 NavigationTargetKind.SCENE_ENTITY,
                 NavigationTargetKind.SCENE_REVISION,
                 NavigationTargetKind.INSTALLED_EQUIPMENT_INSTANCE,
+                NavigationTargetKind.MEASUREMENT_CAMPAIGN,
             }),
             focus_target=focus_target,
         )
@@ -4692,7 +5276,7 @@ class WorkflowApplicationComposition:
             help_registry=self.help_registry,
             open_help=self._open_help_topic,
             preferences=self.preferences,
-            activity_center=self.activity_center,
+            activity_center=getattr(self, 'activity_center', None),
         )
         workspace = mount.widget
         original_activate = mount.on_activate
@@ -4799,6 +5383,7 @@ class WorkflowApplicationComposition:
             self.document_id,
             on_navigate=self._navigate_target,
             rew_client=self._make_rew_client(),
+            activity_center=getattr(self, 'activity_center', None),
         )
         workspace = mount.widget
         controller = workspace.controller  # type: ignore[attr-defined]
@@ -5047,7 +5632,7 @@ class WorkflowApplicationComposition:
         box.setIcon(QMessageBox.Icon.Information)
         box.setText(f"{result.definition_count} 件の機材定義を書き出しました。")
         box.setDetailedText(f"カタログSHA-256: {result.snapshot_sha256}")
-        box.exec()
+        exec_transient(box)
 
     def _export_installation_handoff(self) -> None:
         """Operator action behind ``installation.export_handoff`` (#453).
@@ -5111,6 +5696,62 @@ class WorkflowApplicationComposition:
                 self.shell, "設置ハンドオフを作成できませんでした", exc
             )
             return
+        # #989: sensitive-data preflight BEFORE the package preview —
+        # the operator reviews each member file's classification, rights
+        # and risk flags; external shares build an allowlist manifest
+        # and withheld members are physically not written.
+        from .export_preflight import (
+            PreflightPlan,
+            analyze_member_files,
+            stored_classification_map,
+        )
+        from .cad_code_policy_repository import CadCodePolicyRepository
+        from .installation_handoff import (
+            HANDOFF_DIMENSIONS_FILENAME,
+            HANDOFF_ENTITIES_FILENAME,
+            HANDOFF_REPORT_FILENAME,
+            HANDOFF_SETTINGS_FILENAME,
+            render_dimension_sheets_csv,
+            render_handoff_report_html,
+            render_installation_csv,
+            render_settings_csv,
+        )
+
+        member_contents = {
+            'report': render_handoff_report_html(handoff),
+            'dimensions': render_dimension_sheets_csv(handoff),
+            'settings': render_settings_csv(handoff),
+            'entities': render_installation_csv(handoff.output),
+        }
+        member_filenames = {
+            'report': HANDOFF_REPORT_FILENAME,
+            'dimensions': HANDOFF_DIMENSIONS_FILENAME,
+            'settings': HANDOFF_SETTINGS_FILENAME,
+            'entities': HANDOFF_ENTITIES_FILENAME,
+        }
+        head = self.repository.current_head(self.document_id)
+        preflight = PreflightPlan(
+            export_kind='installation_handoff',
+            document_id=self.document_id,
+            source_revision_id=scene_revision_id,
+            source_sha256=(None if head is None else head.content_hash),
+            elements=analyze_member_files(
+                member_contents,
+                stored_classification_map(
+                    CadCodePolicyRepository(self.repository),
+                    self.document_id,
+                ),
+                filename_map=member_filenames,
+            ),
+            payload=member_contents,
+        )
+        if not self._run_export_preflight(
+            preflight,
+            title='設置ハンドオフ',
+            bundle_kind='client_package',
+            default_scope='external_review',
+        ):
+            return
         preview = QDialog(self.shell)
         preview.setWindowTitle("設置ハンドオフプレビュー")
         preview_layout = QVBoxLayout(preview)
@@ -5128,7 +5769,7 @@ class WorkflowApplicationComposition:
         preview_buttons.rejected.connect(preview.reject)
         preview_layout.addWidget(preview_buttons)
         preview.resize(760, 560)
-        if preview.exec() != QDialog.DialogCode.Accepted:
+        if exec_transient(preview) != QDialog.DialogCode.Accepted:
             return
         directory = file_dialog_memory.get_existing_directory(
             self.shell,
@@ -5138,19 +5779,37 @@ class WorkflowApplicationComposition:
         )
         if not directory:
             return
+        excluded_keys = frozenset(
+            element.element_id[len('member:'):]
+            for element in preflight.excluded()
+            if element.kind == 'member'
+        )
         try:
-            outputs = write_handoff_package(handoff, directory)
+            outputs = write_handoff_package(
+                handoff, directory, exclude_members=excluded_keys
+            )
         except EXPECTED_OPERATION_ERRORS as exc:
             warn_user(
                 self.shell, "設置ハンドオフを書き出せませんでした", exc
             )
             return
-        QMessageBox.information(
-            self.shell,
-            "設置ハンドオフを書き出しました",
-            "次のファイルを書き出しました:\n"
-            + "\n".join(str(path) for path in outputs.values()),
+        self._last_export_preflight = (
+            *self._last_export_preflight,
+            directory,
+            [path.name for path in outputs.values()],
         )
+        box = QMessageBox(self.shell)
+        box.setWindowTitle("設置ハンドオフを書き出しました")
+        box.setIcon(QMessageBox.Icon.Information)
+        box.setText(
+            "次のファイルを書き出しました:\n"
+            + "\n".join(str(path) for path in outputs.values())
+        )
+        box.setDetailedText("\n".join(
+            self._export_postcheck(self._last_export_preflight)
+        ))
+        self._last_export_preflight = None
+        exec_transient(box)
 
     def _open_deliverables(self) -> None:
         """Project Deliverables Center (#900).
@@ -5186,7 +5845,7 @@ class WorkflowApplicationComposition:
             on_navigate=self._navigate_target,
             parent=self.shell,
         )
-        dialog.exec()
+        exec_transient(dialog)
 
     def _calibration_workflow_service(self) -> CadCalibrationWorkflowService:
         """The lifecycle facade over the persisted calibration authority."""
@@ -5328,21 +5987,16 @@ class WorkflowApplicationComposition:
             return
         target = Path(directory)
         try:
-            stem = claim_export_stem(
+            written = write_export_generation(
                 target,
                 'calibration',
-                ('_settings.json', '_settings.csv'),
-            )
-            written = tuple(
-                write_export_files(
-                    target,
-                    {
-                        f'{stem}_settings.json': result.json_text,
-                        f'{stem}_settings.csv': result.csv_text,
-                    },
-                    bom_suffixes=('.csv',),
-                ).values()
-            )
+                {
+                    'settings.json': result.json_text,
+                    'settings.csv': result.csv_text,
+                },
+                bom_suffixes=('.csv',),
+                manifest_extra={'export_id': result.export.export_id},
+            ).members
         except EXPECTED_OPERATION_ERRORS as exc:
             warn_user(
                 self.shell, "校正設定を書き出せませんでした", exc
@@ -5362,7 +6016,7 @@ class WorkflowApplicationComposition:
             f"設定SHA-256: "
             f"{result.export.exported_settings_semantic_sha256}"
         )
-        box.exec()
+        exec_transient(box)
 
     def _export_analysis_bundle(self) -> None:
         """Operator action behind ``analysis.export_bundle`` (#512).
@@ -5513,6 +6167,43 @@ class WorkflowApplicationComposition:
             series=result.series,
             metadata=result.metadata,
         )
+        # #989: sensitive-data preflight — the operator reviews each
+        # member's classification/rights/risk before the destination
+        # prompt; external shares gate through the allowlist manifest.
+        from .cad_code_policy_repository import CadCodePolicyRepository
+        from .export_preflight import (
+            PreflightPlan,
+            analyze_member_files,
+            stored_classification_map,
+        )
+
+        members = {
+            'export.csv': render_analysis_csv(export),
+            'export.json': render_analysis_json(export),
+            'report.html': render_analysis_html(export),
+        }
+        head = self.repository.current_head(self.document_id)
+        preflight = PreflightPlan(
+            export_kind='analysis_export',
+            document_id=self.document_id,
+            source_revision_id=None,
+            source_sha256=(None if head is None else head.content_hash),
+            elements=analyze_member_files(
+                members,
+                stored_classification_map(
+                    CadCodePolicyRepository(self.repository),
+                    self.document_id,
+                ),
+            ),
+            payload=members,
+        )
+        if not self._run_export_preflight(
+            preflight,
+            title='解析エクスポート',
+            bundle_kind='client_package',
+            default_scope='external_review',
+        ):
+            return
         directory = file_dialog_memory.get_existing_directory(
             self.shell,
             "解析エクスポートの保存先フォルダー",
@@ -5521,6 +6212,12 @@ class WorkflowApplicationComposition:
         )
         if not directory:
             return
+        self._analysis_export_preflight = (preflight, directory)
+        excluded_members = frozenset(
+            element.element_id[len('member:'):]
+            for element in preflight.excluded()
+            if element.kind == 'member'
+        )
         comparisons_failed = any(
             meta.key == 'omitted.comparisons' for meta in result.metadata
         )
@@ -5530,7 +6227,10 @@ class WorkflowApplicationComposition:
             "project.bundle.analysis_export.write",
             lambda _cancel_event: _AnalysisExportWriteResult(
                 export=export,
-                written=_write_analysis_export(Path(directory), export),
+                written=_write_analysis_export(
+                    Path(directory), export,
+                    exclude_members=excluded_members,
+                ),
                 omitted_measurements=omitted,
                 comparisons_failed=comparisons_failed,
             ),
@@ -5565,8 +6265,29 @@ class WorkflowApplicationComposition:
             details.append(
                 "保存済み比較を検証できなかったため、比較は除外しました"
             )
+        preflight_state = getattr(self, '_analysis_export_preflight', None)
+        if preflight_state:
+            preflight, _directory = preflight_state
+            scope = (
+                self._last_export_preflight[1]
+                if isinstance(self._last_export_preflight, tuple)
+                else 'external_review'
+            )
+            # Inspect the generation dir itself — the writer nests
+            # output under <chosen>/analysis-N/, and the chosen parent
+            # mixes other exports.
+            generation_dir = result.written[0].parent
+            self._last_export_preflight = (
+                preflight, scope, generation_dir,
+                [path.name for path in result.written],
+            )
+            details.extend(
+                self._export_postcheck(self._last_export_preflight)
+            )
+            self._analysis_export_preflight = None
+            self._last_export_preflight = None
         box.setDetailedText("\n".join(details))
-        box.exec()
+        exec_transient(box)
 
     def _can_close_application(self) -> tuple[bool, str | None]:
         if self._bundle_busy:
@@ -5622,6 +6343,9 @@ class WorkflowApplicationComposition:
         if task_key.startswith("project.bundle.analysis_export.write"):
             self._analysis_export_write_done(result, error)
             return
+        if task_key.startswith("project.bundle.export.preflight"):
+            self._bundle_preflight_done(result, error)
+            return
         if task_key.startswith("project.bundle.export"):
             if isinstance(error, Exception):
                 QMessageBox.warning(
@@ -5639,8 +6363,13 @@ class WorkflowApplicationComposition:
                 f"{result.row_count} 件のレコードと {result.asset_count} 件の"
                 "アセットを書き出しました。"
             )
-            box.setDetailedText(f"マニフェストSHA-256: {result.manifest_sha256}")
-            box.exec()
+            details = [f"マニフェストSHA-256: {result.manifest_sha256}"]
+            details.extend(
+                self._export_postcheck(getattr(self, '_last_export_preflight', None))
+            )
+            self._last_export_preflight = None
+            box.setDetailedText('\n'.join(details))
+            exec_transient(box)
             return
         if task_key.startswith("project.bundle.import"):
             if (

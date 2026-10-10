@@ -9,6 +9,7 @@ Ten tables in one repository — band semantics (#763), mixing time
 * ``cad_interpolation_profiles`` / ``cad_field_surface_records``
 * ``cad_solver_budget_profiles`` / ``cad_compute_observations`` /
   ``cad_accuracy_cost_envelopes``
+* ``cad_prerun_estimates`` — sealed pre-run cost estimates (#991)
 """
 
 from __future__ import annotations
@@ -37,6 +38,10 @@ from .cad_compute_budget import (
     AccuracyCostEnvelope,
     ComputeObservation,
     SolverBudgetProfile,
+)
+from .cad_prerun_estimate import (
+    PrerunEstimate,
+    estimate_for_observation,
 )
 
 
@@ -197,6 +202,7 @@ class CadFieldMetricRepository:
                 'cad_solver_budget_profiles',
                 'cad_compute_observations',
                 'cad_accuracy_cost_envelopes',
+                'cad_prerun_estimates',
             )
         self.band_profiles = _SealedStore(
             self._connect, 'cad_fractional_octave_profiles',
@@ -282,6 +288,16 @@ class CadFieldMetricRepository:
                 ('document_id', '__document_id__'),
             ),
         )
+        self.prerun_estimates = _SealedStore(
+            self._connect, 'cad_prerun_estimates',
+            PrerunEstimate, 'estimate_id', 'estimate_sha256',
+            (
+                ('document_id', '__document_id__'),
+                ('job_kind', 'plan.job_kind'),
+                ('solver_id', 'plan.solver_id'),
+                ('confidence', 'confidence'),
+            ),
+        )
 
     def _connect(self) -> sqlite3.Connection:
         return connect_sqlite(self.path)
@@ -362,6 +378,31 @@ class CadFieldMetricRepository:
         self, observation_id: str
     ) -> ComputeObservation | None:
         return self.compute_observations.get(observation_id)
+
+    def save_prerun_estimate(self, record: PrerunEstimate) -> None:
+        self.prerun_estimates.save(record)
+
+    def get_prerun_estimate(
+        self, estimate_id: str
+    ) -> PrerunEstimate | None:
+        return self.prerun_estimates.get(estimate_id)
+
+    def list_prerun_estimates(
+        self, document_id: str | None = None
+    ) -> tuple[PrerunEstimate, ...]:
+        return self.prerun_estimates.list(document_id)
+
+    def prerun_observations(
+        self, estimate: PrerunEstimate
+    ) -> tuple[ComputeObservation, ...]:
+        """Observations bound to one estimate via run_ref or profile_ref."""
+        return tuple(
+            record
+            for record in self.compute_observations.list(
+                estimate.document_id
+            )
+            if estimate_for_observation(record) == estimate.estimate_id
+        )
 
     def save_cost_envelope(self, record: AccuracyCostEnvelope) -> None:
         self.cost_envelopes.save(record)

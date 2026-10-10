@@ -369,7 +369,9 @@ def _workspace(tmp_path: Path):
 
 
 def _stub_renderers(monkeypatch: pytest.MonkeyPatch) -> None:
-    from htdt import presentation_workspace
+    # #985: the renderer is constructed inside the export worker lane by
+    # the runner's factory — patch the seam where the worker looks it up.
+    from htdt import presentation_export_runner
 
     class _StubRenderer:
         def renderer_id(self) -> str:
@@ -379,10 +381,26 @@ def _stub_renderers(monkeypatch: pytest.MonkeyPatch) -> None:
             return b'PNG-STUB:' + str(yaw_deg).encode()
 
     monkeypatch.setattr(
-        presentation_workspace,
+        presentation_export_runner,
         'OffscreenSceneRenderer',
         lambda *a, **k: _StubRenderer(),
     )
+
+
+def _wait_export(workspace, timeout: float = 60.0) -> None:
+    """#985: exports run off the UI thread — pump the event loop until
+    the runner settles."""
+    import time
+
+    from PySide6.QtCore import QCoreApplication
+
+    deadline = time.monotonic() + timeout
+    while workspace._export_runner.busy:
+        QCoreApplication.processEvents()
+        if time.monotonic() > deadline:
+            raise AssertionError('export did not settle')
+        time.sleep(0.005)
+    QCoreApplication.processEvents()
 
 
 def _mock_chooser(monkeypatch: pytest.MonkeyPatch, chosen: Path) -> None:
@@ -518,6 +536,7 @@ class TestWorkspaceExport:
         _mock_chooser(monkeypatch, target_root)
         workspace._pick_export_dir()
         workspace._build_review()
+        _wait_export(workspace)
         expected = target_root / f'review-{session_obj.session_id[:8]}'
         text = workspace.export_status.text()
         assert str(expected) in text
@@ -545,6 +564,7 @@ class TestWorkspaceExport:
         _mock_chooser(monkeypatch, target_root)
         workspace._pick_export_dir()
         workspace._build_proposal()
+        _wait_export(workspace)
         expected = target_root / f'proposal-{session_obj.session_id[:8]}'
         text = workspace.export_status.text()
         assert str(expected) in text
@@ -560,23 +580,28 @@ class TestWorkspaceExport:
         _capture_boxes(monkeypatch)
         workspace, _session_obj = _workspace(tmp_path)
         _stub_renderers(monkeypatch)
-        from htdt import presentation_workspace
+        from htdt import presentation_export_runner
         from htdt.cad_review_package import ReviewPackageError
 
         def _fail(_dir):
             raise ReviewPackageError('manifest.json is missing')
 
+        # #985: verification runs inside the worker, before publication.
         monkeypatch.setattr(
-            presentation_workspace, 'verify_review_package', _fail
+            presentation_export_runner, 'verify_review_package', _fail
         )
         target_root = tmp_path / 'chosen'
         target_root.mkdir()
         _mock_chooser(monkeypatch, target_root)
         workspace._pick_export_dir()
         workspace._build_review()
-        assert workspace.export_status.text() == ''
+        _wait_export(workspace)
+        assert '生成できませんでした' in workspace.export_status.text()
         assert workspace.open_output_button.isHidden()
         assert workspace._last_output_dir is None
+        assert not (
+            target_root / f'review-{_session_obj.session_id[:8]}'
+        ).exists()
 
 
 # ----------------------------------------------------------------------

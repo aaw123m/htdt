@@ -26,6 +26,11 @@ from .command_registry import (
 )
 from .localization import PresentationLocale
 from .workflow_navigation import WorkspaceDeepLink
+from .error_boundary import (
+    EXPECTED_OPERATION_ERRORS,
+    is_authority_failure,
+    report_boundary_failure,
+)
 
 if TYPE_CHECKING:
     from .help_registry import HelpRegistry
@@ -507,9 +512,12 @@ class NavigationItemPaletteProvider(PaletteSearchProvider):
     def _items(self) -> tuple[PaletteNavigationItem, ...]:
         try:
             return tuple(self._items_source())
-        except Exception:
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: palette read — expected failures report and contribute no items honestly; sealed-store failures propagate
             # A mid-restore repository read must never break the palette —
             # the provider contributes nothing until authority is readable.
+            if is_authority_failure(exc):
+                raise
+            report_boundary_failure(exc, operation='パレット項目の読み取り')
             return ()
 
     def search(

@@ -41,10 +41,12 @@ from htdt.cad_document import (
 from htdt.cad_geometric_constraints import make_symmetric_pair_constraint
 from htdt.cad_measurement_target_pattern import (
     TargetPatternOffset,
+)
+from htdt.measurement_target_service import (
     build_target_pattern,
     materialize_target_pattern,
 )
-from htdt.cad_measurement_target_pattern import CadTargetPatternRepository
+from htdt.cad_target_pattern_repository import CadTargetPatternRepository
 from htdt.cad_repository import SceneRepository
 from htdt.cad_scene import (
     F1_DOCUMENT_ID,

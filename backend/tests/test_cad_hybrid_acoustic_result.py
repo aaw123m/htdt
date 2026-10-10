@@ -34,7 +34,6 @@ from htdt.cad_geometric_acoustics_adapter import (
     SourceDirectivityContribution,
 )
 from htdt.cad_hybrid_acoustic_result import (
-    CadHybridAcousticResultRepository,
     HybridAcousticResult,
     HybridCrossoverPolicy,
     HybridDoubleCountExclusionPolicy,
@@ -51,6 +50,7 @@ from htdt.cad_late_field_energy import LATE_FIELD_ARTIFACT_SCHEMA_REF
 from htdt.cad_repository import SceneRepository
 from htdt.cad_scene import Direction3, Position3
 from htdt.r120_geometry_compiler import ExactExternalAuthorityRef
+from htdt.acoustics.persistence.cad_hybrid_acoustic_result_repository import CadHybridAcousticResultRepository
 
 
 def _canonical(payload: object) -> str:

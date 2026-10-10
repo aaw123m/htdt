@@ -254,7 +254,7 @@ def _revalidate_routing_profile(
             created_at_utc=stored['created_at_utc'],
             provenance_json=stored.get('provenance_json', '{}'),
         )
-    except Exception as exc:
+    except Exception as exc:  # error-boundary: per-record revalidation — any rebuild failure seals as this record's kept-stale reason (never dropped or falsified) (noqa: BLE001)
         return _kept(
             diagnostic,
             f'このビルドではプロファイルを再署名できません: {exc}',
@@ -284,7 +284,7 @@ def _revalidate_routing_profile(
         )
     try:
         ctx.quality.get_routing_profile(record_ref)
-    except Exception as exc:
+    except Exception as exc:  # error-boundary: re-seal verify — any post-write canonical-read failure rolls the stored bytes back (stale-but-untouched); the rollback must cover every failure type (noqa: BLE001)
         # The re-sealed row still fails the canonical read (e.g. its
         # pinned scene revision can no longer be replayed): roll the
         # stored bytes back so the row stays exactly what it was — stale,
@@ -402,7 +402,7 @@ def _revalidate_wiring_check(
         check = build_wiring_check(
             **_wiring_check_kwargs(stored, ctx.profile_sha_remap)
         )
-    except Exception as exc:
+    except Exception as exc:  # error-boundary: per-record revalidation — any rebuild failure seals as this record's kept-stale reason (never dropped or falsified) (noqa: BLE001)
         return _kept(
             diagnostic,
             f'このビルドではチェックを再署名できません: {exc}',
@@ -448,7 +448,7 @@ def _revalidate_wiring_check(
         )
     try:
         ctx.quality.get_wiring_check(record_ref)
-    except Exception as exc:
+    except Exception as exc:  # error-boundary: re-seal verify — any post-write canonical-read failure rolls the stored bytes back (stale-but-untouched); the rollback must cover every failure type (noqa: BLE001)
         with ctx.connect() as connection, connection:
             connection.execute('BEGIN IMMEDIATE')
             connection.execute(
@@ -549,7 +549,7 @@ def _revalidate_comparison(
                 for band in (stored_payload.get('excluded_bands') or ())
             ),
         )
-    except Exception as exc:
+    except Exception as exc:  # error-boundary: per-record revalidation — any payload-interpretation failure seals as this record's kept-stale reason (never dropped or falsified) (noqa: BLE001)
         return _kept(
             diagnostic,
             f'保存済みの結果ペイロードを解釈できません: {exc}',
@@ -557,7 +557,7 @@ def _revalidate_comparison(
     try:
         dataset_a = ctx.measurement.get_dataset(row['dataset_a_id'])
         dataset_b = ctx.measurement.get_dataset(row['dataset_b_id'])
-    except Exception as exc:
+    except Exception as exc:  # error-boundary: per-record revalidation — any dataset-probe failure seals as this record's kept-stale reason (never dropped or falsified) (noqa: BLE001)
         return _kept(
             diagnostic,
             f'比較対象のデータセットが検証できません: {exc}',
@@ -587,7 +587,7 @@ def _revalidate_comparison(
             reference_band_hz=stored_result.reference_band_hz,
             excluded_bands=stored_result.excluded_bands,
         )
-    except Exception as exc:
+    except Exception as exc:  # error-boundary: per-record revalidation — any algorithm re-run failure seals as this record's kept-stale reason (never dropped or falsified) (noqa: BLE001)
         return _kept(
             diagnostic,
             f'アルゴリズムの再実行に失敗しました: {exc}',
@@ -615,7 +615,7 @@ def _revalidate_comparison(
             label_b=stored_payload.get('label_b'),
             level_compatibility=stored_payload.get('level_compatibility'),
         )
-    except Exception as exc:
+    except Exception as exc:  # error-boundary: per-record revalidation — any re-sign failure seals as this record's kept-stale reason (never dropped or falsified) (noqa: BLE001)
         return _kept(
             diagnostic,
             f'比較レコードを再署名できません: {exc}',
@@ -651,7 +651,7 @@ def _revalidate_comparison(
         )
     try:
         ctx.measurement.get_comparison(record_ref)
-    except Exception as exc:
+    except Exception as exc:  # error-boundary: re-seal verify — any post-write canonical-read failure rolls the stored bytes back (stale-but-untouched); the rollback must cover every failure type (noqa: BLE001)
         with ctx.connect() as connection, connection:
             connection.execute('BEGIN IMMEDIATE')
             connection.execute(
@@ -741,7 +741,7 @@ def revalidate_native_authority_graph(
             continue
         try:
             outcomes.append(revalidator(ctx, diagnostic))
-        except Exception as exc:  # noqa: BLE001 - a failing lane keeps data stale, never drops it
+        except Exception as exc:  # error-boundary: per-lane revalidation — any lane failure logs and seals this record as kept-stale (a failing lane keeps data stale, never drops it) (noqa: BLE001)
             _LOGGER.warning(
                 'revalidation lane failed for %s:%s',
                 diagnostic.authority,
@@ -818,7 +818,7 @@ def write_launch_marker(data_dir: Path) -> Path | None:
         )
         os.replace(temp, marker_path)
         return marker_path
-    except Exception:  # noqa: BLE001 - marker loss must never block launch
+    except Exception:  # error-boundary: best-effort marker — a failed launch-marker write must never block launch; the failure identity is logged (noqa: BLE001)
         _LOGGER.debug('launch marker write failed', exc_info=True)
         return None
 

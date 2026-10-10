@@ -30,6 +30,7 @@ import sqlite3
 from typing import Iterable
 
 from .cad_repository import SceneRepository
+from .cad_ifc_diff import IfcDiffApply
 from .cad_ifc_interop import (
     IfcEntityMapping,
     IfcExportPackage,
@@ -78,6 +79,7 @@ class CadIfcInteropRepository:
                 'cad_ifc_import_artifacts',
                 'cad_ifc_entity_mappings',
                 'cad_ifc_revision_deltas',
+                'cad_ifc_diff_applies',
                 'cad_ifc_intake_profiles',
                 'cad_ifc_intake_evaluations',
                 'cad_ifc_exports',
@@ -182,49 +184,81 @@ class CadIfcInteropRepository:
     ) -> None:
         with closing(self._connect()) as connection, connection:
             for mapping in mappings:
-                _assert_sealed(mapping, 'mapping_sha256', 'mapping_id')
-                artifact = self.get_import_artifact(
-                    mapping.import_artifact_id
+                self._save_entity_mapping_in_connection(
+                    connection, mapping
                 )
-                if artifact is None or (
-                    artifact.artifact_sha256
-                    != mapping.import_artifact_sha256
-                ):
-                    raise IfcInteropIntegrityError(
-                        'entity mapping refers to an unimported artifact'
-                    )
-                existing_row = connection.execute(
-                    """
-                    SELECT mapping_sha256 FROM cad_ifc_entity_mappings
-                    WHERE mapping_id=?
-                    """,
-                    (mapping.mapping_id,),
-                ).fetchone()
-                if existing_row is not None:
-                    if existing_row[0] == mapping.mapping_sha256:
-                        continue
-                    raise IfcInteropConflictError(
-                        'ifc entity mappings are append-only'
-                    )
-                connection.execute(
-                    """
-                    INSERT INTO cad_ifc_entity_mappings (
-                        mapping_id, mapping_sha256, document_id,
-                        import_artifact_id, ifc_global_id, ifc_type,
-                        htdt_role, payload_json
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        mapping.mapping_id,
-                        mapping.mapping_sha256,
-                        mapping.document_id,
-                        mapping.import_artifact_id,
-                        mapping.ifc_global_id,
-                        mapping.ifc_type,
-                        mapping.htdt_role,
-                        mapping.model_dump_json(),
-                    ),
-                )
+
+    def _save_entity_mapping_in_connection(
+        self,
+        connection: sqlite3.Connection,
+        mapping: IfcEntityMapping,
+    ) -> None:
+        """Append-only mapping insert on an open connection (#981).
+
+        Used by the diff-apply transaction so a partial apply can never
+        leave half-saved reconciliation marks.
+        """
+        _assert_sealed(mapping, 'mapping_sha256', 'mapping_id')
+        artifact = self._import_artifact_in_connection(
+            connection, mapping.import_artifact_id
+        )
+        if artifact is None or (
+            artifact.artifact_sha256 != mapping.import_artifact_sha256
+        ):
+            raise IfcInteropIntegrityError(
+                'entity mapping refers to an unimported artifact'
+            )
+        existing_row = connection.execute(
+            """
+            SELECT mapping_sha256 FROM cad_ifc_entity_mappings
+            WHERE mapping_id=?
+            """,
+            (mapping.mapping_id,),
+        ).fetchone()
+        if existing_row is not None:
+            if existing_row[0] == mapping.mapping_sha256:
+                return
+            raise IfcInteropConflictError(
+                'ifc entity mappings are append-only'
+            )
+        connection.execute(
+            """
+            INSERT INTO cad_ifc_entity_mappings (
+                mapping_id, mapping_sha256, document_id,
+                import_artifact_id, ifc_global_id, ifc_type,
+                htdt_role, payload_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                mapping.mapping_id,
+                mapping.mapping_sha256,
+                mapping.document_id,
+                mapping.import_artifact_id,
+                mapping.ifc_global_id,
+                mapping.ifc_type,
+                mapping.htdt_role,
+                mapping.model_dump_json(),
+            ),
+        )
+
+    def _import_artifact_in_connection(
+        self,
+        connection: sqlite3.Connection,
+        artifact_id: str,
+    ) -> IfcImportArtifact | None:
+        row = connection.execute(
+            """
+            SELECT artifact_id, artifact_sha256, document_id,
+                   file_name, schema_identifier, imported_at_utc,
+                   payload_json
+            FROM cad_ifc_import_artifacts
+            WHERE artifact_id=?
+            """,
+            (artifact_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        return self._artifact_from_row(row)
 
     def get_entity_mapping(
         self, mapping_id: str
@@ -324,25 +358,66 @@ class CadIfcInteropRepository:
                 'ifc revision deltas are append-only'
             )
         with closing(self._connect()) as connection, connection:
-            connection.execute(
-                """
-                INSERT INTO cad_ifc_revision_deltas (
-                    delta_id, delta_sha256, document_id,
-                    prior_artifact_id, new_artifact_id,
-                    reconciliation_state, evaluated_at_utc, payload_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    delta.delta_id,
-                    delta.delta_sha256,
-                    delta.document_id,
-                    delta.prior_artifact_id,
-                    delta.new_artifact_id,
-                    delta.reconciliation_state,
-                    delta.evaluated_at_utc,
-                    delta.model_dump_json(),
-                ),
+            self._save_revision_delta_in_connection(connection, delta)
+
+    def _save_revision_delta_in_connection(
+        self,
+        connection: sqlite3.Connection,
+        delta: IfcRevisionDelta,
+    ) -> None:
+        """Append-only delta insert on an open connection (#981).
+
+        Both artifacts are verified inside the caller's transaction so a
+        diff apply can never persist a delta bound to unimported state.
+        """
+        prior = self._import_artifact_in_connection(
+            connection, delta.prior_artifact_id
+        )
+        if prior is None or (
+            prior.artifact_sha256 != delta.prior_artifact_sha256
+        ):
+            raise IfcInteropIntegrityError(
+                'delta refers to an unstored prior artifact'
             )
+        new = self._import_artifact_in_connection(
+            connection, delta.new_artifact_id
+        )
+        if new is None or new.artifact_sha256 != delta.new_artifact_sha256:
+            raise IfcInteropIntegrityError(
+                'delta refers to an unstored new artifact'
+            )
+        existing_row = connection.execute(
+            """
+            SELECT delta_sha256 FROM cad_ifc_revision_deltas
+            WHERE delta_id=?
+            """,
+            (delta.delta_id,),
+        ).fetchone()
+        if existing_row is not None:
+            if existing_row[0] == delta.delta_sha256:
+                return
+            raise IfcInteropConflictError(
+                'ifc revision deltas are append-only'
+            )
+        connection.execute(
+            """
+            INSERT INTO cad_ifc_revision_deltas (
+                delta_id, delta_sha256, document_id,
+                prior_artifact_id, new_artifact_id,
+                reconciliation_state, evaluated_at_utc, payload_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                delta.delta_id,
+                delta.delta_sha256,
+                delta.document_id,
+                delta.prior_artifact_id,
+                delta.new_artifact_id,
+                delta.reconciliation_state,
+                delta.evaluated_at_utc,
+                delta.model_dump_json(),
+            ),
+        )
 
     def get_revision_delta(
         self, delta_id: str
@@ -702,6 +777,195 @@ class CadIfcInteropRepository:
                 'ifc export package row disagrees with payload'
             )
         return package
+
+    # ------------------------------------------------------------------
+    # Diff-review applies (#981)
+
+    def save_diff_apply(self, record: IfcDiffApply) -> None:
+        """Persist a sealed diff-review apply record (append-only).
+
+        The referenced delta and both import artifacts must already be
+        stored — an apply can never float free of the revisions it
+        reconciled.
+        """
+        _assert_sealed(record, 'apply_sha256', 'apply_id')
+        delta = self.get_revision_delta(record.delta_ref.ref_id)
+        if delta is None or (
+            delta.delta_sha256 != record.delta_ref.ref_sha256
+        ):
+            raise IfcInteropIntegrityError(
+                'diff apply refers to an unstored revision delta'
+            )
+        for ref in (
+            record.prior_artifact_ref,
+            record.new_artifact_ref,
+        ):
+            artifact = self.get_import_artifact(ref.ref_id)
+            if artifact is None or (
+                artifact.artifact_sha256 != ref.ref_sha256
+            ):
+                raise IfcInteropIntegrityError(
+                    'diff apply refers to an unstored import artifact'
+                )
+        existing = self.get_diff_apply(record.apply_id)
+        if existing is not None:
+            if existing.apply_sha256 == record.apply_sha256:
+                return
+            raise IfcInteropConflictError(
+                'ifc diff applies are append-only'
+            )
+        with closing(self._connect()) as connection, connection:
+            self._save_diff_apply_in_connection(connection, record)
+
+    def _save_diff_apply_in_connection(
+        self,
+        connection: sqlite3.Connection,
+        record: IfcDiffApply,
+    ) -> None:
+        """Append-only apply insert on an open connection (#981)."""
+        _assert_sealed(record, 'apply_sha256', 'apply_id')
+        delta_row = connection.execute(
+            """
+            SELECT delta_sha256 FROM cad_ifc_revision_deltas
+            WHERE delta_id=?
+            """,
+            (record.delta_ref.ref_id,),
+        ).fetchone()
+        if delta_row is None or (
+            delta_row[0] != record.delta_ref.ref_sha256
+        ):
+            raise IfcInteropIntegrityError(
+                'diff apply refers to an unstored revision delta'
+            )
+        for ref in (
+            record.prior_artifact_ref,
+            record.new_artifact_ref,
+        ):
+            artifact = self._import_artifact_in_connection(
+                connection, ref.ref_id
+            )
+            if artifact is None or (
+                artifact.artifact_sha256 != ref.ref_sha256
+            ):
+                raise IfcInteropIntegrityError(
+                    'diff apply refers to an unstored import artifact'
+                )
+        existing_row = connection.execute(
+            """
+            SELECT apply_sha256 FROM cad_ifc_diff_applies
+            WHERE apply_id=?
+            """,
+            (record.apply_id,),
+        ).fetchone()
+        if existing_row is not None:
+            if existing_row[0] == record.apply_sha256:
+                return
+            raise IfcInteropConflictError(
+                'ifc diff applies are append-only'
+            )
+        connection.execute(
+            """
+            INSERT INTO cad_ifc_diff_applies (
+                apply_id, apply_sha256, document_id, delta_id,
+                prior_artifact_id, new_artifact_id, merged_subject_id,
+                applied_at_utc, payload_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                record.apply_id,
+                record.apply_sha256,
+                record.document_id,
+                record.delta_ref.ref_id,
+                record.prior_artifact_ref.ref_id,
+                record.new_artifact_ref.ref_id,
+                record.merged_subject_id,
+                record.applied_at_utc,
+                record.model_dump_json(),
+            ),
+        )
+
+    def get_diff_apply(self, apply_id: str) -> IfcDiffApply | None:
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                """
+                SELECT apply_id, apply_sha256, document_id, delta_id,
+                       prior_artifact_id, new_artifact_id,
+                       merged_subject_id, applied_at_utc, payload_json
+                FROM cad_ifc_diff_applies
+                WHERE apply_id=?
+                """,
+                (apply_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return self._apply_from_row(row)
+
+    def list_diff_applies(
+        self, document_id: str
+    ) -> tuple[IfcDiffApply, ...]:
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                """
+                SELECT apply_id, apply_sha256, document_id, delta_id,
+                       prior_artifact_id, new_artifact_id,
+                       merged_subject_id, applied_at_utc, payload_json
+                FROM cad_ifc_diff_applies
+                WHERE document_id=?
+                ORDER BY seq ASC
+                """,
+                (document_id,),
+            ).fetchall()
+        return tuple(self._apply_from_row(row) for row in rows)
+
+    def latest_diff_apply(
+        self, document_id: str, delta_id: str
+    ) -> IfcDiffApply | None:
+        """Newest apply recorded against (document, delta) — re-applies
+        append, so the latest row carries the current operator state."""
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                """
+                SELECT apply_id, apply_sha256, document_id, delta_id,
+                       prior_artifact_id, new_artifact_id,
+                       merged_subject_id, applied_at_utc, payload_json
+                FROM cad_ifc_diff_applies
+                WHERE document_id=? AND delta_id=?
+                ORDER BY seq DESC
+                LIMIT 1
+                """,
+                (document_id, delta_id),
+            ).fetchone()
+        if row is None:
+            return None
+        return self._apply_from_row(row)
+
+    def _apply_from_row(self, row: tuple) -> IfcDiffApply:
+        (
+            apply_id,
+            apply_sha256,
+            document_id,
+            delta_id,
+            prior_artifact_id,
+            new_artifact_id,
+            merged_subject_id,
+            applied_at_utc,
+            payload_json,
+        ) = row
+        record = IfcDiffApply.model_validate_json(payload_json)
+        if (
+            record.apply_id != apply_id
+            or record.apply_sha256 != apply_sha256
+            or record.document_id != document_id
+            or record.delta_ref.ref_id != delta_id
+            or record.prior_artifact_ref.ref_id != prior_artifact_id
+            or record.new_artifact_ref.ref_id != new_artifact_id
+            or record.merged_subject_id != merged_subject_id
+            or record.applied_at_utc != applied_at_utc
+        ):
+            raise IfcInteropIntegrityError(
+                'ifc diff apply row disagrees with payload'
+            )
+        return record
 
 
 __all__ = [

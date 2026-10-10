@@ -89,13 +89,13 @@ FIXTURE_DESTINATIONS = (
 #: Check phases the runner can execute; ``--checks`` subsets them.
 ALL_CHECKS = (
     'launch', 'navigate', 'contexts', 'geometry', 'overflow',
-    'focus', 'disabled_reasons', 'palette', 'reopen',
+    'focus', 'disabled_reasons', 'dynamic_a11y', 'palette', 'reopen',
 )
 #: Bounded default for the offscreen self-test lane: skips the long
 #: keyboard-traversal sweep and the restart lane.
 FIXTURE_CHECKS = (
     'launch', 'navigate', 'contexts', 'geometry', 'overflow',
-    'disabled_reasons',
+    'disabled_reasons', 'dynamic_a11y',
 )
 
 #: Manual review vocabulary for UX160 rows — items only a human can
@@ -573,6 +573,28 @@ def run_driver_phase(data_dir: Path, out_dir: Path, scenario: str,
                 'pass' if not findings else 'finding',
                 detail=f'{len(findings)} disabled widgets without '
                        'a recorded reason',
+                t0=t0))
+
+        if 'dynamic_a11y' in checks:
+            # #975: dynamic panels must retain keyboard focus through
+            # rebuilds, announce each state transition exactly once,
+            # and keep every disabled control's reason on screen.
+            t0 = time.monotonic()
+            a11y = driver.check_dynamic_a11y(app, window)
+            a11y_findings = a11y['findings']
+            metrics['dynamic_a11y'] = {
+                'panels': len(a11y['panels']),
+                'focus_notes': a11y['focus_notes'],
+                'findings': len(a11y_findings),
+            }
+            checkpoints.append(_checkpoint(
+                'global:dynamic_a11y', 'dynamic_a11y',
+                'pass' if not a11y_findings else 'finding',
+                detail=(
+                    f"panels={len(a11y['panels'])} "
+                    f'findings={len(a11y_findings)} '
+                    f'focus={a11y["focus_notes"]}'
+                )[:300],
                 t0=t0))
 
         if 'palette' in checks:

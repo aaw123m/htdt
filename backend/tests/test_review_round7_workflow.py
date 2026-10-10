@@ -140,7 +140,7 @@ def test_activity_focus_selects_the_timeline_event_row(
         created_at_utc='2026-09-27T00:00:00+00:00',
     )
     page = ActivityPage(
-        lambda doc, limit, offset: (),
+        lambda doc, limit, after: ((), None),
         list_events=lambda doc: tuple(
             reversed(service.events(F1_DOCUMENT_ID))
         ),
@@ -170,7 +170,7 @@ def test_activity_focus_selects_the_operation_row(tmp_path: Path) -> None:
         title='バックアップの作成',
     )
     page = ActivityPage(
-        lambda doc, limit, offset: (),
+        lambda doc, limit, after: ((), None),
         list_operations=lambda: (*center.active(), *center.recent()),
     )
 
@@ -199,7 +199,7 @@ def test_activity_focus_reports_missing_targets(tmp_path: Path) -> None:
     repository.save(make_f1_scene(), parent_revision_id=None)
     service = _activity_service(repository)
     page = ActivityPage(
-        lambda doc, limit, offset: (),
+        lambda doc, limit, after: ((), None),
         list_events=lambda doc: tuple(
             reversed(service.events(F1_DOCUMENT_ID))
         ),
@@ -303,7 +303,11 @@ def test_measurement_focus_entity_switches_to_quality_page(
     from PySide6.QtWidgets import QTableWidgetItem
 
     workspace.quality_table.setRowCount(1)
-    workspace.quality_table.setItem(0, 0, QTableWidgetItem('x'))
+    row_item = QTableWidgetItem('x')
+    # #969 binds rows to their measurement id via UserRole — a visual row
+    # without it is invisible to the focus path.
+    row_item.setData(Qt.ItemDataRole.UserRole, 'meas-1')
+    workspace.quality_table.setItem(0, 0, row_item)
 
     workspace.set_context('comparison')
     assert workspace.current_context_id == 'comparison'

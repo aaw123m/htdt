@@ -333,7 +333,7 @@ def run_check(
         if timed_out:
             try:
                 _kill_process_tree(proc)
-            except Exception:
+            except Exception:  # error-boundary: best-effort kill — a process-tree kill failure is benign; proc.wait below still bounds the wait (noqa: BLE001)
                 pass
             try:
                 proc.wait(timeout=30)

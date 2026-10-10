@@ -16,25 +16,34 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Callable, Iterable, Literal
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QDate, QObject, Qt, Signal
+from PySide6.QtGui import QBrush, QPalette
 from PySide6.QtWidgets import (
+    QAbstractItemView,
+    QApplication,
     QComboBox,
+    QDateEdit,
     QFileDialog,
+    QFrame,
     QHBoxLayout,
     QHeaderView,
     QInputDialog,
     QLabel,
     QLineEdit,
+    QMenu,
     QMessageBox,
     QPushButton,
+    QScrollArea,
     QSplitter,
     QTableWidget,
     QTableWidgetItem,
     QTabWidget,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
 
+from .modal_transient import exec_transient
 from .build_info import version_string
 from .cad_repository import SceneRepository
 from .capture_inbox import capture_inbox_item_project_id
@@ -44,9 +53,21 @@ from .error_boundary import (
     report_boundary_failure,
 )
 from .navigation_target import (
+    NavigationIntent,
     NavigationTarget,
     NavigationTargetKind,
     navigation_target_from_uri,
+)
+from .reference_library_browser import (
+    STATUS_ALL,
+    STATUS_ATTENTION,
+    STATUS_LATEST,
+    STATUS_UNQUALIFIED,
+    category_label,
+    collect_library_rows,
+    compare_rows,
+    filter_rows,
+    row_status_label,
 )
 from .automatic_backup import AutomaticBackupScheduler
 from .project_library_repository import ProjectLibraryRepository
@@ -58,11 +79,28 @@ from .project_lifecycle import (
     ProjectLibrary as _LifecycleProjectLibrary,
     ProjectTombstone,
 )
-from .native_diagnostics import diagnostics_dir
-from .ui_theme import TypographyRole, set_typography_role
-from .user_facing_error import operation_error_message, warn_user
+from .diagnostics_support import diagnostics_dir
+from .support_diagnostics import (
+    HealthCategory,
+    HealthCheckResult,
+    HealthReport,
+    HealthStatus,
+)
+from .ui_theme import (
+    SemanticState,
+    TypographyRole,
+    set_semantic_state,
+    set_typography_role,
+)
+from .user_facing_error import operation_error_message
+from .operation_error_dialog import warn_user
 from .workflow_navigation import WorkspaceDeepLink, WorkspaceId
 from .workflow_shell import TargetFocusResult
+from .activity_center import (
+    RetryPolicy,
+    operation_progress_text,
+    operation_state_label,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -80,6 +118,7 @@ class ProjectEntry:
     created_at_utc: str
     revision_count: int
     archived: bool = False
+    last_opened_at_utc: str | None = None
 
 
 class ProjectLibraryService:
@@ -128,6 +167,7 @@ class ProjectLibraryService:
                     else heads[entry.document_id][1]
                 ),
                 archived=entry.archived,
+                last_opened_at_utc=entry.last_opened_at_utc,
             )
             for entry in self._project_library.list_projects(
                 include_archived=True
@@ -321,6 +361,7 @@ _LIFECYCLE_TABLE_LABELS = {
     "cad_ifc_import_artifacts": "IFCインポート成果物",
     "cad_ifc_entity_mappings": "IFCエンティティマッピング",
     "cad_ifc_revision_deltas": "IFCリビジョン差分",
+    "cad_ifc_diff_applies": "IFC差分適用レコード",
     "cad_ifc_intake_profiles": "IFC取込プロファイル",
     "cad_ifc_intake_evaluations": "IFC取込評価",
     "cad_ifc_exports": "IFCエクスポート",
@@ -637,6 +678,7 @@ _LIFECYCLE_TABLE_LABELS = {
     "cad_solver_budget_profiles": "ソルバー計算予算プロファイル",
     "cad_compute_observations": "計算資源観測レコード",
     "cad_accuracy_cost_envelopes": "精度-コストエンベロープ",
+    "cad_prerun_estimates": "実行前計算コスト推定レコード",
     "cad_jitter_profiles": "ジッタ測定プロファイル",
     "cad_jitter_observations": "ジッタ観測レコード",
     "cad_jitter_transfer_measurements": "ジッタ伝達測定",
@@ -946,6 +988,10 @@ _LIFECYCLE_TABLE_LABELS = {
     "cad_revalidation_queue_runs": "再検証キュー実行レコード",
     "cad_gate_operator_plans": "ゲートオペレータ計画",
     "cad_gate_acceptance_runs": "ゲート受入実行レコード",
+    # REV73: #1011 ケーブル経路ジオメトリ権威
+    "cad_cable_run_geometries": "ケーブル経路ジオメトリ",
+    "cad_remeasure_queues": "再測定キュー",
+    "cad_remeasure_queue_events": "再測定キューイベント",
 }
 
 
@@ -1022,6 +1068,65 @@ def _deletion_plan_lines(plan: ProjectDeletionPlan) -> list[str]:
     return lines
 
 
+#: #986 shared project-list sort/filter vocabulary — used identically by
+#: the Projects page table and the menu switch picker so an operator sees
+#: the same ordering and identity semantics in both places.
+PROJECT_SORT_RECENT = 'recent'
+PROJECT_SORT_CREATED = 'created'
+PROJECT_SORT_NAME = 'name'
+PROJECT_FILTER_ACTIVE = 'active'
+PROJECT_FILTER_ARCHIVED = 'archived'
+PROJECT_FILTER_ALL = 'all'
+
+
+def filter_project_entries(
+    entries: tuple,
+    *,
+    text: str = '',
+    sort: str = PROJECT_SORT_RECENT,
+    state: str = PROJECT_FILTER_ALL,
+) -> tuple:
+    """Search/state-filter/sort project entries without touching identity.
+
+    Duck-typed over the fields both entry models share (``display_name``,
+    ``archived``, ``created_at_utc``, ``last_opened_at_utc``); the returned
+    objects are the same instances — ``project_id`` authority is never
+    resolved by display text anywhere downstream.
+    """
+
+    needle = text.strip().casefold()
+    items = []
+    for entry in entries:
+        if state == PROJECT_FILTER_ACTIVE and entry.archived:
+            continue
+        if state == PROJECT_FILTER_ARCHIVED and not entry.archived:
+            continue
+        if needle and needle not in (entry.display_name or '').casefold():
+            continue
+        items.append(entry)
+    if sort == PROJECT_SORT_NAME:
+        items.sort(
+            key=lambda e: ((e.display_name or '').casefold(), e.project_id)
+        )
+    elif sort == PROJECT_SORT_CREATED:
+        items.sort(
+            key=lambda e: (e.created_at_utc or '', e.project_id),
+            reverse=True,
+        )
+    else:
+        # 最近使った順 — opened projects first (never-opened last), then
+        # created date as the deterministic tiebreak.
+        items.sort(
+            key=lambda e: (
+                e.last_opened_at_utc or '',
+                e.created_at_utc or '',
+                e.project_id,
+            ),
+            reverse=True,
+        )
+    return tuple(items)
+
+
 class ProjectLibraryPage(QWidget):
     """Project library: open/switch, archive/restore, delete documents.
 
@@ -1052,13 +1157,50 @@ class ProjectLibraryPage(QWidget):
             "保存済みのプロジェクトです。開くとそのプロジェクトに切り替わります。"
             "アーカイブ済みのプロジェクトは開けず、削除は確認のうえ実行されます。",
         )
-        self.table = QTableWidget(0, 5)
+
+        controls = QHBoxLayout()
+        self.search_edit = QLineEdit(self)
+        self.search_edit.setObjectName("projectLibrarySearch")
+        self.search_edit.setPlaceholderText("プロジェクト名で検索…")
+        self.search_edit.setAccessibleName("プロジェクト名で検索")
+        self.search_edit.setToolTip("表示名の部分一致で一覧を絞り込みます")
+        self.search_edit.textChanged.connect(self.refresh)
+        controls.addWidget(self.search_edit, 1)
+        self.sort_combo = QComboBox(self)
+        self.sort_combo.setObjectName("projectLibrarySort")
+        self.sort_combo.setAccessibleName("プロジェクト一覧の並べ替え")
+        for _label, _key in (
+            ("最近使った順", PROJECT_SORT_RECENT),
+            ("作成日時", PROJECT_SORT_CREATED),
+            ("名前", PROJECT_SORT_NAME),
+        ):
+            self.sort_combo.addItem(_label, _key)
+        self.sort_combo.setToolTip("一覧の並べ替え方法を選びます")
+        self.sort_combo.currentIndexChanged.connect(lambda _i: self.refresh())
+        controls.addWidget(self.sort_combo)
+        self.state_combo = QComboBox(self)
+        self.state_combo.setObjectName("projectLibraryState")
+        self.state_combo.setAccessibleName("プロジェクトの状態絞り込み")
+        for _label, _key in (
+            ("全件", PROJECT_FILTER_ALL),
+            ("作業中", PROJECT_FILTER_ACTIVE),
+            ("アーカイブ済み", PROJECT_FILTER_ARCHIVED),
+        ):
+            self.state_combo.addItem(_label, _key)
+        self.state_combo.setToolTip("作業中 / アーカイブ済みで絞り込みます")
+        self.state_combo.currentIndexChanged.connect(lambda _i: self.refresh())
+        controls.addWidget(self.state_combo)
+        layout.addLayout(controls)
+
+        self.table = QTableWidget(0, 7)
         self.table.setAccessibleName("プロジェクト一覧")
         self.table.setToolTip(
             "保存済みプロジェクトの一覧です。列の見出しにカーソルを合わせると各列の説明が表示されます。"
         )
+        # Columns 0-4 keep the pre-#986 layout (state stays at index 4);
+        # the new columns append at the tail.
         self.table.setHorizontalHeaderLabels(
-            ("プロジェクト", "作成日時", "リビジョン数", "現在", "状態")
+            ("プロジェクト", "作成日時", "リビジョン数", "現在", "状態", "最終アクセス", "ID")
         )
         for _col, _tip in enumerate((
             "プロジェクトの表示名",
@@ -1066,6 +1208,8 @@ class ProjectLibraryPage(QWidget):
             "保存されている版（リビジョン）の数",
             "現在開いているプロジェクトには ● が付きます",
             "アクティブ / アーカイブ済み の状態",
+            "最後に開いた日時（未オープンは空欄）",
+            "プロジェクトIDの先頭（同名案件の区別用）",
         )):
             self.table.horizontalHeaderItem(_col).setToolTip(_tip)
         self.table.horizontalHeader().setSectionResizeMode(
@@ -1136,14 +1280,28 @@ class ProjectLibraryPage(QWidget):
         self.new_button.setWhatsThis("新しいプロジェクトの作成を開始します（作成ウィザードが開きます）")
         self.new_button.clicked.connect(lambda: self.commission_requested.emit())
         layout.addWidget(self.new_button)
+
+        self.selection_status = QLabel("", self)
+        self.selection_status.setObjectName("projectSelectionStatus")
+        self.selection_status.setWordWrap(True)
+        set_typography_role(self.selection_status, TypographyRole.SECONDARY)
+        layout.addWidget(self.selection_status)
         self.refresh()
 
     def refresh(self) -> None:
-        entries = self.service.list_projects()
-        self._entries = {entry.project_id: entry for entry in entries}
+        selected = self._selected_project_id()
+        all_entries = self.service.list_projects()
+        self._entries = {entry.project_id: entry for entry in all_entries}
+        entries = filter_project_entries(
+            all_entries,
+            text=self.search_edit.text(),
+            sort=self.sort_combo.currentData(),
+            state=self.state_combo.currentData(),
+        )
         current = self._current_document_id()
         self.table.setRowCount(0)
-        self.empty_label.setVisible(not entries)
+        self.empty_label.setVisible(not all_entries)
+        restore_row: int | None = None
         for entry in entries:
             row = self.table.rowCount()
             self.table.insertRow(row)
@@ -1153,12 +1311,18 @@ class ProjectLibraryPage(QWidget):
                 str(entry.revision_count),
                 "●" if entry.document_id == current else "",
                 "アーカイブ済み" if entry.archived else "",
+                entry.last_opened_at_utc or "",
+                entry.project_id[:8],
             )
             for column, value in enumerate(values):
                 item = QTableWidgetItem(value)
                 if column == 0:
                     item.setData(Qt.ItemDataRole.UserRole, entry.project_id)
                 self.table.setItem(row, column, item)
+            if selected is not None and entry.project_id == selected:
+                restore_row = row
+        if restore_row is not None:
+            self.table.selectRow(restore_row)
         self._sync_buttons()
 
     def _selected_entry(self) -> ProjectEntry | None:
@@ -1181,6 +1345,24 @@ class ProjectLibraryPage(QWidget):
             entry is not None and entry.archived
         )
         self.delete_button.setEnabled(entry is not None and not is_current)
+        # #986: name the exact reason the selected row cannot be opened —
+        # never silently redirect the operator to a different project.
+        if entry is None:
+            self.selection_status.setText("")
+        elif is_current:
+            self.selection_status.setText(
+                "このプロジェクトは現在開いています。"
+            )
+        elif entry.archived:
+            self.selection_status.setText(
+                "アーカイブ済みのため開けません（アーカイブ解除は可能です）。"
+            )
+        elif entry.head_revision_id is None:
+            self.selection_status.setText(
+                "開けるリビジョンがありません。"
+            )
+        else:
+            self.selection_status.setText("")
         if is_current:
             tip = "現在開いているプロジェクトは変更できません"
             self.archive_button.setToolTip(tip)
@@ -1216,7 +1398,7 @@ class ProjectLibraryPage(QWidget):
             return
         try:
             self.service.set_archived(entry.project_id, archived)
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: archive toggle — expected store failures surface verbatim; unexpected errors propagate to diagnostics
             warn_user(
                 self,
                 "アーカイブ" if archived else "アーカイブ解除",
@@ -1231,7 +1413,7 @@ class ProjectLibraryPage(QWidget):
             return
         try:
             plan = self.service.plan_project_deletion(entry.project_id)
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: deletion plan probe — expected failures surface verbatim; unexpected errors propagate to diagnostics
             warn_user(self, "削除内容を確認できませんでした", exc)
             return
         non_archive_blockers = [
@@ -1251,7 +1433,7 @@ class ProjectLibraryPage(QWidget):
                 )
             )
             box.setStandardButtons(QMessageBox.StandardButton.Ok)
-            box.exec()
+            exec_transient(box)
             return
 
         # The persisted policy decides whether a pre-destructive safety
@@ -1283,7 +1465,7 @@ class ProjectLibraryPage(QWidget):
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel
         )
         box.setDefaultButton(QMessageBox.StandardButton.Cancel)
-        if box.exec() != QMessageBox.StandardButton.Yes:
+        if exec_transient(box) != QMessageBox.StandardButton.Yes:
             return
 
         safety_backup_created = False
@@ -1306,7 +1488,7 @@ class ProjectLibraryPage(QWidget):
                         safety_scheduler.run_due('pre_destructive')
                         is not None
                     )
-                except Exception as backup_exc:  # noqa: BLE001
+                except EXPECTED_OPERATION_ERRORS as backup_exc:  # error-boundary: best-effort safety backup — expected failures warn and the delete continues; unexpected errors propagate
                     warn_user(
                         self,
                         "削除前の安全バックアップを作成できませんでした",
@@ -1336,7 +1518,7 @@ class ProjectLibraryPage(QWidget):
                 ),
             )
             return
-        except Exception as exc:  # noqa: BLE001 - surface any store fault verbatim
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: project delete — expected store faults surface verbatim; unexpected errors propagate to diagnostics
             warn_user(self, "削除できませんでした", exc)
             self.refresh()
             return
@@ -1430,6 +1612,187 @@ def _classification_label(classification: str) -> str:
     return _INBOX_CLASSIFICATION_LABELS.get(classification, classification)
 
 
+# -- mass-arrival triage (#988) -------------------------------------------
+#
+# Review queues are derived from each row's own facets — never a second
+# inspect() per item — so a 10/100/1000-item inbox refilters instantly.
+# ``promotable`` is the *candidate* queue: scope assigned and none of the
+# gates ``CaptureInboxRepository._check_promotable`` vets is failing. The
+# authoritative promotability verdict still comes from inspection at
+# selection/detail time.
+_INBOX_QUEUE_LABELS = {
+    "pending": "保留中",
+    "promotable": "昇格可能",
+    "blocked": "ブロック",
+    "deferred": "延期",
+    "rejected": "却下",
+    "processed": "処理済み",
+}
+# Queues still awaiting an operator decision — the 要レビュー count, the
+# default filter, and the rows 次の未処理を表示 walks.
+_INBOX_ACTIONABLE_QUEUES = frozenset({"pending", "promotable", "blocked"})
+# Display order when sorting by queue: ready-to-promote first, then items
+# needing input, then faulted, then parked/finished.
+_INBOX_QUEUE_ORDER = (
+    "promotable",
+    "pending",
+    "blocked",
+    "deferred",
+    "rejected",
+    "processed",
+)
+_INBOX_SORT_OPTIONS = (
+    ("arrival_asc", "到着が早い順"),
+    ("arrival_desc", "到着が新しい順"),
+    ("queue", "状態優先順"),
+    ("scope", "スコープ"),
+    ("series", "シリーズ"),
+    ("classification", "分類"),
+)
+_INBOX_GROUP_OPTIONS = (
+    ("none", "なし"),
+    ("queue", "状態"),
+    ("scope", "スコープ"),
+    ("series", "シリーズ"),
+    ("classification", "分類"),
+)
+# Secondary actions fold once the row's required width exceeds what the
+# page can give it (high-DPI logical widths) — measured live, never a
+# fixed threshold, so the trigger stays reachable at every window size.
+
+
+def _inbox_queue_state(item) -> str:
+    """Review queue for one staged delivery (#988).
+
+    The blocked queue mirrors ``_check_promotable``'s veto facets exactly
+    (validation, identity conflict, dependencies, evidence conflict,
+    alignment) so the label names the gate that would actually fail —
+    never a guess. ``promotable`` items are promotion-review candidates;
+    the promote path still re-verifies at execution time.
+    """
+
+    disposition = getattr(item, "disposition", "pending")
+    if disposition == "deferred":
+        return "deferred"
+    if disposition == "rejected":
+        return "rejected"
+    if disposition in ("promoted", "superseded"):
+        return "processed"
+    if (
+        getattr(item, "bundle_validation", "validated") != "validated"
+        or getattr(item, "primary_classification", "")
+        == "identity_digest_conflict"
+        or getattr(item, "dependency_state", "not_evaluated") == "unresolved"
+        or getattr(item, "evidence_conflict_state", "none") == "open"
+        or getattr(item, "alignment_state", "not_required") == "blocked"
+    ):
+        return "blocked"
+    if not capture_inbox_item_project_id(item):
+        return "pending"
+    return "promotable"
+
+
+def _inbox_search_text(item) -> str:
+    """Lowercased haystack the inbox search box matches against."""
+
+    parts = [
+        _inbox_scope_label(getattr(item, "scope", "")),
+        getattr(item, "scope", ""),
+        getattr(item, "capture_series_id", ""),
+        getattr(item, "capture_revision_id", ""),
+        _classification_label(getattr(item, "primary_classification", "")),
+        getattr(item, "primary_classification", ""),
+        *(
+            _INBOX_CLASSIFICATION_LABELS.get(flag, flag)
+            for flag in getattr(item, "classification_flags", ())
+        ),
+        _INBOX_DISPOSITION_LABELS.get(
+            getattr(item, "disposition", ""), getattr(item, "disposition", "")
+        ),
+        getattr(item, "arrival_source", ""),
+        getattr(item, "source_detail", ""),
+        getattr(item, "inbox_item_id", ""),
+        getattr(item, "lineage_digest", ""),
+    ]
+    return " ".join(str(part) for part in parts if part).lower()
+
+
+def _inbox_classification_rank(item) -> int:
+    try:
+        return list(_INBOX_CLASSIFICATION_LABELS).index(
+            getattr(item, "primary_classification", "")
+        )
+    except ValueError:
+        return len(_INBOX_CLASSIFICATION_LABELS)
+
+
+def _inbox_sort_key(item, sort_key: str):
+    queue_rank = _INBOX_QUEUE_ORDER.index(_inbox_queue_state(item))
+    arrived = getattr(item, "first_arrived_at_utc", "")
+    digest = getattr(item, "lineage_digest", "")
+    if sort_key == "queue":
+        return (queue_rank, arrived, digest)
+    if sort_key == "scope":
+        return (
+            _inbox_scope_label(getattr(item, "scope", "")).lower(),
+            arrived,
+            digest,
+        )
+    if sort_key == "series":
+        return (getattr(item, "capture_series_id", ""), arrived, digest)
+    if sort_key == "classification":
+        return (_inbox_classification_rank(item), arrived, digest)
+    return (arrived, digest)
+
+
+def _inbox_group_sort(item, group_key: str):
+    """Sortable group key — groups order by the module's own
+    vocabularies (queue rank, classification priority), never by raw
+    string. 未割り当て pins first: it is the queue's landing zone."""
+    if group_key == "queue":
+        return (_INBOX_QUEUE_ORDER.index(_inbox_queue_state(item)),)
+    if group_key == "scope":
+        scope = getattr(item, "scope", "")
+        return (
+            0 if scope == _INBOX_UNASSIGNED_SCOPE else 1,
+            _inbox_scope_label(scope).lower(),
+        )
+    if group_key == "series":
+        return (getattr(item, "capture_series_id", ""),)
+    if group_key == "classification":
+        return (_inbox_classification_rank(item),)
+    return ()
+
+
+def _inbox_group_title(item, group_key: str) -> str:
+    if group_key == "queue":
+        return _INBOX_QUEUE_LABELS[_inbox_queue_state(item)]
+    if group_key == "scope":
+        return f"スコープ: {_inbox_scope_label(getattr(item, 'scope', ''))}"
+    if group_key == "series":
+        return f"シリーズ: {getattr(item, 'capture_series_id', '')}"
+    if group_key == "classification":
+        return (
+            "分類: "
+            + _classification_label(
+                getattr(item, "primary_classification", "")
+            )
+        )
+    return ""
+
+
+def _inbox_state_cell(item) -> str:
+    """状態 column: queue vocabulary, with the stored disposition kept
+    in parentheses when it carries extra information (一部昇格 etc.)."""
+    queue_label = _INBOX_QUEUE_LABELS[_inbox_queue_state(item)]
+    disposition = _INBOX_DISPOSITION_LABELS.get(
+        getattr(item, "disposition", ""), getattr(item, "disposition", "")
+    )
+    if queue_label == disposition:
+        return queue_label
+    return f"{queue_label}（{disposition}）"
+
+
 class CaptureInboxPage(QWidget):
     """Capture Inbox: staged deliveries awaiting review (#770).
 
@@ -1501,11 +1864,22 @@ class CaptureInboxPage(QWidget):
         self._selected_contribution = None
         self._contributions: tuple = ()
         self._last_inspection = None
+        # Mass-arrival triage state (#988): ``_items`` is the last
+        # ``list_items`` snapshot; ``_displayed_items`` mirrors the
+        # delivery table row-for-row (``None`` marks group header rows).
+        self._items: tuple = ()
+        self._displayed_items: list = []
+        self._collapsed_actions: bool | None = None
+        self._secondary_widgets: list[QWidget] = []
         layout = _page_layout(
             self,
             "取り込み",
             "取得済みのキャプチャ配送です。項目を選ぶと内容と判断材料を確認できます。",
         )
+        delivery_panel = QWidget()
+        delivery_layout = QVBoxLayout(delivery_panel)
+        delivery_layout.setContentsMargins(0, 0, 0, 0)
+        delivery_layout.addLayout(self._build_inbox_filter_row())
         splitter = QSplitter(Qt.Orientation.Vertical)
         self.table = QTableWidget(0, 5)
         self.table.setAccessibleName("取り込み一覧")
@@ -1532,6 +1906,7 @@ class CaptureInboxPage(QWidget):
         )
         self.table.itemSelectionChanged.connect(self._sync_detail)
         splitter.addWidget(self.table)
+        delivery_layout.addWidget(splitter, 1)
 
         detail_panel = QWidget()
         detail_layout = QVBoxLayout(detail_panel)
@@ -1544,29 +1919,76 @@ class CaptureInboxPage(QWidget):
         set_typography_role(self.detail, TypographyRole.SECONDARY)
         detail_layout.addWidget(self.detail, 1)
         actions = QHBoxLayout()
+        self._actions_layout = actions
+        # Primary triage ops stay first and never collapse (#988).
+        self.next_unprocessed_button = QPushButton("次の未処理を表示")
+        self.next_unprocessed_button.setAccessibleName("次の未処理を表示")
+        self.next_unprocessed_button.setToolTip(
+            "保留中・昇格可能・ブロックのうち、次の項目を選択します"
+            "（延期・却下・処理済みとグループ見出しは飛ばします）"
+        )
+        self.next_unprocessed_button.setWhatsThis(
+            "保留中・昇格可能・ブロックのうち、次の項目を選択します"
+            "（延期・却下・処理済みとグループ見出しは飛ばします）"
+        )
+        self.next_unprocessed_button.clicked.connect(
+            self._show_next_unprocessed
+        )
+        actions.addWidget(self.next_unprocessed_button)
+        self.detail_button = QPushButton("詳細を確認")
+        self.detail_button.setAccessibleName("詳細を確認")
+        self.detail_button.setToolTip(
+            "選択項目の詳細を表示します。未選択なら次の未処理項目を選びます。"
+        )
+        self.detail_button.setWhatsThis(
+            "選択項目の詳細を表示します。未選択なら次の未処理項目を選びます。"
+        )
+        self.detail_button.clicked.connect(self._confirm_detail)
+        actions.addWidget(self.detail_button)
+        actions.addSpacing(8)
+        # Secondary actions fold into the overflow menu when the row
+        # cannot fit (high-DPI / narrow windows) so mis-taps cannot
+        # happen — the collapsed menu runs the exact same slots.
+        self.actions_menu = QMenu(self)
+        self._menu_actions = {}
+
+        def _menu_action(key: str, label: str, slot) -> None:
+            action = self.actions_menu.addAction(label)
+            action.triggered.connect(slot)
+            self._menu_actions[key] = action
+
         self.defer_button = QPushButton("延期…")
         self.defer_button.setToolTip("選択項目の判断をあとに回します（一覧から一時的に外れます）")
         self.defer_button.setWhatsThis("選択項目の判断をあとに回します（一覧から一時的に外れます）")
         self.defer_button.clicked.connect(lambda: self._dispose("defer"))
         actions.addWidget(self.defer_button)
+        self._secondary_widgets.append(self.defer_button)
+        _menu_action("defer", "延期…", lambda: self._dispose("defer"))
         self.reject_button = QPushButton("却下…")
         self.reject_button.setToolTip("選択項目を取り込まずに破棄します（理由を確認してから実行されます）")
         self.reject_button.setWhatsThis("選択項目を取り込まずに破棄します（理由を確認してから実行されます）")
         self.reject_button.clicked.connect(lambda: self._dispose("reject"))
         actions.addWidget(self.reject_button)
+        self._secondary_widgets.append(self.reject_button)
+        _menu_action("reject", "却下…", lambda: self._dispose("reject"))
         self.resume_button = QPushButton("再開")
         self.resume_button.setToolTip("延期・却下した項目を再度「保留」に戻して検討対象にします")
         self.resume_button.setWhatsThis("延期・却下した項目を再度「保留」に戻して検討対象にします")
         self.resume_button.clicked.connect(lambda: self._dispose("resume"))
         actions.addWidget(self.resume_button)
+        self._secondary_widgets.append(self.resume_button)
+        _menu_action("resume", "再開", lambda: self._dispose("resume"))
         self.promote_button = QPushButton("昇格…")
         self.promote_button.setToolTip("取り込み可能な権威レコード（注釈エンティティ）をプロジェクトのシーンに反映します")
         self.promote_button.setWhatsThis("取り込み可能な権威レコード（注釈エンティティ）をプロジェクトのシーンに反映します")
         self.promote_button.clicked.connect(self._promote)
         actions.addWidget(self.promote_button)
+        self._secondary_widgets.append(self.promote_button)
+        _menu_action("promote", "昇格…", self._promote)
         self.scope_combo = QComboBox()
         self.scope_combo.setToolTip("選択項目を取り込む先のプロジェクトを選びます")
         self.scope_combo.setWhatsThis("選択項目を取り込む先のプロジェクトを選びます")
+        self.scope_combo.setAccessibleName("割り当て先プロジェクト")
         actions.addWidget(QLabel("プロジェクト:"))
         actions.addWidget(self.scope_combo, 1)
         self.scope_button = QPushButton("割り当て")
@@ -1574,28 +1996,519 @@ class CaptureInboxPage(QWidget):
         self.scope_button.setWhatsThis("選択項目を左で選んだプロジェクトに取り込み（関連付け）ます")
         self.scope_button.clicked.connect(self._apply_scope)
         actions.addWidget(self.scope_button)
+        self._secondary_widgets.append(self.scope_button)
+        _menu_action("assign", "プロジェクト割当", self._apply_scope)
+        self.actions_menu.addSeparator()
         link = QPushButton("測定ワークスペースを開く")
         link.setToolTip("測定ワークスペースの「読み込み」ページへ移動します")
         link.setWhatsThis("測定ワークスペースの「読み込み」ページへ移動します")
-        link.clicked.connect(
-            lambda: self._on_navigate(
-                WorkspaceDeepLink(WorkspaceId.MEASUREMENT, "import")
-            )
-        )
+        link.setAccessibleName("測定ワークスペースを開く")
+        link.clicked.connect(self._open_measurement_import)
         actions.addWidget(link)
+        self._secondary_widgets.append(link)
+        _menu_action(
+            "open_measurement",
+            "測定ワークスペースを開く",
+            self._open_measurement_import,
+        )
+        self.field_return_link = None
+        if self._list_contributions is not None:
+            self.field_return_link = QPushButton("フィールドリターンを開く")
+            self.field_return_link.setToolTip(
+                "受け取ったフィールドリターンの一覧タブへ移動します"
+            )
+            self.field_return_link.setWhatsThis(
+                "受け取ったフィールドリターンの一覧タブへ移動します"
+            )
+            self.field_return_link.setAccessibleName(
+                "フィールドリターンを開く"
+            )
+            self.field_return_link.clicked.connect(
+                self._open_field_return_tab
+            )
+            actions.addWidget(self.field_return_link)
+            self._secondary_widgets.append(self.field_return_link)
+            _menu_action(
+                "open_field_return",
+                "フィールドリターンを開く",
+                self._open_field_return_tab,
+            )
+        self.actions_overflow = QToolButton()
+        self.actions_overflow.setText("操作 ▾")
+        self.actions_overflow.setToolTip(
+            "延期・却下・再開・昇格・割り当て・画面遷移の一覧です"
+        )
+        self.actions_overflow.setAccessibleName("その他の操作")
+        self.actions_overflow.setPopupMode(
+            QToolButton.ToolButtonPopupMode.InstantPopup
+        )
+        self.actions_overflow.setMenu(self.actions_menu)
+        self.actions_overflow.setVisible(False)
+        actions.addWidget(self.actions_overflow)
+        self.actions_menu.aboutToShow.connect(
+            lambda: self._sync_actions(self._last_inspection)
+        )
         detail_layout.addLayout(actions)
         splitter.addWidget(detail_panel)
         splitter.setStretchFactor(0, 1)
-        tabs = QTabWidget()
-        tabs.addTab(splitter, "キャプチャ配送")
+        self._tabs = QTabWidget()
+        self._tabs.addTab(delivery_panel, "キャプチャ配送")
         if self._list_watch_failures is not None:
-            tabs.addTab(self._build_watch_failures_tab(), "失敗キュー")
+            self._tabs.addTab(self._build_watch_failures_tab(), "失敗キュー")
+        self._contributions_tab = None
         if self._list_contributions is not None:
-            tabs.addTab(self._build_contributions_tab(), "フィールドリターン")
+            self._contributions_tab = self._build_contributions_tab()
+            self._tabs.addTab(self._contributions_tab, "フィールドリターン")
         if self._list_missions is not None:
-            tabs.addTab(self._build_missions_tab(), "ミッション")
-        layout.addWidget(tabs, 1)
+            self._tabs.addTab(self._build_missions_tab(), "ミッション")
+        layout.addWidget(self._tabs, 1)
+        # Seed the fold state now: hidden secondary widgets don't count
+        # toward minimumSizeHint, so the page's minimum width stays small
+        # instead of pinning the whole shell above a 1366px screen.
+        # The first real resizeEvent recomputes and unfolds when it fits.
+        self._sync_action_layout()
         self.refresh()
+
+    # -- mass-arrival triage (#988) --------------------------------------
+    #
+    # The filter row re-presents the last ``list_items`` snapshot —
+    # search/queue/sort/group never re-read the store and never carry
+    # approval authority; assign/promote/reject keep their exact-identity
+    # (lineage_digest) handlers and explicit confirmations unchanged.
+
+    def _build_inbox_filter_row(self) -> QHBoxLayout:
+        row = QHBoxLayout()
+        self.inbox_search_edit = QLineEdit()
+        self.inbox_search_edit.setPlaceholderText(
+            "検索（スコープ・シリーズ・分類・由来）"
+        )
+        self.inbox_search_edit.setClearButtonEnabled(True)
+        self.inbox_search_edit.setToolTip(
+            "表示する取り込み項目を絞り込みます。"
+            "検索や並び順は見た目だけを変え、承認の根拠にはなりません。"
+        )
+        self.inbox_search_edit.setAccessibleName("取り込み検索")
+        row.addWidget(self.inbox_search_edit, 1)
+        row.addWidget(QLabel("状態:"))
+        self.inbox_state_combo = QComboBox()
+        self.inbox_state_combo.setToolTip(
+            "処理状態のキューで絞り込みます。"
+            "要レビューは保留中・昇格可能・ブロックの未処理分です。"
+        )
+        self.inbox_state_combo.setAccessibleName("取り込み状態フィルタ")
+        self._state_base_labels = {}
+        for key, label in (
+            ("review", "要レビュー"),
+            ("all", "すべて"),
+            *(
+                (queue, _INBOX_QUEUE_LABELS[queue])
+                for queue in _INBOX_QUEUE_ORDER
+            ),
+        ):
+            self._state_base_labels[key] = label
+            self.inbox_state_combo.addItem(label, key)
+        row.addWidget(self.inbox_state_combo)
+        row.addWidget(QLabel("並び:"))
+        self.inbox_sort_combo = QComboBox()
+        self.inbox_sort_combo.setToolTip(
+            "一覧の並び順です（承認の根拠にはなりません）。"
+        )
+        self.inbox_sort_combo.setAccessibleName("取り込み並び替え")
+        for key, label in _INBOX_SORT_OPTIONS:
+            self.inbox_sort_combo.addItem(label, key)
+        row.addWidget(self.inbox_sort_combo)
+        row.addWidget(QLabel("グループ:"))
+        self.inbox_group_combo = QComboBox()
+        self.inbox_group_combo.setToolTip(
+            "一覧を状態・スコープ・シリーズ・分類で区切って表示します。"
+        )
+        self.inbox_group_combo.setAccessibleName("取り込みグループ化")
+        for key, label in _INBOX_GROUP_OPTIONS:
+            self.inbox_group_combo.addItem(label, key)
+        row.addWidget(self.inbox_group_combo)
+        self.inbox_count_label = QLabel()
+        self.inbox_count_label.setAccessibleName("要レビュー件数")
+        self.inbox_count_label.setToolTip(
+            "保留中・昇格可能・ブロックの合計が要レビュー件数です。"
+        )
+        set_typography_role(
+            self.inbox_count_label, TypographyRole.SECONDARY
+        )
+        row.addWidget(self.inbox_count_label)
+        row.addStretch(1)
+        # Connect last — the first addItem in a fresh combo emits
+        # currentIndexChanged while later controls are still being built.
+        self.inbox_search_edit.textChanged.connect(self._refilter)
+        self.inbox_state_combo.currentIndexChanged.connect(self._refilter)
+        self.inbox_sort_combo.currentIndexChanged.connect(self._refilter)
+        self.inbox_group_combo.currentIndexChanged.connect(self._refilter)
+        return row
+
+    def _refilter(self, *_args: object) -> None:
+        """Re-present the cached snapshot — never re-reads the store."""
+        self._rebuild_delivery_rows()
+
+    def _rebuild_delivery_rows(self) -> None:
+        selected = self._selected_row_data()
+        state_filter = self.inbox_state_combo.currentData() or "review"
+        sort_key = self.inbox_sort_combo.currentData() or "arrival_asc"
+        group_key = self.inbox_group_combo.currentData() or "none"
+        query = self.inbox_search_edit.text().strip().lower()
+        counts = {queue: 0 for queue in _INBOX_QUEUE_LABELS}
+        visible = []
+        for item in self._items:
+            queue = _inbox_queue_state(item)
+            counts[queue] = counts.get(queue, 0) + 1
+            if state_filter == "review":
+                if queue not in _INBOX_ACTIONABLE_QUEUES:
+                    continue
+            elif state_filter != "all" and queue != state_filter:
+                continue
+            if query and query not in _inbox_search_text(item):
+                continue
+            visible.append(item)
+        visible.sort(
+            key=lambda item: _inbox_sort_key(item, sort_key),
+            reverse=sort_key == "arrival_desc",
+        )
+        if group_key != "none":
+            # Stable re-sort by group keeps the chosen order inside each
+            # group — group headers only ever precede their own members.
+            visible.sort(
+                key=lambda item: _inbox_group_sort(item, group_key)
+            )
+        self._populate_delivery_table(visible, group_key)
+        self._sync_inbox_counts(counts, len(visible))
+        actionable_rows = any(
+            entry is not None
+            and _inbox_queue_state(entry) in _INBOX_ACTIONABLE_QUEUES
+            for entry in self._displayed_items
+        )
+        self.next_unprocessed_button.setEnabled(actionable_rows)
+        self.detail_button.setEnabled(
+            any(entry is not None for entry in self._displayed_items)
+        )
+        if selected is not None and self._select_delivery_row(selected[0]):
+            return
+        self._sync_detail()
+
+    def _populate_delivery_table(
+        self, items: list, group_key: str
+    ) -> None:
+        self.table.setRowCount(0)
+        self._displayed_items = []
+        group_counts: dict = {}
+        if group_key != "none":
+            for item in items:
+                key = _inbox_group_sort(item, group_key)
+                group_counts[key] = group_counts.get(key, 0) + 1
+        previous_group = None
+        for item in items:
+            if group_key != "none":
+                key = _inbox_group_sort(item, group_key)
+                if key != previous_group:
+                    previous_group = key
+                    self._insert_group_row(
+                        item, group_key, group_counts[key]
+                    )
+            row = self.table.rowCount()
+            self.table.insertRow(row)
+            self._displayed_items.append(item)
+            for column, value in enumerate(
+                (
+                    _inbox_scope_label(item.scope),
+                    item.capture_series_id,
+                    _classification_label(item.primary_classification),
+                    _inbox_state_cell(item),
+                    str(item.arrival_count),
+                )
+            ):
+                cell = QTableWidgetItem(str(value))
+                if column == 0:
+                    cell.setData(Qt.ItemDataRole.UserRole, item.inbox_item_id)
+                    cell.setData(_INBOX_LINEAGE_ROLE, item.lineage_digest)
+                self.table.setItem(row, column, cell)
+
+    def _insert_group_row(
+        self, item, group_key: str, count: int
+    ) -> None:
+        """Non-selectable group header — spans the row, carries no item
+        identity so selection/next-unprocessed can never land on it."""
+        row = self.table.rowCount()
+        self.table.insertRow(row)
+        self._displayed_items.append(None)
+        cell = QTableWidgetItem(
+            f"{_inbox_group_title(item, group_key)}（{count} 件）"
+        )
+        cell.setFlags(Qt.ItemFlag.ItemIsEnabled)
+        font = cell.font()
+        font.setBold(True)
+        cell.setFont(font)
+        self.table.setItem(row, 0, cell)
+        self.table.setSpan(row, 0, 1, self.table.columnCount())
+
+    def _sync_inbox_counts(self, counts: dict, shown: int) -> None:
+        actionable = sum(
+            counts.get(queue, 0) for queue in _INBOX_ACTIONABLE_QUEUES
+        )
+        self.inbox_count_label.setText(
+            f"要レビュー {actionable} 件 / 表示 {shown} / "
+            f"全 {len(self._items)} 件"
+        )
+        # Live per-queue counts on the combo — mass arrivals stay legible
+        # without flipping the filter to count each state.
+        for index in range(self.inbox_state_combo.count()):
+            key = self.inbox_state_combo.itemData(index)
+            base = self._state_base_labels.get(key, "")
+            if key == "review":
+                total = actionable
+            elif key == "all":
+                total = len(self._items)
+            else:
+                total = counts.get(key, 0)
+            self.inbox_state_combo.setItemText(index, f"{base}（{total}）")
+
+    def _select_delivery_row(self, inbox_item_id: str) -> bool:
+        """Select the row whose col-0 cell carries this exact item id."""
+        for row in range(self.table.rowCount()):
+            cell = self.table.item(row, 0)
+            if (
+                cell is not None
+                and cell.data(Qt.ItemDataRole.UserRole) == inbox_item_id
+            ):
+                self.table.selectRow(row)
+                self.table.scrollToItem(cell)
+                return True
+        return False
+
+    def reveal_all_items(self) -> None:
+        """Drop queue filter + search so deep links reach hidden rows.
+
+        The default 要レビュー queue hides deferred/rejected/processed
+        items — a focus target must still be able to land on them.
+        """
+        self.inbox_search_edit.clear()
+        all_index = self.inbox_state_combo.findData("all")
+        if all_index >= 0:
+            self.inbox_state_combo.setCurrentIndex(all_index)
+        self._refilter()
+
+    def _show_next_unprocessed(self) -> None:
+        """Advance selection to the next actionable row (wraps)."""
+        selected = self._selected_row_data()
+        start = -1
+        if selected is not None:
+            for row, entry in enumerate(self._displayed_items):
+                if (
+                    entry is not None
+                    and entry.inbox_item_id == selected[0]
+                ):
+                    start = row
+                    break
+        rows = len(self._displayed_items)
+        for offset in range(1, rows + 1):
+            index = (start + offset) % rows
+            entry = self._displayed_items[index]
+            if entry is None:
+                continue
+            if _inbox_queue_state(entry) in _INBOX_ACTIONABLE_QUEUES:
+                self.table.selectRow(index)
+                cell = self.table.item(index, 0)
+                if cell is not None:
+                    self.table.scrollToItem(cell)
+                return
+        self.detail.setText("未処理の項目はありません。")
+
+    def _confirm_detail(self) -> None:
+        """詳細を確認 — focus the detail pane, selecting the next
+        unprocessed row first when nothing is selected."""
+        if self._selected_digest() is None:
+            self._show_next_unprocessed()
+            if self._selected_digest() is None:
+                return
+        else:
+            self._sync_detail()
+        self.detail.setFocus()
+
+    def _applicable_ops(self, inspection) -> tuple:
+        """Action labels currently valid for the inspected item — the
+        display mirror of ``_sync_actions``' enable rules."""
+        disposition = inspection.item.disposition
+        ops = []
+        if self._defer_item is not None and disposition == "pending":
+            ops.append("延期")
+        if self._reject_item is not None and disposition in (
+            "pending",
+            "deferred",
+        ):
+            ops.append("却下")
+        if self._resume_item is not None and disposition in (
+            "deferred",
+            "rejected",
+        ):
+            ops.append("再開")
+        if self._promote_item is not None and self._promotable(inspection):
+            ops.append("昇格")
+        if self._assign_scope is not None and disposition in (
+            "pending",
+            "deferred",
+        ):
+            ops.append("プロジェクト割当")
+        return tuple(ops)
+
+    def _blocked_reason(self, inspection) -> str:
+        """Why the item cannot promote right now, or what it is missing."""
+        item = inspection.item
+        reasons = []
+        if item.bundle_validation != "validated":
+            reasons.append(
+                "バンドル検証未通過"
+                + (
+                    f"（{item.validation_detail}）"
+                    if item.validation_detail
+                    else ""
+                )
+            )
+        if item.primary_classification == "identity_digest_conflict":
+            reasons.append("同一性ダイジェストの競合が未解決")
+        if item.dependency_state == "unresolved":
+            reasons.append(
+                "依存関係が未解決"
+                + (
+                    f"（{item.dependency_detail}）"
+                    if item.dependency_detail
+                    else ""
+                )
+            )
+        if item.alignment_state == "blocked":
+            reasons.append(
+                "整列がブロック"
+                + (
+                    f"（{item.alignment_detail}）"
+                    if item.alignment_detail
+                    else ""
+                )
+            )
+        if item.evidence_conflict_state == "open":
+            reasons.append(
+                "証拠競合が未解決"
+                + (
+                    f"（{item.evidence_conflict_detail}）"
+                    if item.evidence_conflict_detail
+                    else ""
+                )
+            )
+        if not reasons and not capture_inbox_item_project_id(item):
+            reasons.append(
+                "プロジェクト未割当 — 割り当てると昇格を検討できます"
+            )
+        if (
+            inspection.promotability == "blocked"
+            and inspection.blocked_authority_kinds
+        ):
+            kinds = "・".join(
+                _INBOX_AUTHORITY_KIND_LABELS.get(kind, kind)
+                for kind in inspection.blocked_authority_kinds
+            )
+            reasons.append(f"昇格できない権威: {kinds}")
+        return " / ".join(reasons)
+
+    def _next_action_hint(self, inspection) -> str:
+        queue = _inbox_queue_state(inspection.item)
+        promotability = inspection.promotability
+        if queue in ("promotable", "pending"):
+            if promotability == "blocked":
+                return (
+                    "ブロック理由を解消してから再評価します"
+                    "（延期もできます）。"
+                )
+            if promotability == "complete":
+                return "昇格は完了しています。"
+            if queue == "promotable":
+                return "「昇格…」で注釈・測定をプロジェクトへ反映できます。"
+            return (
+                "「プロジェクト割当」で割り当てると昇格を検討できます"
+                "（延期・却下も可）。"
+            )
+        if queue == "blocked":
+            return (
+                "ブロック理由を解消してから再評価します（延期もできます）。"
+            )
+        if queue == "deferred":
+            return "「再開」で検討対象に戻します。"
+        if queue == "rejected":
+            return "却下済みです（「再開」で保留に戻せます）。"
+        return "処理済みです — 追加の操作は不要です。"
+
+    def _open_measurement_import(self) -> None:
+        self._on_navigate(
+            WorkspaceDeepLink(WorkspaceId.MEASUREMENT, "import")
+        )
+
+    def _open_field_return_tab(self) -> None:
+        """Field-return deep link — the surface lives in this page's
+        フィールドリターン tab, so the honest route is switching to it."""
+        if self._contributions_tab is not None:
+            self._tabs.setCurrentWidget(self._contributions_tab)
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self._sync_action_layout()
+
+    def _actions_required_width(self) -> int:
+        """Width the action row needs to show every control unclipped.
+
+        Computed from child size hints so it stays correct whether the
+        row is currently folded or not (hidden widgets keep their hints);
+        the stretch-factor scope combo contributes only its minimum —
+        folding guards the fixed controls, not its slack.
+        """
+        total = 0
+        visible = 0
+        for index in range(self._actions_layout.count()):
+            item = self._actions_layout.itemAt(index)
+            widget = item.widget()
+            if widget is self.actions_overflow:
+                continue  # replaces the secondary set, never coexists
+            if widget is self.scope_combo:
+                total += widget.minimumSizeHint().width()
+                visible += 1
+            elif widget is not None:
+                total += widget.sizeHint().width()
+                visible += 1
+            else:
+                total += item.sizeHint().width()
+        if visible > 1:
+            total += self._actions_layout.spacing() * (visible - 1)
+        return total
+
+    def _sync_action_layout(self) -> None:
+        """Fold secondary actions into 操作 ▾ when the row cannot fit.
+
+        Trigger = required row width vs the width the page can give it —
+        a fixed pixel threshold can sit below the page's own minimum and
+        never fire. High-DPI screens shrink logical width, which is
+        exactly the crowded case. The primary triage ops
+        (次の未処理/詳細) never collapse.
+        """
+        chrome = 0
+        layout = self.layout()
+        if layout is not None:
+            margins = layout.contentsMargins()
+            chrome = margins.left() + margins.right()
+        available = self.width() - chrome
+        required = self._actions_required_width()
+        if self._collapsed_actions is True:
+            # Small hysteresis so a borderline resize doesn't flap open.
+            collapse = required > available - 24
+        else:
+            collapse = required > available
+        if self._collapsed_actions == collapse:
+            return
+        self._collapsed_actions = collapse
+        for widget in self._secondary_widgets:
+            widget.setVisible(not collapse)
+        self.actions_overflow.setVisible(collapse)
 
     def _selected_row_data(self) -> tuple[str, str] | None:
         items = self.table.selectedItems()
@@ -1617,7 +2530,10 @@ class CaptureInboxPage(QWidget):
         if digest is None:
             if self.table.rowCount() == 0:
                 self.detail.setText(
-                    "取り込み待ちの配送はありません。"
+                    "条件に一致する項目はありません。"
+                    "検索や状態フィルタを見直してください。"
+                    if self._items
+                    else "取り込み待ちの配送はありません。"
                     "配送が到着するとここに表示されます。"
                 )
             else:
@@ -1712,6 +2628,16 @@ class CaptureInboxPage(QWidget):
             )
         if item.operator_notes:
             lines.append(f"メモ: {item.operator_notes}")
+        # #988 detail triage: what can be done now, what is missing or
+        # blocking, and the suggested next step — the operator never
+        # re-derives it from raw facets during a mass-triage pass.
+        ops = self._applicable_ops(inspection)
+        if ops:
+            lines.append("適用可能な操作: " + "・".join(ops))
+        blocked = self._blocked_reason(inspection)
+        if blocked:
+            lines.append(f"不足・ブロック理由: {blocked}")
+        lines.append(f"次のアクション: {self._next_action_hint(inspection)}")
         self.detail.setText("\n".join(lines))
         self._populate_scope_combo(item.scope)
 
@@ -1759,6 +2685,18 @@ class CaptureInboxPage(QWidget):
             self._assign_scope is not None
             and disposition in ("pending", "deferred")
         )
+        # The collapsed overflow menu mirrors the buttons' enable state —
+        # a folded action must be exactly as reachable as the button was.
+        for key, button in (
+            ("defer", self.defer_button),
+            ("reject", self.reject_button),
+            ("resume", self.resume_button),
+            ("promote", self.promote_button),
+            ("assign", self.scope_button),
+        ):
+            action = self._menu_actions.get(key)
+            if action is not None:
+                action.setEnabled(button.isEnabled())
 
     @staticmethod
     def _promotable(inspection) -> bool:
@@ -1787,7 +2725,7 @@ class CaptureInboxPage(QWidget):
             return
         try:
             self._promote_item(digest, reason.strip())
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: promotion — expected failures surface verbatim; unexpected errors propagate to diagnostics
             warn_user(self, "昇格できませんでした", exc)
             return
         self._refresh_keep_selection()
@@ -1814,7 +2752,7 @@ class CaptureInboxPage(QWidget):
             reason = reason.strip()
         try:
             handler(digest, reason) if reason else handler(digest)
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: contribution disposition — expected failures surface verbatim; unexpected errors propagate to diagnostics
             warn_user(self, "取り込みできませんでした", exc)
             return
         self._refresh_keep_selection()
@@ -1826,7 +2764,7 @@ class CaptureInboxPage(QWidget):
             return
         try:
             self._assign_scope(digest, str(scope))
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: scope assignment — expected failures surface verbatim; unexpected errors propagate to diagnostics
             warn_user(self, "プロジェクト領域を割り当てできませんでした", exc)
             return
         self._refresh_keep_selection()
@@ -1836,39 +2774,16 @@ class CaptureInboxPage(QWidget):
         self.refresh()
         if selected is None:
             return
-        for row in range(self.table.rowCount()):
-            cell = self.table.item(row, 0)
-            if (
-                cell is not None
-                and cell.data(Qt.ItemDataRole.UserRole) == selected[0]
-            ):
-                self.table.selectRow(row)
-                break
-        self._sync_detail()
+        if self._select_delivery_row(selected[0]):
+            return
+        # The acted item left the visible queue (e.g. deferred under the
+        # 要レビュー filter) — advance to the next unprocessed row so a
+        # mass-triage pass never loses its place or lands on a wrong item.
+        self._show_next_unprocessed()
 
     def refresh(self) -> None:
-        items = self._list_items()
-        self.table.setRowCount(0)
-        for item in items:
-            row = self.table.rowCount()
-            self.table.insertRow(row)
-            for column, value in enumerate(
-                (
-                    _inbox_scope_label(item.scope),
-                    item.capture_series_id,
-                    _classification_label(item.primary_classification),
-                    _INBOX_DISPOSITION_LABELS.get(
-                        item.disposition, item.disposition
-                    ),
-                    str(item.arrival_count),
-                )
-            ):
-                cell = QTableWidgetItem(str(value))
-                if column == 0:
-                    cell.setData(Qt.ItemDataRole.UserRole, item.inbox_item_id)
-                    cell.setData(_INBOX_LINEAGE_ROLE, item.lineage_digest)
-                self.table.setItem(row, column, cell)
-        self._sync_detail()
+        self._items = tuple(self._list_items())
+        self._rebuild_delivery_rows()
         self._refresh_contributions()
         self._refresh_missions()
         self._refresh_watch_failures()
@@ -2129,11 +3044,11 @@ class CaptureInboxPage(QWidget):
         box.setStandardButtons(
             QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel
         )
-        if box.exec() != QMessageBox.StandardButton.Ok:
+        if exec_transient(box) != QMessageBox.StandardButton.Ok:
             return
         try:
             self._retry_watch_failure(entry.path)
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: watch-failure retry — expected failures surface verbatim; unexpected errors propagate to diagnostics
             warn_user(self, "安全な再試行に失敗しました", exc)
             return
         self.refresh()
@@ -2167,11 +3082,11 @@ class CaptureInboxPage(QWidget):
         box.setStandardButtons(
             QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel
         )
-        if box.exec() != QMessageBox.StandardButton.Ok:
+        if exec_transient(box) != QMessageBox.StandardButton.Ok:
             return
         try:
             self._import_watch_failure(entry.path)
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: explicit watch-failure import — expected failures surface verbatim; unexpected errors propagate to diagnostics
             warn_user(self, "取り込みに失敗しました", exc)
             return
         self.refresh()
@@ -2182,7 +3097,7 @@ class CaptureInboxPage(QWidget):
             return
         try:
             self._diagnose_watch_failure(entry.path)
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: support diagnostics — expected failures surface verbatim; unexpected errors propagate to diagnostics
             warn_user(self, "サポート診断に失敗しました", exc)
             return
         self.refresh()
@@ -2534,7 +3449,7 @@ class CaptureInboxPage(QWidget):
                 reason.strip(),
                 decided_by.strip(),
             )
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: rebase decision record — expected failures surface verbatim; unexpected errors propagate to diagnostics
             warn_user(self, "再基準決定を記録できませんでした", exc)
             return
         self._sync_contribution_detail()
@@ -2554,7 +3469,7 @@ class CaptureInboxPage(QWidget):
             outcome = self._apply_record(
                 self._selected_contribution, applied_by.strip()
             )
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: returned-task apply — expected failures surface verbatim; unexpected errors propagate to diagnostics
             warn_user(self, "適用できませんでした", exc)
             return
         applied_count = len(getattr(outcome, 'applied', ()))
@@ -2597,11 +3512,11 @@ class CaptureInboxPage(QWidget):
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel
         )
         box.setDefaultButton(QMessageBox.StandardButton.Cancel)
-        if box.exec() != QMessageBox.StandardButton.Yes:
+        if exec_transient(box) != QMessageBox.StandardButton.Yes:
             return
         try:
             self._discard_record(contribution)
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: contribution discard — expected failures surface verbatim; unexpected errors propagate to diagnostics
             warn_user(self, "破棄できませんでした", exc)
             return
         self._refresh_contributions()
@@ -2910,7 +3825,7 @@ class CaptureInboxPage(QWidget):
             package = self._issue_mission(
                 entry, purpose, room_name.strip(), pairing_id
             )
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: mission issue — expected failures surface verbatim; unexpected errors propagate to diagnostics
             warn_user(self, "ミッションを発行できませんでした", exc)
             return
         QMessageBox.information(
@@ -2939,7 +3854,7 @@ class CaptureInboxPage(QWidget):
             written = self._export_mission(
                 package.package_id, destination
             )
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: mission export — expected failures surface verbatim; unexpected errors propagate to diagnostics
             warn_user(self, "エクスポートできませんでした", exc)
             return
         QMessageBox.information(
@@ -3011,16 +3926,146 @@ _EVENT_KIND_GROUPS: tuple[tuple[str, frozenset | None], ...] = (
 )
 
 #: Timeline date-range filter options: (label, days-back-or-None).
-#: ``0`` means today (UTC); ``None`` disables the range filter.
-_EVENT_RANGE_OPTIONS: tuple[tuple[str, int | None], ...] = (
+#: ``0`` means today (UTC); ``None`` disables the range filter;
+#: :data:`_CUSTOM_RANGE` reveals the arbitrary start/end date inputs
+#: (#1017).
+_EVENT_RANGE_OPTIONS: tuple[tuple[str, int | str | None], ...] = (
     ("すべての期間", None),
     ("今日", 0),
     ("過去7日間", 7),
     ("過去30日間", 30),
+    ("期間を指定", "custom"),
 )
+
+#: Sentinel selecting the operator-entered start/end bounds (#1017).
+_CUSTOM_RANGE = "custom"
+
+#: Unique object marking "no cached projection" — distinct from any real
+#: document_id including ``None`` (the global scope).
+_CACHE_MISS = object()
 
 _EVENT_PAGE_SIZE = 50
 _REVISION_PAGE_SIZE = 50
+
+#: Per-kind JA labels for the timeline inspector (#1017) — finer than the
+#: filter groups: the inspector names the exact kind, the filter groups
+#: them.
+_EVENT_KIND_LABELS: dict[str, str] = {
+    'project_created': 'プロジェクト作成',
+    'project_note': 'メモ',
+    'scene_revision_saved': '部屋リビジョン保存',
+    'scene_revision_labeled': 'リビジョンラベル',
+    'system_variant_proposed': 'バリアント提案',
+    'system_variant_applied': 'バリアント適用',
+    'system_variant_as_built': 'バリアント設置済み記録',
+    'system_variant_measured': 'バリアント計測',
+    'capture_staged': 'キャプチャ受信',
+    'capture_promoted': 'キャプチャ昇格',
+    'capture_superseded': 'キャプチャ置き換え',
+    'capture_deferred': 'キャプチャ保留',
+    'capture_rejected': 'キャプチャ却下',
+    'measurement_imported': '測定インポート',
+    'calibration_plan_created': '校正プラン作成',
+    'calibration_exported': '校正設定出力',
+    'calibration_applied': '校正適用記録',
+    'calibration_remeasured': '校正再測定',
+    'calibration_validated': '校正検証',
+    'design_checkpoint_created': 'チェックポイント作成',
+    'design_checkpoint_restored': 'チェックポイント復元',
+    'operating_preset_created': 'プリセット作成',
+    'operating_preset_applied': 'プリセット適用記録',
+    'health_baseline_created': '健全性ベースライン',
+    'health_check_completed': '健全性チェック',
+    'av_sync_recorded': 'AV同期記録',
+    'other_authority': 'その他の権威記録',
+}
+
+#: Evidence typing of a timeline event (#1017): ``'evidence'`` is a row
+#: projected from surviving canonical authority; ``'assumption'`` is an
+#: operator-attested record (recorded as applied/as-built by a person,
+#: not measured); ``'historical'`` is a non-current row — detached or
+#: inherited; ``'failed'`` is a terminal rejection; ``'note'`` is a user
+#: メモ, which is documentation and is never presented as canonical
+#: evidence.
+ActivityEvidenceClass = Literal[
+    'evidence', 'assumption', 'historical', 'failed', 'note'
+]
+
+_EVENT_EVIDENCE_CLASS: dict[str, ActivityEvidenceClass] = {
+    'project_created': 'evidence',
+    'project_note': 'note',
+    'scene_revision_saved': 'evidence',
+    'scene_revision_labeled': 'evidence',
+    'system_variant_proposed': 'evidence',
+    'system_variant_applied': 'evidence',
+    # Operator-confirmed placement — a person attested the variant is
+    # installed; no device or measurement verified it.
+    'system_variant_as_built': 'assumption',
+    'system_variant_measured': 'evidence',
+    'capture_staged': 'evidence',
+    'capture_promoted': 'evidence',
+    'capture_superseded': 'historical',
+    'capture_deferred': 'evidence',
+    'capture_rejected': 'failed',
+    'measurement_imported': 'evidence',
+    'calibration_plan_created': 'evidence',
+    'calibration_exported': 'evidence',
+    # 'user_applied' lifecycle state — operator assertion, not a verified
+    # device state.
+    'calibration_applied': 'assumption',
+    'calibration_remeasured': 'evidence',
+    'calibration_validated': 'evidence',
+    'design_checkpoint_created': 'evidence',
+    'design_checkpoint_restored': 'evidence',
+    'operating_preset_created': 'evidence',
+    # 「実機へ適用と記録」 — recorded by operator assertion.
+    'operating_preset_applied': 'assumption',
+    'health_baseline_created': 'evidence',
+    'health_check_completed': 'evidence',
+    'av_sync_recorded': 'evidence',
+    'other_authority': 'evidence',
+}
+
+_EVIDENCE_CLASS_LABELS: dict[ActivityEvidenceClass, str] = {
+    'evidence': '証跡',
+    'assumption': '申告記録',
+    'historical': '履歴（非現行）',
+    'failed': '失敗・却下',
+    'note': 'メモ',
+}
+
+#: One-line honest gloss under the class label — メモ is explicitly
+#: marked as documentation, never canonical evidence (#1017).
+_EVIDENCE_CLASS_NOTES: dict[ActivityEvidenceClass, str] = {
+    'evidence': '正準権威から投影された記録です。',
+    'assumption': '操作者が記録した申告です。実測値としては扱いません。',
+    'historical': '現在の状態を表さない過去・継承の記録です。',
+    'failed': '失敗・却下として記録された出来事です。',
+    'note': 'メモはドキュメントであり、正準の証拠としては扱いません。',
+}
+
+
+def event_evidence_class(event: object) -> ActivityEvidenceClass:
+    """Evidence typing of one timeline event (#1017) — read-only.
+
+    ``inherited`` rows and detached scene revisions are ``'historical'``
+    regardless of kind: they describe a state that is not the current
+    project. Everything else follows the closed kind map; an unknown
+    kind falls back to ``'evidence'`` only when the row is a normal
+    projected authority event.
+    """
+
+    if getattr(event, 'inherited', False):
+        return 'historical'
+    kind = getattr(event, 'kind', 'other_authority')
+    # ``_scene_events`` marks detached (non-head) revisions via their
+    # detail text — that is the only existing detached marker on the
+    # projected event.
+    if kind == 'scene_revision_saved' and (
+        getattr(event, 'detail', None) == '非ヘッド履歴'
+    ):
+        return 'historical'
+    return _EVENT_EVIDENCE_CLASS.get(kind, 'evidence')
 
 
 def _event_timestamp(value: str) -> str:
@@ -3046,24 +4091,36 @@ class ActivityPage(QWidget):
       into this-project rows (``project_ref`` match) and a separate
       app-global/other-project section,
     * ``timeline`` — the canonical ``CadProjectActivityService`` projection
-      (kind/date-range/search filters + paging, newest first); a row's nav
-      URI deep link opens on double-click,
-    * ``revisions`` — the persisted scene-revision ledger, scoped in SQL by
-      ``document_id`` with explicit paging so no fixed cap can hide the
-      current project's past (#1023).
+      (kind/date-range/search filters, newest first). The latest 50 rows
+      are the initial view and さらに読み込む walks deeper history via a
+      ``(occurred_at_utc, event_id)`` cursor; selecting a row fills a
+      read-only detail inspector typed by evidence class (#1017), and a
+      row's nav URI deep link opens on double-click,
+    * ``revisions`` — the persisted scene-revision ledger, scoped in SQL
+      by ``document_id`` with keyset (cursor) paging so no fixed cap can
+      hide the current project's past (#1023, #1017).
 
-    ``list_revisions`` / ``count_revisions`` / ``list_events`` all take the
-    effective document id — ``None`` requests the explicit global merge.
+    ``list_revisions`` / ``count_revisions`` / ``list_events`` all take
+    the effective document id — ``None`` requests the explicit global
+    merge. ``list_revisions`` is the cursor reader:
+    ``(document_id, limit, after) -> (rows, next_cursor)`` where
+    ``after`` is the opaque cursor returned by the previous call (``None``
+    for the newest page) and ``next_cursor`` is ``None`` once history is
+    exhausted (#1017).
     """
 
     def __init__(
         self,
-        list_revisions: Callable[[str | None, int, int], tuple],
+        list_revisions: Callable[
+            [str | None, int, str | None], tuple[tuple, str | None]
+        ],
         *,
         count_revisions: Callable[[str | None], int] | None = None,
         list_operations: Callable[[], tuple] | None = None,
         list_events: Callable[[str | None], tuple] | None = None,
         open_link: Callable[[str], bool] | None = None,
+        cancel_operation: Callable[[str], bool] | None = None,
+        retry_operation: Callable[[str], bool] | None = None,
         document_id: str | None = None,
         project_refs: Iterable[str] = (),
         document_label: Callable[[str], str] | None = None,
@@ -3075,6 +4132,11 @@ class ActivityPage(QWidget):
         self._list_operations = list_operations
         self._list_events = list_events
         self._open_link = open_link
+        self._cancel_operation = cancel_operation
+        self._retry_operation = retry_operation
+        # Live snapshot lookup for row activation/action wiring (#974) —
+        # refreshed alongside the operations tables.
+        self._operations_by_id: dict[str, object] = {}
         self._document_id = document_id
         self._document_label = document_label
         # An operation's ``project_ref`` is a free-form ref: match against
@@ -3086,10 +4148,28 @@ class ActivityPage(QWidget):
             for ref in (document_id, *project_refs)
             if ref
         }
-        self._events_page = 0
-        self._revisions_page = 0
+        # Load-more/cursor state (#1017): ``_events_shown`` is the visible
+        # window length over the filtered list and ``_events_cursor`` the
+        # (occurred_at_utc, event_id) key of its last row — the continue
+        # point even if new events arrive above it. ``_revisions_after``
+        # is the opaque SQL keyset cursor; ``_revisions_shown`` the window.
+        self._events_shown = _EVENT_PAGE_SIZE
+        self._events_cursor: tuple[str, str] | None = None
+        self._revisions_shown = _REVISION_PAGE_SIZE
+        self._revisions_after: str | None = None
+        # Per-refresh projection cache (#1017): filter/search/paging re-use
+        # one rebuild; only an external refresh() re-derives the timeline.
+        self._events_cache: tuple | None = None
+        self._events_cache_doc: str | None | object = _CACHE_MISS
+        self._displayed_events: list = []
+        # The page hosts three stacked sections (operations, timeline,
+        # revisions) whose natural height exceeds a 768px screen. Build
+        # the body inside a scroll area so the mount's minimumSizeHint
+        # stays small instead of inflating the whole shell (QStackedWidget
+        # takes the max over children).
+        body = QWidget(self)
         layout = _page_layout(
-            self,
+            body,
             "アクティビティ",
             "実行中の操作・プロジェクトの記録（最新順）です。"
             "タイムラインの行をダブルクリックすると、"
@@ -3167,8 +4247,39 @@ class ActivityPage(QWidget):
                 self._on_event_filter_changed
             )
             filter_row.addWidget(self.range_combo)
+            # Arbitrary start/end bounds (#1017): inclusive UTC calendar
+            # days. Only enabled while 期間を指定 is selected.
+            self.range_start_edit = QDateEdit()
+            self.range_start_edit.setCalendarPopup(True)
+            self.range_start_edit.setDisplayFormat("yyyy/MM/dd")
+            self.range_start_edit.setDate(
+                QDate.currentDate().addDays(-30)
+            )
+            self.range_start_edit.setToolTip(
+                "期間の開始日です（この日を含みます）。"
+            )
+            self.range_start_edit.setAccessibleName("期間の開始日")
+            self.range_start_edit.dateChanged.connect(
+                self._on_event_filter_changed
+            )
+            filter_row.addWidget(self.range_start_edit)
+            filter_row.addWidget(QLabel("〜"))
+            self.range_end_edit = QDateEdit()
+            self.range_end_edit.setCalendarPopup(True)
+            self.range_end_edit.setDisplayFormat("yyyy/MM/dd")
+            self.range_end_edit.setDate(QDate.currentDate())
+            self.range_end_edit.setToolTip(
+                "期間の終了日です（この日を含みます）。"
+            )
+            self.range_end_edit.setAccessibleName("期間の終了日")
+            self.range_end_edit.dateChanged.connect(
+                self._on_event_filter_changed
+            )
+            filter_row.addWidget(self.range_end_edit)
+            self._sync_range_edit_visibility()
             self.search_edit = QLineEdit()
             self.search_edit.setPlaceholderText("タイムラインを検索")
+            self.search_edit.setAccessibleName("タイムラインを検索")
             self.search_edit.setClearButtonEnabled(True)
             self.search_edit.setToolTip(
                 "内容・詳細・プロジェクト名で絞り込みます。"
@@ -3201,20 +4312,30 @@ class ActivityPage(QWidget):
             self.events_table.setEditTriggers(
                 QTableWidget.EditTrigger.NoEditTriggers
             )
+            self.events_table.setSelectionBehavior(
+                QTableWidget.SelectionBehavior.SelectRows
+            )
             self.events_table.itemActivated.connect(self._activate_event)
             self.events_table.itemDoubleClicked.connect(self._activate_event)
-            layout.addWidget(self.events_table, 1)
-            self.events_pager = self._pager(
-                self._events_prev_page, self._events_next_page
+            self.events_table.itemSelectionChanged.connect(
+                self._on_event_selection_changed
             )
+            self.events_table.setAccessibleName("タイムライン一覧")
+            layout.addWidget(self.events_table, 1)
+            self.events_pager = self._more_pager(self._events_load_more)
             layout.addLayout(self.events_pager[0])
+            self.event_inspector = self._build_event_inspector()
+            layout.addWidget(self.event_inspector)
         else:
             self.timeline_heading = None
             self.events_table = None
             self.kind_combo = None
             self.range_combo = None
+            self.range_start_edit = None
+            self.range_end_edit = None
             self.search_edit = None
             self.events_pager = None
+            self.event_inspector = None
 
         # -- revisions --------------------------------------------------------
         self.revisions_heading = QLabel()
@@ -3236,11 +4357,15 @@ class ActivityPage(QWidget):
             0, QHeaderView.ResizeMode.Stretch
         )
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.table.setSelectionBehavior(
+            QTableWidget.SelectionBehavior.SelectRows
+        )
         self.table.itemActivated.connect(self._activate_revision)
         self.table.itemDoubleClicked.connect(self._activate_revision)
+        self.table.setAccessibleName("リビジョン履歴一覧")
         layout.addWidget(self.table, 1)
-        self.revisions_pager = self._pager(
-            self._revisions_prev_page, self._revisions_next_page
+        self.revisions_pager = self._more_pager(
+            self._revisions_load_more
         )
         layout.addLayout(self.revisions_pager[0])
         self.empty_label = QLabel(
@@ -3250,6 +4375,15 @@ class ActivityPage(QWidget):
         self.empty_label.setWordWrap(True)
         self.empty_label.setVisible(False)
         layout.addWidget(self.empty_label)
+        scroll = QScrollArea(self)
+        scroll.setObjectName("activityScroll")
+        scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        scroll.setWidgetResizable(True)
+        scroll.setAccessibleName("アクティビティ一覧")
+        scroll.setWidget(body)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.addWidget(scroll)
         self._sync_scope_headings()
         self.refresh()
 
@@ -3303,8 +4437,12 @@ class ActivityPage(QWidget):
             self.events_table.setColumnHidden(1, self._scope() == "project")
 
     def _on_scope_changed(self, _index: int) -> None:
-        self._events_page = 0
-        self._revisions_page = 0
+        self._events_shown = _EVENT_PAGE_SIZE
+        self._events_cursor = None
+        self._revisions_shown = _REVISION_PAGE_SIZE
+        self._revisions_after = None
+        self._events_cache = None
+        self._events_cache_doc = _CACHE_MISS
         self._sync_scope_headings()
         self.refresh()
 
@@ -3320,76 +4458,153 @@ class ActivityPage(QWidget):
         self._restore_selection(keys)
 
     def _on_event_filter_changed(self, *_args: object) -> None:
-        self._events_page = 0
+        self._sync_range_edit_visibility()
+        self._events_shown = _EVENT_PAGE_SIZE
+        self._events_cursor = None
         self._preserve_selection(self._refresh_events)
 
-    # -- paging -----------------------------------------------------------------
+    def _sync_range_edit_visibility(self) -> None:
+        """The arbitrary bounds only edit while 期間を指定 is selected."""
 
-    def _pager(
-        self, on_prev: Callable[[], None], on_next: Callable[[], None]
-    ) -> tuple[QHBoxLayout, QPushButton, QPushButton, QLabel]:
+        if self.range_combo is None:
+            return
+        custom = self.range_combo.currentData() == _CUSTOM_RANGE
+        for edit in (self.range_start_edit, self.range_end_edit):
+            if edit is not None:
+                edit.setEnabled(custom)
+
+    # -- load-more paging (cursor / さらに読み込む, #1017) -----------------------
+
+    def _more_pager(
+        self, on_more: Callable[[], None]
+    ) -> tuple[QHBoxLayout, QPushButton, QLabel]:
+        """(row, load-more button, count label) — append-mode paging.
+
+        The latest page is the initial view; さらに読み込む extends the
+        window into deeper history instead of replacing it.
+        """
+
         row = QHBoxLayout()
-        prev_button = QPushButton("前へ")
-        prev_button.setToolTip("前のページへ移動します。")
-        prev_button.clicked.connect(on_prev)
-        next_button = QPushButton("次へ")
-        next_button.setToolTip("次のページへ移動します。")
-        next_button.clicked.connect(on_next)
+        more_button = QPushButton("さらに読み込む")
+        more_button.setToolTip(
+            "古い記録を50件ずつ追加で表示します。"
+        )
+        more_button.clicked.connect(on_more)
         count_label = QLabel()
         set_typography_role(count_label, TypographyRole.SECONDARY)
-        row.addWidget(prev_button)
-        row.addWidget(next_button)
+        row.addWidget(more_button)
         row.addStretch(1)
         row.addWidget(count_label)
-        return row, prev_button, next_button, count_label
+        return row, more_button, count_label
 
-    def _events_prev_page(self) -> None:
-        if self._events_page > 0:
-            self._events_page -= 1
-            self._preserve_selection(self._refresh_events)
-
-    def _events_next_page(self) -> None:
-        self._events_page += 1
-        self._preserve_selection(self._refresh_events)
-
-    def _revisions_prev_page(self) -> None:
-        if self._revisions_page > 0:
-            self._revisions_page -= 1
-            self._preserve_selection(self._refresh_revisions)
-
-    def _revisions_next_page(self) -> None:
-        self._revisions_page += 1
-        self._preserve_selection(self._refresh_revisions)
-
-    def _update_pager(
+    def _update_more_pager(
         self,
-        pager: tuple[QHBoxLayout, QPushButton, QPushButton, QLabel],
+        pager: tuple[QHBoxLayout, QPushButton, QLabel],
         *,
         total: int,
-        page: int,
-        page_size: int,
         shown: int,
     ) -> None:
-        _row, prev_button, next_button, count_label = pager
-        first = page * page_size + 1 if shown else 0
-        last = page * page_size + shown
-        count_label.setText(f"全{total}件 · {first}–{last}件を表示")
-        prev_button.setEnabled(page > 0)
-        next_button.setEnabled(last < total)
+        _row, more_button, count_label = pager
+        first = 1 if shown else 0
+        count_label.setText(f"全{total}件 · {first}–{shown}件を表示")
+        more_button.setEnabled(shown < total)
+
+    def _events_load_more(self) -> None:
+        """Extend the timeline window by one page from the key cursor.
+
+        ``_events_cursor`` (occurred_at_utc, event_id of the last shown
+        row) is the continue point: events arriving at the top while the
+        operator browses shift the window's start, never skip or
+        duplicate a row. A vanished cursor row falls back to the current
+        window length (#1017).
+        """
+
+        events = self._filtered_events()
+        if self._events_cursor is not None:
+            position = next(
+                (
+                    index
+                    for index, event in enumerate(events)
+                    if (
+                        event.occurred_at_utc,
+                        event.event_id,
+                    )
+                    == self._events_cursor
+                ),
+                None,
+            )
+            start = position + 1 if position is not None else self._events_shown
+        else:
+            start = self._events_shown
+        self._events_shown = start + _EVENT_PAGE_SIZE
+        self._preserve_selection(self._refresh_events)
+
+    def _revisions_load_more(self) -> None:
+        """Append one SQL keyset page after ``_revisions_after`` (#1017)."""
+
+        if self._revisions_after is None:
+            return
+        document_id = self._scope_document_id()
+        rows, self._revisions_after = self._list_revisions(
+            document_id, _REVISION_PAGE_SIZE, self._revisions_after
+        )
+        self._revisions_shown += len(rows)
+        self._append_revision_rows(rows)
+        total = (
+            self._count_revisions(document_id)
+            if self._count_revisions is not None
+            else self.table.rowCount()
+            + (1 if self._revisions_after is not None else 0)
+        )
+        self._update_more_pager(
+            self.revisions_pager,
+            total=total,
+            shown=self.table.rowCount(),
+        )
+
+    def _append_revision_rows(self, rows: Iterable[tuple]) -> None:
+        for created_at, row_document_id, revision_id in rows:
+            row = self.table.rowCount()
+            self.table.insertRow(row)
+            for column, value in enumerate(
+                (
+                    created_at,
+                    self._document_name(row_document_id),
+                    revision_id,
+                )
+            ):
+                cell = QTableWidgetItem(str(value))
+                if column == 0:
+                    cell.setData(
+                        Qt.ItemDataRole.UserRole,
+                        self._revision_link(row_document_id, revision_id),
+                    )
+                elif column == 1:
+                    cell.setData(
+                        Qt.ItemDataRole.UserRole, row_document_id
+                    )
+                elif column == 2:
+                    cell.setData(Qt.ItemDataRole.UserRole, revision_id)
+                self.table.setItem(row, column, cell)
 
     # -- operations ---------------------------------------------------------------
 
     def _operations_table(self, tooltip: str | None = None) -> QTableWidget:
-        table = QTableWidget(0, 3)
+        table = QTableWidget(0, 5)
         table.setToolTip(
             tooltip
             or "実行中・実行済みの操作（バックアップ・復元など）の一覧です。"
+            "ダブルクリックでその処理を始めた画面へ戻れます。"
         )
-        table.setHorizontalHeaderLabels(("状態", "操作", "更新時刻"))
+        table.setHorizontalHeaderLabels(
+            ("状態", "操作", "進捗", "更新時刻", "対応")
+        )
         for _col, _tip in enumerate((
             "操作の進行状態（実行中・完了・失敗など）",
             "行われた操作の種類（バックアップ・復元・インポートなど）",
+            "実際に報告された進捗（割合・段階・件数のみ）",
             "状態が最後に更新された時刻",
+            "中止・再試行・発生元画面への移動",
         )):
             table.horizontalHeaderItem(_col).setToolTip(_tip)
         table.horizontalHeader().setSectionResizeMode(
@@ -3398,7 +4613,17 @@ class ActivityPage(QWidget):
         table.horizontalHeader().setSectionResizeMode(
             2, QHeaderView.ResizeMode.ResizeToContents
         )
+        table.horizontalHeader().setSectionResizeMode(
+            3, QHeaderView.ResizeMode.ResizeToContents
+        )
+        table.horizontalHeader().setSectionResizeMode(
+            4, QHeaderView.ResizeMode.ResizeToContents
+        )
         table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        table.setSelectionBehavior(
+            QTableWidget.SelectionBehavior.SelectRows
+        )
+        table.itemDoubleClicked.connect(self._activate_operation)
         return table
 
     def _operation_matches_project(self, operation: object) -> bool:
@@ -3422,8 +4647,11 @@ class ActivityPage(QWidget):
             )
             for column, value in enumerate(
                 (
-                    _OPERATION_STATE_LABELS.get(state, str(state)),
+                    operation_state_label(state),
                     f"{operation.title} — {detail}",
+                    operation_progress_text(
+                        getattr(operation, "progress", None)
+                    ),
                     operation.updated_at,
                 )
             ):
@@ -3433,10 +4661,129 @@ class ActivityPage(QWidget):
                         Qt.ItemDataRole.UserRole, operation.operation_id
                     )
                 table.setItem(row, column, cell)
+            self._operations_by_id[operation.operation_id] = operation
+            actions = self._operation_actions(operation)
+            if actions is not None:
+                # An item under the cell widget keeps row-hit-testing and
+                # keyboard activation working on the covered column.
+                table.setItem(row, 4, QTableWidgetItem(""))
+                table.setCellWidget(row, 4, actions)
+
+    def _activate_operation(self, item: QTableWidgetItem) -> None:
+        """Double-click: return to the workspace that launched the op (#974)."""
+
+        table = item.tableWidget()
+        if table is None or self._open_link is None:
+            return
+        cell = table.item(item.row(), 0)
+        if cell is None:
+            return
+        operation = self._operations_by_id.get(
+            cell.data(Qt.ItemDataRole.UserRole)
+        )
+        deep_link = getattr(operation, "deep_link", None)
+        if deep_link is not None:
+            self._open_link(deep_link.as_uri())
+
+    def _operation_actions(self, operation: object) -> QWidget | None:
+        """Per-row affordances: cooperative cancel, policy-respecting retry,
+        and the originating deep link (#974)."""
+
+        buttons: list[QPushButton] = []
+        operation_id = operation.operation_id
+        if (
+            getattr(operation, "can_cancel_now", False)
+            and self._cancel_operation is not None
+        ):
+            cancel = QPushButton("中止")
+            cancel.setAccessibleName(f"{operation.title} を中止")
+            cancel.setToolTip(
+                "実行中の処理へ協調キャンセルを要求します。"
+                "キャンセルされるまで結果は確定しません。"
+            )
+            cancel.clicked.connect(
+                lambda _checked=False, op_id=operation_id:
+                    self._cancel_operation(op_id)
+            )
+            buttons.append(cancel)
+        if not getattr(operation, "is_active", True):
+            policy = getattr(operation, "retry_policy", None)
+            policy_value = getattr(policy, "value", policy)
+            if (
+                policy_value == RetryPolicy.SAFE_NEW_ATTEMPT.value
+                and self._retry_operation is not None
+            ):
+                retry = QPushButton("再試行")
+                retry.setAccessibleName(f"{operation.title} を再試行")
+                retry.setToolTip(
+                    "同じ入力に対する新しい試行として安全に再実行します。"
+                )
+                retry.clicked.connect(
+                    lambda _checked=False, op_id=operation_id:
+                        self._retry_operation(op_id)
+                )
+                buttons.append(retry)
+            elif (
+                policy_value == RetryPolicy.UNSAFE.value
+                and self._retry_operation is not None
+            ):
+                retry = QPushButton("再試行（要確認）")
+                retry.setAccessibleName(
+                    f"{operation.title} を確認のうえ再試行"
+                )
+                retry.setToolTip(
+                    "適用・上書きを伴う再実行です。確認のうえで実行します。"
+                )
+                retry.clicked.connect(
+                    lambda _checked=False, op_id=operation_id:
+                        self._confirm_retry(op_id)
+                )
+                buttons.append(retry)
+        deep_link = getattr(operation, "deep_link", None)
+        if deep_link is not None and self._open_link is not None:
+            open_button = QPushButton("開く")
+            open_button.setAccessibleName(
+                f"{operation.title} の発生元画面を開く"
+            )
+            open_button.setToolTip("この処理を始めた画面へ移動します。")
+            uri = deep_link.as_uri()
+            open_button.clicked.connect(
+                lambda _checked=False, link=uri: self._open_link(link)
+            )
+            buttons.append(open_button)
+        if not buttons:
+            return None
+        box = QWidget()
+        row = QHBoxLayout(box)
+        row.setContentsMargins(2, 0, 2, 0)
+        row.setSpacing(4)
+        for button in buttons:
+            row.addWidget(button)
+        return box
+
+    def _confirm_retry(self, operation_id: str) -> None:
+        """UNSAFE retry policy: explicit re-authorization before re-run (#974)."""
+
+        operation = self._operations_by_id.get(operation_id)
+        title = getattr(operation, "title", operation_id)
+        answer = QMessageBox.question(
+            self,
+            "再実行の確認",
+            f"「{title}」を再実行します。適用・上書きを伴う可能性があります。"
+            "続行しますか？",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if (
+            answer == QMessageBox.StandardButton.Yes
+            and self._retry_operation is not None
+        ):
+            self._retry_operation(operation_id)
 
     def _refresh_operations(self) -> None:
         if self.operations_table is None or self._list_operations is None:
             return
+        self._operations_by_id.clear()
         operations = tuple(self._list_operations())
         project_ops = [
             op for op in operations if self._operation_matches_project(op)
@@ -3451,10 +4798,60 @@ class ActivityPage(QWidget):
 
     # -- timeline -------------------------------------------------------------------
 
+    def _scoped_events(self) -> tuple:
+        """The merged projection for the current scope — cached per scope.
+
+        Rebuilding the canonical projection walks every authority store;
+        filter/search/paging share one rebuild and ``refresh()`` is the
+        only point that re-derives it (#1017).
+        """
+
+        if self._list_events is None:
+            return ()
+        document_id = self._scope_document_id()
+        if (
+            self._events_cache is None
+            or self._events_cache_doc != document_id
+        ):
+            self._events_cache = tuple(self._list_events(document_id))
+            self._events_cache_doc = document_id
+        return self._events_cache
+
+    def _custom_range_bounds(self) -> tuple[str, str] | None:
+        """Inclusive ISO bounds for 期間を指定 — (start, end-of-day) UTC.
+
+        ``None`` while a preset is selected. A start after the end is
+        applied literally: no event can satisfy it, so the filter returns
+        an empty list rather than silently reordering the operator's
+        bounds (#1017).
+        """
+
+        if (
+            self.range_combo is None
+            or self.range_combo.currentData() != _CUSTOM_RANGE
+        ):
+            return None
+        start = self.range_start_edit.date()
+        end = self.range_end_edit.date()
+        start_iso = datetime(
+            start.year(), start.month(), start.day(), tzinfo=timezone.utc
+        ).isoformat()
+        end_iso = datetime(
+            end.year(),
+            end.month(),
+            end.day(),
+            23,
+            59,
+            59,
+            999999,
+            tzinfo=timezone.utc,
+        ).isoformat()
+        return start_iso, end_iso
+
     def _filtered_events(self) -> tuple:
         if self._list_events is None:
             return ()
-        events = list(self._list_events(self._scope_document_id()))
+        events = list(self._scoped_events())
         if self.kind_combo is not None:
             kinds = self.kind_combo.currentData()
             if kinds is not None:
@@ -3462,15 +4859,26 @@ class ActivityPage(QWidget):
                     event for event in events if event.kind in kinds
                 ]
         if self.range_combo is not None:
-            days = self.range_combo.currentData()
-            if days is not None:
+            option = self.range_combo.currentData()
+            if option == _CUSTOM_RANGE:
+                bounds = self._custom_range_bounds()
+                if bounds is not None:
+                    start_iso, end_iso = bounds
+                    events = [
+                        event
+                        for event in events
+                        if start_iso
+                        <= _event_timestamp(event.occurred_at_utc)
+                        <= end_iso
+                    ]
+            elif option is not None:
                 now = datetime.now(timezone.utc)
-                if days == 0:
+                if option == 0:
                     cutoff = now.replace(
                         hour=0, minute=0, second=0, microsecond=0
                     )
                 else:
-                    cutoff = now - timedelta(days=days)
+                    cutoff = now - timedelta(days=option)
                 cutoff_iso = cutoff.isoformat()
                 events = [
                     event
@@ -3496,12 +4904,10 @@ class ActivityPage(QWidget):
             return
         events = self._filtered_events()
         total = len(events)
-        max_page = max(0, (total - 1) // _EVENT_PAGE_SIZE)
-        if self._events_page > max_page:
-            self._events_page = max_page
-        start = self._events_page * _EVENT_PAGE_SIZE
-        page_events = events[start : start + _EVENT_PAGE_SIZE]
+        shown = min(self._events_shown, total)
+        page_events = events[:shown]
         self.events_table.setRowCount(0)
+        self._displayed_events = list(page_events)
         for event in page_events:
             row = self.events_table.rowCount()
             self.events_table.insertRow(row)
@@ -3526,13 +4932,18 @@ class ActivityPage(QWidget):
                         Qt.ItemDataRole.UserRole + 2, event.document_id
                     )
                 self.events_table.setItem(row, column, cell)
-        self._update_pager(
-            self.events_pager,
-            total=total,
-            page=self._events_page,
-            page_size=_EVENT_PAGE_SIZE,
-            shown=len(page_events),
+        self._events_cursor = (
+            (
+                page_events[-1].occurred_at_utc,
+                page_events[-1].event_id,
+            )
+            if page_events
+            else None
         )
+        self._update_more_pager(
+            self.events_pager, total=total, shown=len(page_events)
+        )
+        self._update_event_inspector()
 
     def _activate_event(self, item: QTableWidgetItem) -> None:
         anchor = self.events_table.item(item.row(), 0)
@@ -3582,52 +4993,172 @@ class ActivityPage(QWidget):
 
     def _refresh_revisions(self) -> None:
         document_id = self._scope_document_id()
+        # One bounded keyset query re-reads the whole visible window; the
+        # returned cursor is where さらに読み込む continues (#1017).
+        rows, self._revisions_after = self._list_revisions(
+            document_id, self._revisions_shown, None
+        )
         total = (
             self._count_revisions(document_id)
             if self._count_revisions is not None
-            else 0
+            else len(rows) + (1 if self._revisions_after is not None else 0)
         )
-        if self._count_revisions is not None and total:
-            max_page = (total - 1) // _REVISION_PAGE_SIZE
-            if self._revisions_page > max_page:
-                self._revisions_page = max_page
-        start = self._revisions_page * _REVISION_PAGE_SIZE
-        rows = self._list_revisions(
-            document_id, _REVISION_PAGE_SIZE, start
-        )
-        if self._count_revisions is None:
-            total = start + len(rows)
         self.table.setRowCount(0)
-        self.empty_label.setVisible(not rows and self._revisions_page == 0)
-        for created_at, row_document_id, revision_id in rows:
-            row = self.table.rowCount()
-            self.table.insertRow(row)
-            for column, value in enumerate(
-                (
-                    created_at,
-                    self._document_name(row_document_id),
-                    revision_id,
-                )
-            ):
-                cell = QTableWidgetItem(str(value))
-                if column == 0:
-                    cell.setData(
-                        Qt.ItemDataRole.UserRole,
-                        self._revision_link(row_document_id, revision_id),
-                    )
-                elif column == 1:
-                    cell.setData(
-                        Qt.ItemDataRole.UserRole, row_document_id
-                    )
-                elif column == 2:
-                    cell.setData(Qt.ItemDataRole.UserRole, revision_id)
-                self.table.setItem(row, column, cell)
-        self._update_pager(
+        self.empty_label.setVisible(not rows)
+        self._append_revision_rows(rows)
+        self._update_more_pager(
             self.revisions_pager,
             total=total,
-            page=self._revisions_page,
-            page_size=_REVISION_PAGE_SIZE,
-            shown=len(rows),
+            shown=self.table.rowCount(),
+        )
+
+    # -- detail inspector (#1017) ------------------------------------------------------
+
+    def _build_event_inspector(self) -> QFrame:
+        """Read-only detail panel for the selected timeline row.
+
+        Shows the event's evidence class (証跡/申告記録/履歴/失敗・却下/
+        メモ), its source authority ids and any correlated refs. メモ
+        rows are labeled as documentation — never canonical evidence.
+        Every value is selectable text so keyboard/screen-reader users
+        reach the same content.
+        """
+
+        frame = QFrame()
+        frame.setAccessibleName("選択した出来事の詳細")
+        frame.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        box = QVBoxLayout(frame)
+        box.setContentsMargins(8, 4, 8, 8)
+        heading = QLabel("出来事の詳細")
+        set_typography_role(heading, TypographyRole.SECTION_TITLE)
+        box.addWidget(heading)
+
+        def value_label(name: str) -> QLabel:
+            label = QLabel()
+            label.setAccessibleName(name)
+            label.setWordWrap(True)
+            label.setTextInteractionFlags(
+                Qt.TextInteractionFlag.TextSelectableByMouse
+                | Qt.TextInteractionFlag.TextSelectableByKeyboard
+            )
+            label.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+            box.addWidget(label)
+            return label
+
+        self._inspector_summary = value_label("出来事の時刻・プロジェクト・種類")
+        self._inspector_class = value_label("出来事の区分")
+        self._inspector_title = value_label("出来事の内容")
+        self._inspector_detail = value_label("出来事の詳細")
+        self._inspector_sources = value_label("出来事のソース権威")
+        self._inspector_correlation = value_label("出来事の相関")
+        self._inspector_id = value_label("出来事ID")
+        self._inspector_note = value_label("区分の説明")
+        set_typography_role(self._inspector_note, TypographyRole.SECONDARY)
+        self._clear_event_inspector()
+        return frame
+
+    def _clear_event_inspector(self) -> None:
+        placeholder = "行を選ぶと詳細を表示します。"
+        self._inspector_summary.setText(placeholder)
+        for label in (
+            self._inspector_class,
+            self._inspector_title,
+            self._inspector_detail,
+            self._inspector_sources,
+            self._inspector_correlation,
+            self._inspector_id,
+            self._inspector_note,
+        ):
+            label.setText("")
+
+    def _on_event_selection_changed(self) -> None:
+        self._update_event_inspector()
+
+    def _selected_row(self, table: QTableWidget) -> int:
+        """Row of the table's actual selection, or ``-1``.
+
+        ``currentRow`` outlives a deselect (Ctrl+click/clearSelection
+        leaves the current cell behind), so anything that treats the
+        selection as operator intent — the inspector, selection
+        rebinding — reads the selection model instead.
+        """
+
+        selection = table.selectionModel()
+        rows = selection.selectedRows() if selection is not None else []
+        return rows[0].row() if rows else -1
+
+    def _selected_event(self):
+        """The event object for the selected timeline row, or ``None``.
+
+        Selection — not the current cell — drives the inspector, so a
+        cleared selection empties it even though ``currentRow`` stays
+        put after ``clearSelection``.
+        """
+
+        if self.events_table is None:
+            return None
+        row = self._selected_row(self.events_table)
+        if 0 <= row < len(self._displayed_events):
+            return self._displayed_events[row]
+        return None
+
+    def _update_event_inspector(self) -> None:
+        if self.event_inspector is None:
+            return
+        event = self._selected_event()
+        if event is None:
+            self._clear_event_inspector()
+            return
+        kind_label = _EVENT_KIND_LABELS.get(event.kind, event.kind)
+        evidence_class = event_evidence_class(event)
+        self._inspector_summary.setText(
+            f"時刻: {event.occurred_at_utc}　プロジェクト: "
+            f"{self._document_name(event.document_id)}　種類: {kind_label}"
+        )
+        self._inspector_class.setText(
+            f"区分: {_EVIDENCE_CLASS_LABELS[evidence_class]}"
+        )
+        self._inspector_title.setText(f"内容: {event.title}")
+        self._inspector_detail.setText(
+            f"詳細: {event.detail or '—'}"
+        )
+        refs = tuple(getattr(event, 'source_refs', ()))
+        if refs:
+            self._inspector_sources.setText(
+                "ソース権威:\n"
+                + "\n".join(
+                    f"  {ref.kind}: {ref.ref_id}"
+                    + (
+                        f"（sha256 {ref.ref_sha256[:12]}…）"
+                        if ref.ref_sha256
+                        else ""
+                    )
+                    for ref in refs[:1]
+                )
+            )
+            self._inspector_correlation.setText(
+                "相関:\n"
+                + "\n".join(
+                    f"  {ref.kind}: {ref.ref_id}"
+                    + (
+                        f"（sha256 {ref.ref_sha256[:12]}…）"
+                        if ref.ref_sha256
+                        else ""
+                    )
+                    for ref in refs[1:]
+                )
+                if len(refs) > 1
+                else "相関: なし"
+            )
+        else:
+            self._inspector_sources.setText("ソース権威: なし")
+            self._inspector_correlation.setText("相関: なし")
+        inherited = "（継承元の記録）" if event.inherited else ""
+        self._inspector_id.setText(
+            f"event_id: {event.event_id}{inherited}"
+        )
+        self._inspector_note.setText(
+            _EVIDENCE_CLASS_NOTES[evidence_class]
         )
 
     # -- selection stability ---------------------------------------------------------
@@ -3641,14 +5172,14 @@ class ActivityPage(QWidget):
 
         keys: dict[str, tuple] = {}
         if self.events_table is not None:
-            row = self.events_table.currentRow()
+            row = self._selected_row(self.events_table)
             cell = self.events_table.item(row, 0) if row >= 0 else None
             if cell is not None and cell.data(Qt.ItemDataRole.UserRole + 1):
                 keys["events"] = (
                     cell.data(Qt.ItemDataRole.UserRole + 1),
                     cell.data(Qt.ItemDataRole.UserRole + 2),
                 )
-        row = self.table.currentRow()
+        row = self._selected_row(self.table)
         if row >= 0:
             document = self.table.item(row, 1)
             revision = self.table.item(row, 2)
@@ -3663,7 +5194,7 @@ class ActivityPage(QWidget):
         ):
             if table is None:
                 continue
-            row = table.currentRow()
+            row = self._selected_row(table)
             cell = table.item(row, 0) if row >= 0 else None
             if cell is not None and cell.data(Qt.ItemDataRole.UserRole):
                 keys[name] = (cell.data(Qt.ItemDataRole.UserRole),)
@@ -3715,6 +5246,11 @@ class ActivityPage(QWidget):
     # -- refresh -----------------------------------------------------------------------
 
     def refresh(self) -> None:
+        # The projected timeline is re-derived here only; intra-refresh
+        # work (filters, search, paging, selection) reuses the cache.
+        self._events_cache = None
+        self._events_cache_doc = _CACHE_MISS
+
         def _refresh_all() -> None:
             self._refresh_operations()
             self._refresh_events()
@@ -3807,6 +5343,77 @@ def count_recent_revisions(
     return int(row[0]) if row else 0
 
 
+def _decode_revision_cursor(after: str | None) -> int | None:
+    """Opaque keyset cursor → seq bound; ``None`` starts at the newest.
+
+    A malformed cursor fails closed with ``ValueError`` — a corrupted
+    bookmark must never silently restart or widen the listing (#1017).
+    """
+
+    if after is None:
+        return None
+    if isinstance(after, str) and after.startswith('seq:'):
+        try:
+            return int(after[4:])
+        except ValueError:
+            pass
+    raise ValueError(f'unknown revision page cursor: {after!r}')
+
+
+def list_revisions_page(
+    repository: SceneRepository,
+    limit: int = 50,
+    *,
+    scope: RevisionListScope = 'project',
+    document_id: str | None = None,
+    after: str | None = None,
+) -> tuple[tuple, str | None]:
+    """Keyset (cursor) page over the scoped revision ledger (#1017).
+
+    Returns ``(rows, next_cursor)`` — rows are ``(created_at_utc,
+    document_id, revision_id)`` ordered newest-first, ``next_cursor`` the
+    opaque ``seq:<n>`` token to pass as ``after`` for the next page, or
+    ``None`` once history is exhausted. Unlike ``OFFSET`` paging the
+    cursor key (``seq``) is stable under concurrent inserts: rows
+    committed while the operator browses never shift the window and can
+    never skip or repeat a row.
+    """
+
+    clause, params = _revision_scope_clause(scope, document_id)
+    before_seq = _decode_revision_cursor(after)
+    cursor_clause = ''
+    cursor_params: tuple = ()
+    if before_seq is not None:
+        cursor_clause = ' AND seq < ?'
+        cursor_params = (before_seq,)
+    path = Path(repository.path)
+    if not path.is_file():
+        return (), None
+    try:
+        with closing(repository._read()) as connection, connection:
+            rows = connection.execute(
+                """
+                SELECT created_at_utc, document_id, revision_id, seq
+                FROM scene_revisions
+                WHERE detached = 0"""
+                + clause
+                + cursor_clause
+                + """
+                ORDER BY seq DESC LIMIT ?
+                """,
+                (*params, *cursor_params, limit + 1),
+            ).fetchall()
+    except sqlite3.Error:
+        return (), None
+    has_more = len(rows) > limit
+    rows = rows[:limit]
+    next_cursor = f'seq:{rows[-1][3]}' if has_more and rows else None
+    return (
+        tuple((str(a), str(b), str(c)) for a, b, c, _seq in rows),
+        next_cursor,
+    )
+
+
 def list_known_document_ids(repository: SceneRepository) -> tuple:
     """Every document that owns committed revisions — read-only.
 
@@ -3850,33 +5457,77 @@ _LIBRARY_SCOPE_LABELS = {
 
 
 class ReferenceLibraryPage(QWidget):
-    """Reference library: equipment/source definitions shared across projects.
+    """Reference library: cross-search, compare, provenance (#990).
 
-    ``library_index`` (the #630 hub read model) renders one additional
-    read-only section per registered authority family — speakers, materials,
-    standards profiles — so shared authorities are discoverable in one place.
+    ``library_index`` (the #630 hub read model) drives the 横断検索・比較
+    tab: one deferred-rendered results table over every authority family,
+    a detail pane with exact authority identity/version/SHA/provenance/
+    rights state, and a two-row compare that never merges entries. The
+    区分別一覧 tab keeps the original equipment table and per-family
+    sections. ``detail_resolver`` is a zero-arg factory returning the
+    per-refresh record resolver, ``usage_resolver`` a zero-arg factory
+    returning ``semantic_key → usage sites``, and ``open_target`` a
+    navigation sink — all read-only projections; the page mutates nothing.
     """
 
     manage_requested = Signal()
+
+    _RESULTS_PAGE_SIZE = 50
 
     def __init__(
         self,
         list_definitions: Callable[[], tuple],
         library_index=None,
+        *,
+        detail_resolver=None,
+        usage_resolver=None,
+        open_target=None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self._list_definitions = list_definitions
         self._library_index = library_index
+        self._detail_resolver = detail_resolver
+        self._usage_resolver = usage_resolver
+        self._open_target = open_target
+        self._all_rows: tuple = ()
+        self._filtered_rows: list = []
+        self._rows_by_key: dict[str, object] = {}
+        self._shown_count = 0
         layout = _page_layout(
             self,
             "ライブラリ",
-            "機材・ソース定義のライブラリです（プロジェクト共通）。",
+            "機材・材料・規格プロファイルの参照ライブラリです（プロジェクト共通）。",
         )
+        if library_index is None:
+            self._build_listing_section(layout)
+        else:
+            self._tabs = QTabWidget(self)
+            self._tabs.setAccessibleName("ライブラリの表示切替")
+            browser = QWidget(self)
+            browser_layout = QVBoxLayout(browser)
+            browser_layout.setContentsMargins(0, 8, 0, 0)
+            browser_layout.setSpacing(8)
+            self._build_browser_section(browser_layout)
+            listing = QWidget(self)
+            listing_layout = QVBoxLayout(listing)
+            listing_layout.setContentsMargins(0, 8, 0, 0)
+            listing_layout.setSpacing(8)
+            self._build_listing_section(listing_layout)
+            listing_layout.addStretch(1)
+            self._tabs.addTab(browser, "横断検索・比較")
+            self._tabs.addTab(listing, "区分別一覧")
+            layout.addWidget(self._tabs, 1)
+        self.refresh()
+
+    # --- 区分別一覧 (legacy per-family sections) ------------------------
+
+    def _build_listing_section(self, layout: QVBoxLayout) -> None:
         self.table = QTableWidget(0, 3)
         self.table.setToolTip(
             "登録済みの機材・ソース定義の一覧です。列の見出しにカーソルを合わせると各列の説明が表示されます。"
         )
+        self.table.setAccessibleName("機材定義の一覧")
         self.table.setHorizontalHeaderLabels(("メーカー", "モデル", "バージョン"))
         for _col, _tip in enumerate((
             "機材の製造メーカー名",
@@ -3902,12 +5553,13 @@ class ReferenceLibraryPage(QWidget):
         manage = QPushButton("機材ライブラリを管理…")
         manage.setToolTip("機材・素材・ソース定義の登録・編集を行う管理画面を開きます")
         manage.setWhatsThis("機材・素材・ソース定義の登録・編集を行う管理画面を開きます")
+        manage.setAccessibleName("機材ライブラリを管理")
         manage.clicked.connect(lambda: self.manage_requested.emit())
         layout.addWidget(manage)
 
         self._family_frames: dict[str, tuple[QLabel, QTableWidget]] = {}
-        if library_index is not None:
-            for family in library_index.families():
+        if self._library_index is not None:
+            for family in self._library_index.families():
                 header = QLabel(
                     _LIBRARY_FAMILY_TITLES.get(str(family), str(family)),
                     self,
@@ -3916,6 +5568,9 @@ class ReferenceLibraryPage(QWidget):
                 table = QTableWidget(0, 4, self)
                 table.setToolTip(
                     "この区分で登録されている項目の一覧です。列の見出しにカーソルを合わせると各列の説明が表示されます。"
+                )
+                table.setAccessibleName(
+                    f"{_LIBRARY_FAMILY_TITLES.get(str(family), str(family))}の一覧"
                 )
                 table.setHorizontalHeaderLabels(
                     ("名前", "区分", "スコープ", "バージョン")
@@ -3941,7 +5596,540 @@ class ReferenceLibraryPage(QWidget):
                 layout.addWidget(header)
                 layout.addWidget(table)
                 self._family_frames[str(family)] = (header, table)
-        self.refresh()
+
+    # --- 横断検索・比較 (issue #990) -------------------------------------
+
+    def _filter_combo(self, name: str, tooltip: str) -> QComboBox:
+        combo = QComboBox(self)
+        combo.setAccessibleName(name)
+        combo.setToolTip(tooltip)
+        combo.setWhatsThis(tooltip)
+        combo.currentIndexChanged.connect(self._on_filters_changed)
+        return combo
+
+    def _build_browser_section(self, layout: QVBoxLayout) -> None:
+        filters = QHBoxLayout()
+        self.search_edit = QLineEdit(self)
+        self.search_edit.setPlaceholderText(
+            "機材名・メーカー・型番・規格・材料・出典・IDを検索"
+        )
+        self.search_edit.setClearButtonEnabled(True)
+        self.search_edit.setAccessibleName("ライブラリ横断検索")
+        self.search_edit.setToolTip(
+            "名前・メーカー・型番・役割・authority ID・規格・材料カテゴリ・"
+            "出典・バージョンを横断検索します"
+        )
+        self.search_edit.textChanged.connect(self._on_filters_changed)
+        filters.addWidget(self.search_edit, 1)
+        self.family_combo = self._filter_combo(
+            "種別フィルター", "機材・材料・規格などの種別で絞り込みます"
+        )
+        self.category_combo = self._filter_combo(
+            "区分フィルター", "カテゴリ・区分で絞り込みます"
+        )
+        self.source_combo = self._filter_combo(
+            "出典フィルター", "データの出典・発行元で絞り込みます"
+        )
+        self.status_combo = self._filter_combo(
+            "状態フィルター",
+            "最新のみ・要注意（旧版や根拠不足）・アーカイブ・未適格で絞り込みます",
+        )
+        for combo in (
+            self.family_combo,
+            self.category_combo,
+            self.source_combo,
+            self.status_combo,
+        ):
+            filters.addWidget(combo)
+        layout.addLayout(filters)
+        hint = QLabel(
+            "Ctrl/Shiftキーで2件を選ぶと差分比較が表示されます。",
+            self,
+        )
+        set_typography_role(hint, TypographyRole.SECONDARY)
+        layout.addWidget(hint)
+
+        self.results_table = QTableWidget(0, 6, self)
+        self.results_table.setAccessibleName("ライブラリ検索結果")
+        self.results_table.setToolTip(
+            "検索・絞り込みの結果です。行を選ぶと下に正確な識別情報・出典・"
+            "権利状態が表示されます。"
+        )
+        self.results_table.setHorizontalHeaderLabels(
+            ("名前", "種別", "区分", "スコープ", "バージョン", "状態")
+        )
+        for _col, _tip in enumerate((
+            "項目の表示名（同名の別項目は個別の行のままです）",
+            "項目の種別（機材・材料・規格プロファイルなど）",
+            "項目の区分（カテゴリ・登録種別）",
+            "この項目が有効な範囲",
+            "登録されている定義のバージョン",
+            "最新・旧版・根拠不足・アーカイブなどの状態",
+        )):
+            self.results_table.horizontalHeaderItem(_col).setToolTip(_tip)
+        self.results_table.horizontalHeader().setSectionResizeMode(
+            0, QHeaderView.ResizeMode.Stretch
+        )
+        self.results_table.setEditTriggers(
+            QTableWidget.EditTrigger.NoEditTriggers
+        )
+        self.results_table.setSelectionBehavior(
+            QTableWidget.SelectionBehavior.SelectRows
+        )
+        self.results_table.setSelectionMode(
+            QAbstractItemView.SelectionMode.ExtendedSelection
+        )
+        self.results_table.itemSelectionChanged.connect(
+            self._on_results_selection_changed
+        )
+        layout.addWidget(self.results_table, 1)
+
+        pager_row = QHBoxLayout()
+        self._more_button = QPushButton("さらに読み込む", self)
+        self._more_button.setAccessibleName("検索結果をさらに読み込む")
+        self._more_button.setToolTip(
+            "結果を50件ずつ追加で表示します。"
+        )
+        self._more_button.clicked.connect(self._results_load_more)
+        self._count_label = QLabel(self)
+        set_typography_role(self._count_label, TypographyRole.SECONDARY)
+        self._count_label.setAccessibleName("検索結果の件数")
+        pager_row.addWidget(self._more_button)
+        pager_row.addStretch(1)
+        pager_row.addWidget(self._count_label)
+        layout.addLayout(pager_row)
+
+        self._detail_frame = QFrame(self)
+        detail_layout = QVBoxLayout(self._detail_frame)
+        detail_layout.setContentsMargins(4, 4, 4, 4)
+        self._detail_title = QLabel("", self._detail_frame)
+        set_typography_role(self._detail_title, TypographyRole.SECTION_TITLE)
+        self._detail_title.setAccessibleName("選択した項目の詳細")
+        detail_layout.addWidget(self._detail_title)
+        self._detail_table = QTableWidget(0, 2, self._detail_frame)
+        self._detail_table.setAccessibleName("項目の詳細情報")
+        self._detail_table.setToolTip(
+            "authority kind・ID・バージョン・SHA・出典・根拠区分・権利状態"
+            "です。"
+        )
+        self._detail_table.setHorizontalHeaderLabels(("項目", "値"))
+        self._detail_table.horizontalHeader().setSectionResizeMode(
+            0, QHeaderView.ResizeMode.ResizeToContents
+        )
+        self._detail_table.horizontalHeader().setSectionResizeMode(
+            1, QHeaderView.ResizeMode.Stretch
+        )
+        self._detail_table.verticalHeader().setVisible(False)
+        self._detail_table.setEditTriggers(
+            QTableWidget.EditTrigger.NoEditTriggers
+        )
+        self._detail_table.setMaximumHeight(180)
+        detail_layout.addWidget(self._detail_table)
+
+        self._usage_header = QLabel(
+            "利用箇所（現在のプロジェクト）", self._detail_frame
+        )
+        set_typography_role(self._usage_header, TypographyRole.SECTION_TITLE)
+        detail_layout.addWidget(self._usage_header)
+        self._usage_empty = QLabel(
+            "現在のプロジェクトでは使われていません。", self._detail_frame
+        )
+        set_typography_role(self._usage_empty, TypographyRole.SECONDARY)
+        self._usage_empty.setWordWrap(True)
+        detail_layout.addWidget(self._usage_empty)
+        self._usage_table = QTableWidget(0, 3, self._detail_frame)
+        self._usage_table.setAccessibleName("この項目の利用箇所")
+        self._usage_table.setToolTip(
+            "現在のプロジェクト内でこの項目を参照している箇所です。"
+            "「開く」でその場所へ移動します（参照のみ・変更しません）。"
+        )
+        self._usage_table.setHorizontalHeaderLabels(
+            ("利用箇所", "参照の解決", "操作")
+        )
+        self._usage_table.horizontalHeader().setSectionResizeMode(
+            0, QHeaderView.ResizeMode.Stretch
+        )
+        self._usage_table.setEditTriggers(
+            QTableWidget.EditTrigger.NoEditTriggers
+        )
+        self._usage_table.setMaximumHeight(120)
+        detail_layout.addWidget(self._usage_table)
+
+        self._compare_frame = QFrame(self._detail_frame)
+        compare_layout = QVBoxLayout(self._compare_frame)
+        compare_layout.setContentsMargins(0, 8, 0, 0)
+        compare_title = QLabel("選択した2件の差分", self._compare_frame)
+        set_typography_role(compare_title, TypographyRole.SECTION_TITLE)
+        compare_layout.addWidget(compare_title)
+        self._compare_table = QTableWidget(0, 3, self._compare_frame)
+        self._compare_table.setAccessibleName("2件の差分比較")
+        self._compare_table.setToolTip(
+            "2件の項目の識別情報・出典・権利状態の差分です。"
+            "同名・別バージョンの項目は自動で統合されません。"
+        )
+        self._compare_table.setHorizontalHeaderLabels(
+            ("項目", "A", "B")
+        )
+        self._compare_table.horizontalHeader().setSectionResizeMode(
+            1, QHeaderView.ResizeMode.Stretch
+        )
+        self._compare_table.horizontalHeader().setSectionResizeMode(
+            2, QHeaderView.ResizeMode.Stretch
+        )
+        self._compare_table.setEditTriggers(
+            QTableWidget.EditTrigger.NoEditTriggers
+        )
+        self._compare_table.setMaximumHeight(160)
+        compare_layout.addWidget(self._compare_table)
+        self._dependents_label = QLabel("", self._compare_frame)
+        self._dependents_label.setWordWrap(True)
+        set_typography_role(
+            self._dependents_label, TypographyRole.SECONDARY
+        )
+        compare_layout.addWidget(self._dependents_label)
+        self._dependents_frame = QFrame(self._compare_frame)
+        self._dependents_layout = QVBoxLayout(self._dependents_frame)
+        self._dependents_layout.setContentsMargins(0, 0, 0, 0)
+        self._dependents_layout.setSpacing(2)
+        compare_layout.addWidget(self._dependents_frame)
+        detail_layout.addWidget(self._compare_frame)
+        self._compare_frame.setVisible(False)
+
+        scroll = QScrollArea(self)
+        scroll.setWidgetResizable(True)
+        scroll.setWidget(self._detail_frame)
+        scroll.setMaximumHeight(340)
+        scroll.setAccessibleName("項目の詳細・比較パネル")
+        self._detail_scroll = scroll
+        layout.addWidget(scroll)
+        self._detail_scroll.setVisible(False)
+
+    def _on_filters_changed(self) -> None:
+        self._apply_filters()
+
+    def _rebuild_filter_combos(self) -> None:
+        families = sorted({row.family for row in self._all_rows})
+        categories = sorted(
+            {row.category for row in self._all_rows if row.category}
+        )
+        sources = sorted(
+            {
+                source
+                for row in self._all_rows
+                for source in row.sources
+            }
+        )
+        specs = (
+            (
+                self.family_combo,
+                "すべての種別",
+                [
+                    (
+                        _LIBRARY_FAMILY_TITLES.get(family, family),
+                        family,
+                    )
+                    for family in families
+                ],
+            ),
+            (
+                self.category_combo,
+                "すべての区分",
+                [
+                    (category_label(category), category)
+                    for category in categories
+                ],
+            ),
+            (
+                self.source_combo,
+                "すべての出典",
+                [(source, source) for source in sources],
+            ),
+            (
+                self.status_combo,
+                "すべて（アーカイブを除く）",
+                [
+                    ("最新のみ", STATUS_LATEST),
+                    ("要注意（旧版・根拠不足・記録なし）", STATUS_ATTENTION),
+                    ("アーカイブ・未適格", STATUS_UNQUALIFIED),
+                ],
+            ),
+        )
+        for combo, first_label, items in specs:
+            current = combo.currentData()
+            combo.blockSignals(True)
+            combo.clear()
+            combo.addItem(first_label, None)
+            for label, value in items:
+                combo.addItem(str(label), value)
+            index = combo.findData(current)
+            if index >= 0:
+                combo.setCurrentIndex(index)
+            combo.blockSignals(False)
+
+    def _apply_filters(self) -> None:
+        self._filtered_rows = filter_rows(
+            self._all_rows,
+            query=self.search_edit.text(),
+            family=self.family_combo.currentData(),
+            category=self.category_combo.currentData(),
+            source=self.source_combo.currentData(),
+            status=self.status_combo.currentData() or STATUS_ALL,
+        )
+        self._shown_count = 0
+        self.results_table.setRowCount(0)
+        self._results_load_more()
+
+    def _results_load_more(self) -> None:
+        total = len(self._filtered_rows)
+        start = self._shown_count
+        end = min(start + self._RESULTS_PAGE_SIZE, total)
+        for row in self._filtered_rows[start:end]:
+            table_row = self.results_table.rowCount()
+            self.results_table.insertRow(table_row)
+            values = (
+                row.entry.display_name,
+                _LIBRARY_FAMILY_TITLES.get(row.family, row.family),
+                category_label(row.category),
+                _LIBRARY_SCOPE_LABELS.get(
+                    str(row.entry.scope), str(row.entry.scope)
+                ),
+                row.entry.version,
+                row_status_label(row),
+            )
+            for column, value in enumerate(values):
+                cell = QTableWidgetItem(str(value))
+                if column == 0:
+                    cell.setData(Qt.ItemDataRole.UserRole, row.semantic_key)
+                self.results_table.setItem(table_row, column, cell)
+        self._shown_count = end
+        first = 1 if end else 0
+        self._count_label.setText(f"全{total}件 · {first}–{end}件を表示")
+        self._more_button.setEnabled(end < total)
+
+    def _selected_result_rows(self) -> list:
+        selected = sorted(
+            {
+                index.row()
+                for index in self.results_table.selectionModel().selectedRows()
+            }
+        )
+        keys = []
+        for row in selected:
+            item = self.results_table.item(row, 0)
+            if item is not None:
+                keys.append(item.data(Qt.ItemDataRole.UserRole))
+        return [
+            self._rows_by_key[key]
+            for key in keys
+            if key in self._rows_by_key
+        ]
+
+    def _on_results_selection_changed(self) -> None:
+        rows = self._selected_result_rows()
+        if not rows:
+            self._detail_scroll.setVisible(False)
+            return
+        self._detail_scroll.setVisible(True)
+        self._show_detail(rows[-1])
+        if len(rows) >= 2:
+            self._show_compare(rows[-2], rows[-1])
+        else:
+            self._compare_frame.setVisible(False)
+
+    def _show_detail(self, row) -> None:
+        entry = row.entry
+        self._detail_title.setText(
+            f"{entry.display_name} — {entry.identity} v{entry.version}"
+        )
+        self._detail_table.setRowCount(0)
+        for label, value in row.detail_fields:
+            table_row = self._detail_table.rowCount()
+            self._detail_table.insertRow(table_row)
+            self._detail_table.setItem(table_row, 0, QTableWidgetItem(label))
+            self._detail_table.setItem(
+                table_row, 1, QTableWidgetItem(str(value))
+            )
+        self._usage_table.setRowCount(0)
+        sites = row.usage_sites
+        self._usage_empty.setVisible(not sites)
+        self._usage_table.setVisible(bool(sites))
+        for site in sites:
+            table_row = self._usage_table.rowCount()
+            self._usage_table.insertRow(table_row)
+            self._usage_table.setItem(
+                table_row, 0, QTableWidgetItem(site.label)
+            )
+            self._usage_table.setItem(
+                table_row, 1, QTableWidgetItem(site.resolution)
+            )
+            button = QPushButton("開く", self._usage_table)
+            button.setAccessibleName(f"{site.label}を開く")
+            button.setToolTip(
+                "この項目を利用している箇所へ移動します（参照のみ）。"
+            )
+            button.clicked.connect(
+                lambda _checked=False, s=site: self._open_usage_site(s)
+            )
+            self._usage_table.setCellWidget(table_row, 2, button)
+
+    def _show_compare(self, a, b) -> None:
+        comparison = compare_rows(a, b)
+        self._compare_frame.setVisible(True)
+        if comparison is None:
+            self._compare_table.setRowCount(0)
+            self._dependents_label.setText(
+                "異なる種別の項目は比較できません。"
+            )
+            self._clear_dependents()
+            return
+        self._compare_table.setRowCount(0)
+        for label, value_a, value_b in comparison.fields:
+            table_row = self._compare_table.rowCount()
+            self._compare_table.insertRow(table_row)
+            self._compare_table.setItem(
+                table_row, 0, QTableWidgetItem(label)
+            )
+            cell_a = QTableWidgetItem(value_a)
+            cell_b = QTableWidgetItem(value_b)
+            if value_a != value_b:
+                brush = self._diff_brush()
+                cell_a.setBackground(brush)
+                cell_b.setBackground(brush)
+            self._compare_table.setItem(table_row, 1, cell_a)
+            self._compare_table.setItem(table_row, 2, cell_b)
+        dependents = comparison.dependents_a + comparison.dependents_b
+        if dependents:
+            self._dependents_label.setText(
+                "この参照は正確なID・バージョン・SHAに紐づいています。"
+                "入れ替えると現在の参照は古い版を指したままになります。"
+                f"依存している成果物: {len(dependents)}件"
+            )
+        else:
+            self._dependents_label.setText(
+                "現在のプロジェクトでこの2件を参照する成果物はありません。"
+            )
+        self._show_dependents(dependents)
+
+    @staticmethod
+    def _diff_brush() -> QBrush:
+        palette = QApplication.palette()
+        return QBrush(
+            palette.color(QPalette.ColorRole.AlternateBase)
+        )
+
+    def _clear_dependents(self) -> None:
+        while self._dependents_layout.count():
+            item = self._dependents_layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+
+    def _show_dependents(self, sites) -> None:
+        self._clear_dependents()
+        for site in sites:
+            button = QPushButton(f"開く: {site.label}", self._dependents_frame)
+            button.setAccessibleName(f"依存先 {site.label}を開く")
+            button.setToolTip(
+                "この項目を参照している成果物へ移動します（参照のみ）。"
+            )
+            button.clicked.connect(
+                lambda _checked=False, s=site: self._open_usage_site(s)
+            )
+            self._dependents_layout.addWidget(button)
+
+    def _open_usage_site(self, site) -> None:
+        if self._open_target is None:
+            return
+        kind = (
+            NavigationTargetKind.SCENE_ENTITY
+            if site.kind == 'scene_entity'
+            else NavigationTargetKind.INSTALLED_EQUIPMENT_INSTANCE
+        )
+        self._open_target(
+            NavigationTarget(
+                kind=kind,
+                object_ids=(site.target_id,),
+                preferred_destination=WorkspaceId.ROOM,
+                intent=NavigationIntent.INSPECT,
+                referrer='reference_library',
+            )
+        )
+
+    def _refresh_browser(self) -> None:
+        if self._library_index is None:
+            return
+        try:
+            usages = (
+                self._usage_resolver() if self._usage_resolver else {}
+            )
+            resolver = (
+                self._detail_resolver()
+                if self._detail_resolver is not None
+                else None
+            )
+            self._all_rows = collect_library_rows(
+                self._library_index,
+                detail_resolver=resolver,
+                usage_sites=usages,
+            )
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: library read — expected failures report and show an honest empty page; sealed-store failures propagate
+            if is_authority_failure(exc):
+                raise
+            report_boundary_failure(exc, operation='ライブラリ一覧の読み取り')
+            self._all_rows = ()
+        self._rows_by_key = {
+            row.semantic_key: row for row in self._all_rows
+        }
+        self._rebuild_filter_combos()
+        self._apply_filters()
+
+    def _reveal_row(self, row) -> bool:
+        """Make ``row`` visible+selected, resetting filters when needed."""
+
+        def _visible() -> int | None:
+            for table_row in range(self.results_table.rowCount()):
+                item = self.results_table.item(table_row, 0)
+                if (
+                    item is not None
+                    and item.data(Qt.ItemDataRole.UserRole)
+                    == row.semantic_key
+                ):
+                    return table_row
+            return None
+
+        target = _visible()
+        if target is None:
+            self.search_edit.blockSignals(True)
+            self.search_edit.clear()
+            self.search_edit.blockSignals(False)
+            for combo in (
+                self.family_combo,
+                self.category_combo,
+                self.source_combo,
+            ):
+                combo.blockSignals(True)
+                combo.setCurrentIndex(0)
+                combo.blockSignals(False)
+            self.status_combo.blockSignals(True)
+            status_value = (
+                STATUS_UNQUALIFIED
+                if (row.archived or row.record_missing)
+                else STATUS_ALL
+            )
+            status_index = self.status_combo.findData(status_value)
+            self.status_combo.setCurrentIndex(
+                status_index if status_index >= 0 else 0
+            )
+            self.status_combo.blockSignals(False)
+            self._apply_filters()
+            target = _visible()
+        if target is None:
+            return False
+        self.results_table.selectRow(target)
+        self._tabs.setCurrentIndex(0)
+        return True
+
+    # --- lifecycle -------------------------------------------------------
 
     def refresh(self) -> None:
         self.table.setRowCount(0)
@@ -3966,6 +6154,7 @@ class ReferenceLibraryPage(QWidget):
                 self.table.setItem(row, column, item)
         self.empty_label.setVisible(self.table.rowCount() == 0)
         self._refresh_family_sections()
+        self._refresh_browser()
 
     def _refresh_family_sections(self) -> None:
         if self._library_index is None:
@@ -3973,7 +6162,10 @@ class ReferenceLibraryPage(QWidget):
         for family, (header, table) in self._family_frames.items():
             try:
                 entries = self._library_index.entries(family=family)
-            except Exception:  # noqa: BLE001 - a broken provider must not blank the page
+            except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: per-family library read — expected failures report and hide that section honestly; sealed-store failures propagate
+                if is_authority_failure(exc):
+                    raise
+                report_boundary_failure(exc, operation='ライブラリ族の読み取り')
                 entries = ()
             header.setVisible(bool(entries))
             table.setVisible(bool(entries))
@@ -4001,6 +6193,7 @@ class ReferenceLibraryPage(QWidget):
                     table.setItem(row, column, cell)
 
     def focus_definition(self, definition_id: str) -> TargetFocusResult:
+        focused = False
         for row in range(self.table.rowCount()):
             model = self.table.item(row, 1)
             if (
@@ -4008,15 +6201,204 @@ class ReferenceLibraryPage(QWidget):
                 and model.data(Qt.ItemDataRole.UserRole) == definition_id
             ):
                 self.table.selectRow(row)
-                return TargetFocusResult(focused=True)
+                focused = True
+                break
+        if self._library_index is not None:
+            target_row = next(
+                (
+                    row
+                    for row in self._all_rows
+                    if row.entry.identity == definition_id
+                    and row.family == 'equipment'
+                ),
+                None,
+            )
+            if target_row is not None:
+                focused = self._reveal_row(target_row) or focused
+        if focused:
+            return TargetFocusResult(focused=True)
         return TargetFocusResult(
             focused=False,
             message="ライブラリ内に該当の定義が見つかりません",
         )
 
 
+#: JA labels for the health-check categories — order is the canonical
+#: display order: store health first, semantic integrity second, optional
+#: integrations last (their failures are honest but local, never global).
+_HEALTH_CATEGORY_LABELS: dict[HealthCategory, str] = {
+    HealthCategory.APP_STORAGE: "アプリ・プロジェクトの保存データ",
+    HealthCategory.SEMANTIC_INTEGRITY: "データの意味整合性",
+    HealthCategory.INTEGRATIONS: "外部連携（任意）",
+}
+
+_HEALTH_STATUS_LABELS: dict[HealthStatus, str] = {
+    HealthStatus.PASS: "正常",
+    HealthStatus.ATTENTION: "注意",
+    HealthStatus.FAIL: "失敗",
+    HealthStatus.UNKNOWN: "不明",
+    HealthStatus.NOT_APPLICABLE: "対象外",
+}
+
+_HEALTH_STATUS_SEMANTIC: dict[HealthStatus, SemanticState | None] = {
+    HealthStatus.PASS: SemanticState.SUCCESS,
+    HealthStatus.ATTENTION: SemanticState.WARNING,
+    HealthStatus.FAIL: SemanticState.ERROR,
+    HealthStatus.UNKNOWN: SemanticState.STALE,
+    HealthStatus.NOT_APPLICABLE: None,
+}
+
+#: JA display names per check_id. An id absent here renders verbatim —
+#: the surface never invents a friendlier name for a check it did not
+#: predict (same honesty rule as the lifecycle table labels above).
+_HEALTH_CHECK_LABELS: dict[str, str] = {
+    "storage.database_openable": "プロジェクトDBのオープン",
+    "storage.sqlite_quick_check": "SQLite構造チェック",
+    "storage.schema_compatibility": "スキーマ互換性",
+    "storage.data_dir_lock": "データフォルダーのロック",
+    "storage.disk_space": "ディスク空き容量",
+    "storage.assets_root": "管理アセットの保存先",
+    "integrity.semantic": "権威グラフの意味監査",
+    "integrations.rew_api": "REW API連携",
+    "integrations.capture_receiver": "キャプチャ受信",
+    "integrations.vtk": "3D表示スタック（VTK）",
+}
+
+#: Per-check next-step guidance (原因別の対処へ誘導). Every entry pairs
+#: actionable JA wording with an *existing* surface key — the page only
+#: ever points at surfaces it can actually open (data management with the
+#: backup/restore preview, the read-only authority inspector, settings
+#: tabs, the activity log, the diagnostics package export). Checks are
+#: read-only: nothing here auto-repairs, and repair-adjacent wording
+#: always routes through the restore preview rather than a blind write.
+_HEALTH_GUIDANCE: dict[str, tuple[str, str]] = {
+    "storage.database_openable": (
+        "プロジェクトDBを開けません。データ管理の「バックアップから復元」"
+        "（復元前プレビュー付き）で直近のバックアップを検査・復元して"
+        "ください。自動修復は行いません。",
+        "data_management",
+    ),
+    "storage.sqlite_quick_check": (
+        "SQLiteの構造チェックで問題が検出されました。データ管理で直近の"
+        "バックアップを検査し、必要なら隔離復元（#992）を行ってください。",
+        "data_management",
+    ),
+    "storage.schema_compatibility": (
+        "このDBは別バージョンのHTDTで書かれています。データ管理のバック"
+        "アップ復元で作成時のデータに戻すか、そのデータを作成したビルド"
+        "で開いてください。",
+        "data_management",
+    ),
+    "storage.data_dir_lock": (
+        "データフォルダーが別プロセスにロックされています。アクティビティ"
+        "で実行中の操作を確認し、他のHTDTインスタンスを終了してから再診断"
+        "してください。",
+        "activity",
+    ),
+    "storage.disk_space": (
+        "空き容量が不足しています。データ管理で保持データの整理を行うか、"
+        "ドライブの空き容量を確保してから再診断してください。",
+        "data_management",
+    ),
+    "storage.assets_root": (
+        "管理アセットの保存先にアクセスできません。データフォルダーの"
+        "権限を確認してください。",
+        "data_management",
+    ),
+    "integrity.semantic": (
+        "データの意味整合性に問題が見つかりました。権威グラフで破損箇所を"
+        "確認し、データ管理のバックアップ復元（復元前プレビュー）を検討"
+        "してください。自動修復は行いません。",
+        "authority",
+    ),
+    "integrations.rew_api": (
+        "REW連携は任意です。測定取り込みを使う場合はREWを起動し、環境"
+        "設定の接続先（ホスト・ポート）を確認してください。",
+        "preferences",
+    ),
+    "integrations.capture_receiver": (
+        "キャプチャ受信を使う場合は、設定の「キャプチャ」タブで受信状態と"
+        "起動エラーを確認してください。",
+        "capture_settings",
+    ),
+    "integrations.vtk": (
+        "3D表示機能が利用できません。再インストールまたはGPUドライバーの"
+        "更新を検討してください。再現する場合は診断パッケージをサポートへ"
+        "共有してください。",
+        "export",
+    ),
+}
+
+#: Category-level fallback guidance for check ids the map does not know
+#: (e.g. a dynamically named probe) — never claim a specific cause the
+#: check did not report.
+_HEALTH_GUIDANCE_BY_CATEGORY: dict[HealthCategory, tuple[str, str]] = {
+    HealthCategory.APP_STORAGE: (
+        "保存データの問題です。データ管理のバックアップ復元（復元前"
+        "プレビュー）を検討してください。",
+        "data_management",
+    ),
+    HealthCategory.SEMANTIC_INTEGRITY: (
+        "データの意味整合性の問題です。権威グラフで詳細を確認して"
+        "ください。",
+        "authority",
+    ),
+    HealthCategory.INTEGRATIONS: (
+        "外部連携の問題です（アプリやプロジェクトDBの障害ではありません）。"
+        "設定で接続先を確認してください。",
+        "preferences",
+    ),
+}
+
+_HEALTH_GUIDANCE_STATUS_FALLBACK: dict[HealthStatus, str] = {
+    HealthStatus.UNKNOWN: "状態を判定できませんでした。しばらくしてから再診断してください。",
+}
+
+#: Button labels for the surface keys used by ``_HEALTH_GUIDANCE``.
+_HEALTH_ACTION_LABELS: dict[str, str] = {
+    "data_management": "データ管理を開く",
+    "preferences": "環境設定を開く",
+    "capture_settings": "キャプチャ設定を開く",
+    "authority": "権威グラフを開く",
+    "activity": "アクティビティを開く",
+    "export": "診断パッケージをエクスポート",
+}
+
+
+def health_check_guidance(
+    result: HealthCheckResult,
+) -> tuple[str, str | None] | None:
+    """(JA guidance, surface action key) for a non-passing check.
+
+    ``None`` for PASS/NOT_APPLICABLE — a healthy or inapplicable check
+    needs no next step. The action key names an existing Support surface
+    the caller can open; it is never a repair promise.
+    """
+
+    if result.status in (HealthStatus.PASS, HealthStatus.NOT_APPLICABLE):
+        return None
+    guidance = _HEALTH_GUIDANCE.get(result.check_id)
+    if guidance is not None:
+        return guidance
+    fallback = _HEALTH_GUIDANCE_BY_CATEGORY.get(result.category)
+    if fallback is not None:
+        return fallback
+    unknown = _HEALTH_GUIDANCE_STATUS_FALLBACK.get(result.status)
+    if unknown is not None:
+        return (unknown, None)
+    return None
+
+
 class SupportPage(QWidget):
-    """Support: diagnostics locations, version, and package export (#604)."""
+    """Support: diagnostics locations, version, and package export (#604).
+
+    #1018 adds the read-only health-check lane: ``health_runner`` (a
+    ``SupportHealthRunner``) executes ``run_health_checks`` off the UI
+    thread and this page itemizes its per-category findings with
+    reason-specific next-step guidance. The stored report is re-rendered
+    on ``refresh`` rather than silently re-run — a re-shown report always
+    keeps its own execution timestamp.
+    """
 
     def __init__(
         self,
@@ -4027,15 +6409,37 @@ class SupportPage(QWidget):
         open_solver_diagnostics: Callable[[QWidget], None] | None = None,
         open_applicability_envelope: Callable[[QWidget], None] | None = None,
         open_credential_vault: Callable[[QWidget], None] | None = None,
+        health_runner: object | None = None,
+        open_data_management: Callable[[QWidget], None] | None = None,
+        open_preferences: Callable[[QWidget], None] | None = None,
+        open_capture_settings: Callable[[QWidget], None] | None = None,
+        open_activity: Callable[[QWidget], None] | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
+        self._data_dir = data_dir
         self._status_provider = status_provider
         self._export_diagnostics = export_diagnostics
         self._open_authority_graph = open_authority_graph
         self._open_solver_diagnostics = open_solver_diagnostics
         self._open_applicability_envelope = open_applicability_envelope
         self._open_credential_vault = open_credential_vault
+        self._health_runner = health_runner
+        self._health_actions: dict[str, Callable[[QWidget], None]] = {}
+        if open_data_management is not None:
+            self._health_actions["data_management"] = open_data_management
+        if open_preferences is not None:
+            self._health_actions["preferences"] = open_preferences
+        if open_capture_settings is not None:
+            self._health_actions["capture_settings"] = open_capture_settings
+        if open_activity is not None:
+            self._health_actions["activity"] = open_activity
+        if open_authority_graph is not None:
+            self._health_actions["authority"] = open_authority_graph
+        if export_diagnostics is not None:
+            self._health_actions["export"] = lambda _w: self._run_export()
+        self._health_report: HealthReport | None = None
+        self._health_report_data_dir: Path | None = None
         layout = _page_layout(
             self,
             "サポート",
@@ -4124,13 +6528,277 @@ class SupportPage(QWidget):
         else:
             self.export_button = None
             self.export_status = None
+        self._build_health_section(layout)
         layout.addStretch(1)
         self.refresh()
+
+    # -- read-only health check (#1018) ------------------------------------
+
+    def _build_health_section(self, layout: QVBoxLayout) -> None:
+        """Build the 状態診断 lane; all widgets are None without a runner."""
+        if self._health_runner is None:
+            self.health_button = None
+            self.health_cancel_button = None
+            self.health_status = None
+            self.health_results = None
+            return
+        heading = QLabel("アプリとプロジェクトの状態診断", self)
+        set_typography_role(heading, TypographyRole.SECTION_TITLE)
+        layout.addWidget(heading)
+        note = QLabel(
+            "保存データ・意味整合性・外部連携を読み取り専用で検査します。"
+            "プロジェクトの内容は変更されません。外部連携の不具合は"
+            "アプリ全体の障害とは別に扱います。"
+        )
+        note.setWordWrap(True)
+        set_typography_role(note, TypographyRole.SECONDARY)
+        layout.addWidget(note)
+        buttons = QHBoxLayout()
+        self.health_button = QPushButton(
+            "アプリとプロジェクトの状態を診断", self
+        )
+        self.health_button.setToolTip(
+            "プロジェクトの内容を変更せずに各項目の健全性を検査します"
+        )
+        self.health_button.setWhatsThis(
+            "読み取り専用の状態診断を実行します。検査中も操作を続けられます。"
+        )
+        self.health_button.setObjectName("supportRunHealthCheck")
+        self.health_button.setAccessibleName("アプリとプロジェクトの状態を診断")
+        self.health_button.clicked.connect(self._run_health_check)
+        buttons.addWidget(self.health_button)
+        self.health_cancel_button = QPushButton("中止", self)
+        self.health_cancel_button.setObjectName("supportHealthCheckCancel")
+        self.health_cancel_button.setAccessibleName("状態診断を中止")
+        self.health_cancel_button.setToolTip("実行中の診断を中止します")
+        self.health_cancel_button.setWhatsThis("実行中の診断を中止します")
+        self.health_cancel_button.setVisible(False)
+        self.health_cancel_button.clicked.connect(self._cancel_health_check)
+        buttons.addWidget(self.health_cancel_button)
+        buttons.addStretch(1)
+        layout.addLayout(buttons)
+        self.health_status = QLabel(self)
+        self.health_status.setObjectName("supportHealthStatus")
+        self.health_status.setWordWrap(True)
+        self.health_status.setAccessibleName("状態診断の状態")
+        layout.addWidget(self.health_status)
+        self.health_results = QScrollArea(self)
+        self.health_results.setObjectName("supportHealthResults")
+        self.health_results.setWidgetResizable(True)
+        self.health_results.setFrameShape(QFrame.Shape.StyledPanel)
+        self.health_results.setMinimumHeight(160)
+        self.health_results.setAccessibleName("状態診断の結果一覧")
+        self._health_results_body = QWidget(self.health_results)
+        self._health_results_layout = QVBoxLayout(self._health_results_body)
+        self._health_results_layout.setContentsMargins(8, 8, 8, 8)
+        self._health_results_layout.setSpacing(6)
+        self.health_results.setWidget(self._health_results_body)
+        self.health_results.setVisible(False)
+        layout.addWidget(self.health_results, 1)
+        self.health_status.setText("まだ診断は実行されていません。")
+        runner = self._health_runner
+        if isinstance(runner, QObject):
+            # Page owns the runner's lifetime; closeEvent -> shutdown()
+            # is the explicit drain, reparenting is the last-resort
+            # cleanup if the page is deleted without a close.
+            runner.setParent(self)
+        runner.check_started.connect(self._on_health_started)
+        runner.report_ready.connect(self._on_health_report)
+        runner.run_failed.connect(self._on_health_failed)
+        runner.run_cancelled.connect(self._on_health_cancelled)
+        runner.run_finished.connect(self._on_health_finished)
+
+    def _run_health_check(self) -> None:
+        if self._health_runner is None:
+            return
+        self.health_button.setEnabled(False)
+        if not self._health_runner.start():
+            self.health_button.setEnabled(True)
+
+    def _cancel_health_check(self) -> None:
+        if self._health_runner is not None:
+            self._health_runner.request_cancel()
+
+    def _on_health_started(self) -> None:
+        if self.health_status is None:
+            return
+        self.health_status.setText("状態を診断しています…")
+        self.health_button.setEnabled(False)
+        self.health_cancel_button.setVisible(True)
+        self.health_cancel_button.setEnabled(True)
+
+    def _on_health_finished(self) -> None:
+        if self.health_status is None:
+            return
+        self.health_button.setEnabled(True)
+        self.health_cancel_button.setVisible(False)
+        self.health_cancel_button.setEnabled(False)
+
+    def _on_health_cancelled(self) -> None:
+        if self.health_status is not None:
+            self.health_status.setText("診断を中止しました。")
+
+    def _on_health_failed(self, error: object) -> None:
+        if self.health_status is not None:
+            self.health_status.setText(
+                f"診断を完了できませんでした: {operation_error_message(error)}"
+            )
+
+    def _on_health_report(self, report: object) -> None:
+        if not isinstance(report, HealthReport):
+            return
+        self._health_report = report
+        self._health_report_data_dir = getattr(
+            self._health_runner, 'data_dir', self._data_dir
+        )
+        self._render_health_report()
+
+    def _render_health_report(self) -> None:
+        """Itemize the stored report per category with honest statuses."""
+        report = self._health_report
+        if report is None or self.health_results is None:
+            return
+        results_layout = self._health_results_layout
+        while results_layout.count():
+            item = results_layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+        overall = report.overall
+        overall_label = (
+            f"総合判定: {_HEALTH_STATUS_LABELS.get(overall, str(overall))}"
+        )
+        summary_text = (
+            f"{overall_label} · 最終実行: {report.checked_at} · "
+            f"対象: {self._health_report_data_dir or self._data_dir}"
+        )
+        fingerprint = getattr(self._health_runner, 'last_fingerprint', None)
+        if fingerprint:
+            summary_text += f" · データ状態: {str(fingerprint)[:12]}"
+        self.health_status.setText(summary_text)
+        set_semantic_state(
+            self.health_status, _HEALTH_STATUS_SEMANTIC.get(overall)
+        )
+        for category in (
+            HealthCategory.APP_STORAGE,
+            HealthCategory.SEMANTIC_INTEGRITY,
+            HealthCategory.INTEGRATIONS,
+        ):
+            results = report.by_category(category)
+            if not results:
+                continue
+            worst = self._category_status(results)
+            header = QLabel(
+                f"{_HEALTH_CATEGORY_LABELS[category]}"
+                f" — {_HEALTH_STATUS_LABELS[worst]}",
+                self._health_results_body,
+            )
+            set_typography_role(header, TypographyRole.SECTION_TITLE)
+            set_semantic_state(
+                header, _HEALTH_STATUS_SEMANTIC.get(worst)
+            )
+            header.setWordWrap(True)
+            results_layout.addWidget(header)
+            if category is HealthCategory.INTEGRATIONS:
+                honesty = QLabel(
+                    "外部連携の不具合はアプリやプロジェクトDBの障害では"
+                    "ありません（任意機能の状態です）。",
+                    self._health_results_body,
+                )
+                honesty.setWordWrap(True)
+                set_typography_role(honesty, TypographyRole.SECONDARY)
+                results_layout.addWidget(honesty)
+            for result in results:
+                results_layout.addWidget(self._health_result_row(result))
+        results_layout.addStretch(1)
+        self.health_results.setVisible(True)
+
+    @staticmethod
+    def _category_status(results: tuple[HealthCheckResult, ...]) -> HealthStatus:
+        """Category rollup: FAIL > ATTENTION > UNKNOWN > PASS > N/A."""
+        statuses = {r.status for r in results}
+        for status in (
+            HealthStatus.FAIL,
+            HealthStatus.ATTENTION,
+            HealthStatus.UNKNOWN,
+            HealthStatus.PASS,
+        ):
+            if status in statuses:
+                return status
+        return HealthStatus.NOT_APPLICABLE
+
+    def _health_result_row(self, result: HealthCheckResult) -> QWidget:
+        row = QWidget(self._health_results_body)
+        row_layout = QVBoxLayout(row)
+        row_layout.setContentsMargins(12, 0, 0, 4)
+        row_layout.setSpacing(2)
+        status_text = _HEALTH_STATUS_LABELS.get(result.status, result.status)
+        name = _HEALTH_CHECK_LABELS.get(result.check_id, result.check_id)
+        title = QLabel(f"{name} — {status_text}", row)
+        title.setWordWrap(True)
+        title.setAccessibleName(f"{name}: {status_text}")
+        set_semantic_state(
+            title, _HEALTH_STATUS_SEMANTIC.get(result.status)
+        )
+        row_layout.addWidget(title)
+        summary = QLabel(result.summary, row)
+        summary.setWordWrap(True)
+        summary.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+        )
+        row_layout.addWidget(summary)
+        if result.detail:
+            detail = QLabel(result.detail, row)
+            detail.setWordWrap(True)
+            detail.setTextInteractionFlags(
+                Qt.TextInteractionFlag.TextSelectableByMouse
+            )
+            set_typography_role(detail, TypographyRole.SECONDARY)
+            row_layout.addWidget(detail)
+        guidance = health_check_guidance(result)
+        if guidance is not None:
+            guidance_text, action_key = guidance
+            action_row = QWidget(row)
+            action_layout = QHBoxLayout(action_row)
+            action_layout.setContentsMargins(0, 0, 0, 0)
+            action_layout.setSpacing(8)
+            guidance_label = QLabel(guidance_text, action_row)
+            guidance_label.setWordWrap(True)
+            set_typography_role(guidance_label, TypographyRole.SECONDARY)
+            action_layout.addWidget(guidance_label, 1)
+            action = (
+                self._health_actions.get(action_key)
+                if action_key is not None
+                else None
+            )
+            if action is not None:
+                action_button = QPushButton(
+                    _HEALTH_ACTION_LABELS[action_key], action_row
+                )
+                action_button.setObjectName(
+                    f"supportHealthAction-{action_key}"
+                )
+                action_button.setAccessibleName(
+                    _HEALTH_ACTION_LABELS[action_key]
+                )
+                action_button.clicked.connect(
+                    lambda _checked=False, fn=action: fn(self)
+                )
+                action_layout.addWidget(
+                    action_button, 0, Qt.AlignmentFlag.AlignTop
+                )
+            row_layout.addWidget(action_row)
+        return row
+
+    def closeEvent(self, event) -> None:  # noqa: N802
+        if self._health_runner is not None:
+            self._health_runner.shutdown()
+        super().closeEvent(event)
 
     def _run_export(self) -> None:
         try:
             path = self._export_diagnostics(self)
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: diagnostics export — expected failures surface verbatim on the status label; unexpected errors propagate to diagnostics
             self.export_status.setText(
                 "診断パッケージを作成できませんでした: "
                 f"{operation_error_message(exc)}"
@@ -4141,6 +6809,11 @@ class SupportPage(QWidget):
 
     def refresh(self) -> None:
         """Re-render live status lines (e.g. effective receiver state)."""
+        # Re-use semantics: an already-produced report is re-rendered
+        # verbatim (with its own timestamp) — refresh never re-runs the
+        # check behind the user's back.
+        if self._health_report is not None and self.health_results is not None:
+            self._render_health_report()
         for label in self._status_labels:
             self._status_layout.removeWidget(label)
             label.deleteLater()
@@ -4180,11 +6853,14 @@ def inbox_focus(page: CaptureInboxPage, target: NavigationTarget) -> TargetFocus
     item_id = target.primary_id
     if item_id is None:
         return TargetFocusResult(focused=True)
-    for row in range(page.table.rowCount()):
-        cell = page.table.item(row, 0)
-        if cell is not None and cell.data(Qt.ItemDataRole.UserRole) == item_id:
-            page.table.selectRow(row)
-            return TargetFocusResult(focused=True)
+    if page._select_delivery_row(item_id):
+        return TargetFocusResult(focused=True)
+    # The triage filter/search may hide the row — deferred, rejected and
+    # processed items are off the default 要レビュー queue (#988). Reveal
+    # everything once, then retry the identity-pinned lookup.
+    page.reveal_all_items()
+    if page._select_delivery_row(item_id):
+        return TargetFocusResult(focused=True)
     return TargetFocusResult(
         focused=False,
         message="取り込み一覧に該当の項目がありません",
@@ -4210,12 +6886,24 @@ def activity_focus(page: ActivityPage, target: NavigationTarget) -> TargetFocusR
     if target.primary_id is None:
         return TargetFocusResult(focused=True)
     if page.events_table is not None:
-        for row in range(page.events_table.rowCount()):
-            cell = page.events_table.item(row, 0)
-            if cell is not None and _event_row_matches(cell, target):
-                page.events_table.selectRow(row)
-                page.events_table.scrollToItem(cell)
-                return TargetFocusResult(focused=True)
+        # Deep history (#1017): a linked event older than the initial
+        # window loads more pages until it surfaces, so deep links reach
+        # the oldest row instead of reporting it missing. The row-count
+        # guard stops the walk if a cursor ever stalls without growth.
+        while True:
+            for row in range(page.events_table.rowCount()):
+                cell = page.events_table.item(row, 0)
+                if cell is not None and _event_row_matches(cell, target):
+                    page.events_table.selectRow(row)
+                    page.events_table.scrollToItem(cell)
+                    return TargetFocusResult(focused=True)
+            _more, more_button, _label = page.events_pager
+            before = page.events_table.rowCount()
+            if not more_button.isEnabled():
+                break
+            page._events_load_more()
+            if page.events_table.rowCount() == before:
+                break
     for table in (page.operations_table, page.other_operations_table):
         if table is None:
             continue
@@ -4228,15 +6916,23 @@ def activity_focus(page: ActivityPage, target: NavigationTarget) -> TargetFocusR
                 table.selectRow(row)
                 table.scrollToItem(cell)
                 return TargetFocusResult(focused=True)
-    for row in range(page.table.rowCount()):
-        cell = page.table.item(row, 2)
-        if (
-            cell is not None
-            and cell.data(Qt.ItemDataRole.UserRole) in target.object_ids
-        ):
-            page.table.selectRow(row)
-            page.table.scrollToItem(cell)
-            return TargetFocusResult(focused=True)
+    while True:
+        for row in range(page.table.rowCount()):
+            cell = page.table.item(row, 2)
+            if (
+                cell is not None
+                and cell.data(Qt.ItemDataRole.UserRole) in target.object_ids
+            ):
+                page.table.selectRow(row)
+                page.table.scrollToItem(cell)
+                return TargetFocusResult(focused=True)
+        _more, more_button, _label = page.revisions_pager
+        before = page.table.rowCount()
+        if not more_button.isEnabled():
+            break
+        page._revisions_load_more()
+        if page.table.rowCount() == before:
+            break
     return TargetFocusResult(
         focused=False,
         message="アクティビティ一覧に該当の記録がありません",
@@ -4244,6 +6940,7 @@ def activity_focus(page: ActivityPage, target: NavigationTarget) -> TargetFocusR
 
 
 __all__ = [
+    "ActivityEvidenceClass",
     "ActivityPage",
     "CaptureInboxPage",
     "ProjectEntry",
@@ -4254,8 +6951,10 @@ __all__ = [
     "SupportPage",
     "activity_focus",
     "count_recent_revisions",
+    "event_evidence_class",
     "inbox_focus",
     "list_known_document_ids",
+    "list_revisions_page",
     "projects_focus",
     "list_recent_revisions",
 ]

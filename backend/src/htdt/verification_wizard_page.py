@@ -136,7 +136,7 @@ class _ManifestLoadWorker(QThread):
             issues = load_wizard_issues(self._manifest_path)
             store = ManifestGateStore(self._db_path)
             gates = store.load_gates(self._manifest_path)
-        except Exception as exc:
+        except Exception as exc:  # error-boundary: worker dispatch — every manifest/store load failure crosses as the failed payload verbatim (noqa: BLE001)
             self.failed.emit(exc)
             return
         self.loaded.emit(store, issues, gates)

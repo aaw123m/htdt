@@ -19,14 +19,17 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .modal_transient import exec_transient
 from .application_preferences import (
     PENDING_PREFERENCE_KEYS,
+    PREFERENCES_RECOVERY_SUFFIX,
     ApplicationPreferenceStore,
     PreferenceCategory,
     PreferenceChange,
     PreferenceDefinition,
     PreferenceError,
     PreferenceLoadState,
+    PreferenceNotificationError,
     PreferenceValueType,
 )
 from .data_management_ui import DataManagementComponent
@@ -161,6 +164,159 @@ _LOAD_STATE_LABELS: dict[PreferenceLoadState, str] = {
 }
 
 
+def _reset_effect_label(definition: PreferenceDefinition) -> str:
+    if definition.restart_required:
+        return '再起動後に反映'
+    if definition.category == PreferenceCategory.INTEGRATIONS:
+        return '即時反映 · 連携設定が変わります'
+    return '即時反映'
+
+
+def _reset_value_text(value: object) -> str:
+    if isinstance(value, bool):
+        return '有効' if value else '無効'
+    return str(value)
+
+
+class PreferencesResetDialog(QDialog):
+    """#987: diff-confirm dialog for すべて既定値に戻す.
+
+    Shows only the keys that would actually change, grouped by category
+    with current value / default / apply-effect. The operator may reset
+    all categories or a checked subset; nothing reaches the store until
+    one of the reset buttons is accepted.
+    """
+
+    def __init__(
+        self,
+        pending: tuple[tuple[PreferenceDefinition, object], ...],
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self.setObjectName('preferencesResetDialog')
+        self.setWindowTitle('既定値への復元の確認')
+        self._chosen_keys: frozenset[str] | None = None
+        self._category_checks: dict[PreferenceCategory, QCheckBox] = {}
+        self._category_keys: dict[PreferenceCategory, tuple[str, ...]] = {}
+
+        layout = QVBoxLayout(self)
+        intro = QLabel(
+            '以下の設定が既定値に戻ります。初期化するカテゴリを選んでください。',
+            self,
+        )
+        intro.setWordWrap(True)
+        layout.addWidget(intro)
+
+        scroll = QScrollArea(self)
+        scroll.setWidgetResizable(True)
+        host = QWidget()
+        groups_layout = QVBoxLayout(host)
+        groups_layout.setContentsMargins(0, 0, 0, 0)
+
+        by_category: dict[PreferenceCategory, list[tuple[PreferenceDefinition, object]]] = {}
+        for definition, current in pending:
+            by_category.setdefault(definition.category, []).append(
+                (definition, current)
+            )
+
+        for category in PreferenceCategory:
+            rows = by_category.get(category)
+            if not rows:
+                continue
+            self._category_keys[category] = tuple(
+                definition.key for definition, _current in rows
+            )
+            check = QCheckBox(_CATEGORY_LABELS.get(category, category.value), host)
+            check.setChecked(True)
+            check.setAccessibleName(
+                f'カテゴリ「{_CATEGORY_LABELS.get(category, category.value)}」を初期化する'
+            )
+            self._category_checks[category] = check
+            groups_layout.addWidget(check)
+            for definition, current in rows:
+                row = QLabel(
+                    '　'
+                    + _PREFERENCE_LABELS.get(definition.key, definition.key)
+                    + f': {_reset_value_text(current)}'
+                    + f' → {_reset_value_text(definition.default)}'
+                    + f'（{_reset_effect_label(definition)}）',
+                    host,
+                )
+                row.setWordWrap(True)
+                set_typography_role(row, TypographyRole.SECONDARY)
+                groups_layout.addWidget(row)
+        groups_layout.addStretch(1)
+        scroll.setWidget(host)
+        layout.addWidget(scroll, 1)
+
+        buttons_row = QGroupBox(self)
+        buttons_layout = QVBoxLayout(buttons_row)
+        self.selected_button = QPushButton('選択カテゴリのみ初期化', buttons_row)
+        self.selected_button.setToolTip(
+            'チェックしたカテゴリの設定だけを既定値に戻します'
+        )
+        self.selected_button.clicked.connect(self._accept_selected)
+        self.all_button = QPushButton('すべて初期化', buttons_row)
+        self.all_button.setToolTip('一覧のすべての設定を既定値に戻します')
+        self.all_button.clicked.connect(self._accept_all)
+        cancel_button = QPushButton('キャンセル', buttons_row)
+        cancel_button.clicked.connect(self.reject)
+        buttons_layout.addWidget(self.selected_button)
+        buttons_layout.addWidget(self.all_button)
+        buttons_layout.addWidget(cancel_button)
+        layout.addWidget(buttons_row)
+
+    def _accept_selected(self) -> None:
+        keys: list[str] = []
+        for category, check in self._category_checks.items():
+            if check.isChecked():
+                keys.extend(self._category_keys.get(category, ()))
+        if not keys:
+            return
+        self._chosen_keys = frozenset(keys)
+        self.accept()
+
+    def _accept_all(self) -> None:
+        keys: list[str] = []
+        for key_tuple in self._category_keys.values():
+            keys.extend(key_tuple)
+        self._chosen_keys = frozenset(keys)
+        self.accept()
+
+    def chosen_keys(self) -> frozenset[str] | None:
+        return self._chosen_keys
+
+
+class SanctionedResetDialog(QDialog):
+    """#987: explicit warning before the destructive file reset.
+
+    The corrupt/newer-schema persisted file can only be recovered via
+    ``reset_persisted_file()``. This dialog names the ``.recovery``
+    destination up front so the operator can cancel without discarding
+    anything.
+    """
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setObjectName('sanctionedResetDialog')
+        self.setWindowTitle('設定ファイルの初期化')
+        layout = QVBoxLayout(self)
+        message = QLabel(
+            '設定ファイルを読み込めないため、現在の値を編集できません。'
+            f'初期化すると既存ファイルは «{PREFERENCES_RECOVERY_SUFFIX}» で'
+            '終わる復旧用ファイルに保存され、すべて既定値で新規作成されます。',
+            self,
+        )
+        message.setWordWrap(True)
+        layout.addWidget(message)
+        self.reset_button = QPushButton('初期化して既定値に戻す', self)
+        self.reset_button.clicked.connect(self.accept)
+        cancel_button = QPushButton('キャンセル', self)
+        cancel_button.clicked.connect(self.reject)
+        layout.addWidget(self.reset_button)
+        layout.addWidget(cancel_button)
+
+
 class PreferencesWidget(QWidget):
     """Settings surface over :class:`ApplicationPreferenceStore` (#740).
 
@@ -195,8 +351,21 @@ class PreferencesWidget(QWidget):
 
         self.reset_button = QPushButton("すべて既定値に戻す", self)
         self.reset_button.setObjectName("preferencesResetAll")
+        self.reset_button.setToolTip(
+            "変更される設定を確認してから初期化します"
+        )
         self.reset_button.clicked.connect(self._reset_all)
         layout.addWidget(self.reset_button)
+
+        self.rollback_button = QPushButton("元の設定に戻す", self)
+        self.rollback_button.setObjectName("preferencesRollback")
+        self.rollback_button.setToolTip(
+            "直前の初期化で保存された値を復元します（外部機器の状態は戻りません）"
+        )
+        self.rollback_button.clicked.connect(self._rollback_reset)
+        self.rollback_button.setVisible(False)
+        layout.addWidget(self.rollback_button)
+        self._rollback_snapshot: dict[str, object] | None = None
 
         scroll = QScrollArea(self)
         scroll.setObjectName("preferencesScroll")
@@ -341,20 +510,114 @@ class PreferencesWidget(QWidget):
             return
         self._sync_editor(key)
 
+    def _reset_candidates(
+        self,
+    ) -> tuple[tuple[PreferenceDefinition, object], ...]:
+        """Definitions whose stored value differs from the default."""
+        pending: list[tuple[PreferenceDefinition, object]] = []
+        for definition in self._store.definitions():
+            current = self._store.get(definition.key)
+            if current != definition.default:
+                pending.append((definition, current))
+        return tuple(pending)
+
+    def _confirm_reset(
+        self,
+        pending: tuple[tuple[PreferenceDefinition, object], ...],
+    ) -> frozenset[str] | None:
+        dialog = PreferencesResetDialog(pending, parent=self)
+        if exec_transient(dialog) != QDialog.DialogCode.Accepted:
+            return None
+        return dialog.chosen_keys()
+
+    def _confirm_sanctioned_reset(self) -> bool:
+        dialog = SanctionedResetDialog(parent=self)
+        return exec_transient(dialog) == QDialog.DialogCode.Accepted
+
     def _reset_all(self) -> None:
-        try:
-            if self._store.write_allowed:
-                self._store.update(
-                    {d.key: d.default for d in self._store.definitions()}
+        if not self._store.write_allowed:
+            # The only sanctioned recovery for a corrupt/newer-schema
+            # file; warn first — the old document is preserved under
+            # .recovery so nothing is silently discarded.
+            if not self._confirm_sanctioned_reset():
+                return
+            try:
+                recovery = self._store.reset_persisted_file()
+            except PreferenceError as exc:
+                self.reload()
+                self.status.setText(
+                    f"既定値への復元に失敗しました: {operation_error_message(exc)}"
                 )
+                set_semantic_state(self.status, SemanticState.ERROR)
             else:
-                # The only sanctioned recovery for a corrupt/newer-schema
-                # file; the old document is preserved under .recovery first.
-                self._store.reset_persisted_file()
-        except PreferenceError as exc:
-            self.status.setText(f"既定値への復元に失敗しました: {operation_error_message(exc)}")
+                self.reload()
+                if recovery is not None:
+                    self.status.setText(
+                        f"初期化しました。以前のファイルは {recovery} に保存されました。"
+                    )
+                else:
+                    self.status.setText("初期化しました。")
+            return
+
+        pending = self._reset_candidates()
+        if not pending:
+            self.status.setText("すべて既定値のため変更はありません。")
+            return
+        keys = self._confirm_reset(pending)
+        if not keys:
+            self.status.setText("リセットはキャンセルされました。")
+            return
+
+        snapshot = {
+            key: self._store.get(key)
+            for key in keys
+            if self._store.get(key) != self._store.definition(key).default
+        }
+        try:
+            applied = self._store.update(
+                {key: self._store.definition(key).default for key in keys}
+            )
+        except PreferenceNotificationError:
+            # The durable commit already succeeded — only listener
+            # notification failed. Never report this as rolled back.
+            self._rollback_snapshot = snapshot
+            self.rollback_button.setVisible(True)
+            self.reload()
+            self.status.setText(
+                "設定は保存されましたが、一部の画面への反映に失敗しました。"
+            )
             set_semantic_state(self.status, SemanticState.ERROR)
+            return
+        except PreferenceError as exc:
+            self.reload()
+            self.status.setText(
+                f"既定値への復元に失敗しました: {operation_error_message(exc)}"
+            )
+            set_semantic_state(self.status, SemanticState.ERROR)
+            return
+
+        self._rollback_snapshot = snapshot
+        self.rollback_button.setVisible(bool(snapshot))
         self.reload()
+        self.status.setText(f"{len(applied)} 件を既定値に戻しました。")
+
+    def _rollback_reset(self) -> None:
+        snapshot = self._rollback_snapshot
+        if not snapshot:
+            return
+        try:
+            self._store.update(snapshot)
+        except PreferenceError as exc:
+            self.reload()
+            self.status.setText(
+                f"元の設定への復元に失敗しました: {operation_error_message(exc)}"
+            )
+            set_semantic_state(self.status, SemanticState.ERROR)
+            return
+        self._rollback_snapshot = None
+        self.rollback_button.setVisible(False)
+        self.reload()
+        self.status.setText("元の設定に戻しました。")
 
     def _sync_editor(self, key: str) -> None:
         self._loading = True

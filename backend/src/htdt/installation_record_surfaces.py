@@ -67,6 +67,11 @@ from .cad_scene import room_vertices
 from .cad_walls import make_wall_topology
 from .ui_theme import TypographyRole, set_typography_role
 from .user_facing_error import operation_error_message
+from .error_boundary import (
+    EXPECTED_OPERATION_ERRORS,
+    is_authority_failure,
+    report_boundary_failure,
+)
 
 
 def _utc_now() -> str:
@@ -522,7 +527,7 @@ class InstallationRecordDialog(QDialog):
                 created_at_utc=_utc_now(),
             )
             self.datum_repository.save_datum(datum)
-        except Exception as exc:  # noqa: BLE001
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: op surface — expected failures show a verbatim error; unexpected errors propagate to diagnostics
             self.status_label.setText(
                 f'設置基準を記録できませんでした: {operation_error_message(exc)}'
             )
@@ -545,7 +550,10 @@ class InstallationRecordDialog(QDialog):
             self._definitions = list(
                 self.equipment_repository.list_definitions()
             )
-        except Exception:  # noqa: BLE001 — unreadable store fails closed below
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: sealed read — expected failures report and fail closed to no definitions; sealed-store failures propagate
+            if is_authority_failure(exc):
+                raise
+            report_boundary_failure(exc, operation='機材定義の読み取り')
             self._definitions = []
 
         bindings = self.binding_repository.latest_bindings_for_document(
@@ -656,7 +664,7 @@ class InstallationRecordDialog(QDialog):
                 created_at_utc=_utc_now(),
             )
             self.binding_repository.save_binding(binding)
-        except Exception as exc:  # noqa: BLE001
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: op surface — expected failures show a verbatim error; unexpected errors propagate to diagnostics
             self.status_label.setText(
                 f'バインドを記録できませんでした: {operation_error_message(exc)}'
             )
@@ -707,7 +715,7 @@ class InstallationRecordDialog(QDialog):
                 ),
             )
             self.context_repository.save_context(context)
-        except Exception as exc:  # noqa: BLE001
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: op surface — expected failures show a verbatim error; unexpected errors propagate to diagnostics
             self.status_label.setText(
                 f'設置コンテキストを記録できませんでした: {operation_error_message(exc)}'
             )

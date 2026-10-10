@@ -416,7 +416,7 @@ class UdpMulticastTransport:
                 )
             else:
                 sock.bind(('', 0))
-        except Exception:
+        except Exception:  # error-boundary: cleanup before re-raise — a bind/membership failure closes the socket so it is never leaked (noqa: BLE001)
             sock.close()
             raise
         return sock
@@ -434,7 +434,7 @@ class UdpMulticastTransport:
             return f'multicast transport probe failed ({exc})'
         try:
             sock.close()
-        except Exception:
+        except Exception:  # error-boundary: teardown — a close failure is benign; the socket is already released by the OS on GC (noqa: BLE001)
             pass
         return None
 
@@ -487,7 +487,7 @@ class UdpMulticastTransport:
         finally:
             try:
                 sock.close()
-            except Exception:
+            except Exception:  # error-boundary: teardown — a close failure is benign; the socket is already released by the OS on GC (noqa: BLE001)
                 pass
         return tuple(received)
 

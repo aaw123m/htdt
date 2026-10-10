@@ -48,6 +48,7 @@ from ...canonical_json import canonical_json, canonical_sha256
 from ...cad_equipment import FrequencyDomain
 from ...cad_scene import Position3, Quaternion4
 from ...comparison import ComparisonResult, FrequencyResponse, compare_frequency_responses
+from ...error_boundary import EXPECTED_OPERATION_ERRORS
 
 
 # --- authority identity -------------------------------------------------
@@ -1451,7 +1452,7 @@ def compute_residual_report(
                     band_high,
                     reference_band_hz=spec.reference_band_hz,
                 )
-            except Exception:
+            except EXPECTED_OPERATION_ERRORS:
                 continue
             magnitude_bands.append(
                 BandMagnitudeResidual(

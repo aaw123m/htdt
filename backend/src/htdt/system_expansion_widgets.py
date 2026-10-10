@@ -27,6 +27,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .modal_transient import exec_transient
 from .cad_display_labels import measurement_claim_label
 from .cad_scene import is_unassigned_speaker_role
 from .field_tooltips import apply_field_tooltip
@@ -54,7 +55,7 @@ from .ui_theme import (
     set_surface_role,
     set_typography_role,
 )
-from .user_facing_error import warn_user
+from .operation_error_dialog import warn_user
 from .user_facing_error import operation_error_message
 
 
@@ -1098,7 +1099,7 @@ class SystemExpansionRoomPanel(QFrame):
         )
         dialog = EquipmentLibraryDialog(service, parent=self)
         dialog.definitionsChanged.connect(self._refresh_equipment)
-        dialog.exec()
+        exec_transient(dialog)
         self._refresh_equipment()
 
     def _open_playback_chain(self) -> None:
@@ -1112,7 +1113,7 @@ class SystemExpansionRoomPanel(QFrame):
             self.service.document_id,
         )
         dialog = PlaybackChainDialog(service, parent=self)
-        dialog.exec()
+        exec_transient(dialog)
 
     def _variant_changed(self, variant_id: str) -> None:
         self._show_variant(variant_id)
@@ -1927,7 +1928,7 @@ class SystemExpansionMeasurementPanel(QFrame):
             )
             return
         dialog = _MeasurementPlanDialog(options, self)
-        if dialog.exec() != QDialog.DialogCode.Accepted:
+        if exec_transient(dialog) != QDialog.DialogCode.Accepted:
             return
         try:
             self.service.create_measurement_plan(

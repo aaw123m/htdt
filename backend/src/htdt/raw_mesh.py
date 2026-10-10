@@ -143,7 +143,7 @@ class RawVisualMesh(BaseModel):
     def validate_snapshot(self) -> 'RawVisualMesh':
         try:
             original = b64decode(self.original_asset_base64.encode('ascii'), validate=True)
-        except Exception as exc:  # pragma: no cover - pydantic wraps this path
+        except Exception as exc:  # error-boundary: error translation — a base64 decode failure wraps as ValueError with the original failure preserved via 'from exc' (pydantic re-wraps as ValidationError) (noqa: BLE001)
             raise ValueError('original_asset_base64 must be valid base64') from exc
         actual_hash = sha256(original).hexdigest()
         if actual_hash != self.provenance.original_asset_sha256:

@@ -345,7 +345,7 @@ class AvrLanCalibrationAdapter:
             for command in commands:
                 transport.send(command)
                 applied += 1
-        except Exception as exc:
+        except (OSError, EOFError, RuntimeError) as exc:  # error-boundary: transport lane — send failures wrap as typed apply aborts; transport bug classes propagate
             raise AvrLanApplyError(
                 f'AVR apply aborted after {applied}/{len(commands)} '
                 f'commands: {exc}',
@@ -377,7 +377,7 @@ class AvrLanCalibrationAdapter:
                 )
             try:
                 responses = transport.query(f'CV{code} ?')
-            except Exception as exc:
+            except (OSError, EOFError, RuntimeError) as exc:  # error-boundary: transport lane — query failures wrap as typed capability errors; transport bug classes propagate
                 raise AdapterCapabilityError(
                     f'AVR read-back of {code} failed: {exc}'
                 ) from exc
@@ -473,7 +473,7 @@ class AvrLanCalibrationAdapter:
                     )
                 transport.send(_cv_command(code, value))
             observed = self._read_trims(transport, binding)
-        except Exception as exc:
+        except (OSError, EOFError, RuntimeError) as exc:  # error-boundary: transport lane — rollback transport failures report 'failed'; transport bug classes propagate
             return AvrLanRollbackResult(
                 outcome='failed', notes=(f'rollback failed: {exc}',),
             )

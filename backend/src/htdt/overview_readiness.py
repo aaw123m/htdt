@@ -24,6 +24,11 @@ from .result_trust_adapters import (
     trust_for_validation,
 )
 from .workflow_navigation import WorkspaceDeepLink, WorkspaceId
+from .error_boundary import (
+    EXPECTED_OPERATION_ERRORS,
+    is_authority_failure,
+    report_boundary_failure,
+)
 
 
 OverviewSeverity = Literal['blocker', 'warning']
@@ -797,7 +802,10 @@ class OverviewReadinessService:
                     validation=bound_validation,
                 )
                 lines.append(prediction_trust.compact_text('最新の予測'))
-            except Exception:
+            except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: trust read — expected failures report and degrade to no prediction-trust line; sealed-store failures propagate
+                if is_authority_failure(exc):
+                    raise
+                report_boundary_failure(exc, operation='予測信頼度の読み取り')
                 prediction_trust = None
         if measurements:
             try:
@@ -807,8 +815,10 @@ class OverviewReadinessService:
                         scene_repository=self._scene_source,  # type: ignore[arg-type]
                     ).compact_text('最新の測定')
                 )
-            except Exception:
-                pass
+            except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: trust read — expected failures report and degrade to no measurement-trust line; sealed-store failures propagate
+                if is_authority_failure(exc):
+                    raise
+                report_boundary_failure(exc, operation='測定信頼度の読み取り')
         if validation is not None:
             try:
                 lines.append(
@@ -817,8 +827,10 @@ class OverviewReadinessService:
                         underlying=prediction_trust,
                     ).compact_text('検証')
                 )
-            except Exception:
-                pass
+            except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: trust read — expected failures report and degrade to no validation-trust line; sealed-store failures propagate
+                if is_authority_failure(exc):
+                    raise
+                report_boundary_failure(exc, operation='検証信頼度の読み取り')
         return tuple(lines)
 
     def _recent_activity(self, document_id: str) -> tuple[OverviewActivityItem, ...]:

@@ -27,6 +27,7 @@ machine-read-back evidence is never claimable from file writes.
 from __future__ import annotations
 
 import hashlib
+import logging
 from pathlib import Path
 from typing import Any, Literal
 from uuid import uuid4
@@ -59,6 +60,8 @@ from .canonical_json import (
     canonical_sha256 as _hash,
     canonicalize_payload,
 )
+
+_LOGGER = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -1151,7 +1154,7 @@ class DeploymentPipelineService:
                 self._baseline_payload = payload
                 baseline_sha = sha
                 baseline_source = 'machine_capture'
-            except Exception:
+            except Exception:  # error-boundary: baseline probe — any machine-capture failure degrades to an honest 'unavailable' baseline, never a forged one (noqa: BLE001)
                 baseline_source = 'unavailable'
         elif self._capability.supports_read_back:
             try:
@@ -1165,7 +1168,7 @@ class DeploymentPipelineService:
                 }
                 baseline_sha = _hash(self._baseline_payload)
                 baseline_source = 'machine_readback'
-            except Exception:
+            except Exception:  # error-boundary: baseline probe — any readback failure degrades to an honest 'unavailable' baseline, never a forged one (noqa: BLE001)
                 baseline_source = 'unavailable'
         self._baseline_sha256 = baseline_sha
         return self._emit(
@@ -1304,7 +1307,7 @@ class DeploymentPipelineService:
                 operator_confirmed=True,
                 applied_at_utc=at,
             )
-        except Exception as exc:
+        except Exception as exc:  # error-boundary: apply boundary — any apply failure emits a failed/partial record with applied/total units preserved and re-raises; the identity is never masked (noqa: BLE001)
             applied = getattr(exc, 'applied_units', None)
             total = getattr(exc, 'total_units', None)
             partial = 'partial' if applied else 'failed'
@@ -1348,8 +1351,10 @@ class DeploymentPipelineService:
             self._repository.save_operator_authorization(
                 consume_authorization(authorization, record_id),
             )
-        except Exception:
-            pass  # consumption persistence is best-effort bookkeeping
+        except Exception:  # error-boundary: best-effort bookkeeping — a consumption-persistence failure logs and leaves the authorization unconsumed (conservative direction); the apply record is already emitted (noqa: BLE001)
+            _LOGGER.warning(
+                'authorization-consumption persistence failed', exc_info=True
+            )  # consumption persistence is best-effort bookkeeping
 
     def verify_readback(self, *, at: str) -> EffectiveAppliedSettingsSnapshot:
         """Read back the device state and diff against the pinned export."""
@@ -1407,7 +1412,7 @@ class DeploymentPipelineService:
                     if getattr(evidence, 'outcome', '') == 'restored_verified'
                     else 'failed'
                 )
-            except Exception:
+            except Exception:  # error-boundary: rollback probe — an evidence-inspection failure records the outcome as 'failed' honestly (noqa: BLE001)
                 outcome = 'failed'
         else:
             outcome = 'unavailable'

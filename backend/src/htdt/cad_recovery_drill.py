@@ -1423,7 +1423,7 @@ def _impl_error_boundary_authority_honesty(
     raised: Exception | None = None
     try:
         repository.get_reference(ref.reference_id)
-    except Exception as exc:  # noqa: BLE001 — observing the type
+    except Exception as exc:  # error-boundary: drill probe — the exception object is captured verbatim and classified below; a non-raising read records 'none raised' honestly (noqa: BLE001)
         raised = exc
 
     category = (classify_boundary_error(raised)

@@ -8,7 +8,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 from PySide6.QtCore import QObject, Signal
-from PySide6.QtWidgets import QApplication, QMessageBox
+from PySide6.QtWidgets import QApplication, QMessageBox, QScrollArea
 
 from htdt.data_management import (
     BackupCreateResult,
@@ -29,6 +29,7 @@ class _FakeController(QObject):
     backup_created = Signal(object)
     restore_preview_ready = Signal(object)
     restore_completed = Signal(object)
+    restore_drill_completed = Signal(object)
     relocation_completed = Signal(object)
     storage_scan_completed = Signal(object)
     storage_gc_completed = Signal(object)
@@ -50,6 +51,7 @@ class _FakeController(QObject):
         self.preview_requests: list[Path] = []
         self.restore_requests: list[object] = []
         self.relocate_requests: list[Path] = []
+        self.drill_requests: list[tuple[Path, Path]] = []
         self.storage_scan_requests = 0
         self.storage_gc_requests = 0
         self.revalidate_calls = 0
@@ -80,6 +82,10 @@ class _FakeController(QObject):
         self.relocate_requests.append(Path(destination))
         return "relocate-op"
 
+    def restore_drill(self, backup_path: Path, sandbox: Path) -> str:
+        self.drill_requests.append((Path(backup_path), Path(sandbox)))
+        return "drill-op"
+
     def scan_storage(self) -> str:
         self.storage_scan_requests += 1
         return "storage-scan-op"
@@ -107,10 +113,12 @@ class _Dialogs:
         backup_path: Path | None = None,
         restore_path: Path | None = None,
         relocation_path: Path | None = None,
+        drill_sandbox: Path | None = None,
     ) -> None:
         self.backup_path = backup_path
         self.restore_path = restore_path
         self.relocation_path = relocation_path
+        self.drill_sandbox = drill_sandbox
         self.suggested_names: list[str] = []
 
     def choose_backup_destination(
@@ -127,6 +135,9 @@ class _Dialogs:
 
     def choose_relocation_destination(self, parent) -> Path | None:
         return self.relocation_path
+
+    def choose_drill_sandbox(self, parent) -> Path | None:
+        return self.drill_sandbox
 
 
 @pytest.fixture(scope="module")
@@ -376,6 +387,64 @@ def test_generations_row_hides_when_nothing_is_saved(
 
     assert widget.generations_combo.count() == 0
     assert widget.generations_row.isHidden()
+
+    component.close()
+
+
+def test_generations_row_stays_inside_narrow_viewport(
+    app: QApplication,
+    tmp_path: Path,
+) -> None:
+    """#992: the generations row must keep its minimumSizeHint inside the
+    scroll viewport on narrow windows — the drill action folds into the
+    操作 ▾ overflow menu and still runs the exact same slot, while the
+    primary restore action never collapses."""
+
+    data_dir = tmp_path / "data"
+    generations_dir = tmp_path / "data-backups"
+    generations_dir.mkdir(parents=True)
+    newest = generations_dir / (
+        "htdt-backup-manual-20260901T000000Z-abcd1234.htdt-backup"
+    )
+    newest.write_bytes(b"newest")
+    sandbox = tmp_path / "drill-sandbox"
+
+    controller = _FakeController(data_dir)
+    dialogs = _Dialogs(drill_sandbox=sandbox)
+    component = build_data_management_component(controller, dialogs=dialogs)
+    widget = component.widget
+    scroll = widget.findChild(QScrollArea, "dataManagementScroll")
+    row = widget.generations_row
+
+    widget.resize(800, 600)
+    widget.show()
+    app.processEvents()
+    app.processEvents()
+
+    # The row's minimum must never force horizontal scrolling at ~800px.
+    assert row.minimumSizeHint().width() <= scroll.viewport().width()
+
+    # The secondary drill action folds into the overflow menu; the
+    # primary restore action never collapses.
+    assert widget.drill_button.isHidden()
+    assert not row.actions_overflow.isHidden()
+    assert not widget.generation_restore_button.isHidden()
+
+    # The folded menu action runs the exact same slot as the button.
+    menu_actions = row.actions_menu.actions()
+    assert [action.text() for action in menu_actions] == [
+        "このバックアップを復元テスト…"
+    ]
+    menu_actions[0].trigger()
+    assert controller.drill_requests == [(newest, sandbox)]
+
+    # Widening unfolds the row again — the button returns and the
+    # overflow menu hides.
+    widget.resize(1400, 900)
+    app.processEvents()
+    app.processEvents()
+    assert not widget.drill_button.isHidden()
+    assert row.actions_overflow.isHidden()
 
     component.close()
 

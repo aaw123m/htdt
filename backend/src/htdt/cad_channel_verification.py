@@ -1107,9 +1107,9 @@ def run_channel_excitation(
                             arrival, level_dbfs, polarity)
     except ChannelVerificationError:
         raise
-    except Exception:
+    except Exception:  # error-boundary: engine/backend boundary — a crash is evidence: the run marks 'invalid' honestly, never crashes the batch (noqa: BLE001)
         # Engine/Backend failures are evidence: mark invalid, never crash
-        # the batch. # error-boundary: engine/backend boundary.
+        # the batch.
         quality = 'invalid'
         run_ref = None
 

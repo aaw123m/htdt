@@ -37,6 +37,7 @@ Provider-neutral core:
 
 from __future__ import annotations
 
+import logging
 import math
 import sys
 import uuid
@@ -48,6 +49,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from .clock import utc_now_iso as _utc_now
 from .canonical_json import canonical_sha256, canonicalize_payload
+
+_LOGGER = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -409,13 +412,13 @@ class WasapiAudioBackend(AudioIOBackend):
             driver = self._get_driver()
         except WasapiDriverError as exc:
             return None, None, str(exc)
-        except Exception as exc:  # never surface a raw crash as the reason
+        except Exception as exc:  # error-boundary: driver boundary — a non-driver-typed failure returns an honest 'init failed' reason, never a raw crash (noqa: BLE001)
             return None, None, f'wasapi driver init failed: {exc}'
         try:
             endpoints = driver.enumerate_endpoints()
         except WasapiDriverError as exc:
             return driver, None, f'endpoint enumeration failed: {exc}'
-        except Exception as exc:
+        except Exception as exc:  # error-boundary: driver boundary — a non-driver-typed failure returns an honest 'enumeration failed' reason, never a raw crash (noqa: BLE001)
             return driver, None, f'endpoint enumeration failed: {exc}'
         return driver, endpoints, None
 
@@ -505,7 +508,7 @@ class WasapiAudioBackend(AudioIOBackend):
             driver = self._get_driver()
         except WasapiDriverError as exc:
             raise BackendUnavailableError(str(exc)) from exc
-        except Exception as exc:
+        except Exception as exc:  # error-boundary: error translation — a non-driver-typed init failure wraps as BackendUnavailableError with the original failure preserved via 'from exc' (noqa: BLE001)
             raise BackendUnavailableError(
                 f'wasapi driver init failed: {exc}') from exc
         try:
@@ -570,7 +573,7 @@ class WasapiAudioBackend(AudioIOBackend):
                 capture = driver.open_capture(
                     routing.capture_device_id,
                     config.sample_rate_hz, cap.mix_channels)
-            except Exception:
+            except Exception:  # error-boundary: cleanup before re-raise — a capture-open failure closes the render client so the device is never leaked (noqa: BLE001)
                 render.close()
                 raise
         except WasapiUnsupportedFormatError as exc:
@@ -1545,8 +1548,8 @@ class MeasurementAcquisitionEngine:
                 declare_operation_started(
                     'sweep_acquisition', self.run_id
                 )
-        except Exception:
-            pass
+        except Exception:  # error-boundary: best-effort marker — an operation-declare failure logs and never fails the transition; run markers are bookkeeping (noqa: BLE001)
+            _LOGGER.warning('operation-started declare failed', exc_info=True)
 
     # -- PRECHECK ----------------------------------------------------------
 

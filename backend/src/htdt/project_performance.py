@@ -596,7 +596,7 @@ def measure_project_operations(
         ops.append(
             _timed('inbox_summary', lambda: len(inbox.list_items()))
         )
-    except Exception:
+    except Exception:  # error-boundary: measurement lane — an unmeasurable op records an honest 'unmeasured' OperationMeasurement, never a fabricated duration (noqa: BLE001)
         ops.append(
             OperationMeasurement(
                 operation='inbox_summary',

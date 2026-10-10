@@ -157,6 +157,152 @@ def check_disabled_reasons(root) -> list[dict]:
     return findings
 
 
+def check_dynamic_a11y(app, root) -> dict:
+    """#975: the dynamic panels (decision brief, geometry intake,
+    standards criteria, measurement quality) must keep keyboard focus
+    across rebuilds, announce each state transition exactly once, and
+    carry every disabled control's reason on the screen itself — not
+    only on the (Tab-unreachable) disabled button."""
+    from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import (
+        QAbstractButton, QAbstractItemView, QLabel, QWidget,
+    )
+
+    from htdt.dynamic_a11y import DynamicAnnouncer, STABLE_ID_ROLE
+
+    def _announcers(panel) -> list:
+        try:
+            return [
+                v for v in vars(panel).values()
+                if isinstance(v, DynamicAnnouncer)
+            ]
+        except Exception:
+            return []
+
+    def _refresh(panel) -> None:
+        refresh = getattr(panel, 'refresh', None)
+        if callable(refresh):
+            refresh()
+            return
+        set_report = getattr(panel, 'set_report', None)
+        if callable(set_report):
+            set_report(getattr(panel, '_report', None))
+
+    findings: list[dict] = []
+    panels = [
+        w for w in root.findChildren(QWidget)
+        if _announcers(w) and not w.objectName().startswith('qt_')
+    ]
+    panels = [
+        p for p in panels
+        if not any(q is not p and q.isAncestorOf(p) for q in panels)
+    ]
+    checked = [_widget_id(p) for p in panels]
+    focus_notes: dict[str, str] = {}
+
+    for panel in panels:
+        name = _widget_id(panel)
+
+        # --- focus retention on a stable anchor ---------------------------
+        anchor = None
+        anchor_id = None
+        for view in panel.findChildren(QAbstractItemView):
+            idx = view.currentIndex()
+            if idx.isValid():
+                anchor = view
+                anchor_id = (
+                    idx.data(STABLE_ID_ROLE)
+                    or idx.data(Qt.ItemDataRole.UserRole)
+                )
+                break
+        if anchor is None:
+            buttons = [
+                b for b in panel.findChildren(QAbstractButton)
+                if b.isEnabled() and b.isVisibleTo(panel)
+                and b.focusPolicy() != Qt.FocusPolicy.NoFocus
+            ]
+            if buttons:
+                anchor = buttons[0]
+        focus_note = 'no_anchor'
+        focus_notes[name] = focus_note
+        if anchor is not None:
+            anchor_name = anchor.objectName()
+            anchor.setFocus()
+            app.processEvents()
+            if app.focusWidget() is anchor:
+                _refresh(panel)
+                app.processEvents()
+                fw = app.focusWidget()
+                if fw is None:
+                    findings.append(
+                        {'panel': name, 'issue': 'focus_lost'})
+                    focus_note = 'lost'
+                elif fw is anchor and isinstance(
+                        anchor, QAbstractItemView) and anchor_id is not None:
+                    cur = anchor.currentIndex()
+                    same = cur.isValid() and (
+                        cur.data(STABLE_ID_ROLE) == anchor_id
+                        or cur.data(Qt.ItemDataRole.UserRole) == anchor_id)
+                    focus_note = 'kept' if same else 'row_changed'
+                    if not same:
+                        findings.append({
+                            'panel': name,
+                            'issue': 'focus_row_changed',
+                            'item_id': str(anchor_id)[:80],
+                        })
+                elif fw is anchor or fw.objectName() == anchor_name:
+                    focus_note = 'kept'
+                else:
+                    findings.append({
+                        'panel': name,
+                        'issue': 'focus_moved',
+                        'widget': _widget_id(fw),
+                    })
+                    focus_note = 'moved'
+            else:
+                # Real-GUI lanes only: a window that never took activation
+                # cannot hold a probe — record, do not accuse.
+                focus_note = 'probe_skipped'
+            focus_notes[name] = focus_note
+
+        # --- announcements: a same-state re-render must be silent ---------
+        for announcer in _announcers(panel)[:1]:
+            before = len(announcer.events)
+            _refresh(panel)
+            app.processEvents()
+            added = len(announcer.events) - before
+            if added:
+                findings.append({
+                    'panel': name,
+                    'issue': 'announcement_spam',
+                    'added': added,
+                })
+
+        # --- disabled reasons reachable on this screen --------------------
+        for button in panel.findChildren(QAbstractButton):
+            if not button.isVisibleTo(panel) or button.isEnabled():
+                continue
+            on_screen = any(
+                label for label in panel.findChildren(QLabel)
+                if label.focusPolicy() == Qt.FocusPolicy.StrongFocus
+                and label.text().strip()
+                and label.isVisibleTo(panel)
+            )
+            if not on_screen:
+                findings.append({
+                    'panel': name,
+                    'issue': 'disabled_reason_not_on_screen',
+                    'widget': _widget_id(button),
+                    'tooltip': bool(button.toolTip() or button.statusTip()),
+                })
+
+    return {
+        'panels': checked,
+        'findings': findings,
+        'focus_notes': focus_notes,
+    }
+
+
 def check_palette(app, window, shots_dir: Path) -> dict:
     from PySide6.QtCore import Qt
     from PySide6.QtTest import QTest

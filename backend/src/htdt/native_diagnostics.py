@@ -11,18 +11,23 @@ import sys
 import threading
 from types import TracebackType
 
+from .modal_transient import exec_transient
 from . import __version__
+from .diagnostics_support import (
+    DIAGNOSTICS_DIRNAME,
+    LOG_BACKUP_COUNT,
+    LOG_DATE_FORMAT,
+    LOG_FILENAME,
+    LOG_FORMAT,
+    MAX_LOG_BYTES,
+    BuildIdentity,
+    build_identity,
+    concise_reason,
+    diagnostics_dir,
+)
 
 
 LOGGER_NAME = 'htdt.native'
-DIAGNOSTICS_DIRNAME = 'diagnostics'
-LOG_FILENAME = 'htdt-native.log'
-LOG_FORMAT = '%(asctime)sZ %(levelname)s %(name)s: %(message)s'
-LOG_DATE_FORMAT = '%Y-%m-%dT%H:%M:%S'
-
-# Rotation keeps on-disk diagnostics bounded even if a runtime fault loops.
-MAX_LOG_BYTES = 1024 * 1024
-LOG_BACKUP_COUNT = 4
 
 # Records carry concise lifecycle/error metadata only. The per-record bound and
 # the credential scrubber keep raw measurement payloads and secrets out of the
@@ -41,6 +46,8 @@ _SECRET_KEY_PATTERN = re.compile(
 
 _HandlerMarker = '_htdt_diagnostics'
 _PREVIOUS_HOOK_ATTR = '_htdt_previous_hook'
+
+_LOGGER = logging.getLogger(LOGGER_NAME)
 
 _qt_message_handler = None
 _qt_previous_handler = None
@@ -74,10 +81,6 @@ def push_uncaught_sink(sink: UncaughtSink) -> Callable[[], None]:
     return _pop
 
 
-def diagnostics_dir(data_dir: Path) -> Path:
-    return Path(data_dir) / DIAGNOSTICS_DIRNAME
-
-
 def _sanitize(text: str) -> str:
     text = _BEARER_PATTERN.sub(f'Bearer {REDACTED}', text)
     text = _SECRET_KEY_PATTERN.sub(lambda match: f'{match.group(1)}{match.group(2)}{REDACTED}', text)
@@ -93,45 +96,6 @@ class _DiagnosticsFormatter(logging.Formatter):
         return _sanitize(super().format(record))
 
 
-@dataclass(frozen=True)
-class BuildIdentity:
-    """Source build identity attached to diagnostics records."""
-
-    version: str
-    python: str
-    platform: str
-    frozen: bool
-    qt: str | None
-
-    def describe(self) -> str:
-        parts = [
-            f'version={self.version}',
-            f'python={self.python}',
-            f'platform={self.platform}',
-            f'frozen={self.frozen}',
-        ]
-        if self.qt:
-            parts.append(f'qt={self.qt}')
-        return ' '.join(parts)
-
-
-def build_identity() -> BuildIdentity:
-    qt_version: str | None = None
-    try:
-        import PySide6
-
-        qt_version = PySide6.__version__
-    except Exception:
-        qt_version = None
-    return BuildIdentity(
-        version=__version__,
-        python=platform.python_version(),
-        platform=platform.platform(),
-        frozen=bool(getattr(sys, 'frozen', False)),
-        qt=qt_version,
-    )
-
-
 def write_stderr(message: str) -> None:
     """Write to stderr when it exists; a windowed executable may have none."""
 
@@ -141,8 +105,8 @@ def write_stderr(message: str) -> None:
     try:
         stream.write(message + '\n')
         stream.flush()
-    except Exception:
-        pass
+    except Exception:  # error-boundary: stderr is the last-resort channel — a write failure has no lower surface; identity is logged (noqa: BLE001)
+        _LOGGER.exception('stderr write failed')
 
 
 class NativeDiagnostics:
@@ -164,8 +128,8 @@ class NativeDiagnostics:
         for handler in self.logger.handlers:
             try:
                 handler.flush()
-            except Exception:
-                pass
+            except Exception:  # error-boundary: per-handler flush sweep — one broken handler must not stop the rest; identity is logged (noqa: BLE001)
+                _LOGGER.exception('diagnostics handler flush failed')
 
     def log_session_start(self, mode: str) -> None:
         self.logger.info('htdt session start: mode=%s %s', mode, self.identity.describe())
@@ -213,8 +177,8 @@ def _drop_diagnostics_handlers(logger: logging.Logger) -> None:
             logger.removeHandler(handler)
             try:
                 handler.close()
-            except Exception:
-                pass
+            except Exception:  # error-boundary: handler teardown sweep — every marked handler must close; identity is logged (noqa: BLE001)
+                _LOGGER.exception('diagnostics handler close failed')
 
 
 def configure_diagnostics(
@@ -263,7 +227,7 @@ def _qt_log_level(mode: object) -> int:
     if not _QT_LEVELS:
         try:
             from PySide6.QtCore import QtMsgType
-        except Exception:
+        except ImportError:  # error-boundary: optional-dependency probe — Qt absent keeps the default level; a broken import propagates
             return logging.INFO
         _QT_LEVELS.update(
             {
@@ -281,20 +245,20 @@ def _install_qt_message_handler(diagnostics: NativeDiagnostics) -> None:
     global _qt_message_handler, _qt_previous_handler
     try:
         from PySide6.QtCore import qInstallMessageHandler
-    except Exception:
+    except ImportError:  # error-boundary: optional-dependency probe — Qt absent leaves the default handler; a broken import propagates
         return
     log = diagnostics.logger
 
     def _handler(mode: object, context: object, message: str) -> None:
         try:
             log.log(_qt_log_level(mode), 'qt: %s', message)
-        except Exception:
-            pass
+        except Exception as exc:  # error-boundary: Qt message dispatch — a logging failure inside the handler must never recurse through Qt; identity goes to the last-resort channel (noqa: BLE001)
+            write_stderr(f'qt message logging failed: {type(exc).__name__}: {exc}')
         if _qt_previous_handler is not None:
             try:
                 _qt_previous_handler(mode, context, message)
-            except Exception:
-                pass
+            except Exception as exc:  # error-boundary: Qt message dispatch — the previous handler's failure must not break Qt's message path; identity goes to the last-resort channel (noqa: BLE001)
+                write_stderr(f'previous qt message handler failed: {type(exc).__name__}: {exc}')
         else:
             # The Qt default handler prints to stderr; keep that behavior.
             write_stderr(f'qt: {message}')
@@ -318,8 +282,8 @@ def uninstall_exception_hooks() -> None:
             from PySide6.QtCore import qInstallMessageHandler
 
             qInstallMessageHandler(_qt_previous_handler)
-        except Exception:
-            pass
+        except Exception:  # error-boundary: hook teardown — uninstall must complete even when the Qt restore fails; identity is logged (noqa: BLE001)
+            _LOGGER.exception('qt message handler restore failed')
         _qt_message_handler = None
         _qt_previous_handler = None
 
@@ -343,15 +307,15 @@ def install_exception_hooks(diagnostics: NativeDiagnostics) -> None:
     ) -> None:
         try:
             diagnostics.log_uncaught(exc_type, exc, tb)
-        except Exception:
-            pass
+        except Exception as log_exc:  # error-boundary: the uncaught recorder itself — a logging failure must not mask the original exception; identity goes to the last-resort channel (noqa: BLE001)
+            write_stderr(f'uncaught logging failed: {type(log_exc).__name__}: {log_exc}')
         _surface_uncaught_on_statusbar(diagnostics)
         _post_uncaught_to_sink(diagnostics, exc)
         if previous_sys is not None:
             try:
                 previous_sys(exc_type, exc, tb)
-            except Exception:
-                pass
+            except Exception as prev_exc:  # error-boundary: excepthook chain — the previous hook's failure must not mask the exception being reported; identity goes to the last-resort channel (noqa: BLE001)
+                write_stderr(f'previous excepthook failed: {type(prev_exc).__name__}: {prev_exc}')
 
     _sys_hook._htdt_previous_hook = previous_sys  # type: ignore[attr-defined]
     sys.excepthook = _sys_hook
@@ -365,13 +329,13 @@ def install_exception_hooks(diagnostics: NativeDiagnostics) -> None:
             diagnostics.log_uncaught(
                 args.exc_type, args.exc_value, args.exc_traceback, context=context
             )
-        except Exception:
-            pass
+        except Exception as log_exc:  # error-boundary: the uncaught recorder itself — a logging failure must not mask the thread failure being reported; identity goes to the last-resort channel (noqa: BLE001)
+            write_stderr(f'uncaught thread logging failed: {type(log_exc).__name__}: {log_exc}')
         if previous_threading is not None:
             try:
                 previous_threading(args)
-            except Exception:
-                pass
+            except Exception as prev_exc:  # error-boundary: thread excepthook chain — the previous hook's failure must not mask the thread failure being reported; identity goes to the last-resort channel (noqa: BLE001)
+                write_stderr(f'previous threading excepthook failed: {type(prev_exc).__name__}: {prev_exc}')
 
     _thread_hook._htdt_previous_hook = previous_threading  # type: ignore[attr-defined]
     threading.excepthook = _thread_hook
@@ -391,7 +355,7 @@ def _surface_uncaught_on_statusbar(diagnostics: NativeDiagnostics) -> None:
     try:
         from PySide6.QtCore import QThread
         from PySide6.QtWidgets import QApplication
-    except Exception:
+    except ImportError:  # error-boundary: optional-dependency probe — Qt absent leaves this path log-only; a broken import propagates
         return
     try:
         app = QApplication.instance()
@@ -417,8 +381,8 @@ def _surface_uncaught_on_statusbar(diagnostics: NativeDiagnostics) -> None:
         window.statusBar().showMessage(
             f'予期しないエラーが発生しました（{where}）', 10000
         )
-    except Exception:
-        pass
+    except Exception:  # error-boundary: best-effort status notice — a surfacing failure inside the uncaught path must not mask the original error; identity is logged (noqa: BLE001)
+        _LOGGER.exception('uncaught-exception status notice failed')
 
 
 def _post_uncaught_to_sink(
@@ -437,7 +401,7 @@ def _post_uncaught_to_sink(
     try:
         from PySide6.QtCore import QThread
         from PySide6.QtWidgets import QApplication
-    except Exception:
+    except ImportError:  # error-boundary: optional-dependency probe — Qt absent leaves this path log-only; a broken import propagates
         return
     try:
         app = QApplication.instance()
@@ -454,20 +418,8 @@ def _post_uncaught_to_sink(
                 None,
             )
         _uncaught_sinks[-1](diagnostics, exc, window)
-    except Exception:
-        pass
-
-
-def concise_reason(exc: BaseException, *, max_chars: int = 300) -> str:
-    """One-line, user-safe summary of an exception for the failure dialog."""
-
-    text = str(exc).strip()
-    if not text:
-        return type(exc).__name__
-    first_line = text.splitlines()[0].strip() or type(exc).__name__
-    if len(first_line) > max_chars:
-        first_line = first_line[:max_chars].rstrip() + '…'
-    return f'{type(exc).__name__}: {first_line}'
+    except Exception:  # error-boundary: sink dispatch — a broken Activity Center sink must not break the uncaught path; identity is logged (noqa: BLE001)
+        _LOGGER.exception('uncaught-exception sink failed')
 
 
 def report_launch_failure(
@@ -506,10 +458,10 @@ def report_launch_failure(
         )
         if technical_detail:
             box.setDetailedText(technical_detail)
-        box.exec()
+        exec_transient(box)
         return
-    except Exception:
-        pass
+    except Exception:  # error-boundary: last-resort reporter — any dialog failure falls back to stderr so the launch failure is never lost; identity is logged (noqa: BLE001)
+        _LOGGER.exception('launch failure dialog unavailable; falling back to stderr')
     if technical_detail:
         write_stderr(f'{title}\n{message}\n{technical_detail}')
     else:

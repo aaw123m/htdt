@@ -23,8 +23,11 @@ if TYPE_CHECKING:
     from ...cad_listener_pose import ListenerPoseAuthority
     from ..domain.cad_measurement_quality import CadMeasurementQualityReport
     from ..domain.cad_measurement_target_pattern import (
-        CadTargetPatternRepository,
         MeasurementTargetPattern,
+    )
+    from ..domain.cad_measurement_targets import CadMeasurementTargetLineage
+    from ..persistence.cad_target_pattern_repository import (
+        CadTargetPatternRepository,
     )
     from ...cad_scene import Position3
     from .cad_system_variant_measurement_campaign import (
@@ -106,7 +109,16 @@ from ..persistence.cad_measurement_runner_repository import (
     CadMeasurementRunnerRepository,
     RunnerError,
 )
+from ..domain.cad_remeasure_queue import (
+    RemeasureQueue,
+    RemeasureQueueEvent,
+)
 from ..domain.cad_measurements import normalize_rew_api_snapshot, normalize_rew_text
+from .cad_remeasure_queue_service import (
+    CadRemeasureQueueService,
+    RemeasureQueueServiceError,
+    RemeasureQueueSnapshot,
+)
 from ...cad_repository import SceneRepository, SceneRevision
 from ...cad_scene import (
     Direction3,
@@ -653,6 +665,7 @@ class MeasurementWorkflowController:
             CadSystemVariantMeasurementCampaignRepository | None
         ) = None
         self._campaign_execution_repository: Any = None
+        self._remeasure_queue_service: Any = None
 
     @property
     def pending_import(self) -> PendingMeasurementImport | None:
@@ -1931,6 +1944,47 @@ class MeasurementWorkflowController:
     # the existing measurement/import authorities. REW stays the acquisition
     # engine; the runner only tracks exact per-cell planned evidence.
 
+    # ------------------------------------------------------------------
+    # Re-measurement queue (#968)
+    # ------------------------------------------------------------------
+
+    def _remeasure_service(self) -> CadRemeasureQueueService:
+        if self._remeasure_queue_service is None:
+            self._remeasure_queue_service = CadRemeasureQueueService(
+                self.scene_repository,
+                self.measurement_repository,
+                self.quality_repository,
+                runner_repository=self.runner_repository,
+                producer=self._quality_producer(),
+            )
+        return self._remeasure_queue_service
+
+    def remeasure_queue(self) -> RemeasureQueueSnapshot | None:
+        """Latest persisted re-measurement queue with freshness + states."""
+        return self._remeasure_service().latest(self.document_id)
+
+    def generate_remeasure_queue(self) -> RemeasureQueue:
+        """Scan sealed quality evaluations and persist a sealed queue."""
+        return self._remeasure_service().generate(self.document_id)
+
+    def dismiss_remeasure_item(
+        self, queue_id: str, measurement_id: str, reason: str
+    ) -> RemeasureQueueEvent:
+        """Record the operator's dismissal reason for one queued item."""
+        return self._remeasure_service().dismiss_item(
+            queue_id, measurement_id, reason=reason
+        )
+
+    def convert_remeasure_queue(
+        self, queue_id: str
+    ) -> MeasurementRunnerPlan:
+        """Materialize pending queue items into a sealed runner plan."""
+        return self._remeasure_service().convert_to_runner_plan(queue_id)
+
+    def soft_reevaluate_measurement(self, measurement_id: str) -> Any:
+        """Re-derive the quality epoch from stored authorities (soft path)."""
+        return self._remeasure_service().soft_reevaluate(measurement_id)
+
     def runner_plans(self) -> tuple[MeasurementRunnerPlan, ...]:
         return self.runner_repository.list_plans(self.document_id)
 
@@ -2151,7 +2205,7 @@ class MeasurementWorkflowController:
 
     def _target_pattern_repo(self) -> CadTargetPatternRepository:
         if self._target_pattern_repository is None:
-            from ..domain.cad_measurement_target_pattern import (
+            from ..persistence.cad_target_pattern_repository import (
                 CadTargetPatternRepository,
             )
 

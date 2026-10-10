@@ -33,7 +33,6 @@ from htdt.cad_wave_excitation import (
     WAVE_EXCITATION_TABLE_CONVERTER_VERSION,
     WAVE_EXCITATION_TABLE_SCHEMA,
     AcousticWaveExcitationAuthority,
-    CadWaveExcitationRepository,
     ComplexVolumeVelocitySample,
     WaveExcitationAnalyticDerivation,
     WaveExcitationEvidenceAuthority,
@@ -49,6 +48,7 @@ from htdt.cad_wave_excitation import (
 )
 from htdt.native_backup import create_backup, restore_backup, validate_backup
 from htdt.r120_geometry_compiler import ExactExternalAuthorityRef
+from htdt.acoustics.persistence.cad_wave_excitation_repository import CadWaveExcitationRepository
 
 
 NOW = '2026-10-01T00:00:00+00:00'

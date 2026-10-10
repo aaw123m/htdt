@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QDialog,
     QDialogButtonBox,
@@ -548,6 +549,10 @@ class RoomVideoPanel(QWidget):
     poseSaveRequested = Signal(str)  # seat entity id
     transferChanged = Signal(str, object)  # (screen entity id, transfer_id or None)
     transferSaveRequested = Signal(str)  # screen entity id
+    # #1003 screen quality map — the panel stays dumb; the workspace owns
+    # the resolver and re-reads these controls on every render.
+    qualityMapChanged = Signal()
+    qualityMapRemeasureRequested = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -845,6 +850,82 @@ class RoomVideoPanel(QWidget):
         seat_view_buttons.addStretch(1)
         layout.addLayout(seat_view_buttons)
 
+        # --- screen quality map (#1003) ---------------------------------------
+        quality_heading = QLabel("スクリーン品質マップ（9点測定）")
+        quality_heading.setWordWrap(True)
+        set_typography_role(quality_heading, TypographyRole.SECTION_TITLE)
+        layout.addWidget(quality_heading)
+
+        self.quality_map_enable = QCheckBox("3Dビューに品質マップを表示")
+        self.quality_map_enable.setAccessibleName("品質マップ表示")
+        self.quality_map_enable.setToolTip(
+            '測定セットの9点（ANSI）測定値を実画面座標に重ねて表示します'
+        )
+        layout.addWidget(self.quality_map_enable)
+
+        quality_form = QFormLayout()
+        quality_form.setContentsMargins(0, 0, 0, 0)
+        quality_form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
+        self.quality_map_set = QComboBox()
+        self.quality_map_set.setAccessibleName("品質測定セット")
+        self.quality_map_set.setToolTip(
+            '表示する空間測定セット（セットがバインドする計画・投影機状態・'
+            '宣言日時で識別）'
+        )
+        quality_form.addRow("測定セット", self.quality_map_set)
+        self.quality_map_quantity = QComboBox()
+        self.quality_map_quantity.setAccessibleName("品質測定量")
+        self.quality_map_quantity.setToolTip(
+            'セットが実際に保持する量のみ選べます（未測定の量は表示されません）'
+        )
+        quality_form.addRow("量", self.quality_map_quantity)
+        self.quality_map_viewpoint = QComboBox()
+        self.quality_map_viewpoint.setAccessibleName("品質測定視点")
+        self.quality_map_viewpoint.setToolTip(
+            '計画が宣言する測定視点 — 別視点の測定値は流用されません'
+        )
+        quality_form.addRow("視点", self.quality_map_viewpoint)
+        layout.addLayout(quality_form)
+
+        self.quality_map_heatmap = QCheckBox("ヒートマップ（検証済み派生マップのみ）")
+        self.quality_map_heatmap.setAccessibleName("品質ヒートマップ")
+        self.quality_map_heatmap.setToolTip(
+            'SHA検証済みの描画済みアーティファクトがある派生マップだけを'
+            'ヒートマップ表示します（記録だけから色は合成しません）'
+        )
+        layout.addWidget(self.quality_map_heatmap)
+
+        self.quality_map_binding_label = QLabel("")
+        self.quality_map_binding_label.setWordWrap(True)
+        set_typography_role(self.quality_map_binding_label, TypographyRole.SECONDARY)
+        layout.addWidget(self.quality_map_binding_label)
+
+        self.quality_map_points = QTreeWidget()
+        self.quality_map_points.setHeaderLabels(("ポイント", "測定値", "状態"))
+        self.quality_map_points.setRootIsDecorated(False)
+        self.quality_map_points.setUniformRowHeights(True)
+        self.quality_map_points.setMaximumHeight(120)
+        self.quality_map_points.setAccessibleName("品質測定点一覧")
+        layout.addWidget(self.quality_map_points)
+
+        self.quality_map_detail = QLabel("")
+        self.quality_map_detail.setWordWrap(True)
+        set_typography_role(self.quality_map_detail, TypographyRole.SECONDARY)
+        layout.addWidget(self.quality_map_detail)
+
+        self.quality_map_coverage = QLabel("")
+        self.quality_map_coverage.setWordWrap(True)
+        set_typography_role(self.quality_map_coverage, TypographyRole.SECONDARY)
+        layout.addWidget(self.quality_map_coverage)
+
+        self.quality_map_remeasure = QPushButton("再測定手順へ…")
+        self.quality_map_remeasure.setAccessibleName("再測定手順へ")
+        self.quality_map_remeasure.setToolTip(
+            '映像調整ワークスペースの再測定・比較手順を開きます'
+        )
+        layout.addWidget(self.quality_map_remeasure)
+        self._quality_map_scene = None
+
         self.new_spec_button.clicked.connect(self.createSpecRequested)
         self.new_display_spec_button.clicked.connect(self.createDisplaySpecRequested)
         self.target_combo.currentIndexChanged.connect(self._target_changed)
@@ -883,6 +964,15 @@ class RoomVideoPanel(QWidget):
         self.display_combo.currentIndexChanged.connect(lambda _i: self.bindingsChanged.emit())
         self.display_spec_combo.currentIndexChanged.connect(lambda _i: self.bindingsChanged.emit())
         self.display_mounting.currentIndexChanged.connect(lambda _i: self.bindingsChanged.emit())
+        self.quality_map_enable.toggled.connect(lambda _v: self.qualityMapChanged.emit())
+        self.quality_map_set.currentIndexChanged.connect(lambda _i: self.qualityMapChanged.emit())
+        self.quality_map_quantity.currentIndexChanged.connect(lambda _i: self.qualityMapChanged.emit())
+        self.quality_map_viewpoint.currentIndexChanged.connect(lambda _i: self.qualityMapChanged.emit())
+        self.quality_map_heatmap.toggled.connect(lambda _v: self.qualityMapChanged.emit())
+        self.quality_map_remeasure.clicked.connect(self.qualityMapRemeasureRequested)
+        self.quality_map_points.itemSelectionChanged.connect(
+            self._quality_point_selected
+        )
 
         self._syncing = False
         self._screen_entity_id: str | None = None
@@ -1433,3 +1523,232 @@ class RoomVideoPanel(QWidget):
 
     def show_message(self, text: str) -> None:
         self.status_label.setText(text)
+
+    # -- #1003 screen quality map ----------------------------------------------
+
+    def quality_map_overlay_enabled(self) -> bool:
+        return self.quality_map_enable.isChecked()
+
+    def current_quality_map_set_id(self) -> str | None:
+        return self.quality_map_set.currentData()
+
+    def current_quality_map_quantity(self) -> str | None:
+        return self.quality_map_quantity.currentData()
+
+    def current_quality_map_viewpoint(self) -> str | None:
+        return self.quality_map_viewpoint.currentData()
+
+    def quality_map_heatmap_enabled(self) -> bool:
+        return self.quality_map_heatmap.isChecked()
+
+    def sync_quality_map_sets(self, measurement_sets: tuple) -> None:
+        """Populate the measurement-set dropdown (document_id sets only)."""
+
+        current = self.quality_map_set.currentData()
+        self.quality_map_set.blockSignals(True)
+        try:
+            self.quality_map_set.clear()
+            self.quality_map_set.addItem("（セットを選択）", None)
+            for item in measurement_sets:
+                evidence = {
+                    'field_measured': '実測',
+                    'predicted': '予測',
+                }.get(item.evidence_kind, item.evidence_kind)
+                projector = ''
+                state = getattr(item, 'projector_state', None)
+                if state is not None and state.picture_mode is not None:
+                    projector = f' · {state.picture_mode}'
+                self.quality_map_set.addItem(
+                    f'{item.set_id} · {evidence}{projector} · '
+                    f'{item.declared_at_utc}',
+                    item.set_id,
+                )
+            if current is not None:
+                index = self.quality_map_set.findData(current)
+                if index >= 0:
+                    self.quality_map_set.setCurrentIndex(index)
+        finally:
+            self.quality_map_set.blockSignals(False)
+
+    def sync_quality_map(self, scene) -> None:
+        """Refresh the map readouts from the resolver's scene (#1003).
+
+        The panel never derives values — it renders exactly what the
+        resolver returned, so a stale or unverifiable map can only show the
+        resolver's own read-only reason.
+        """
+
+        self._quality_map_scene = scene
+        self.quality_map_quantity.blockSignals(True)
+        self.quality_map_viewpoint.blockSignals(True)
+        try:
+            current_q = self.quality_map_quantity.currentData()
+            self.quality_map_quantity.clear()
+            quantity_labels = {
+                'white_luminance': '白輝度',
+                'black_luminance': '黒輝度',
+                'contrast': 'コントラスト',
+                'white_chromaticity': '白色度 (x,y)',
+                'color_error': '色誤差',
+                'eotf_gamma_tracking': 'EOTF/ガンマ',
+                'focus_sharpness': 'フォーカス',
+                'convergence_fringe': '色ずれ',
+                'project_defined': 'プロジェクト定義',
+            }
+            if scene is not None:
+                for quantity in scene.available_quantities:
+                    self.quality_map_quantity.addItem(
+                        quantity_labels.get(quantity, quantity), quantity
+                    )
+                wanted = scene.quantity if scene.quantity is not None else current_q
+                if wanted is not None:
+                    index = self.quality_map_quantity.findData(wanted)
+                    if index >= 0:
+                        self.quality_map_quantity.setCurrentIndex(index)
+            current_v = self.quality_map_viewpoint.currentData()
+            self.quality_map_viewpoint.clear()
+            if scene is not None:
+                for viewpoint_id in scene.available_viewpoints:
+                    self.quality_map_viewpoint.addItem(
+                        viewpoint_id, viewpoint_id
+                    )
+                wanted_v = (
+                    scene.viewpoint_id
+                    if scene.viewpoint_id is not None
+                    else current_v
+                )
+                if wanted_v is not None:
+                    index = self.quality_map_viewpoint.findData(wanted_v)
+                    if index >= 0:
+                        self.quality_map_viewpoint.setCurrentIndex(index)
+        finally:
+            self.quality_map_quantity.blockSignals(False)
+            self.quality_map_viewpoint.blockSignals(False)
+
+        self.quality_map_points.clear()
+        binding = []
+        coverage_lines = []
+        if scene is None:
+            self.quality_map_detail.setText('')
+            self.quality_map_coverage.setText('')
+            self.quality_map_binding_label.setText('')
+            self.quality_map_heatmap.setEnabled(False)
+            return
+        kind_label = {
+            'projection': 'プロジェクター＋スクリーン',
+            'direct_view': '直視ディスプレイ',
+            'none': '未解決',
+        }.get(scene.target_kind, scene.target_kind)
+        binding.append(
+            f'{kind_label} · 面 {scene.surface_entity_id or "—"} · '
+            f'リビジョン {scene.revision_id[:8]}'
+        )
+        if scene.measurement_set is not None:
+            binding.append(
+                f'セット {scene.measurement_set.set_id} '
+                f'（{scene.measurement_set.declared_at_utc} 宣言）'
+            )
+        if scene.read_only and scene.read_only_reason:
+            binding.append(f'読み取り専用: {scene.read_only_reason}')
+        self.quality_map_binding_label.setText('\n'.join(binding))
+
+        state_labels = {
+            'measured': '測定済み',
+            'unmeasured': '未測定',
+            'misaligned': '不一致・要手動アライメント',
+            'unscaled': 'スケール未定義',
+        }
+        for marker in scene.markers:
+            obs = marker.observation
+            if obs is None:
+                value_text = '—'
+            elif obs.quantity == 'white_chromaticity':
+                value_text = (
+                    f'x={obs.chromaticity_x}, y={obs.chromaticity_y}'
+                )
+            else:
+                value_text = f'{obs.value} {obs.units or ""}'.strip()
+            item = QTreeWidgetItem(
+                [marker.point_id, value_text, state_labels[marker.state]]
+            )
+            item.setData(0, Qt.ItemDataRole.UserRole, marker.point_id)
+            if marker.state == 'misaligned':
+                item.setForeground(2, Qt.GlobalColor.darkYellow)
+            self.quality_map_points.addTopLevelItem(item)
+
+        for entry in scene.coverage:
+            missing = (
+                ' · 不足: ' + ', '.join(entry.missing_roles)
+                if entry.missing_roles
+                else ''
+            )
+            coverage_lines.append(
+                f'{entry.quantity}: {entry.observed_points}/'
+                f'{entry.expected_points} 点{missing}'
+            )
+        if scene.coverage_state is not None:
+            coverage_labels = {
+                'full_spatial_coverage': '全空間カバー',
+                'partial_spatial_coverage': '部分カバー',
+                'center_only': '中央のみ',
+                'empty': '測定点なし',
+            }
+            coverage_lines.insert(
+                0,
+                'カバレッジ: '
+                + coverage_labels.get(scene.coverage_state, scene.coverage_state),
+            )
+        self.quality_map_coverage.setText('\n'.join(coverage_lines))
+        self.quality_map_heatmap.setEnabled(scene.heatmap_available)
+        if not scene.heatmap_available:
+            self.quality_map_heatmap.blockSignals(True)
+            self.quality_map_heatmap.setChecked(False)
+            self.quality_map_heatmap.blockSignals(False)
+        self._quality_point_selected()
+
+    def _quality_point_selected(self) -> None:
+        """Point click -> measured value + procedure context (#1003)."""
+
+        scene = self._quality_map_scene
+        selected = self.quality_map_points.selectedItems()
+        if scene is None or not selected:
+            self.quality_map_detail.setText('')
+            return
+        point_id = selected[0].data(0, Qt.ItemDataRole.UserRole)
+        marker = next(
+            (m for m in scene.markers if m.point_id == point_id), None
+        )
+        if marker is None:
+            self.quality_map_detail.setText('')
+            return
+        lines = [f'ポイント {marker.point_id}（{marker.role}）']
+        obs = marker.observation
+        if obs is None:
+            lines.append('この量・視点の測定値はありません')
+        else:
+            if obs.quantity == 'white_chromaticity':
+                lines.append(
+                    f'測定値: x={obs.chromaticity_x}, y={obs.chromaticity_y}'
+                )
+            else:
+                lines.append(
+                    f'測定値: {obs.value} {obs.units or ""}'.rstrip()
+                )
+            if obs.uncertainty is not None:
+                lines.append(f'不確かさ: ±{obs.uncertainty}')
+            if obs.instrument_identity:
+                lines.append(f'測定器: {obs.instrument_identity}')
+            elif obs.instrument_ref is not None:
+                lines.append(f'測定器: {obs.instrument_ref.ref_id}')
+            lines.append(f'視点: {obs.viewpoint_id}')
+            lines.append(f'刺激プロファイル: {obs.stimulus_profile}')
+            if obs.observed_at_utc:
+                lines.append(f'測定日時: {obs.observed_at_utc}')
+            if obs.note:
+                lines.append(f'メモ: {obs.note}')
+        if marker.physical_mismatch_m is not None:
+            lines.append(
+                f'物理座標ズレ: {marker.physical_mismatch_m * 1000.0:.0f} mm'
+                ' — 手動アライメントが必要'
+            )
+        self.quality_map_detail.setText('\n'.join(lines))

@@ -187,7 +187,7 @@ def log_default_document_classification(
 
     try:
         report = classify_default_document(repository, document_id)
-    except Exception as exc:
+    except Exception as exc:  # error-boundary: best-effort diagnostics — a classification failure logs a warning with the identity and never propagates into startup (noqa: BLE001)
         logger.warning(
             'default document classification failed: document=%s error=%s',
             document_id,

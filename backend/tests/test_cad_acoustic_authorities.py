@@ -8,7 +8,6 @@ import pytest
 
 from htdt.acoustic_benchmark import GeometricAcousticBand, SpecificImpedancePoint
 from htdt.cad_acoustic_environment import (
-    CadAcousticEnvironmentRepository,
     air_density_moist_ideal_gas_v1,
     build_acoustic_environment_profile,
     environment_compatibility,
@@ -16,10 +15,7 @@ from htdt.cad_acoustic_environment import (
     snapshot_environment_ref,
     sound_speed_from_temperature_c,
 )
-from htdt.cad_acoustic_material import (
-    CadAcousticMaterialRepository,
-    build_acoustic_material,
-)
+from htdt.cad_acoustic_material import build_acoustic_material
 from htdt.cad_equipment import (
     AngleDomain,
     DirectivityCapability,
@@ -78,6 +74,8 @@ from htdt.cad_video_geometry import (
 )
 from htdt.r120_geometry_compiler import ExactExternalAuthorityRef
 from htdt.semantic_geometry import SemanticSurface
+from htdt.acoustics.persistence.cad_acoustic_environment_repository import CadAcousticEnvironmentRepository
+from htdt.acoustics.persistence.cad_acoustic_material_repository import CadAcousticMaterialRepository
 
 
 NOW = '2026-09-19T13:00:00+00:00'

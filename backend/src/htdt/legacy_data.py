@@ -242,7 +242,7 @@ def _archive_legacy_store(data_dir: Path) -> tuple[Path, Path | None]:
             os.replace(assets_dir, archived_assets)
             archived_assets_path = archived_assets
         os.replace(db_path, archived_db)
-    except BaseException:
+    except BaseException:  # error-boundary: journal-survival re-raise — any rename failure propagates unchanged; the journal is written outside the try so it survives (noqa: BLE001)
         # The journal MUST survive a failed rename: half-applied renames
         # leave the live/archived boundary undecidable, and inspection
         # reports 'interrupted' only while the journal exists.

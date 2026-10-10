@@ -1198,7 +1198,7 @@ class ProjectEvidenceGapRegister:
             return ()
         try:
             inspection = inspect(lineage)
-        except Exception:
+        except Exception:  # error-boundary: inspection probe — a failed inspect yields no remaining kinds honestly, never fabricated ones (noqa: BLE001)
             return ()
         if inspection is None:
             return ()

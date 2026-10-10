@@ -965,7 +965,7 @@ class CamillaDSPCalibrationAdapter:
             ok, value = _result_value(response, command)
         except CamillaDSPError:
             raise
-        except Exception as exc:
+        except Exception as exc:  # error-boundary: error translation — a transport failure wraps as CamillaDSPError with the original failure preserved via 'from exc' (noqa: BLE001)
             raise CamillaDSPError(
                 'transport_error', f'{command}: {exc}') from exc
         if not ok:

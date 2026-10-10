@@ -266,7 +266,7 @@ class CommandRegistry:
         if deep_link is not None and self._deep_link_handler is not None:
             try:
                 navigation_result = self._deep_link_handler(deep_link)
-            except Exception as exc:
+            except Exception as exc:  # error-boundary: dispatch — a deep-link handler failure goes to the registered error handler verbatim (or re-raises when none is registered); the command never crashes the palette (noqa: BLE001)
                 if self._error_handler is None:
                     raise
                 self._error_handler(command.definition, exc)
@@ -281,7 +281,7 @@ class CommandRegistry:
         if command.execute is not None:
             try:
                 command.execute()
-            except Exception as exc:
+            except Exception as exc:  # error-boundary: dispatch — a command failure goes to the registered error handler verbatim (or re-raises when none is registered); the command never crashes the palette (noqa: BLE001)
                 if self._error_handler is None:
                     raise
                 self._error_handler(command.definition, exc)
@@ -540,6 +540,9 @@ def default_command_definitions() -> tuple[CommandDefinition, ...]:
             display_name='移動',
             contexts=frozenset({CommandContext.ROOM}),
             shortcut='M',
+            # #979: 'G' (grab) is the conventional twin for M — both arm the
+            # same move gizmo.
+            shortcut_aliases=('G',),
             shortcut_behavior=ShortcutBehavior.FOCUS_SAFE,
             keywords=('move', '移動モード', 'transform'),
         ),

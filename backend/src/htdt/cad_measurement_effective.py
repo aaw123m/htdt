@@ -1,4 +1,4 @@
-"""#954 compatibility shim — canonical home is ``htdt.measurement.services.cad_measurement_effective``.
+"""#954 compatibility shim — canonical home is ``htdt.measurement.persistence.cad_measurement_effective``.
 
 Kept so existing ``htdt.cad_measurement_effective`` import paths (and references by module
 name — monkeypatched helpers, serialized attributes) keep resolving while
@@ -9,6 +9,6 @@ later #807 slice once external importers migrate.
 
 import sys as _sys
 
-import htdt.measurement.services.cad_measurement_effective as _impl
+import htdt.measurement.persistence.cad_measurement_effective as _impl
 
 _sys.modules[__name__] = _impl

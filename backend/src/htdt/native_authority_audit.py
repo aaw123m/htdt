@@ -580,7 +580,7 @@ class _RepositoryChain:
                 r120_repository=self.repo('r120'),
             )
         if name == 'wave':
-            from .cad_wave_excitation import CadWaveExcitationRepository
+            from .acoustics.persistence.cad_wave_excitation_repository import CadWaveExcitationRepository
 
             return CadWaveExcitationRepository(
                 scene,
@@ -708,6 +708,12 @@ class _RepositoryChain:
             )
 
             return CadMeasurementRunnerRepository(scene)
+        if name == 'remeasure_queue':
+            from .measurement.persistence.cad_remeasure_queue_repository import (
+                CadRemeasureQueueRepository,
+            )
+
+            return CadRemeasureQueueRepository(scene)
         if name == 'dependencies':
             from .external_dependency_repository import (
                 ExternalDependencyRepository,
@@ -1588,6 +1594,12 @@ class _RepositoryChain:
             )
 
             return CadEvidenceInvalidationRepository(scene)
+        if name == 'cable_run_geometry':
+            from .cad_cable_run_geometry_repository import (
+                CadCableRunGeometryRepository,
+            )
+
+            return CadCableRunGeometryRepository(scene)
         raise KeyError(name)
 
 
@@ -2222,6 +2234,27 @@ def _verify_runner_event(
             f'runner event {event_id} no longer resolves for run {run_id}'
         )
     return events
+
+
+def _verify_remeasure_queue_event(
+    chain: _RepositoryChain, key: tuple[Any, ...]
+) -> Any:
+    event_id, queue_id = key
+    repository = chain.repo('remeasure_queue')
+    queue = _require(
+        repository.get_queue(queue_id),
+        f're-measurement queue {queue_id}',
+    )
+    event = _require(
+        repository.get_event(event_id),
+        f're-measurement queue event {event_id}',
+    )
+    if event.queue_sha256 != queue.queue_sha256:
+        raise ValueError(
+            f're-measurement queue event {event_id} pins queue revision '
+            f'{event.queue_sha256}, not persisted {queue.queue_sha256}'
+        )
+    return event
 
 
 def _verify_calibration_result(
@@ -3628,6 +3661,18 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         _verify_runner_event,
     ),
     _ReplayProbe(
+        'remeasure_queue',
+        'cad_remeasure_queues',
+        ('queue_id',),
+        _get('remeasure_queue', 'get_queue'),
+    ),
+    _ReplayProbe(
+        'remeasure_queue_event',
+        'cad_remeasure_queue_events',
+        ('event_id', 'queue_id'),
+        _verify_remeasure_queue_event,
+    ),
+    _ReplayProbe(
         'project_tombstone',
         'htdt_project_tombstones',
         ('tombstone_id', 'project_id'),
@@ -4164,6 +4209,12 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         'cad_ifc_revision_deltas',
         ('delta_id',),
         _get('ifc_interop', 'get_revision_delta'),
+    ),
+    _ReplayProbe(
+        'ifc_diff_apply',
+        'cad_ifc_diff_applies',
+        ('apply_id',),
+        _get('ifc_interop', 'get_diff_apply'),
     ),
     _ReplayProbe(
         'ifc_intake_profile',
@@ -5938,6 +5989,13 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         'cad_accuracy_cost_envelopes',
         ('envelope_id',),
         _get('field_metric', 'get_cost_envelope'),
+    ),
+    # REV74: #991 sealed pre-run estimate authority.
+    _ReplayProbe(
+        'prerun_estimate',
+        'cad_prerun_estimates',
+        ('estimate_id',),
+        _get('field_metric', 'get_prerun_estimate'),
     ),
     # REV59-DIGCHAIN: #745/#744/#739/#650 signal-integrity authorities
     _ReplayProbe(
@@ -7984,6 +8042,14 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         _get('evidence_invalidation', 'get_run'),
     ),
 
+    # REV73: #1011 cable-run route geometry authority.
+    _ReplayProbe(
+        'cable_run_geometry',
+        'cad_cable_run_geometries',
+        ('geometry_id', 'version'),
+        _get('cable_run_geometry', 'get_geometry'),
+    ),
+
 )
 
 # Managed-asset manifest/evidence tables: every row must resolve to the
@@ -9452,7 +9518,7 @@ def audit_native_authority_graph(
                 record_ref = ':'.join(str(part) for part in key)
                 try:
                     probe.verify(chain, key)
-                except Exception as exc:  # noqa: BLE001 — collect, don't abort
+                except Exception as exc:  # error-boundary: audit lane — any verify failure is recorded as a finding with the exception identity; a broken record is evidence, never skipped (noqa: BLE001)
                     record(
                         probe.authority,
                         record_ref,
@@ -9481,7 +9547,7 @@ def audit_native_authority_graph(
                 try:
                     plan = json.loads(row['plan_json'])
                     chain.repo('capture').verify_persisted_ingestion(plan)
-                except Exception as exc:  # noqa: BLE001
+                except Exception as exc:  # error-boundary: audit lane — any verify failure is recorded as a finding with the exception identity; a broken record is evidence, never skipped (noqa: BLE001)
                     record(
                         'capture_ingestion_run',
                         ref,
@@ -9559,7 +9625,7 @@ def audit_native_authority_graph(
                         raise ValueError(
                             f'managed asset length mismatch for {digest}'
                         )
-                except Exception as exc:  # noqa: BLE001
+                except Exception as exc:  # error-boundary: audit lane — any verify failure is recorded as a finding with the exception identity; a broken record is evidence, never skipped (noqa: BLE001)
                     record(
                         'managed_asset',
                         ref,
@@ -9591,7 +9657,7 @@ def audit_native_authority_graph(
                         raise ValueError(
                             f'content blob length mismatch for {digest}'
                         )
-                except Exception as exc:  # noqa: BLE001
+                except Exception as exc:  # error-boundary: audit lane — any verify failure is recorded as a finding with the exception identity; a broken record is evidence, never skipped (noqa: BLE001)
                     record(
                         'content_blob',
                         digest,
@@ -9664,7 +9730,7 @@ def audit_native_authority_graph(
                             continue
                         try:
                             json.loads(raw)
-                        except Exception as exc:  # noqa: BLE001
+                        except Exception as exc:  # error-boundary: audit lane — any payload-parse failure is recorded as a finding with the exception identity; a broken record is evidence, never skipped (noqa: BLE001)
                             record(
                                 table,
                                 f'row {count}',

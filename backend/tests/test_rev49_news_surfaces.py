@@ -574,7 +574,10 @@ def test_world_to_scene_authority_is_per_coordinate_space(
     ingestion = CaptureIngestionRepository(scene)
     rows = [
         (
-            SimpleNamespace(promotion_id='promo-a'),
+            SimpleNamespace(
+                promotion_id='promo-a',
+                created_at_utc='2026-01-01T00:00:00Z',
+            ),
             SimpleNamespace(
                 target_document_id='doc-1',
                 world_to_scene_authority=SimpleNamespace(

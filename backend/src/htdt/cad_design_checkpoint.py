@@ -667,7 +667,7 @@ def restore_design_checkpoint(
                 connection, record
             )
         connection.commit()
-    except BaseException:
+    except BaseException:  # error-boundary: rollback before re-raise — any commit failure rolls the transaction back so a partial checkpoint never persists (noqa: BLE001)
         connection.rollback()
         raise
     finally:

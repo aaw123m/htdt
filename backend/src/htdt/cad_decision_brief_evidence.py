@@ -81,6 +81,11 @@ from .cad_production_readiness_repository import (
 )
 from .cad_repository import SceneRepository
 from .cad_schema import connect_sqlite
+from .error_boundary import (
+    EXPECTED_OPERATION_ERRORS,
+    is_authority_failure,
+    report_boundary_failure,
+)
 from .cad_system_variant_repository import CadSystemVariantRepository
 
 
@@ -228,7 +233,10 @@ class DecisionBriefEvidenceResolver:
         if self._calibration_repository is not None:
             try:
                 return self._calibration_repository.get_plan(plan_id)
-            except Exception:  # noqa: BLE001 — probes never raise
+            except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: sealed read — expected failures report and degrade to 'no plan' honestly; sealed-store failures propagate
+                if is_authority_failure(exc):
+                    raise
+                report_boundary_failure(exc, operation='校正プランの読み取り')
                 return None
         try:
             with closing(connect_sqlite(self.scene_repository.path)) as conn:
@@ -240,7 +248,10 @@ class DecisionBriefEvidenceResolver:
             if row is None:
                 return None
             return CadCalibrationPlan.model_validate_json(row['payload_json'])
-        except Exception:  # noqa: BLE001 — probes never raise
+        except EXPECTED_OPERATION_ERRORS as exc:  # error-boundary: sealed read — expected failures report and degrade to 'no plan' honestly; sealed-store failures propagate
+            if is_authority_failure(exc):
+                raise
+            report_boundary_failure(exc, operation='校正プランの読み取り')
             return None
 
     # -- public API -----------------------------------------------------
@@ -270,7 +281,7 @@ class DecisionBriefEvidenceResolver:
         for gate in DECISION_GATE_ORDER:
             try:
                 gates.append(probes[gate](document_id, alternative))
-            except Exception as exc:  # noqa: BLE001 — fail closed
+            except Exception as exc:  # error-boundary: gate resolution — a crashing probe yields an honest fail-closed gate (note carries the error), never an absent one (noqa: BLE001)
                 gates.append(
                     DecisionGate(
                         gate=gate,
@@ -360,7 +371,7 @@ class DecisionBriefEvidenceResolver:
             for get in getters:
                 try:
                     record = get(ref.ref_id)
-                except Exception:  # noqa: BLE001 — wrong store shape
+                except Exception:  # error-boundary: record probe — a getter that fails means 'not this store' honestly; the next store is tried (noqa: BLE001)
                     continue
                 if record is not None:
                     records.append(record)

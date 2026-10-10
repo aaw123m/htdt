@@ -1518,7 +1518,7 @@ def _rollback_restore_swap(
                 data_dir=data_dir,
                 database_path=live_database,
             )
-        except Exception:
+        except Exception:  # error-boundary: validity probe — any health/asset-check failure marks the occupant unserveable and it is parked into the rollback dir (never blessed as recovered state); an expected-database failure re-raises (noqa: BLE001)
             if expected_database:
                 raise
             # A post-crash occupant that cannot serve as the live
@@ -1535,7 +1535,7 @@ def _live_state_is_valid(data_dir: Path) -> bool:
             data_dir=data_dir,
             database_path=data_dir / DATABASE_NAME,
         )
-    except Exception:
+    except Exception:  # error-boundary: validity probe — any check failure means 'not valid live state' (noqa: BLE001)
         return False
     return True
 
@@ -1570,7 +1570,7 @@ def _recover_orphan_rollback(data_dir: Path, rollback_root: Path) -> RestoreReco
         )
     try:
         _rollback_restore_swap(data_dir, rollback_root)
-    except Exception as exc:
+    except Exception as exc:  # error-boundary: error translation — any rollback-recovery failure wraps as RestoreRecoveryError with the original failure preserved via 'from exc' (noqa: BLE001)
         raise RestoreRecoveryError(
             'interrupted restore could not be recovered and no fresh database '
             f'was created; rollback data is preserved at {rollback_root}: {exc}'
@@ -1594,7 +1594,7 @@ def _recover_journaled_swap(
         stage_root = Path(str(journal.get('stage_dir')))
         recorded_data_dir = _canonical_data_path(Path(str(journal.get('data_dir'))))
         recorded_rollback = _canonical_data_path(Path(str(journal.get('rollback_dir'))))
-    except Exception:
+    except Exception:  # error-boundary: journal parse — any manifest/journal-interpretation failure treats the journal as unreadable and falls back to the orphan-recovery path (bytes preserved, never fabricated) (noqa: BLE001)
         return _recover_orphan_rollback(data_dir, rollback_root)
 
     if recorded_data_dir != data_dir or recorded_rollback != _canonical_data_path(rollback_root):
@@ -1612,7 +1612,7 @@ def _recover_journaled_swap(
 
     try:
         _complete_restore_swap(data_dir, rollback_root, stage_root, manifest)
-    except Exception as exc:
+    except Exception as exc:  # error-boundary: recovery strategy — any swap-complete failure records its reason and the next strategy runs; every attempt's failure lands in the recovery report (noqa: BLE001)
         failures.append(f'complete swap failed: {exc}')
     else:
         _remove_rollback_artifacts(rollback_root)
@@ -1642,7 +1642,7 @@ def _recover_journaled_swap(
                 None,
             ),
         )
-    except Exception as exc:
+    except Exception as exc:  # error-boundary: recovery strategy — any rollback failure records its reason and the next strategy runs; every attempt's failure lands in the recovery report (noqa: BLE001)
         failures.append(f'rollback failed: {exc}')
     else:
         _remove_rollback_artifacts(rollback_root)
@@ -1668,7 +1668,7 @@ def _recover_journaled_swap(
             if live_assets.exists():
                 _evacuate_into(live_assets, rollback_root)
             _restore_backup(data_dir, pre_backup, pre_restore_backup=None)
-        except Exception as exc:
+        except Exception as exc:  # error-boundary: recovery strategy — any archive-restore failure records its reason and the next strategy runs; every attempt's failure lands in the recovery report (noqa: BLE001)
             failures.append(f'pre-restore archive restore failed: {exc}')
         else:
             _remove_rollback_artifacts(rollback_root)
@@ -1923,7 +1923,7 @@ def _restore_backup(
                 # A cancel request must never be swallowed by the
                 # failed-safety-snapshot fallback below.
                 raise
-            except Exception as exc:
+            except Exception as exc:  # error-boundary: best-effort safety snapshot — a failed pre-restore backup must not abort the restore (bytes are preserved unverified); the failure identity is logged (noqa: BLE001)
                 # The live store may itself be corrupt — that is the main
                 # reason this restore is running. A failed safety snapshot
                 # must not abort the restore: the journaled swap below
@@ -2064,7 +2064,7 @@ def _restore_backup(
             )
             _journal_phase(rollback_root, journal, 'validated')
             _fsync_directory(data_dir)
-        except Exception as restore_error:
+        except Exception as restore_error:  # error-boundary: restore boundary — any restore-phase failure drives the rollback path; the original error propagates after rollback accounting (noqa: BLE001)
             rollback_error: Exception | None = None
             try:
                 _remove_managed_data(data_dir)
@@ -2080,7 +2080,7 @@ def _restore_backup(
                     parked = rollback_root / component.path
                     if parked.exists():
                         _replace_durable(parked, data_dir / component.path)
-            except Exception as exc:
+            except Exception as exc:  # error-boundary: rollback accounting — any rollback failure is recorded and raised chained to the restore error, never masked (noqa: BLE001)
                 rollback_error = exc
 
             if rollback_error is None:

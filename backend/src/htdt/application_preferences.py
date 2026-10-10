@@ -657,7 +657,7 @@ class ApplicationPreferenceStore:
                 os.fsync(handle.fileno())
             os.replace(tmp_name, self.path)
             self._persisted_signature = self._file_signature()
-        except BaseException:
+        except BaseException:  # error-boundary: cleanup before re-raise — any write failure (incl. cancel/interrupt) removes the temp file so a partial preference file never replaces the good one (noqa: BLE001)
             try:
                 os.unlink(tmp_name)
             except OSError:
@@ -764,7 +764,7 @@ class ApplicationPreferenceStore:
             for listener in tuple(self._listeners):
                 try:
                     listener(change)
-                except Exception as exc:
+                except Exception as exc:  # error-boundary: observer lane — a broken listener collects its exception verbatim; the durable commit never rolls back for a listener (noqa: BLE001)
                     # The commit is already durable — a broken observer
                     # cannot create a partial preference document.
                     errors.append(exc)
@@ -819,7 +819,7 @@ class ApplicationPreferenceStore:
         self._values = values
         try:
             self._persist()
-        except BaseException:
+        except BaseException:  # error-boundary: rollback before re-raise — any persist failure restores the in-memory values so state never diverges from disk (noqa: BLE001)
             self._values = old_values
             raise
 

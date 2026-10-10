@@ -1263,7 +1263,7 @@ def execute_data_relocation(
                 parked,
             )
             return plan, parked
-        except Exception:
+        except Exception:  # error-boundary: cutover boundary — any copy/verify failure leaves the source intact and removes only the unpromoted staged copy; durable journal phases are owned by startup recovery (noqa: BLE001)
             # Copy/verify failure leaves the source exactly as it was; the
             # staged copy is removed only if the cutover never promoted it.
             # Once a journal phase is durable, startup recovery owns the
