@@ -465,6 +465,11 @@ def build_uncertainty_robustness_evaluations(
 
     evaluations: list[RobustnessEvaluation] = []
     for nominal_metric in nominal.objective_vector.metrics:
+        if nominal_metric.state != 'available' or nominal_metric.value is None:
+            raise ValueError(
+                f'nominal objective {nominal_metric.objective_id} is not '
+                'available for robustness evaluation'
+            )
         scored: list[tuple[PerturbationSample, ObjectiveMetric]] = []
         for sample in ordered:
             if sample.objective_vector is None:
@@ -472,6 +477,8 @@ def build_uncertainty_robustness_evaluations(
             try:
                 metric = sample.objective_vector.metric(nominal_metric.objective_id)
             except KeyError:
+                continue
+            if metric.state != 'available' or metric.value is None:
                 continue
             scored.append((sample, metric))
         if not scored:
@@ -505,7 +512,21 @@ def build_uncertainty_robustness_evaluations(
                         'probability statistics require all feasible probability '
                         'samples to retain objective evidence'
                     )
-                metric = sample.objective_vector.metric(nominal_metric.objective_id)
+                try:
+                    metric = sample.objective_vector.metric(
+                        nominal_metric.objective_id
+                    )
+                except KeyError:
+                    metric = None
+                if (
+                    metric is None
+                    or metric.state != 'available'
+                    or metric.value is None
+                ):
+                    raise ValueError(
+                        'probability statistics require all feasible probability '
+                        'samples to retain objective evidence'
+                    )
                 weighted_values.append(
                     (float(metric.value), weight, sample.sample_id)
                 )

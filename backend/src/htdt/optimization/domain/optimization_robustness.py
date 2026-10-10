@@ -1532,6 +1532,11 @@ def build_robustness_evaluations(
     }
     evaluations: list[RobustnessEvaluation] = []
     for nominal_metric in nominal.objective_vector.metrics:
+        if nominal_metric.state != 'available' or nominal_metric.value is None:
+            raise ValueError(
+                f'nominal objective {nominal_metric.objective_id} is not '
+                'available for robustness evaluation'
+            )
         sensitivities: list[LocalSensitivity] = []
         scored: list[tuple[PerturbationSample, ObjectiveMetric]] = []
         for sample in ordered:
