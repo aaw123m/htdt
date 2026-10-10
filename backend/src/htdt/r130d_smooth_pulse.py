@@ -77,6 +77,7 @@ def all_mode_newmark_gaussian_trace(lam, coupling, dt, nt, *, center_s=.04, sigm
 
 def all_mode_midpoint_gaussian_trace(lam, coupling, steps, *, record_s=.25,
                                      center_s=.04, sigma_s=.004,
+                                     frequencies_hz=(40.,80.),
                                      c_m_s=343.2, rho_kg_m3=1.2):
     """Actual per-step physical drive, all modes, exact full record endpoint.
 
@@ -84,7 +85,14 @@ def all_mode_midpoint_gaussian_trace(lam, coupling, steps, *, record_s=.25,
     no pressure differentiation across a truncated record boundary.
     """
     lam, cp = np.asarray(lam, float), np.asarray(coupling, float)
-    if lam.shape != cp.shape or min(lam) < 0 or steps < 2:
+    frequencies = np.asarray(frequencies_hz, float)
+    if (lam.ndim != 1 or lam.size == 0 or lam.shape != cp.shape
+        or not np.isfinite(lam).all() or not np.isfinite(cp).all()
+        or min(lam) < 0 or not isinstance(steps, (int, np.integer)) or steps < 2
+        or not np.isfinite([record_s, center_s, sigma_s, c_m_s, rho_kg_m3]).all()
+        or not 0 < center_s < record_s or sigma_s <= 0 or c_m_s <= 0 or rho_kg_m3 <= 0
+        or frequencies.ndim != 1 or frequencies.size == 0
+        or not np.isfinite(frequencies).all() or np.any(frequencies <= 0)):
         raise ValueError("invalid complete midpoint spectrum")
     dt = record_s/steps
     times = (np.arange(steps)+.5)*dt
@@ -99,5 +107,11 @@ def all_mode_midpoint_gaussian_trace(lam, coupling, steps, *, record_s=.25,
         v1 = 2.*(u1-u)/dt-v
         p[n] = rho_kg_m3*.5*(v+v1).sum()
         u, v = u1, v1
-    E = np.exp(2j*np.pi*np.array([40.,80.])[:,None]*times[None,:])
-    return (E @ p)/(E @ q), times, p, q
+    E = np.exp(2j*np.pi*frequencies[:,None]*times[None,:])
+    denominator = E @ q
+    if np.any(abs(denominator) <= np.finfo(float).eps * abs(q).sum()):
+        raise ValueError("source spectrum is unresolved at requested frequencies")
+    transfer = (E @ p)/denominator
+    if not np.isfinite(transfer).all():
+        raise ValueError("physical midpoint transfer nonfinite")
+    return transfer, times, p, q

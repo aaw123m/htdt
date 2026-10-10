@@ -1,0 +1,117 @@
+{
+  "schema_version": "htdt.r130d.finite-band-grid-plan-1",
+  "scope": "41 discrete frequency samples only, not continuous-band certification or measured-room production approval",
+  "profile": "R130D_FINITE_BAND_GAUSSIAN_40MS_SIGMA4MS_SEM_P4_V1",
+  "frequencies_hz": [
+    40,
+    41,
+    42,
+    43,
+    44,
+    45,
+    46,
+    47,
+    48,
+    49,
+    50,
+    51,
+    52,
+    53,
+    54,
+    55,
+    56,
+    57,
+    58,
+    59,
+    60,
+    61,
+    62,
+    63,
+    64,
+    65,
+    66,
+    67,
+    68,
+    69,
+    70,
+    71,
+    72,
+    73,
+    74,
+    75,
+    76,
+    77,
+    78,
+    79,
+    80
+  ],
+  "room_volume_m3": 56,
+  "source_xyz_m": [
+    1.5,
+    2,
+    2
+  ],
+  "receiver_xyz_m": [
+    2.5,
+    2,
+    2
+  ],
+  "source": {
+    "center_s": 0.04,
+    "sigma_s": 0.004,
+    "amplitude_m3_s": 1
+  },
+  "record_s": 0.25,
+  "c_m_s": 343.2,
+  "rho_kg_m3": 1.2,
+  "ppw": [
+    28,
+    32,
+    36,
+    40,
+    44
+  ],
+  "all_modes": true,
+  "runtime_steps": [
+    4000,
+    8000,
+    16000
+  ],
+  "selection_rule": "smallest listed step count passing temporal limits at every spatial grid; all failed controls retained",
+  "temporal_limits": {
+    "complex_rms_relative": 0.01,
+    "magnitude_max_relative": 0.02,
+    "phase_max_deg": 1
+  },
+  "spatial_limits": {
+    "complex_rms_relative": 0.2,
+    "magnitude_max_relative": 0.25,
+    "phase_max_deg": 15
+  },
+  "spatial_strict_monotone_all_three": true,
+  "independent_orders": [
+    6,
+    7,
+    8
+  ],
+  "independent_refinement": 1,
+  "independent_fine_and_cross_limits": {
+    "complex_rms_relative": 0.03,
+    "magnitude_max_relative": 0.05,
+    "phase_max_deg": 3
+  },
+  "masking": "none; every frequency included; zero reference magnitude is an explicit failure",
+  "input_artifacts": {
+    "scratch/physical-pulse-sem/ppw28.npz": "a103cb590191d00d429a2c000c1f15de0f7c65994e3cafca9fbc3b62462ae49e",
+    "scratch/physical-pulse-sem/ppw32.npz": "93103e9a4c7e0e8d6907510e9981c095eff3a823a93c55629183ba6391b2a372",
+    "scratch/physical-pulse-sem/ppw36.npz": "9a029d148eecb104c9760188ecec17e941d82e13a542305f531d1e0b6cfdfff1",
+    "scratch/physical-pulse-sem/ppw40.npz": "e4f001f70b2065c3e10cf8d8803588a7b1e89e9f26482ef9b89b219ad771b209",
+    "scratch/physical-pulse-sem/ppw44.npz": "61a3361621024ba8cc29e5829d5878128805d4753ed3037c05c6d87c150f79e4",
+    "scratch/independent-hp-impulse/order6.npz": "8e4df60fd0d8a89f8db78d758ae4457ff3114e96f00d6bfd797b98ce136f0bfc",
+    "scratch/independent-hp-impulse/order7.npz": "fd8c0c344a3fbc4260ddd95ab3e461eb6e9bf9c87f4b31189b719bff8de3fa9a",
+    "scratch/independent-hp-impulse/order8.npz": "7c121e8a4a0ca878899cd8fb0442686779a44f3a43612a759978385d8338db5b"
+  },
+  "measured_room": "NOT_VALIDATED",
+  "legacy_pffdtd": "SELF_CONVERGENCE_FAILED",
+  "physical_undamped_point_source_limit": "NOT_ESTABLISHED"
+}
