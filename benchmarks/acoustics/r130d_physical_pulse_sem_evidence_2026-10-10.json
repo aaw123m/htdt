@@ -1,0 +1,1035 @@
+{
+  "schema_version": "htdt.r130d.physical-pulse-sem-evidence-1",
+  "plan_commit": "046b964",
+  "plan_sha256_lf": "5bf6bdd606f6b4035c5a4d82464b5ec0b5030b1efe47f630a5c82d3f9b3e550e",
+  "preregistered_plan": {
+    "schema_version": "htdt.r130d.physical-pulse-sem-plan-1",
+    "user_scope": "User explicitly selected practical finite-band physical source convergence on 2026-10-10 JST",
+    "room": "exact 56m3 rigid Neumann roof z=4-y/4, x/y in [0,4], z>=0",
+    "source_xyz_m": [
+      1.5,
+      2,
+      2
+    ],
+    "receiver_xyz_m": [
+      2.5,
+      2,
+      2
+    ],
+    "source": {
+      "model": "causal Gaussian volume velocity",
+      "center_s": 0.04,
+      "sigma_s": 0.004,
+      "amplitude_m3_s": 1
+    },
+    "record_s": 0.25,
+    "frequencies_hz": [
+      40,
+      80
+    ],
+    "c_m_s": 343.2,
+    "rho_kg_m3": 1.2,
+    "degree": 4,
+    "ppw": [
+      28,
+      32,
+      36,
+      40,
+      44
+    ],
+    "elements_each_axis": "ceil(4/(degree*c/(100*ppw)))",
+    "primary_time_steps": "ceil(record_s/(native_h/(sqrt(3)*c))) with exact T/steps",
+    "point_functionals": "physical Dirac basis evaluations at fixed source and receiver, independent of old HDF5 node locations",
+    "all_modes": true,
+    "primary": "actual Gaussian injection each implicit midpoint step; pressure rho*phi_t at midpoint; exp(+i2pi f t) P_T/Q_T",
+    "exact_control": "analytical causal Gaussian convolution and finite time integral for ALL semidiscrete modes, including zero and resonance limits and finite source tails",
+    "primary_self_acceptance": {
+      "complex_rms_relative": 0.2,
+      "magnitude_max_relative": 0.25,
+      "phase_max_deg": 15,
+      "all_four_adjacent_pairs": true,
+      "strict_monotone_all_three": true
+    },
+    "exact_spatial_control_acceptance": {
+      "all_four_adjacent_pairs": true,
+      "complex_rms_relative": 0.01,
+      "magnitude_max_relative": 0.015,
+      "phase_max_deg": 1
+    },
+    "temporal_control": {
+      "fixed_ppw": 44,
+      "steps": [
+        1000,
+        2000,
+        4000
+      ],
+      "order_min": 1.8,
+      "error_against_exact_continuous_control_max": 0.01
+    },
+    "independent_MFEM": {
+      "source_pin": "d964264cdb9a13e94a201b6c236c7721e0c8765f",
+      "refinements": [
+        2,
+        3,
+        4
+      ],
+      "steps": 2000,
+      "max_cg_iterations": 350,
+      "rtol": 1e-11,
+      "atol": 0,
+      "max_true_residual": 1e-08,
+      "fine_pair_limits": {
+        "complex_rms_relative": 0.05,
+        "magnitude_max_relative": 0.08,
+        "phase_max_deg": 5
+      },
+      "cross_SEM_fine_same_dt_limits": {
+        "complex_rms_relative": 0.05,
+        "magnitude_max_relative": 0.08,
+        "phase_max_deg": 5
+      }
+    },
+    "analytic_causal_control": {
+      "point_direct_G": "rho*q_prime(t-r/c)/(4pi*r)",
+      "first_roof_G": "rigid Neumann planar source image, same Gaussian q, before later echoes",
+      "causal_smooth_source": true
+    },
+    "forbidden": [
+      "posthoc_source_width",
+      "level_or_phase_fit",
+      "mode_removal",
+      "mass_floor",
+      "damping",
+      "time_window_taper",
+      "posthoc_grid_selection"
+    ],
+    "original_q0_authority": "SELF_CONVERGENCE_FAILED; original input and observer unchanged",
+    "physical_measured_room_validation": "NOT_VALIDATED",
+    "scope_limit": "R130D numerical physical model qualification, not arbitrary CAD or acoustic measurement validation"
+  },
+  "original_point_q0": "SELF_CONVERGENCE_FAILED",
+  "physical_measured_room_validation": "NOT_VALIDATED",
+  "new_original_PFFDTD_runs": 0,
+  "new_github_actions": 0,
+  "sem_cases": [
+    {
+      "ppw": 28,
+      "elements_each_axis": 9,
+      "x_dofs": 37,
+      "yz_dofs": 1369,
+      "all_3d_modes": 50653,
+      "volume_m3": 56.0,
+      "minimum_positive_yz_mass": 0.0003703703703703706,
+      "x_eigenproof": {
+        "retained_modes": 37,
+        "all_modes": true,
+        "max_eigenpair_residual": 2.3636561724184327e-09,
+        "max_mass_gram_error": 7.373287653739433e-14,
+        "raw_zero_eigenvalue": 1.9458370937522257e-09
+      },
+      "yz_eigenproof": {
+        "retained_modes": 1369,
+        "all_modes": true,
+        "max_eigenpair_residual": 1.3564639077920923e-09,
+        "max_mass_gram_error": 1.3483658634072526e-13,
+        "raw_zero_eigenvalue": -1.9232510592197126e-08
+      },
+      "steps": 1213,
+      "dt_s": 0.00020610057708161583,
+      "actual_midpoint_signed_40_80": [
+        [
+          20.565240327398758,
+          44.25146647354053
+        ],
+        [
+          19.657872185145404,
+          -93.95663266322079
+        ]
+      ],
+      "exact_causal_signed_40_80": [
+        [
+          20.56458971662323,
+          44.04961121907789
+        ],
+        [
+          21.419714960977334,
+          -99.5288315049517
+        ]
+      ],
+      "temporal_error_at_this_grid": {
+        "complex_rms_relative": 0.05183168073954889,
+        "magnitude_max_relative": 0.05713304584152022,
+        "magnitude_max_db": 0.5109917051961604,
+        "phase_max_deg": 0.32831908616637406,
+        "mask_floor": 0.32194397788669044,
+        "compared_frequency_count": 2,
+        "frequency_metrics": [
+          {
+            "frequency_hz": 40.0,
+            "masked_in": true,
+            "magnitude_absolute": 0.18325383660917538,
+            "magnitude_relative": 0.0037696093833416416,
+            "magnitude_db": 0.0326808526845391,
+            "phase_deg": 0.09956958117658132,
+            "complex_relative": 0.004152270030688145
+          },
+          {
+            "frequency_hz": 80.0,
+            "masked_in": true,
+            "magnitude_absolute": 5.8165797009811655,
+            "magnitude_relative": 0.05713304584152022,
+            "magnitude_db": 0.5109917051961604,
+            "phase_deg": 0.32831908616637406,
+            "complex_relative": 0.05740334998890138
+          }
+        ]
+      },
+      "elapsed_s": 0.764461699873209
+    },
+    {
+      "ppw": 32,
+      "elements_each_axis": 10,
+      "x_dofs": 41,
+      "yz_dofs": 1681,
+      "all_3d_modes": 68921,
+      "volume_m3": 56.000000000000014,
+      "minimum_positive_yz_mass": 0.0003000000000000003,
+      "x_eigenproof": {
+        "retained_modes": 41,
+        "all_modes": true,
+        "max_eigenpair_residual": 1.4682411034931207e-09,
+        "max_mass_gram_error": 1.6561772501978845e-13,
+        "raw_zero_eigenvalue": -2.2383010991646782e-08
+      },
+      "yz_eigenproof": {
+        "retained_modes": 1681,
+        "all_modes": true,
+        "max_eigenpair_residual": 1.4444535907447227e-09,
+        "max_mass_gram_error": 6.813993813636898e-14,
+        "raw_zero_eigenvalue": 1.7862822066817028e-08
+      },
+      "steps": 1386,
+      "dt_s": 0.00018037518037518038,
+      "actual_midpoint_signed_40_80": [
+        [
+          20.567117869587747,
+          44.20625819930762
+        ],
+        [
+          20.128750822333576,
+          -95.23052478125345
+        ]
+      ],
+      "exact_causal_signed_40_80": [
+        [
+          20.56460375404529,
+          44.053261272858165
+        ],
+        [
+          21.419428927528156,
+          -99.52126905394049
+        ]
+      ],
+      "temporal_error_at_this_grid": {
+        "complex_rms_relative": 0.03974061389518667,
+        "magnitude_max_relative": 0.04386629854563854,
+        "magnitude_max_db": 0.38962747364470524,
+        "phase_max_deg": 0.21131559628614127,
+        "mask_floor": 0.3219204083261613,
+        "compared_frequency_count": 2,
+        "frequency_metrics": [
+          {
+            "frequency_hz": 40.0,
+            "masked_in": true,
+            "magnitude_absolute": 0.13973893321798414,
+            "magnitude_relative": 0.0028742934043718806,
+            "magnitude_db": 0.02492998439170295,
+            "phase_deg": 0.07337418781480665,
+            "complex_relative": 0.0031474222353711323
+          },
+          {
+            "frequency_hz": 80.0,
+            "masked_in": true,
+            "magnitude_absolute": 4.465596717657405,
+            "magnitude_relative": 0.04386629854563854,
+            "magnitude_db": 0.38962747364470524,
+            "phase_deg": 0.21131559628614127,
+            "complex_relative": 0.044014292169585946
+          }
+        ]
+      },
+      "elapsed_s": 1.1870357999578118
+    },
+    {
+      "ppw": 36,
+      "elements_each_axis": 11,
+      "x_dofs": 45,
+      "yz_dofs": 2025,
+      "all_3d_modes": 91125,
+      "volume_m3": 56.00000000000003,
+      "minimum_positive_yz_mass": 0.00024793388429752083,
+      "x_eigenproof": {
+        "retained_modes": 45,
+        "all_modes": true,
+        "max_eigenpair_residual": 1.2180236105422411e-09,
+        "max_mass_gram_error": 3.599973984800363e-13,
+        "raw_zero_eigenvalue": 1.9119676961002995e-08
+      },
+      "yz_eigenproof": {
+        "retained_modes": 2025,
+        "all_modes": true,
+        "max_eigenpair_residual": 1.520774231029052e-09,
+        "max_mass_gram_error": 9.400813461013513e-14,
+        "raw_zero_eigenvalue": 2.8381413996483196e-08
+      },
+      "steps": 1559,
+      "dt_s": 0.00016035920461834508,
+      "actual_midpoint_signed_40_80": [
+        [
+          20.56770188353118,
+          44.17331264855677
+        ],
+        [
+          20.431338598534936,
+          -96.11776117663206
+        ]
+      ],
+      "exact_causal_signed_40_80": [
+        [
+          20.564598909014272,
+          44.05329687603461
+        ],
+        [
+          21.419494542495595,
+          -99.52125863603155
+        ]
+      ],
+      "temporal_error_at_this_grid": {
+        "complex_rms_relative": 0.03143310676948097,
+        "magnitude_max_relative": 0.034723943596303486,
+        "magnitude_max_db": 0.30696932633188523,
+        "phase_max_deg": 0.14571836629741597,
+        "mask_floor": 0.3219204197772469,
+        "compared_frequency_count": 2,
+        "frequency_metrics": [
+          {
+            "frequency_hz": 40.0,
+            "masked_in": true,
+            "magnitude_absolute": 0.11008635516065368,
+            "magnitude_relative": 0.0022643674216685306,
+            "magnitude_db": 0.019645811241939627,
+            "phase_deg": 0.05638716789385967,
+            "complex_relative": 0.0024694306665222717
+          },
+          {
+            "frequency_hz": 80.0,
+            "masked_in": true,
+            "magnitude_absolute": 3.534903541091424,
+            "magnitude_relative": 0.034723943596303486,
+            "magnitude_db": 0.30696932633188523,
+            "phase_deg": 0.14571836629741597,
+            "complex_relative": 0.0348137308027908
+          }
+        ]
+      },
+      "elapsed_s": 1.9985279999673367
+    },
+    {
+      "ppw": 40,
+      "elements_each_axis": 12,
+      "x_dofs": 49,
+      "yz_dofs": 2401,
+      "all_3d_modes": 117649,
+      "volume_m3": 56.00000000000001,
+      "minimum_positive_yz_mass": 0.00020833333333333348,
+      "x_eigenproof": {
+        "retained_modes": 49,
+        "all_modes": true,
+        "max_eigenpair_residual": 2.898286639135318e-09,
+        "max_mass_gram_error": 1.2573325147113723e-13,
+        "raw_zero_eigenvalue": 1.851587253949731e-08
+      },
+      "yz_eigenproof": {
+        "retained_modes": 2401,
+        "all_modes": true,
+        "max_eigenpair_residual": 1.9606490641491344e-09,
+        "max_mass_gram_error": 3.315750451982069e-13,
+        "raw_zero_eigenvalue": -3.020928097093055e-08
+      },
+      "steps": 1733,
+      "dt_s": 0.00014425851125216387,
+      "actual_midpoint_signed_40_80": [
+        [
+          20.567767561711353,
+          44.14918929622006
+        ],
+        [
+          20.638469373240948,
+          -96.76126520254253
+        ]
+      ],
+      "exact_causal_signed_40_80": [
+        [
+          20.56459846512712,
+          44.052606780928315
+        ],
+        [
+          21.41951598890237,
+          -99.52264533835383
+        ]
+      ],
+      "temporal_error_at_this_grid": {
+        "complex_rms_relative": 0.02545189234113526,
+        "magnitude_max_relative": 0.028130541918238876,
+        "magnitude_max_db": 0.24784131551019298,
+        "phase_max_deg": 0.10571943120908145,
+        "mask_floor": 0.32192472101941166,
+        "compared_frequency_count": 2,
+        "frequency_metrics": [
+          {
+            "frequency_hz": 40.0,
+            "masked_in": true,
+            "magnitude_absolute": 0.08887166867360463,
+            "magnitude_relative": 0.0018280258268648206,
+            "magnitude_db": 0.01586353552489436,
+            "phase_deg": 0.04468215656646635,
+            "complex_relative": 0.001987701519045622
+          },
+          {
+            "frequency_hz": 80.0,
+            "masked_in": true,
+            "magnitude_absolute": 2.863732357604462,
+            "magnitude_relative": 0.028130541918238876,
+            "magnitude_db": 0.24784131551019298,
+            "phase_deg": 0.10571943120908145,
+            "complex_relative": 0.0281892923163762
+          }
+        ]
+      },
+      "elapsed_s": 2.277639700099826
+    },
+    {
+      "ppw": 44,
+      "elements_each_axis": 13,
+      "x_dofs": 53,
+      "yz_dofs": 2809,
+      "all_3d_modes": 148877,
+      "volume_m3": 56.00000000000003,
+      "minimum_positive_yz_mass": 0.0001775147928994084,
+      "x_eigenproof": {
+        "retained_modes": 53,
+        "all_modes": true,
+        "max_eigenpair_residual": 2.200336680562311e-09,
+        "max_mass_gram_error": 2.1302082765028692e-13,
+        "raw_zero_eigenvalue": 3.4973607579499967e-09
+      },
+      "yz_eigenproof": {
+        "retained_modes": 2809,
+        "all_modes": true,
+        "max_eigenpair_residual": 1.925854581065687e-09,
+        "max_mass_gram_error": 3.0576929876957593e-13,
+        "raw_zero_eigenvalue": 7.60304748780221e-08
+      },
+      "steps": 1906,
+      "dt_s": 0.00013116474291710389,
+      "actual_midpoint_signed_40_80": [
+        [
+          20.567621334398474,
+          44.13190734769283
+        ],
+        [
+          20.785184328766533,
+          -97.23598379417211
+        ]
+      ],
+      "exact_causal_signed_40_80": [
+        [
+          20.564597785348994,
+          44.05239816834359
+        ],
+        [
+          21.41953058943875,
+          -99.52307123277043
+        ]
+      ],
+      "temporal_error_at_this_grid": {
+        "complex_rms_relative": 0.02105011388353079,
+        "magnitude_max_relative": 0.023273244776100516,
+        "magnitude_max_db": 0.2045383120326843,
+        "phase_max_deg": 0.08005749319582378,
+        "mask_floor": 0.3219260473816153,
+        "compared_frequency_count": 2,
+        "frequency_metrics": [
+          {
+            "frequency_hz": 40.0,
+            "masked_in": true,
+            "magnitude_absolute": 0.07333437130633058,
+            "magnitude_relative": 0.001508440752639,
+            "magnitude_db": 0.013092277920837316,
+            "phase_deg": 0.036353360614896246,
+            "complex_relative": 0.0016366346642868802
+          },
+          {
+            "frequency_hz": 80.0,
+            "masked_in": true,
+            "magnitude_absolute": 2.369261812422849,
+            "magnitude_relative": 0.023273244776100516,
+            "magnitude_db": 0.2045383120326843,
+            "phase_deg": 0.08005749319582378,
+            "complex_relative": 0.023314176783938555
+          }
+        ]
+      },
+      "elapsed_s": 6.9184320997446775
+    }
+  ],
+  "mfem_cases": [
+    {
+      "refinement": 2,
+      "dofs": 729,
+      "system_sha256": "e61410d4a69000c39975762b9986008974353953f7d8d9f100f9953a33c5ecb4",
+      "mfem_source_pin": "d964264cdb9a13e94a201b6c236c7721e0c8765f",
+      "steps": 2000,
+      "dt_s": 0.000125,
+      "signed_40_80": [
+        [
+          19.86556628916378,
+          43.5838544911338
+        ],
+        [
+          23.890902731540464,
+          -118.26997258615161
+        ]
+      ],
+      "max_true_residual": 9.997428460758839e-12,
+      "max_cg_iterations": 48,
+      "elapsed_s": 1.087576000019908
+    },
+    {
+      "refinement": 3,
+      "dofs": 4913,
+      "system_sha256": "6a43a624223fa512152059d103c4d841723fa1266ea8a22842322fb50db42511",
+      "mfem_source_pin": "d964264cdb9a13e94a201b6c236c7721e0c8765f",
+      "steps": 2000,
+      "dt_s": 0.000125,
+      "signed_40_80": [
+        [
+          20.556617817483094,
+          44.519256123556225
+        ],
+        [
+          21.335565864432223,
+          -97.70084256013399
+        ]
+      ],
+      "max_true_residual": 9.995448262472763e-12,
+      "max_cg_iterations": 44,
+      "elapsed_s": 4.212280800100416
+    },
+    {
+      "refinement": 4,
+      "dofs": 35937,
+      "system_sha256": "e1c67d02db77a6e8775a0a59d8e75fa996434d58f8efae077f4cec2cf2c831ed",
+      "mfem_source_pin": "d964264cdb9a13e94a201b6c236c7721e0c8765f",
+      "steps": 2000,
+      "dt_s": 0.000125,
+      "signed_40_80": [
+        [
+          20.566927168970448,
+          44.15831926766294
+        ],
+        [
+          20.880234424910455,
+          -97.44361600072486
+        ]
+      ],
+      "max_true_residual": 9.997259568878752e-12,
+      "max_cg_iterations": 37,
+      "elapsed_s": 41.178080200217664
+    }
+  ],
+  "numerical_model_qualification": "PASS_FINITE_BAND_R130D",
+  "sem_adjacent_pairs": [
+    {
+      "coarse_ppw": 28,
+      "fine_ppw": 32,
+      "primary_metrics": {
+        "complex_rms_relative": 0.012482511603762174,
+        "magnitude_max_relative": 0.013803210586011408,
+        "magnitude_max_db": 0.12072831316227534,
+        "phase_max_deg": 0.11774161550923168,
+        "mask_floor": 0.30779895158659204,
+        "compared_frequency_count": 2,
+        "frequency_metrics": [
+          {
+            "frequency_hz": 40.0,
+            "masked_in": true,
+            "magnitude_absolute": 0.04020155716088425,
+            "magnitude_relative": 0.0008245368141573267,
+            "magnitude_db": 0.007158884793681625,
+            "phase_deg": 0.024390687391814936,
+            "complex_relative": 0.0009280242427067921
+          },
+          {
+            "frequency_hz": 80.0,
+            "masked_in": true,
+            "magnitude_absolute": 1.343529633851631,
+            "magnitude_relative": 0.013803210586011408,
+            "magnitude_db": 0.12072831316227534,
+            "phase_deg": 0.11774161550923168,
+            "complex_relative": 0.013953252990468094
+          }
+        ]
+      },
+      "primary_pass": true,
+      "exact_control_metrics": {
+        "complex_rms_relative": 7.44779922021384e-05,
+        "magnitude_max_relative": 7.321549028747034e-05,
+        "magnitude_max_db": 0.000635918389178756,
+        "phase_max_deg": 0.0018047059699597412,
+        "mask_floor": 0.3219204083261613,
+        "compared_frequency_count": 2,
+        "frequency_metrics": [
+          {
+            "frequency_hz": 40.0,
+            "masked_in": true,
+            "magnitude_absolute": 0.003313346230299885,
+            "magnitude_relative": 6.815229654927157e-05,
+            "magnitude_db": 0.0005919834991538199,
+            "phase_deg": 0.0018047059699597412,
+            "complex_relative": 7.507859727526533e-05
+          },
+          {
+            "frequency_hz": 80.0,
+            "masked_in": true,
+            "magnitude_absolute": 0.007453349472129389,
+            "magnitude_relative": 7.321549028747034e-05,
+            "magnitude_db": 0.000635918389178756,
+            "phase_deg": 0.0007381256289704652,
+            "complex_relative": 7.434033029724372e-05
+          }
+        ]
+      },
+      "exact_control_pass": true
+    },
+    {
+      "coarse_ppw": 32,
+      "fine_ppw": 36,
+      "primary_metrics": {
+        "complex_rms_relative": 0.008551861592413619,
+        "magnitude_max_relative": 0.00947126876241998,
+        "magnitude_max_db": 0.08265845628007179,
+        "phase_max_deg": 0.0656345667952678,
+        "mask_floor": 0.3107420732784034,
+        "compared_frequency_count": 2,
+        "frequency_metrics": [
+          {
+            "frequency_hz": 40.0,
+            "masked_in": true,
+            "magnitude_absolute": 0.02962236627392656,
+            "magnitude_relative": 0.0006079262017579074,
+            "magnitude_db": 0.00527877550611176,
+            "phase_deg": 0.016964097562294,
+            "complex_relative": 0.0006762326112104201
+          },
+          {
+            "frequency_hz": 80.0,
+            "masked_in": true,
+            "magnitude_absolute": 0.9306967977172036,
+            "magnitude_relative": 0.00947126876241998,
+            "magnitude_db": 0.08265845628007179,
+            "phase_deg": 0.0656345667952678,
+            "complex_relative": 0.009539641677312477
+          }
+        ]
+      },
+      "primary_pass": true,
+      "exact_control_metrics": {
+        "complex_rms_relative": 6.695204526897512e-07,
+        "magnitude_max_relative": 6.21426497320777e-07,
+        "magnitude_max_db": 5.397643651456881e-06,
+        "phase_max_deg": 3.733680654249838e-05,
+        "mask_floor": 0.3219204197772469,
+        "compared_frequency_count": 2,
+        "frequency_metrics": [
+          {
+            "frequency_hz": 40.0,
+            "masked_in": true,
+            "magnitude_absolute": 3.021178339679409e-05,
+            "magnitude_relative": 6.21426497320777e-07,
+            "magnitude_db": 5.397643651456881e-06,
+            "phase_deg": 2.292235868139869e-05,
+            "complex_relative": 7.390719192118568e-07
+          },
+          {
+            "frequency_hz": 80.0,
+            "masked_in": true,
+            "magnitude_absolute": 3.621151208221818e-06,
+            "magnitude_relative": 3.557116873100246e-08,
+            "magnitude_db": 3.0896725092275994e-07,
+            "phase_deg": 3.733680654249838e-05,
+            "complex_relative": 6.526203219527142e-07
+          }
+        ]
+      },
+      "exact_control_pass": true
+    },
+    {
+      "coarse_ppw": 36,
+      "fine_ppw": 40,
+      "primary_metrics": {
+        "complex_rms_relative": 0.006134121074603667,
+        "magnitude_max_relative": 0.006797516574279497,
+        "magnitude_max_db": 0.05924406392944549,
+        "phase_max_deg": 0.039846520531398255,
+        "mask_floor": 0.31286880416025775,
+        "compared_frequency_count": 2,
+        "frequency_metrics": [
+          {
+            "frequency_hz": 40.0,
+            "masked_in": true,
+            "magnitude_absolute": 0.021840191141663468,
+            "magnitude_relative": 0.0004484171878515828,
+            "magnitude_db": 0.003894029195915436,
+            "phase_deg": 0.012048557716724417,
+            "complex_relative": 0.0004952963020358446
+          },
+          {
+            "frequency_hz": 80.0,
+            "masked_in": true,
+            "magnitude_absolute": 0.6725313556878376,
+            "magnitude_relative": 0.006797516574279497,
+            "magnitude_db": 0.05924406392944549,
+            "phase_deg": 0.039846520531398255,
+            "complex_relative": 0.006832759234163703
+          }
+        ]
+      },
+      "primary_pass": true,
+      "exact_control_metrics": {
+        "complex_rms_relative": 1.373118615813426e-05,
+        "magnitude_max_relative": 1.3361018536231853e-05,
+        "magnitude_max_db": 0.00011605310775331598,
+        "phase_max_deg": 0.00034354638933109527,
+        "mask_floor": 0.32192472101941166,
+        "compared_frequency_count": 2,
+        "frequency_metrics": [
+          {
+            "frequency_hz": 40.0,
+            "masked_in": true,
+            "magnitude_absolute": 0.0006255046546073117,
+            "magnitude_relative": 1.2866177495313774e-05,
+            "magnitude_db": 0.00011175347887035998,
+            "phase_deg": 0.00034354638933109527,
+            "complex_relative": 1.4194759219597113e-05
+          },
+          {
+            "frequency_hz": 80.0,
+            "masked_in": true,
+            "magnitude_absolute": 0.0013601722008758088,
+            "magnitude_relative": 1.3361018536231853e-05,
+            "magnitude_db": 0.00011605310775331598,
+            "phase_deg": 0.0001524145569362645,
+            "complex_relative": 1.3623253814862067e-05
+          }
+        ]
+      },
+      "exact_control_pass": true
+    },
+    {
+      "coarse_ppw": 40,
+      "fine_ppw": 44,
+      "primary_metrics": {
+        "complex_rms_relative": 0.0044906270362410515,
+        "magnitude_max_relative": 0.004977135416307055,
+        "magnitude_max_db": 0.043338790142015304,
+        "phase_max_deg": 0.02561953743506251,
+        "mask_floor": 0.3144337836811004,
+        "compared_frequency_count": 2,
+        "frequency_metrics": [
+          {
+            "frequency_hz": 40.0,
+            "masked_in": true,
+            "magnitude_absolute": 0.015726614996864896,
+            "magnitude_relative": 0.00032299910942011926,
+            "magnitude_db": 0.0028050816225661497,
+            "phase_deg": 0.008432067546294775,
+            "complex_relative": 0.00035495583756207135
+          },
+          {
+            "frequency_hz": 80.0,
+            "masked_in": true,
+            "magnitude_absolute": 0.49488997773816834,
+            "magnitude_relative": 0.004977135416307055,
+            "magnitude_db": 0.043338790142015304,
+            "phase_deg": 0.02561953743506251,
+            "complex_relative": 0.0049970812209071186
+          }
+        ]
+      },
+      "primary_pass": true,
+      "exact_control_metrics": {
+        "complex_rms_relative": 4.20571969057989e-06,
+        "magnitude_max_relative": 4.120083523448886e-06,
+        "magnitude_max_db": 3.578666450647744e-05,
+        "phase_max_deg": 0.00010327159472467429,
+        "mask_floor": 0.3219260473816153,
+        "compared_frequency_count": 2,
+        "frequency_metrics": [
+          {
+            "frequency_hz": 40.0,
+            "masked_in": true,
+            "magnitude_absolute": 0.00018931762959084608,
+            "magnitude_relative": 3.894141622554486e-06,
+            "magnitude_db": 3.382401851027758e-05,
+            "phase_deg": 0.00010327159472467429,
+            "complex_relative": 4.291049195250645e-06
+          },
+          {
+            "frequency_hz": 80.0,
+            "masked_in": true,
+            "magnitude_absolute": 0.000419432556569177,
+            "magnitude_relative": 4.120083523448886e-06,
+            "magnitude_db": 3.578666450647744e-05,
+            "phase_deg": 4.240057819515641e-05,
+            "complex_relative": 4.186015997625603e-06
+          }
+        ]
+      },
+      "exact_control_pass": true
+    }
+  ],
+  "sem_self_convergence": {
+    "all_four_pairs_pass": true,
+    "strict_monotone_all_three": true,
+    "all_exact_spatial_controls_pass": true
+  },
+  "fixed_spatial_time_refinement": [
+    {
+      "steps": 1000,
+      "dt_s": 0.00025,
+      "signed_40_80": [
+        [
+          20.558058498889928,
+          44.35520723860112
+        ],
+        [
+          18.600878267975204,
+          -91.41457050521075
+        ]
+      ],
+      "metrics_vs_exact": {
+        "complex_rms_relative": 0.07614061584364609,
+        "magnitude_max_relative": 0.08363434765095852,
+        "magnitude_max_db": 0.758623952176527,
+        "phase_max_deg": 0.6445955519699567,
+        "mask_floor": 0.3219260473816153,
+        "compared_frequency_count": 2,
+        "frequency_metrics": [
+          {
+            "frequency_hz": 40.0,
+            "masked_in": true,
+            "magnitude_absolute": 0.2718017742496599,
+            "magnitude_relative": 0.005590787315884017,
+            "magnitude_db": 0.0484257184545537,
+            "phase_deg": 0.1570623926087933,
+            "complex_relative": 0.006230039628393711
+          },
+          {
+            "frequency_hz": 80.0,
+            "masked_in": true,
+            "magnitude_absolute": 8.51414007812943,
+            "magnitude_relative": 0.08363434765095852,
+            "magnitude_db": 0.758623952176527,
+            "phase_deg": 0.6445955519699567,
+            "complex_relative": 0.08432488897543244
+          }
+        ]
+      }
+    },
+    {
+      "steps": 2000,
+      "dt_s": 0.000125,
+      "signed_40_80": [
+        [
+          20.56750518775588,
+          44.12447394769689
+        ],
+        [
+          20.847930031242903,
+          -97.44424095444919
+        ]
+      ],
+      "metrics_vs_exact": {
+        "complex_rms_relative": 0.019121528722148427,
+        "magnitude_max_relative": 0.02114387438367233,
+        "magnitude_max_db": 0.18562274090755482,
+        "phase_max_deg": 0.06980808065040378,
+        "mask_floor": 0.3219260473816153,
+        "compared_frequency_count": 2,
+        "frequency_metrics": [
+          {
+            "frequency_hz": 40.0,
+            "masked_in": true,
+            "magnitude_absolute": 0.06654778635488157,
+            "magnitude_relative": 0.0013688450742462607,
+            "magnitude_db": 0.011881507129223097,
+            "phase_deg": 0.03278164520412474,
+            "complex_relative": 0.001483758015720029
+          },
+          {
+            "frequency_hz": 80.0,
+            "masked_in": true,
+            "magnitude_absolute": 2.1524877440099885,
+            "magnitude_relative": 0.02114387438367233,
+            "magnitude_db": 0.18562274090755482,
+            "phase_deg": 0.06980808065040378,
+            "complex_relative": 0.02117820787055437
+          }
+        ]
+      }
+    },
+    {
+      "steps": 4000,
+      "dt_s": 6.25e-05,
+      "signed_40_80": [
+        [
+          20.565628024434364,
+          44.07015931925234
+        ],
+        [
+          21.28503466706898,
+          -99.00029063299873
+        ]
+      ],
+      "metrics_vs_exact": {
+        "complex_rms_relative": 0.004787474229546254,
+        "magnitude_max_relative": 0.005298268644750904,
+        "magnitude_max_db": 0.0461425226900184,
+        "phase_max_deg": 0.012159387219355722,
+        "mask_floor": 0.3219260473816153,
+        "compared_frequency_count": 2,
+        "frequency_metrics": [
+          {
+            "frequency_hz": 40.0,
+            "masked_in": true,
+            "magnitude_absolute": 0.01653013842331319,
+            "magnitude_relative": 0.00034001429343864727,
+            "magnitude_db": 0.0029528246553215645,
+            "phase_deg": 0.007751486818904141,
+            "complex_relative": 0.00036594951509833797
+          },
+          {
+            "frequency_hz": 80.0,
+            "masked_in": true,
+            "magnitude_absolute": 0.539374105017643,
+            "magnitude_relative": 0.005298268644750904,
+            "magnitude_db": 0.0461425226900184,
+            "phase_deg": 0.012159387219355722,
+            "complex_relative": 0.005302494687116769
+          }
+        ]
+      }
+    }
+  ],
+  "time_refinement": {
+    "observed_orders": [
+      1.9934683707396854,
+      1.9978612417723316
+    ],
+    "pass": true
+  },
+  "mfem_refinement": {
+    "adjacent_metrics": [
+      {
+        "complex_rms_relative": 0.18638988379101426,
+        "magnitude_max_relative": 0.20654877150929382,
+        "magnitude_max_db": 1.6308976358659715,
+        "phase_max_deg": 0.8984161704080975,
+        "mask_floor": 0.31623821729379287,
+        "compared_frequency_count": 2,
+        "frequency_metrics": [
+          {
+            "frequency_hz": 40.0,
+            "masked_in": true,
+            "magnitude_absolute": 1.138360091961978,
+            "magnitude_relative": 0.023214737447696344,
+            "magnitude_db": 0.2040180304136675,
+            "phase_deg": 0.2814258878594842,
+            "complex_relative": 0.023716866847382775
+          },
+          {
+            "frequency_hz": 80.0,
+            "masked_in": true,
+            "magnitude_absolute": 20.655559791306885,
+            "magnitude_relative": 0.20654877150929382,
+            "magnitude_db": 1.6308976358659715,
+            "phase_deg": 0.8984161704080975,
+            "complex_relative": 0.20726564121212726
+          }
+        ]
+      },
+      {
+        "complex_rms_relative": 0.005729229855056131,
+        "magnitude_max_relative": 0.006632794087614647,
+        "magnitude_max_db": 0.05742149478281208,
+        "phase_max_deg": 0.22420849193593995,
+        "mask_floor": 0.31513873911240964,
+        "compared_frequency_count": 2,
+        "frequency_metrics": [
+          {
+            "frequency_hz": 40.0,
+            "masked_in": true,
+            "magnitude_absolute": 0.323103249693375,
+            "magnitude_relative": 0.006632794087614647,
+            "magnitude_db": 0.05742149478281208,
+            "phase_deg": 0.1889783648163359,
+            "complex_relative": 0.007412479462256417
+          },
+          {
+            "frequency_hz": 80.0,
+            "masked_in": true,
+            "magnitude_absolute": 0.3476855290830798,
+            "magnitude_relative": 0.0034888702813241374,
+            "magnitude_db": 0.030251201597926623,
+            "phase_deg": 0.22420849193593995,
+            "complex_relative": 0.005247720517109404
+          }
+        ]
+      }
+    ],
+    "strict_monotone_all_three": true,
+    "finest_pair_pass": true
+  },
+  "independent_cross_solver": {
+    "metrics": {
+      "complex_rms_relative": 0.00042186741784721763,
+      "magnitude_max_relative": 0.0006247712977999042,
+      "magnitude_max_db": 0.00542839046963141,
+      "phase_max_deg": 0.018237170679412884,
+      "mask_floor": 0.31513873911240964,
+      "compared_frequency_count": 2,
+      "frequency_metrics": [
+        {
+          "frequency_hz": 40.0,
+          "masked_in": true,
+          "magnitude_absolute": 0.03043447964278556,
+          "magnitude_relative": 0.0006247712977999042,
+          "magnitude_db": 0.00542839046963141,
+          "phase_deg": 0.017434605969128825,
+          "complex_relative": 0.0006948917225829404
+        },
+        {
+          "frequency_hz": 80.0,
+          "masked_in": true,
+          "magnitude_absolute": 0.0061524127714847054,
+          "magnitude_relative": 6.173673702635747e-05,
+          "magnitude_db": 0.0005362550379136922,
+          "phase_deg": 0.018237170679412884,
+          "complex_relative": 0.0003242209359363931
+        }
+      ]
+    },
+    "pass": true
+  }
+}
