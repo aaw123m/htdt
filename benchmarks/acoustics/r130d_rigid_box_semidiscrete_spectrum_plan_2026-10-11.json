@@ -1,0 +1,35 @@
+{
+  "schema_version": "htdt.r130d.rigid-box-semidiscrete-spectrum-plan-1",
+  "date_jst": "2026-10-11",
+  "issue": 53,
+  "pr_base": "main",
+  "kind": "preregistered_independent_physics_validation",
+  "hypothesis": "The PHYSICALLY_VALIDATED check analytic_rigid_box_modal_spectrum recorded UNKNOWN because record-based peak detection resolved only 3-4 of 12 analytic mode clusters (250 ms record gives ~4 Hz resolution and degenerate box modes cluster inside it; source/receiver nodal planes kill others). The independent check must therefore compare the discrete Neumann-operator spectrum itself against analytic rigid-box modes — detection-resolution artifacts are not operator error.",
+  "preregistration": "Commit and push this fixed plan before any eigencomputation. The runner verifies plan bytes; tolerances and verdict vocabulary below are frozen.",
+  "box": {
+    "dimensions_m": {"x": 2.5, "y": 2.0, "z": 1.6},
+    "boundary": "rigid Neumann all walls",
+    "speed_of_sound_m_s": 343.2,
+    "grid_spacings_m": [0.1, 0.05],
+    "cells_per_spacing": {"0.1": [25, 20, 16], "0.05": [50, 40, 32]}
+  },
+  "operator": "seven-point second-difference Neumann Laplacian, cell-centered pressure, ghost-node Neumann convention identical to the canonical PFFDTD stencil",
+  "eigensolver": "scipy.sparse.linalg.eigsh(k lowest, sigma=-1, which='LM', tol<=1e-9); full basis for h=0.1",
+  "comparisons": [
+    {"name": "discrete_operator_exactness", "reference": "closed-form discrete Neumann eigenvalues lambda = (2/h)^2 * sum_i sin^2(pi*n_i/(2*N_i))", "tolerance_relative": 1e-8},
+    {"name": "continuum_mode_agreement", "reference": "analytic rigid-box modes f = (c/2)*sqrt(sum_i (n_i/L_i)^2)", "metric": "relative frequency error per analytic mode vs nearest discrete mode; every analytic mode below the cutoff must be matched", "tolerance_relative": 0.02},
+    {"name": "dispersion_bound", "reference": "seven-point leading dispersion: relative error <= (pi*f*h/c)^2/12 times declared safety factor 2.0", "per_mode": true},
+    {"name": "unresolved_cluster_coverage", "reference": "the 12 analytic clusters unresolved under record-peak detection in evidence r130d_reproduction_isolation_diagnostic_evidence.json; every unresolved analytic mode must be present in the discrete spectrum", "coverage_required": 1.0}
+  ],
+  "verdict_vocabulary": [
+    "PHYSICS_VALIDATED_SEMIDISCRETE_SPECTRUM",
+    "PHYSICS_NOT_VALIDATED_SEMIDISCRETE_SPECTRUM",
+    "OPERATOR_DISCRETIZATION_CONFIRMED",
+    "RECORD_PEAK_DETECTION_LIMIT_CONFIRMED"
+  ],
+  "honesty": "This validates the discrete spatial operator's spectrum against physics, not the canonical impulse observable; the original contract remains SELF_CONVERGENCE_FAILED and product NO_GO. If any comparison fails, the verdict is PHYSICS_NOT_VALIDATED with the failing modes recorded verbatim.",
+  "limits": {
+    "no_time_domain_solver_runs": true,
+    "no_github_actions": true
+  }
+}
