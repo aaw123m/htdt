@@ -1,0 +1,2975 @@
+{
+  "schema_version": 1,
+  "plan_sha256_lf": "7f29ae0fa0bbc7d51ca9c053a6dc08ddd0eb90718ffd9beab49a17da2a25b4f9",
+  "product_go": false,
+  "physical_limit": "NOT_ESTABLISHED",
+  "diagnostic_only": true,
+  "free_space_not_closed_room": true,
+  "source_clock_factorial": [
+    {
+      "file": "source28-clock28.csv",
+      "dt": 0.00020599032818587005,
+      "Nt": 1214,
+      "impulse_area_s": 0.00020599032818587005,
+      "waveform_sha256": "ac864c435972eda1092dffde6059ab27b43f7c97987c5c90fe37b5de1f27a706",
+      "signed_40_80": [
+        [
+          299.15140066682585,
+          -27.059021131297726
+        ],
+        [
+          330.21923482224145,
+          -23.45525433354735
+        ]
+      ],
+      "endpoint": {
+        "last_sample_s": 0.24986626808946039,
+        "frequencies": [
+          {
+            "frequency_hz": 40.0,
+            "total": [
+              299.1514006668264,
+              -27.059021131299666
+            ],
+            "bulk": [
+              16.03170552028042,
+              -19.058770162460263
+            ],
+            "initial_stencils": [
+              -1.1689038830610769e-07,
+              0.0
+            ],
+            "final_stencils": [
+              283.11969526343654,
+              -8.000250968839696
+            ],
+            "reconstruction_error_relative_to_component_scale": 1.0954973417619424e-15,
+            "cancellation_ratio": 1.0258508332974139,
+            "endpoint_terms_retained": true
+          },
+          {
+            "frequency_hz": 80.0,
+            "total": [
+              330.21923482224304,
+              -23.45525433355209
+            ],
+            "bulk": [
+              47.54413062231748,
+              -7.464215262003124
+            ],
+            "initial_stencils": [
+              -1.1689038830610774e-07,
+              6.056898384037334e-26
+            ],
+            "final_stencils": [
+              282.67510431681416,
+              -15.991039071548428
+            ],
+            "reconstruction_error_relative_to_component_scale": 5.728105165006721e-15,
+            "cancellation_ratio": 1.0006112303127526,
+            "endpoint_terms_retained": true
+          }
+        ],
+        "changes_observer": false,
+        "interpretation": "signed decomposition only; neither cancellation nor conservation proves convergence"
+      },
+      "source_ppw": 28,
+      "clock_ppw": 28
+    },
+    {
+      "file": "source28-clock32.csv",
+      "dt": 0.0001802415371626363,
+      "Nt": 1388,
+      "impulse_area_s": 0.0001802415371626363,
+      "waveform_sha256": "fdff1628d3a94e14be501d3fc188f84b582a5036e4cd1ac6bd071c95d7325bf3",
+      "signed_40_80": [
+        [
+          226.1211524149179,
+          -18.186205396756243
+        ],
+        [
+          257.62918568797295,
+          -5.734032682907255
+        ]
+      ],
+      "endpoint": {
+        "last_sample_s": 0.24999501204457655,
+        "frequencies": [
+          {
+            "frequency_hz": 40.0,
+            "total": [
+              226.12115241491762,
+              -18.186205396755437
+            ],
+            "bulk": [
+              16.060837300550467,
+              -19.26158407363377
+            ],
+            "initial_stencils": [
+              -4.324944045742327e-09,
+              4.6877265306528806e-26
+            ],
+            "final_stencils": [
+              210.0603151186916,
+              1.0753786768777374
+            ],
+            "reconstruction_error_relative_to_component_scale": 3.343108516811637e-15,
+            "cancellation_ratio": 1.0365473860212404,
+            "endpoint_terms_retained": true
+          },
+          {
+            "frequency_hz": 80.0,
+            "total": [
+              257.6291856879757,
+              -5.734032682907815
+            ],
+            "bulk": [
+              47.65525574365352,
+              -7.882265456052961
+            ],
+            "initial_stencils": [
+              -4.324944045742327e-09,
+              -9.375453061305761e-26
+            ],
+            "final_stencils": [
+              209.973929948646,
+              2.1482327731454522
+            ],
+            "reconstruction_error_relative_to_component_scale": 4.345582024412286e-15,
+            "cancellation_ratio": 1.0023076215979219,
+            "endpoint_terms_retained": true
+          }
+        ],
+        "changes_observer": false,
+        "interpretation": "signed decomposition only; neither cancellation nor conservation proves convergence"
+      },
+      "source_ppw": 28,
+      "clock_ppw": 32
+    },
+    {
+      "file": "source28-clock36.csv",
+      "dt": 0.00016021469970012116,
+      "Nt": 1561,
+      "impulse_area_s": 0.00016021469970012116,
+      "waveform_sha256": "9f351c4703dd948e8389d85a509b9cefb727f68f0c2069d950297a9c6a654fc8",
+      "signed_40_80": [
+        [
+          25.315345328858406,
+          -17.889118951477762
+        ],
+        [
+          56.81679093953948,
+          -5.149436251066476
+        ]
+      ],
+      "endpoint": {
+        "last_sample_s": 0.24993493153218901,
+        "frequencies": [
+          {
+            "frequency_hz": 40.0,
+            "total": [
+              25.315345328859166,
+              -17.88911895148403
+            ],
+            "bulk": [
+              16.032065584778177,
+              -17.678967396841355
+            ],
+            "initial_stencils": [
+              -1.5969641384553882e-10,
+              -2.4871566097692868e-29
+            ],
+            "final_stencils": [
+              9.283279744240485,
+              -0.21015155464088112
+            ],
+            "reconstruction_error_relative_to_component_scale": 5.4462660061376575e-14,
+            "cancellation_ratio": 1.0694622998751937,
+            "endpoint_terms_retained": true
+          },
+          {
+            "frequency_hz": 80.0,
+            "total": [
+              56.816790939535856,
+              -5.149436251069734
+            ],
+            "bulk": [
+              47.536574025734204,
+              -4.729199885454108
+            ],
+            "initial_stencils": [
+              -1.5969641384553882e-10,
+              9.273450855337208e-27
+            ],
+            "final_stencils": [
+              9.280216913959656,
+              -0.42023636561595423
+            ],
+            "reconstruction_error_relative_to_component_scale": 3.019097895864304e-14,
+            "cancellation_ratio": 1.0001980510030692,
+            "endpoint_terms_retained": true
+          }
+        ],
+        "changes_observer": false,
+        "interpretation": "signed decomposition only; neither cancellation nor conservation proves convergence"
+      },
+      "source_ppw": 28,
+      "clock_ppw": 36
+    },
+    {
+      "file": "source28-clock40.csv",
+      "dt": 0.00014419322973010905,
+      "Nt": 1734,
+      "impulse_area_s": 0.00014419322973010905,
+      "waveform_sha256": "ab65e1af3d4fdc569d7eda83e700a64fb8d68ae525f27b524041b26378d70e25",
+      "signed_40_80": [
+        [
+          -210.29964023184934,
+          -11.384205974015964
+        ],
+        [
+          -178.5295687490267,
+          7.848221413757207
+        ]
+      ],
+      "endpoint": {
+        "last_sample_s": 0.24988686712227898,
+        "frequencies": [
+          {
+            "frequency_hz": 40.0,
+            "total": [
+              -210.29964023185153,
+              -11.384205974015927
+            ],
+            "bulk": [
+              16.040759071105192,
+              -16.774442662216703
+            ],
+            "initial_stencils": [
+              -5.8695308696138074e-12,
+              -9.990746857316168e-29
+            ],
+            "final_stencils": [
+              -226.34039930294958,
+              5.390236688201137
+            ],
+            "reconstruction_error_relative_to_component_scale": 5.323573171086724e-15,
+            "cancellation_ratio": 1.1852102543541108,
+            "endpoint_terms_retained": true
+          },
+          {
+            "frequency_hz": 80.0,
+            "total": [
+              -178.52956874902884,
+              7.848221413755006
+            ],
+            "bulk": [
+              47.568726046824416,
+              -2.9277259127325634
+            ],
+            "initial_stencils": [
+              -5.869530869613808e-12,
+              -2.0276613595795363e-28
+            ],
+            "final_stencils": [
+              -226.09829479584567,
+              10.775947326491007
+            ],
+            "reconstruction_error_relative_to_component_scale": 1.4003035503498437e-14,
+            "cancellation_ratio": 1.5333554983460065,
+            "endpoint_terms_retained": true
+          }
+        ],
+        "changes_observer": false,
+        "interpretation": "signed decomposition only; neither cancellation nor conservation proves convergence"
+      },
+      "source_ppw": 28,
+      "clock_ppw": 40
+    },
+    {
+      "file": "source28-clock44.csv",
+      "dt": 0.00013108475430009911,
+      "Nt": 1908,
+      "impulse_area_s": 0.00013108475430009911,
+      "waveform_sha256": "fc8dbe64ec19a62e728e77361cf0f04773344c0866828f36459f95b9a5719c7f",
+      "signed_40_80": [
+        [
+          167.68270206523843,
+          -18.56863048002401
+        ],
+        [
+          199.17022736202085,
+          -6.52055573863073
+        ]
+      ],
+      "endpoint": {
+        "last_sample_s": 0.249978626450289,
+        "frequencies": [
+          {
+            "frequency_hz": 40.0,
+            "total": [
+              167.6827020652379,
+              -18.568630480025025
+            ],
+            "bulk": [
+              16.036256470630423,
+              -18.30789135927481
+            ],
+            "initial_stencils": [
+              -2.1426292529714768e-13,
+              -1.6852397843454525e-30
+            ],
+            "final_stencils": [
+              151.6464455946074,
+              -0.2607391207492928
+            ],
+            "reconstruction_error_relative_to_component_scale": 5.491628127813062e-15,
+            "cancellation_ratio": 1.0431339588240423,
+            "endpoint_terms_retained": true
+          },
+          {
+            "frequency_hz": 80.0,
+            "total": [
+              199.1702273620207,
+              -6.520555738628945
+            ],
+            "bulk": [
+              47.548788363341096,
+              -5.998745959430447
+            ],
+            "initial_stencils": [
+              -2.1426292529714768e-13,
+              4.4350625144590916e-32
+            ],
+            "final_stencils": [
+              151.62143899867982,
+              -0.5218097791983402
+            ],
+            "reconstruction_error_relative_to_component_scale": 7.967201466075865e-16,
+            "cancellation_ratio": 1.0013603984649977,
+            "endpoint_terms_retained": true
+          }
+        ],
+        "changes_observer": false,
+        "interpretation": "signed decomposition only; neither cancellation nor conservation proves convergence"
+      },
+      "source_ppw": 28,
+      "clock_ppw": 44
+    },
+    {
+      "file": "source32-clock28.csv",
+      "dt": 0.00020599032818587005,
+      "Nt": 1214,
+      "impulse_area_s": 0.00020599032818587005,
+      "waveform_sha256": "0862476c16590373b64079c9ea981e9695abecf471c810a0e67bacb68d3335cb",
+      "signed_40_80": [
+        [
+          -112.8823793303098,
+          -13.725311399931833
+        ],
+        [
+          -81.10985859270545,
+          3.166358869517776
+        ]
+      ],
+      "endpoint": {
+        "last_sample_s": 0.24986626808946039,
+        "frequencies": [
+          {
+            "frequency_hz": 40.0,
+            "total": [
+              -112.88237933031239,
+              -13.72531139993063
+            ],
+            "bulk": [
+              16.03643360862911,
+              -17.43478272181808
+            ],
+            "initial_stencils": [
+              -1.454298813723889e-07,
+              0.0
+            ],
+            "final_stencils": [
+              -128.91881279351156,
+              3.70947132188818
+            ],
+            "reconstruction_error_relative_to_component_scale": 4.796866332047119e-15,
+            "cancellation_ratio": 1.3424985645573282,
+            "endpoint_terms_retained": true
+          },
+          {
+            "frequency_hz": 80.0,
+            "total": [
+              -81.10985859271126,
+              3.166358869522106
+            ],
+            "bulk": [
+              47.604967413087515,
+              -4.248218344647551
+            ],
+            "initial_stencils": [
+              -1.4542988137238892e-07,
+              7.582391132654278e-26
+            ],
+            "final_stencils": [
+              -128.71482586036768,
+              7.414577214169135
+            ],
+            "reconstruction_error_relative_to_component_scale": 7.445637411906652e-15,
+            "cancellation_ratio": 2.177144051847843,
+            "endpoint_terms_retained": true
+          }
+        ],
+        "changes_observer": false,
+        "interpretation": "signed decomposition only; neither cancellation nor conservation proves convergence"
+      },
+      "source_ppw": 32,
+      "clock_ppw": 28
+    },
+    {
+      "file": "source32-clock32.csv",
+      "dt": 0.0001802415371626363,
+      "Nt": 1388,
+      "impulse_area_s": 0.0001802415371626363,
+      "waveform_sha256": "c89a8e9d1a3874df1bec685be8f4177aba8fc492a26bf12c522825dbde1e6f7a",
+      "signed_40_80": [
+        [
+          238.4111650278169,
+          -17.78034353617402
+        ],
+        [
+          269.97524646792067,
+          -4.9529679307798595
+        ]
+      ],
+      "endpoint": {
+        "last_sample_s": 0.24999501204457655,
+        "frequencies": [
+          {
+            "frequency_hz": 40.0,
+            "total": [
+              238.41116502781617,
+              -17.780343536173973
+            ],
+            "bulk": [
+              16.054254279219915,
+              -18.31210419593932
+            ],
+            "initial_stencils": [
+              -5.48059975451875e-09,
+              5.941620293221627e-26
+            ],
+            "final_stencils": [
+              222.35691075407735,
+              0.5317606597656205
+            ],
+            "reconstruction_error_relative_to_component_scale": 2.2505550865476553e-15,
+            "cancellation_ratio": 1.031945688592989,
+            "endpoint_terms_retained": true
+          },
+          {
+            "frequency_hz": 80.0,
+            "total": [
+              269.9752464679178,
+              -4.95296793077855
+            ],
+            "bulk": [
+              47.67086109052907,
+              -6.014960956615599
+            ],
+            "initial_stencils": [
+              -5.48059975451875e-09,
+              -1.1883240586443253e-25
+            ],
+            "final_stencils": [
+              222.30438538286904,
+              1.061993025835615
+            ],
+            "reconstruction_error_relative_to_component_scale": 5.450350959722542e-15,
+            "cancellation_ratio": 1.0012409530149353,
+            "endpoint_terms_retained": true
+          }
+        ],
+        "changes_observer": false,
+        "interpretation": "signed decomposition only; neither cancellation nor conservation proves convergence"
+      },
+      "source_ppw": 32,
+      "clock_ppw": 32
+    },
+    {
+      "file": "source32-clock36.csv",
+      "dt": 0.00016021469970012116,
+      "Nt": 1561,
+      "impulse_area_s": 0.00016021469970012116,
+      "waveform_sha256": "4145ca81d22ddb53627a2670741d0da7749cbcec819d96293e60a07ab924b3a7",
+      "signed_40_80": [
+        [
+          43.688064097061606,
+          -18.148654896871598
+        ],
+        [
+          75.24183022087166,
+          -5.699575116984116
+        ]
+      ],
+      "endpoint": {
+        "last_sample_s": 0.24993493153218901,
+        "frequencies": [
+          {
+            "frequency_hz": 40.0,
+            "total": [
+              43.68806409706159,
+              -18.148654896868567
+            ],
+            "bulk": [
+              16.037900118287176,
+              -17.611975751075803
+            ],
+            "initial_stencils": [
+              -2.0478055339286624e-10,
+              -3.1975146040970434e-29
+            ],
+            "final_stencils": [
+              27.650163978978945,
+              -0.5366791457932193
+            ],
+            "reconstruction_error_relative_to_component_scale": 1.006900868485377e-14,
+            "cancellation_ratio": 1.088098160504232,
+            "endpoint_terms_retained": true
+          },
+          {
+            "frequency_hz": 80.0,
+            "total": [
+              75.24183022087972,
+              -5.699575116983028
+            ],
+            "bulk": [
+              47.60180084450261,
+              -4.6263756173118304
+            ],
+            "initial_stencils": [
+              -2.0478055339286624e-10,
+              1.1893258089939925e-26
+            ],
+            "final_stencils": [
+              27.64002937658084,
+              -1.0731994996740162
+            ],
+            "reconstruction_error_relative_to_component_scale": 3.978252809627161e-14,
+            "cancellation_ratio": 1.000391644241902,
+            "endpoint_terms_retained": true
+          }
+        ],
+        "changes_observer": false,
+        "interpretation": "signed decomposition only; neither cancellation nor conservation proves convergence"
+      },
+      "source_ppw": 32,
+      "clock_ppw": 36
+    },
+    {
+      "file": "source32-clock40.csv",
+      "dt": 0.00014419322973010905,
+      "Nt": 1734,
+      "impulse_area_s": 0.00014419322973010905,
+      "waveform_sha256": "05d9dc240cd8b8a2402d978437119e91c91a72b7759d4ff5228e9fda8bb7c48f",
+      "signed_40_80": [
+        [
+          -115.10776580787271,
+          -14.319478098970722
+        ],
+        [
+          -83.41243602513374,
+          1.9490023145794186
+        ]
+      ],
+      "endpoint": {
+        "last_sample_s": 0.24988686712227898,
+        "frequencies": [
+          {
+            "frequency_hz": 40.0,
+            "total": [
+              -115.10776580787241,
+              -14.319478098970198
+            ],
+            "bulk": [
+              16.03363732735091,
+              -17.655260464471123
+            ],
+            "initial_stencils": [
+              -7.584792621845936e-12,
+              -1.2911193820989554e-28
+            ],
+            "final_stencils": [
+              -131.14140313521543,
+              3.3357823655003958
+            ],
+            "reconstruction_error_relative_to_component_scale": 3.965501080403181e-15,
+            "cancellation_ratio": 1.336549172970318,
+            "endpoint_terms_retained": true
+          },
+          {
+            "frequency_hz": 80.0,
+            "total": [
+              -83.41243602513471,
+              1.9490023145808837
+            ],
+            "bulk": [
+              47.58211235092752,
+              -4.719802330273357
+            ],
+            "initial_stencils": [
+              -7.584792621845936e-12,
+              -2.6204419743628723e-28
+            ],
+            "final_stencils": [
+              -130.99454837605342,
+              6.66880464485228
+            ],
+            "reconstruction_error_relative_to_component_scale": 1.2950683350331348e-14,
+            "cancellation_ratio": 2.1451354809228653,
+            "endpoint_terms_retained": true
+          }
+        ],
+        "changes_observer": false,
+        "interpretation": "signed decomposition only; neither cancellation nor conservation proves convergence"
+      },
+      "source_ppw": 32,
+      "clock_ppw": 40
+    },
+    {
+      "file": "source32-clock44.csv",
+      "dt": 0.00013108475430009911,
+      "Nt": 1908,
+      "impulse_area_s": 0.00013108475430009911,
+      "waveform_sha256": "344bda5b40d0b55203b46fbf29d4d4c110f3f604a485d2a168378905184a6d20",
+      "signed_40_80": [
+        [
+          204.05532671291013,
+          -18.690135053386655
+        ],
+        [
+          235.5980237398812,
+          -6.794615463033164
+        ]
+      ],
+      "endpoint": {
+        "last_sample_s": 0.249978626450289,
+        "frequencies": [
+          {
+            "frequency_hz": 40.0,
+            "total": [
+              204.0553267129096,
+              -18.690135053386083
+            ],
+            "bulk": [
+              16.041072520359947,
+              -18.220664974331193
+            ],
+            "initial_stencils": [
+              -2.783685749028733e-13,
+              -2.1896028446436197e-30
+            ],
+            "final_stencils": [
+              188.01425419255008,
+              -0.4694700790533007
+            ],
+            "reconstruction_error_relative_to_component_scale": 7.523617896480618e-15,
+            "cancellation_ratio": 1.0360209492111507,
+            "endpoint_terms_retained": true
+          },
+          {
+            "frequency_hz": 80.0,
+            "total": [
+              235.59802373987904,
+              -6.794615463030118
+            ],
+            "bulk": [
+              47.60990509204564,
+              -5.855357974879196
+            ],
+            "initial_stencils": [
+              -2.783685749028733e-13,
+              5.769676250625844e-32
+            ],
+            "final_stencils": [
+              187.9881186478339,
+              -0.939257488151266
+            ],
+            "reconstruction_error_relative_to_component_scale": 1.6831343825501852e-15,
+            "cancellation_ratio": 1.0011162746605957,
+            "endpoint_terms_retained": true
+          }
+        ],
+        "changes_observer": false,
+        "interpretation": "signed decomposition only; neither cancellation nor conservation proves convergence"
+      },
+      "source_ppw": 32,
+      "clock_ppw": 44
+    },
+    {
+      "file": "source36-clock28.csv",
+      "dt": 0.00020599032818587005,
+      "Nt": 1214,
+      "impulse_area_s": 0.00020599032818587005,
+      "waveform_sha256": "dcbb22c4f844a4eb4d4d8e656554dc73bad730b7cba4f7c1edb96659fda1a2e1",
+      "signed_40_80": [
+        [
+          789.8303048414302,
+          -43.66338017987448
+        ],
+        [
+          820.0619898190391,
+          -56.62672613180441
+        ]
+      ],
+      "endpoint": {
+        "last_sample_s": 0.24986626808946039,
+        "frequencies": [
+          {
+            "frequency_hz": 40.0,
+            "total": [
+              789.8303048414293,
+              -43.66338017988211
+            ],
+            "bulk": [
+              16.00327201194119,
+              -22.56369661327133
+            ],
+            "initial_stencils": [
+              -1.098179214066617e-07,
+              0.0
+            ],
+            "final_stencils": [
+              773.8270329393064,
+              -21.099683566610402
+            ],
+            "reconstruction_error_relative_to_component_scale": 6.402825658050814e-16,
+            "cancellation_ratio": 1.0135784646212191,
+            "endpoint_terms_retained": true
+          },
+          {
+            "frequency_hz": 80.0,
+            "total": [
+              820.0619898190434,
+              -56.626726131815
+            ],
+            "bulk": [
+              47.43235377197029,
+              -14.452572051616617
+            ],
+            "initial_stencils": [
+              -1.0981792140666175e-07,
+              5.656241033254161e-26
+            ],
+            "final_stencils": [
+              772.6296361568886,
+              -42.17415408019905
+            ],
+            "reconstruction_error_relative_to_component_scale": 3.013262584666037e-15,
+            "cancellation_ratio": 1.0016427941523385,
+            "endpoint_terms_retained": true
+          }
+        ],
+        "changes_observer": false,
+        "interpretation": "signed decomposition only; neither cancellation nor conservation proves convergence"
+      },
+      "source_ppw": 36,
+      "clock_ppw": 28
+    },
+    {
+      "file": "source36-clock32.csv",
+      "dt": 0.0001802415371626363,
+      "Nt": 1388,
+      "impulse_area_s": 0.0001802415371626363,
+      "waveform_sha256": "210e21a46e69464ba1619619b3ec9919ba15eb987325211eb9a3cbca0021f207",
+      "signed_40_80": [
+        [
+          112.33220063156705,
+          -17.825192662861916
+        ],
+        [
+          143.845390381352,
+          -4.9932440975049985
+        ]
+      ],
+      "endpoint": {
+        "last_sample_s": 0.24999501204457655,
+        "frequencies": [
+          {
+            "frequency_hz": 40.0,
+            "total": [
+              112.33220063156735,
+              -17.825192662862182
+            ],
+            "bulk": [
+              16.042451315627748,
+              -18.137846561198494
+            ],
+            "initial_stencils": [
+              -3.982965150032293e-09,
+              4.315559928740753e-26
+            ],
+            "final_stencils": [
+              96.28974931992296,
+              0.3126538983354445
+            ],
+            "reconstruction_error_relative_to_component_scale": 7.915227967702981e-15,
+            "cancellation_ratio": 1.059497139274309,
+            "endpoint_terms_retained": true
+          },
+          {
+            "frequency_hz": 80.0,
+            "total": [
+              143.84539038135193,
+              -4.9932440975057855
+            ],
+            "bulk": [
+              47.58367208482034,
+              -5.617734700722051
+            ],
+            "initial_stencils": [
+              -3.982965150032294e-09,
+              -8.631119857481506e-26
+            ],
+            "final_stencils": [
+              96.26171830051436,
+              0.6244906032157846
+            ],
+            "reconstruction_error_relative_to_component_scale": 3.607099153416262e-15,
+            "cancellation_ratio": 1.001708134556259,
+            "endpoint_terms_retained": true
+          }
+        ],
+        "changes_observer": false,
+        "interpretation": "signed decomposition only; neither cancellation nor conservation proves convergence"
+      },
+      "source_ppw": 36,
+      "clock_ppw": 32
+    },
+    {
+      "file": "source36-clock36.csv",
+      "dt": 0.00016021469970012116,
+      "Nt": 1561,
+      "impulse_area_s": 0.00016021469970012116,
+      "waveform_sha256": "da7ac1cf9fcccf08ed4b4126d8bdb84723b64875429b97d2f876a262b1e932e4",
+      "signed_40_80": [
+        [
+          490.2022396478053,
+          -25.75227776448743
+        ],
+        [
+          521.5103907953355,
+          -20.855263986023612
+        ]
+      ],
+      "endpoint": {
+        "last_sample_s": 0.24993493153218901,
+        "frequencies": [
+          {
+            "frequency_hz": 40.0,
+            "total": [
+              490.2022396478,
+              -25.752277764494792
+            ],
+            "bulk": [
+              16.039513742156196,
+              -20.67819872967536
+            ],
+            "initial_stencils": [
+              -1.440547321569243e-10,
+              -2.2299111148904776e-29
+            ],
+            "final_stencils": [
+              474.162725905789,
+              -5.074079034816623
+            ],
+            "reconstruction_error_relative_to_component_scale": 6.0585379271904265e-15,
+            "cancellation_ratio": 1.0193151359407562,
+            "endpoint_terms_retained": true
+          },
+          {
+            "frequency_hz": 80.0,
+            "total": [
+              521.5103907953387,
+              -20.855263986023107
+            ],
+            "bulk": [
+              47.56827746907406,
+              -10.707978292036913
+            ],
+            "initial_stencils": [
+              -1.440547321569243e-10,
+              8.362149877738389e-27
+            ],
+            "final_stencils": [
+              473.94211332641083,
+              -10.147285693985369
+            ],
+            "reconstruction_error_relative_to_component_scale": 4.424617464159887e-15,
+            "cancellation_ratio": 1.0016901029166652,
+            "endpoint_terms_retained": true
+          }
+        ],
+        "changes_observer": false,
+        "interpretation": "signed decomposition only; neither cancellation nor conservation proves convergence"
+      },
+      "source_ppw": 36,
+      "clock_ppw": 36
+    },
+    {
+      "file": "source36-clock40.csv",
+      "dt": 0.00014419322973010905,
+      "Nt": 1734,
+      "impulse_area_s": 0.00014419322973010905,
+      "waveform_sha256": "4617b4ce66860fa87d6b761dd005e8863b8f8e66066b1f24f428c6e010ff62ba",
+      "signed_40_80": [
+        [
+          -29.747344444778744,
+          -16.608255022809626
+        ],
+        [
+          1.799958253109402,
+          -2.577046720501396
+        ]
+      ],
+      "endpoint": {
+        "last_sample_s": 0.24988686712227898,
+        "frequencies": [
+          {
+            "frequency_hz": 40.0,
+            "total": [
+              -29.747344444779976,
+              -16.60825502280966
+            ],
+            "bulk": [
+              16.02887781787077,
+              -17.830356785545796
+            ],
+            "initial_stencils": [
+              -5.192107235953119e-12,
+              -8.835905629399649e-29
+            ],
+            "final_stencils": [
+              -45.776222262645284,
+              1.222101762735741
+            ],
+            "reconstruction_error_relative_to_component_scale": 6.879110981391725e-15,
+            "cancellation_ratio": 2.0478215370500052,
+            "endpoint_terms_retained": true
+          },
+          {
+            "frequency_hz": 80.0,
+            "total": [
+              1.7999582531113154,
+              -2.5770467204971097
+            ],
+            "bulk": [
+              47.52313395490709,
+              -5.02024944507277
+            ],
+            "initial_stencils": [
+              -5.19210723595312e-12,
+              -1.7931451687678626e-28
+            ],
+            "final_stencils": [
+              -45.723175701790716,
+              2.443202724571654
+            ],
+            "reconstruction_error_relative_to_component_scale": 4.28412826996785e-14,
+            "cancellation_ratio": 29.76894539885934,
+            "endpoint_terms_retained": true
+          }
+        ],
+        "changes_observer": false,
+        "interpretation": "signed decomposition only; neither cancellation nor conservation proves convergence"
+      },
+      "source_ppw": 36,
+      "clock_ppw": 40
+    },
+    {
+      "file": "source36-clock44.csv",
+      "dt": 0.00013108475430009911,
+      "Nt": 1908,
+      "impulse_area_s": 0.00013108475430009911,
+      "waveform_sha256": "7a63104005115bfdcad0d7484c1a106529a16784f68e58a5242176693dc83482",
+      "signed_40_80": [
+        [
+          67.872915124087,
+          -18.26813116463228
+        ],
+        [
+          99.36546313159914,
+          -5.901179661644177
+        ]
+      ],
+      "endpoint": {
+        "last_sample_s": 0.249978626450289,
+        "frequencies": [
+          {
+            "frequency_hz": 40.0,
+            "total": [
+              67.87291512408791,
+              -18.268131164629356
+            ],
+            "bulk": [
+              16.0347283564676,
+              -18.44253093279253
+            ],
+            "initial_stencils": [
+              -1.862727203073652e-13,
+              -1.464729294734781e-30
+            ],
+            "final_stencils": [
+              51.83818676762069,
+              0.17439976816193706
+            ],
+            "reconstruction_error_relative_to_component_scale": 1.6417141240536054e-14,
+            "cancellation_ratio": 1.0852000953955492,
+            "endpoint_terms_retained": true
+          },
+          {
+            "frequency_hz": 80.0,
+            "total": [
+              99.3654631316027,
+              -5.9011796616469425
+            ],
+            "bulk": [
+              47.54459941814924,
+              -6.24969693968269
+            ],
+            "initial_stencils": [
+              -1.862727203073652e-13,
+              3.8377165861290215e-32
+            ],
+            "final_stencils": [
+              51.820863713453605,
+              0.34851727803547905
+            ],
+            "reconstruction_error_relative_to_component_scale": 2.7033801076791086e-15,
+            "cancellation_ratio": 1.002361792849187,
+            "endpoint_terms_retained": true
+          }
+        ],
+        "changes_observer": false,
+        "interpretation": "signed decomposition only; neither cancellation nor conservation proves convergence"
+      },
+      "source_ppw": 36,
+      "clock_ppw": 44
+    },
+    {
+      "file": "source40-clock28.csv",
+      "dt": 0.00020599032818587005,
+      "Nt": 1214,
+      "impulse_area_s": 0.00020599032818587005,
+      "waveform_sha256": "9fc7e39bb0067c4846963de2c476cf0a4ec02dfe50a39cf34b5877013f1e46ae",
+      "signed_40_80": [
+        [
+          62.795392184057405,
+          -19.176208222496406
+        ],
+        [
+          94.36279717205991,
+          -7.683845016105081
+        ]
+      ],
+      "endpoint": {
+        "last_sample_s": 0.24986626808946039,
+        "frequencies": [
+          {
+            "frequency_hz": 40.0,
+            "total": [
+              62.7953921840587,
+              -19.17620822249876
+            ],
+            "bulk": [
+              16.05069415136046,
+              -17.638768010771887
+            ],
+            "initial_stencils": [
+              -4.6657647693294545e-08,
+              0.0
+            ],
+            "final_stencils": [
+              46.7446980793554,
+              -1.537440211727133
+            ],
+            "reconstruction_error_relative_to_component_scale": 7.765301715141757e-15,
+            "cancellation_ratio": 1.0755482774467946,
+            "endpoint_terms_retained": true
+          },
+          {
+            "frequency_hz": 80.0,
+            "total": [
+              94.36279717205987,
+              -7.68384501610452
+            ],
+            "bulk": [
+              47.696521461006654,
+              -4.6107108331062445
+            ],
+            "initial_stencils": [
+              -4.665764769329456e-08,
+              2.2235752835797637e-26
+            ],
+            "final_stencils": [
+              46.666275757711865,
+              -3.0731341829986696
+            ],
+            "reconstruction_error_relative_to_component_scale": 1.1440927517716533e-14,
+            "cancellation_ratio": 1.000117114643923,
+            "endpoint_terms_retained": true
+          }
+        ],
+        "changes_observer": false,
+        "interpretation": "signed decomposition only; neither cancellation nor conservation proves convergence"
+      },
+      "source_ppw": 40,
+      "clock_ppw": 28
+    },
+    {
+      "file": "source40-clock32.csv",
+      "dt": 0.0001802415371626363,
+      "Nt": 1388,
+      "impulse_area_s": 0.0001802415371626363,
+      "waveform_sha256": "14e1ec95fb04fae319e6e4ff1789535ae7f09d965a44346401b5e18ddc2377c5",
+      "signed_40_80": [
+        [
+          293.22676892229345,
+          -17.59534664272671
+        ],
+        [
+          324.8429171700046,
+          -4.537068638416606
+        ]
+      ],
+      "endpoint": {
+        "last_sample_s": 0.24999501204457655,
+        "frequencies": [
+          {
+            "frequency_hz": 40.0,
+            "total": [
+              293.2267689222935,
+              -17.595346642726252
+            ],
+            "bulk": [
+              16.061582678707815,
+              -18.124768704988472
+            ],
+            "initial_stencils": [
+              -1.2947044004725144e-09,
+              1.3966984069089773e-26
+            ],
+            "final_stencils": [
+              277.1651862448809,
+              0.5294220622618178
+            ],
+            "reconstruction_error_relative_to_component_scale": 2.15772532372333e-15,
+            "cancellation_ratio": 1.0259702442557859,
+            "endpoint_terms_retained": true
+          },
+          {
+            "frequency_hz": 80.0,
+            "total": [
+              324.8429171700051,
+              -4.537068638419456
+            ],
+            "bulk": [
+              47.73464368415585,
+              -5.594259395036831
+            ],
+            "initial_stencils": [
+              -1.2947044004725144e-09,
+              -2.7933968138179546e-26
+            ],
+            "final_stencils": [
+              277.1082734871429,
+              1.0571907566151104
+            ],
+            "reconstruction_error_relative_to_component_scale": 7.642887615495092e-15,
+            "cancellation_ratio": 1.000914276482248,
+            "endpoint_terms_retained": true
+          }
+        ],
+        "changes_observer": false,
+        "interpretation": "signed decomposition only; neither cancellation nor conservation proves convergence"
+      },
+      "source_ppw": 40,
+      "clock_ppw": 32
+    },
+    {
+      "file": "source40-clock36.csv",
+      "dt": 0.00016021469970012116,
+      "Nt": 1561,
+      "impulse_area_s": 0.00016021469970012116,
+      "waveform_sha256": "b4664c5302771be43bdd047c16311084ffc48bcc2161d70363c6be4cf971e17f",
+      "signed_40_80": [
+        [
+          294.36456557618544,
+          -22.487607687558953
+        ],
+        [
+          325.85585494640554,
+          -14.33078412902906
+        ]
+      ],
+      "endpoint": {
+        "last_sample_s": 0.24993493153218901,
+        "frequencies": [
+          {
+            "frequency_hz": 40.0,
+            "total": [
+              294.3645655761848,
+              -22.48760768756368
+            ],
+            "bulk": [
+              16.0453496444762,
+              -19.501327842939993
+            ],
+            "initial_stencils": [
+              -3.5099864941661614e-11,
+              -4.976338730334315e-30
+            ],
+            "final_stencils": [
+              278.3192159317437,
+              -2.986279844622133
+            ],
+            "reconstruction_error_relative_to_component_scale": 5.125641383454958e-15,
+            "cancellation_ratio": 1.0283406006243105,
+            "endpoint_terms_retained": true
+          },
+          {
+            "frequency_hz": 80.0,
+            "total": [
+              325.8558549464183,
+              -14.33078412903775
+            ],
+            "bulk": [
+              47.66604182200742,
+              -8.35874006044219
+            ],
+            "initial_stencils": [
+              -3.5099864941661614e-11,
+              2.0274381322263013e-27
+            ],
+            "final_stencils": [
+              278.1898131244468,
+              -5.972044068595939
+            ],
+            "reconstruction_error_relative_to_component_scale": 2.8557742007585023e-15,
+            "cancellation_ratio": 1.0014607933476452,
+            "endpoint_terms_retained": true
+          }
+        ],
+        "changes_observer": false,
+        "interpretation": "signed decomposition only; neither cancellation nor conservation proves convergence"
+      },
+      "source_ppw": 40,
+      "clock_ppw": 36
+    },
+    {
+      "file": "source40-clock40.csv",
+      "dt": 0.00014419322973010905,
+      "Nt": 1734,
+      "impulse_area_s": 0.00014419322973010905,
+      "waveform_sha256": "b859a63e3fea9349a30c85ed7d5d96c6a38eff12cdab2700c4728d0824008fc3",
+      "signed_40_80": [
+        [
+          -373.1500375089764,
+          -6.392924526255362
+        ],
+        [
+          -341.04614779776034,
+          17.840930775299704
+        ]
+      ],
+      "endpoint": {
+        "last_sample_s": 0.24988686712227898,
+        "frequencies": [
+          {
+            "frequency_hz": 40.0,
+            "total": [
+              -373.1500375089775,
+              -6.392924526258194
+            ],
+            "bulk": [
+              16.073236190908556,
+              -15.205295788383602
+            ],
+            "initial_stencils": [
+              -9.341329862262583e-13,
+              -1.5846335067593668e-29
+            ],
+            "final_stencils": [
+              -389.2232736998835,
+              8.81237126212804
+            ],
+            "reconstruction_error_relative_to_component_scale": 7.478596101038522e-15,
+            "cancellation_ratio": 1.1024745678112962,
+            "endpoint_terms_retained": true
+          },
+          {
+            "frequency_hz": 80.0,
+            "total": [
+              -341.0461477977691,
+              17.84093077530317
+            ],
+            "bulk": [
+              47.77492814665117,
+              0.2236756186749645
+            ],
+            "initial_stencils": [
+              -9.341329862262585e-13,
+              -3.211923997908448e-29
+            ],
+            "final_stencils": [
+              -388.8210759444116,
+              17.617255156622747
+            ],
+            "reconstruction_error_relative_to_component_scale": 2.1658644076189092e-14,
+            "cancellation_ratio": 1.2795884862087021,
+            "endpoint_terms_retained": true
+          }
+        ],
+        "changes_observer": false,
+        "interpretation": "signed decomposition only; neither cancellation nor conservation proves convergence"
+      },
+      "source_ppw": 40,
+      "clock_ppw": 40
+    },
+    {
+      "file": "source40-clock44.csv",
+      "dt": 0.00013108475430009911,
+      "Nt": 1908,
+      "impulse_area_s": 0.00013108475430009911,
+      "waveform_sha256": "cf5e8ff56dc95aff7f2da6dc257d57596b15930e5295773ad9eff9fc75e1e3e2",
+      "signed_40_80": [
+        [
+          -350.1744854615383,
+          -15.937831331101538
+        ],
+        [
+          -318.5621664074414,
+          -1.2446249480495588
+        ]
+      ],
+      "endpoint": {
+        "last_sample_s": 0.249978626450289,
+        "frequencies": [
+          {
+            "frequency_hz": 40.0,
+            "total": [
+              -350.17448546153634,
+              -15.93783133110528
+            ],
+            "bulk": [
+              16.022782084147796,
+              -16.46156501790206
+            ],
+            "initial_stencils": [
+              -2.4481881463571583e-14,
+              -1.9161557130818076e-31
+            ],
+            "final_stencils": [
+              -366.1972675456849,
+              0.5237336867963989
+            ],
+            "reconstruction_error_relative_to_component_scale": 2.268178916196248e-15,
+            "cancellation_ratio": 1.1102098931269195,
+            "endpoint_terms_retained": true
+          },
+          {
+            "frequency_hz": 80.0,
+            "total": [
+              -318.5621664074393,
+              -1.2446249480531824
+            ],
+            "bulk": [
+              47.571188706832814,
+              -2.2929608066524994
+            ],
+            "initial_stencils": [
+              -2.4481881463571583e-14,
+              4.596795491924694e-33
+            ],
+            "final_stencils": [
+              -366.1333551142717,
+              1.0483358585988998
+            ],
+            "reconstruction_error_relative_to_component_scale": 1.393418908992418e-15,
+            "cancellation_ratio": 1.2988300537511681,
+            "endpoint_terms_retained": true
+          }
+        ],
+        "changes_observer": false,
+        "interpretation": "signed decomposition only; neither cancellation nor conservation proves convergence"
+      },
+      "source_ppw": 40,
+      "clock_ppw": 44
+    },
+    {
+      "file": "source44-clock28.csv",
+      "dt": 0.00020599032818587005,
+      "Nt": 1214,
+      "impulse_area_s": 0.00020599032818587005,
+      "waveform_sha256": "cd3133c2109edcc07eab494834682948bacf50e436c78ad7239ae31c6bd9d58f",
+      "signed_40_80": [
+        [
+          -498.3398016817097,
+          -0.366739515820516
+        ],
+        [
+          -465.8048623710499,
+          29.883971485387256
+        ]
+      ],
+      "endpoint": {
+        "last_sample_s": 0.24986626808946039,
+        "frequencies": [
+          {
+            "frequency_hz": 40.0,
+            "total": [
+              -498.33980168171036,
+              -0.3667395158139097
+            ],
+            "bulk": [
+              16.078775345233076,
+              -13.998215424938262
+            ],
+            "initial_stencils": [
+              -5.585841827902228e-08,
+              0.0
+            ],
+            "final_stencils": [
+              -514.4185769710841,
+              13.631475909124624
+            ],
+            "reconstruction_error_relative_to_component_scale": 1.771202708015048e-15,
+            "cancellation_ratio": 1.0754057265297836,
+            "endpoint_terms_retained": true
+          },
+          {
+            "frequency_hz": 80.0,
+            "total": [
+              -465.8048623710509,
+              29.883971485397687
+            ],
+            "bulk": [
+              47.826871472482146,
+              2.6374452170952325
+            ],
+            "initial_stencils": [
+              -5.58584182790223e-08,
+              2.686495090405664e-26
+            ],
+            "final_stencils": [
+              -513.6317337876725,
+              27.246526268301345
+            ],
+            "reconstruction_error_relative_to_component_scale": 4.228380046329067e-15,
+            "cancellation_ratio": 1.2045814470422416,
+            "endpoint_terms_retained": true
+          }
+        ],
+        "changes_observer": false,
+        "interpretation": "signed decomposition only; neither cancellation nor conservation proves convergence"
+      },
+      "source_ppw": 44,
+      "clock_ppw": 28
+    },
+    {
+      "file": "source44-clock32.csv",
+      "dt": 0.0001802415371626363,
+      "Nt": 1388,
+      "impulse_area_s": 0.0001802415371626363,
+      "waveform_sha256": "d8726054aee9edca7cc6a67a315f8fc7814f15fa1cab7a20a4b4cc59d28578d0",
+      "signed_40_80": [
+        [
+          -441.84414542227336,
+          -17.46434979206743
+        ],
+        [
+          -410.2100044224216,
+          -4.305908237970186
+        ]
+      ],
+      "endpoint": {
+        "last_sample_s": 0.24999501204457655,
+        "frequencies": [
+          {
+            "frequency_hz": 40.0,
+            "total": [
+              -441.8441454222737,
+              -17.464349792066646
+            ],
+            "bulk": [
+              15.990100225568025,
+              -15.60261290555085
+            ],
+            "initial_stencils": [
+              -1.6004185199171272e-09,
+              1.7272845656764173e-26
+            ],
+            "final_stencils": [
+              -457.8342456462411,
+              -1.861736886515695
+            ],
+            "reconstruction_error_relative_to_component_scale": 5.198624973679986e-16,
+            "cancellation_ratio": 1.0859133993452066,
+            "endpoint_terms_retained": true
+          },
+          {
+            "frequency_hz": 80.0,
+            "total": [
+              -410.2100044224187,
+              -4.305908237970368
+            ],
+            "bulk": [
+              47.46689184213705,
+              -0.5870275929345865
+            ],
+            "initial_stencils": [
+              -1.6004185199171272e-09,
+              -3.4545691313528346e-26
+            ],
+            "final_stencils": [
+              -457.67689626295663,
+              -3.7188806450333782
+            ],
+            "reconstruction_error_relative_to_component_scale": 5.41607098592325e-15,
+            "cancellation_ratio": 1.2314051172795222,
+            "endpoint_terms_retained": true
+          }
+        ],
+        "changes_observer": false,
+        "interpretation": "signed decomposition only; neither cancellation nor conservation proves convergence"
+      },
+      "source_ppw": 44,
+      "clock_ppw": 32
+    },
+    {
+      "file": "source44-clock36.csv",
+      "dt": 0.00016021469970012116,
+      "Nt": 1561,
+      "impulse_area_s": 0.00016021469970012116,
+      "waveform_sha256": "9dc7999221cee713d7f44623b53108de1289b6c721994002d5fa7c77a73b1765",
+      "signed_40_80": [
+        [
+          659.9098566777168,
+          -28.683824420955293
+        ],
+        [
+          691.2691723446039,
+          -26.75170007523095
+        ]
+      ],
+      "endpoint": {
+        "last_sample_s": 0.24993493153218901,
+        "frequencies": [
+          {
+            "frequency_hz": 40.0,
+            "total": [
+              659.9098566777236,
+              -28.683824420952707
+            ],
+            "bulk": [
+              16.052159297158298,
+              -21.81698834381393
+            ],
+            "initial_stencils": [
+              -4.479767638287799e-11,
+              -6.408686409024289e-30
+            ],
+            "final_stencils": [
+              643.8576973806098,
+              -6.866836077139413
+            ],
+            "reconstruction_error_relative_to_component_scale": 1.075472315145855e-15,
+            "cancellation_ratio": 1.0158166039488679,
+            "endpoint_terms_retained": true
+          },
+          {
+            "frequency_hz": 80.0,
+            "total": [
+              691.2691723446028,
+              -26.751700075218125
+            ],
+            "bulk": [
+              47.71130384837713,
+              -13.019202120017397
+            ],
+            "initial_stencils": [
+              -4.479767638287799e-11,
+              2.5888663965957505e-27
+            ],
+            "final_stencils": [
+              643.557868496277,
+              -13.732497955197886
+            ],
+            "reconstruction_error_relative_to_component_scale": 1.0358781152517913e-14,
+            "cancellation_ratio": 1.0019853948392765,
+            "endpoint_terms_retained": true
+          }
+        ],
+        "changes_observer": false,
+        "interpretation": "signed decomposition only; neither cancellation nor conservation proves convergence"
+      },
+      "source_ppw": 44,
+      "clock_ppw": 36
+    },
+    {
+      "file": "source44-clock40.csv",
+      "dt": 0.00014419322973010905,
+      "Nt": 1734,
+      "impulse_area_s": 0.00014419322973010905,
+      "waveform_sha256": "d45ea83822af139dc6bcb412a20b083e5c0c31b3deaecbf1178d9802498584c0",
+      "signed_40_80": [
+        [
+          -377.0030396214463,
+          -6.7931471453625925
+        ],
+        [
+          -344.9121713373036,
+          17.011179405916426
+        ]
+      ],
+      "endpoint": {
+        "last_sample_s": 0.24988686712227898,
+        "frequencies": [
+          {
+            "frequency_hz": 40.0,
+            "total": [
+              -377.0030396214466,
+              -6.793147145362651
+            ],
+            "bulk": [
+              16.055497225446096,
+              -16.2807060651654
+            ],
+            "initial_stencils": [
+              -1.2310685339149094e-12,
+              -2.0889803676676208e-29
+            ],
+            "final_stencils": [
+              -393.0585368468917,
+              9.48755891980207
+            ],
+            "reconstruction_error_relative_to_component_scale": 1.7241993752404468e-15,
+            "cancellation_ratio": 1.1033630000755523,
+            "endpoint_terms_retained": true
+          },
+          {
+            "frequency_hz": 80.0,
+            "total": [
+              -344.91217133729555,
+              17.011179405923524
+            ],
+            "bulk": [
+              47.72200322786146,
+              -1.9559963733143328
+            ],
+            "initial_stencils": [
+              -1.2310685339149096e-12,
+              -4.234685087073304e-29
+            ],
+            "final_stencils": [
+              -392.6341745651647,
+              18.967175779229596
+            ],
+            "reconstruction_error_relative_to_component_scale": 2.7583585384234402e-14,
+            "cancellation_ratio": 1.276611651440473,
+            "endpoint_terms_retained": true
+          }
+        ],
+        "changes_observer": false,
+        "interpretation": "signed decomposition only; neither cancellation nor conservation proves convergence"
+      },
+      "source_ppw": 44,
+      "clock_ppw": 40
+    },
+    {
+      "file": "source44-clock44.csv",
+      "dt": 0.00013108475430009911,
+      "Nt": 1908,
+      "impulse_area_s": 0.00013108475430009911,
+      "waveform_sha256": "760f74877f601a21d5cab30ea3e4a85efeaee98b5f8c07fc75b2bbc3273c14e6",
+      "signed_40_80": [
+        [
+          -619.5255526226601,
+          -14.13626168004204
+        ],
+        [
+          -587.8744317471924,
+          2.328676252040019
+        ]
+      ],
+      "endpoint": {
+        "last_sample_s": 0.249978626450289,
+        "frequencies": [
+          {
+            "frequency_hz": 40.0,
+            "total": [
+              -619.525552622662,
+              -14.136261680044901
+            ],
+            "bulk": [
+              16.007743097095766,
+              -14.478189754009453
+            ],
+            "initial_stencils": [
+              -3.332083971359289e-14,
+              -2.6090986730205287e-31
+            ],
+            "final_stencils": [
+              -635.5332957197584,
+              0.34192807396408953
+            ],
+            "reconstruction_error_relative_to_component_scale": 1.253611838937449e-15,
+            "cancellation_ratio": 1.0604022880176365,
+            "endpoint_terms_retained": true
+          },
+          {
+            "frequency_hz": 80.0,
+            "total": [
+              -587.8744317471925,
+              2.3286762520322912
+            ],
+            "bulk": [
+              47.52906428410696,
+              1.6429493914545226
+            ],
+            "initial_stencils": [
+              -3.332083971359289e-14,
+              6.31305395791901e-33
+            ],
+            "final_stencils": [
+              -635.403496031298,
+              0.6857268605769596
+            ],
+            "reconstruction_error_relative_to_component_scale": 2.322448784193397e-15,
+            "cancellation_ratio": 1.1617378185031921,
+            "endpoint_terms_retained": true
+          }
+        ],
+        "changes_observer": false,
+        "interpretation": "signed decomposition only; neither cancellation nor conservation proves convergence"
+      },
+      "source_ppw": 44,
+      "clock_ppw": 44
+    }
+  ],
+  "refined_native44_cloud": [
+    {
+      "file": "native44-clock-x1.csv",
+      "dt": 0.00013108475430009911,
+      "Nt": 1908,
+      "impulse_area_s": 0.00013108475430009911,
+      "waveform_sha256": "760f74877f601a21d5cab30ea3e4a85efeaee98b5f8c07fc75b2bbc3273c14e6",
+      "signed_40_80": [
+        [
+          -619.5255526226601,
+          -14.13626168004204
+        ],
+        [
+          -587.8744317471924,
+          2.328676252040019
+        ]
+      ],
+      "endpoint": {
+        "last_sample_s": 0.249978626450289,
+        "frequencies": [
+          {
+            "frequency_hz": 40.0,
+            "total": [
+              -619.525552622662,
+              -14.136261680044901
+            ],
+            "bulk": [
+              16.007743097095766,
+              -14.478189754009453
+            ],
+            "initial_stencils": [
+              -3.332083971359289e-14,
+              -2.6090986730205287e-31
+            ],
+            "final_stencils": [
+              -635.5332957197584,
+              0.34192807396408953
+            ],
+            "reconstruction_error_relative_to_component_scale": 1.253611838937449e-15,
+            "cancellation_ratio": 1.0604022880176365,
+            "endpoint_terms_retained": true
+          },
+          {
+            "frequency_hz": 80.0,
+            "total": [
+              -587.8744317471925,
+              2.3286762520322912
+            ],
+            "bulk": [
+              47.52906428410696,
+              1.6429493914545226
+            ],
+            "initial_stencils": [
+              -3.332083971359289e-14,
+              6.31305395791901e-33
+            ],
+            "final_stencils": [
+              -635.403496031298,
+              0.6857268605769596
+            ],
+            "reconstruction_error_relative_to_component_scale": 2.322448784193397e-15,
+            "cancellation_ratio": 1.1617378185031921,
+            "endpoint_terms_retained": true
+          }
+        ],
+        "changes_observer": false,
+        "interpretation": "signed decomposition only; neither cancellation nor conservation proves convergence"
+      },
+      "clock_refinement_factor": 1
+    },
+    {
+      "file": "native44-clock-x2.csv",
+      "dt": 6.554237715004956e-05,
+      "Nt": 3815,
+      "impulse_area_s": 6.554237715004956e-05,
+      "waveform_sha256": "106f4bfded76e9d0c3d89eef63ebf3455f187e18c635191328bb8e8037bc19ed",
+      "signed_40_80": [
+        [
+          -424.3053367300659,
+          -15.546548985048494
+        ],
+        [
+          -392.6798666054854,
+          -0.5104043811408046
+        ]
+      ],
+      "endpoint": {
+        "last_sample_s": 0.249978626450289,
+        "frequencies": [
+          {
+            "frequency_hz": 40.0,
+            "total": [
+              -424.30533673006727,
+              -15.546548985052501
+            ],
+            "bulk": [
+              16.035950793823687,
+              -17.038626972437036
+            ],
+            "initial_stencils": [
+              -1.0485374048566897e-31,
+              -3.978969266145269e-49
+            ],
+            "final_stencils": [
+              -440.3412875238905,
+              1.492077987384586
+            ],
+            "reconstruction_error_relative_to_component_scale": 9.868763970429435e-16,
+            "cancellation_ratio": 1.092210742310305,
+            "endpoint_terms_retained": true
+          },
+          {
+            "frequency_hz": 80.0,
+            "total": [
+              -392.6798666054838,
+              -0.5104043811504992
+            ],
+            "bulk": [
+              47.634856159533335,
+              -3.494572843853533
+            ],
+            "initial_stencils": [
+              -1.0485374048566895e-31,
+              -8.00626049928089e-49
+            ],
+            "final_stencils": [
+              -440.31472276501506,
+              2.9841684627034115
+            ],
+            "reconstruction_error_relative_to_component_scale": 4.3780067283515546e-15,
+            "cancellation_ratio": 1.2429648990071143,
+            "endpoint_terms_retained": true
+          }
+        ],
+        "changes_observer": false,
+        "interpretation": "signed decomposition only; neither cancellation nor conservation proves convergence"
+      },
+      "clock_refinement_factor": 2
+    },
+    {
+      "file": "native44-clock-x4.csv",
+      "dt": 3.277118857502478e-05,
+      "Nt": 7629,
+      "impulse_area_s": 3.277118857502478e-05,
+      "waveform_sha256": "e2172efba9603aae0be303197fdca57f8844dede3435b822bd523311ceb2b2d7",
+      "signed_40_80": [
+        [
+          269.6852389070783,
+          -19.228127162027942
+        ],
+        [
+          301.27848748632306,
+          -7.878042150601869
+        ]
+      ],
+      "endpoint": {
+        "last_sample_s": 0.249978626450289,
+        "frequencies": [
+          {
+            "frequency_hz": 40.0,
+            "total": [
+              269.68523890707775,
+              -19.22812716202283
+            ],
+            "bulk": [
+              16.037980649372273,
+              -18.12760484489992
+            ],
+            "initial_stencils": [
+              -2.7720132248675397e-67,
+              1.5731864323063415e-87
+            ],
+            "final_stencils": [
+              253.6472582577071,
+              -1.1005223171250254
+            ],
+            "reconstruction_error_relative_to_component_scale": 9.657766874694639e-15,
+            "cancellation_ratio": 1.0276793790422214,
+            "endpoint_terms_retained": true
+          },
+          {
+            "frequency_hz": 80.0,
+            "total": [
+              301.27848748632033,
+              -7.87804215060283
+            ],
+            "bulk": [
+              47.64122262584921,
+              -5.677031154559683
+            ],
+            "initial_stencils": [
+              -2.7720132248675397e-67,
+              -1.0421950011799166e-84
+            ],
+            "final_stencils": [
+              253.63726486047346,
+              -2.20101099604046
+            ],
+            "reconstruction_error_relative_to_component_scale": 1.1794043198244066e-14,
+            "cancellation_ratio": 1.0008083391875502,
+            "endpoint_terms_retained": true
+          }
+        ],
+        "changes_observer": false,
+        "interpretation": "signed decomposition only; neither cancellation nor conservation proves convergence"
+      },
+      "clock_refinement_factor": 4
+    },
+    {
+      "file": "native44-clock-x8.csv",
+      "dt": 1.638559428751239e-05,
+      "Nt": 15257,
+      "impulse_area_s": 1.638559428751239e-05,
+      "waveform_sha256": "611386907611bcbb1707ae3345806c9cb870ed9f8522a35ca25f50bdda451c5c",
+      "signed_40_80": [
+        [
+          -482.4203080254382,
+          -15.264471204209087
+        ],
+        [
+          -450.796604597518,
+          0.048012922035502115
+        ]
+      ],
+      "endpoint": {
+        "last_sample_s": 0.249978626450289,
+        "frequencies": [
+          {
+            "frequency_hz": 40.0,
+            "total": [
+              -482.4203080254313,
+              -15.264471204217738
+            ],
+            "bulk": [
+              16.03832315651845,
+              -17.770724625566118
+            ],
+            "initial_stencils": [
+              -5.043540719917615e-139,
+              -4.726039375195063e-157
+            ],
+            "final_stencils": [
+              -498.45863118195484,
+              2.506253421346479
+            ],
+            "reconstruction_error_relative_to_component_scale": 1.034514060214922e-14,
+            "cancellation_ratio": 1.0823374985658112,
+            "endpoint_terms_retained": true
+          },
+          {
+            "frequency_hz": 80.0,
+            "total": [
+              -450.7966045974845,
+              0.048012922038374484
+            ],
+            "bulk": [
+              47.642154489837935,
+              -4.964423024249469
+            ],
+            "initial_stencils": [
+              -5.043540719917616e-139,
+              1.4209488556073548e-159
+            ],
+            "final_stencils": [
+              -498.43875908733827,
+              5.012435946265284
+            ],
+            "reconstruction_error_relative_to_component_scale": 5.047262205846602e-14,
+            "cancellation_ratio": 1.211996854777927,
+            "endpoint_terms_retained": true
+          }
+        ],
+        "changes_observer": false,
+        "interpretation": "signed decomposition only; neither cancellation nor conservation proves convergence"
+      },
+      "clock_refinement_factor": 8
+    },
+    {
+      "file": "native44-clock-x16.csv",
+      "dt": 8.192797143756195e-06,
+      "Nt": 30513,
+      "impulse_area_s": 8.192797143756195e-06,
+      "waveform_sha256": "0b12070ab9c29807a7b79cf74b99736b0e04c82b50b676d6869023e9ef80f29a",
+      "signed_40_80": [
+        [
+          -134.25633324841942,
+          -17.142235377370532
+        ],
+        [
+          -102.64800852984862,
+          -3.7077471682538095
+        ]
+      ],
+      "endpoint": {
+        "last_sample_s": 0.249978626450289,
+        "frequencies": [
+          {
+            "frequency_hz": 40.0,
+            "total": [
+              -134.25633324842556,
+              -17.142235377370053
+            ],
+            "bulk": [
+              16.03742738802792,
+              -18.009839977532412
+            ],
+            "initial_stencils": [
+              -4.778958372238626e-283,
+              2.2323019552596497e-301
+            ],
+            "final_stencils": [
+              -150.29376063645117,
+              0.8676046001571622
+            ],
+            "reconstruction_error_relative_to_component_scale": 3.2593257845705027e-14,
+            "cancellation_ratio": 1.2886328727035246,
+            "endpoint_terms_retained": true
+          },
+          {
+            "frequency_hz": 80.0,
+            "total": [
+              -102.64800852985849,
+              -3.707747168247287
+            ],
+            "bulk": [
+              47.63846191324465,
+              -5.442929599778419
+            ],
+            "initial_stencils": [
+              -4.778958372238626e-283,
+              -4.4646039105192995e-301
+            ],
+            "final_stencils": [
+              -150.28647044308804,
+              1.735182431522761
+            ],
+            "reconstruction_error_relative_to_component_scale": 8.70543481750481e-14,
+            "cancellation_ratio": 1.9300489444821118,
+            "endpoint_terms_retained": true
+          }
+        ],
+        "changes_observer": false,
+        "interpretation": "signed decomposition only; neither cancellation nor conservation proves convergence"
+      },
+      "clock_refinement_factor": 16
+    },
+    {
+      "file": "native44-clock-x32.csv",
+      "dt": 4.096398571878097e-06,
+      "Nt": 61025,
+      "impulse_area_s": 4.096398571878097e-06,
+      "waveform_sha256": "be8fc7d8d050c5bff7ba0b9dcbd752736a3a3a68a6addc7c5dae29710ea3b46a",
+      "signed_40_80": [
+        [
+          -5411.780174021938,
+          11.296784500868782
+        ],
+        [
+          -5379.942047350828,
+          53.16939549595229
+        ]
+      ],
+      "endpoint": {
+        "last_sample_s": 0.249978626450289,
+        "frequencies": [
+          {
+            "frequency_hz": 40.0,
+            "total": [
+              -5411.78017402189,
+              11.296784500789542
+            ],
+            "bulk": [
+              16.041673666333498,
+              -17.135989677121618
+            ],
+            "initial_stencils": [
+              0.0,
+              0.0
+            ],
+            "final_stencils": [
+              -5427.821847688237,
+              28.432774177898906
+            ],
+            "reconstruction_error_relative_to_component_scale": 3.2416059746292016e-15,
+            "cancellation_ratio": 1.0073131527506,
+            "endpoint_terms_retained": true
+          },
+          {
+            "frequency_hz": 80.0,
+            "total": [
+              -5379.942047350628,
+              53.16939549582393
+            ],
+            "bulk": [
+              47.65541943919242,
+              -3.695362968794082
+            ],
+            "initial_stencils": [
+              0.0,
+              0.0
+            ],
+            "final_stencils": [
+              -5427.597466789871,
+              56.864758464614695
+            ],
+            "reconstruction_error_relative_to_component_scale": 9.321050743801317e-15,
+            "cancellation_ratio": 1.0177482183726756,
+            "endpoint_terms_retained": true
+          }
+        ],
+        "changes_observer": false,
+        "interpretation": "signed decomposition only; neither cancellation nor conservation proves convergence"
+      },
+      "clock_refinement_factor": 32
+    },
+    {
+      "file": "native44-clock-x64.csv",
+      "dt": 2.0481992859390487e-06,
+      "Nt": 122049,
+      "impulse_area_s": 2.0481992859390487e-06,
+      "waveform_sha256": "b080640474b6a8d12dcab503cd634d1a8424aea7282e96e0887afaf1fccc49a0",
+      "signed_40_80": [
+        [
+          1102.0200254743827,
+          -23.709930900611212
+        ],
+        [
+          1133.5759560136453,
+          -16.843042315988683
+        ]
+      ],
+      "endpoint": {
+        "last_sample_s": 0.249978626450289,
+        "frequencies": [
+          {
+            "frequency_hz": 40.0,
+            "total": [
+              1102.020025474281,
+              -23.70993090056755
+            ],
+            "bulk": [
+              16.037670190209322,
+              -17.954926851546357
+            ],
+            "initial_stencils": [
+              0.0,
+              0.0
+            ],
+            "final_stencils": [
+              1085.9823552840735,
+              -5.755004049029011
+            ],
+            "reconstruction_error_relative_to_component_scale": 7.232235550576011e-15,
+            "cancellation_ratio": 1.007073685194402,
+            "endpoint_terms_retained": true
+          },
+          {
+            "frequency_hz": 80.0,
+            "total": [
+              1133.5759560132688,
+              -16.84304231598081
+            ],
+            "bulk": [
+              47.63939888172933,
+              -5.333196373590878
+            ],
+            "initial_stencils": [
+              0.0,
+              0.0
+            ],
+            "final_stencils": [
+              1085.9365571317214,
+              -11.50984594242482
+            ],
+            "reconstruction_error_relative_to_component_scale": 1.6333781952243194e-13,
+            "cancellation_ratio": 1.0002059327375397,
+            "endpoint_terms_retained": true
+          }
+        ],
+        "changes_observer": false,
+        "interpretation": "signed decomposition only; neither cancellation nor conservation proves convergence"
+      },
+      "clock_refinement_factor": 64
+    }
+  ],
+  "refined_single_distance": [
+    {
+      "file": "single-r1-clock-x1.csv",
+      "dt": 0.00013108475430009911,
+      "Nt": 1908,
+      "impulse_area_s": 0.00013108475430009911,
+      "waveform_sha256": "4171fa34f075f4b74ca474bdc046a2a91539a5bd85f21929c6c9ca042a3dac63",
+      "signed_40_80": [
+        [
+          -1284.6895742004265,
+          -10.615146378774622
+        ],
+        [
+          -1252.9317714469955,
+          9.401417467536312
+        ]
+      ],
+      "endpoint": {
+        "last_sample_s": 0.249978626450289,
+        "frequencies": [
+          {
+            "frequency_hz": 40.0,
+            "total": [
+              -1284.689574200428,
+              -10.6151463787859
+            ],
+            "bulk": [
+              15.984807373448545,
+              -11.829128320983532
+            ],
+            "initial_stencils": [
+              -6.029361746623928e-15,
+              -4.706822243940564e-32
+            ],
+            "final_stencils": [
+              -1300.674381573877,
+              1.2139819421986757
+            ],
+            "reconstruction_error_relative_to_component_scale": 8.614287905248555e-16,
+            "cancellation_ratio": 1.027886914545627,
+            "endpoint_terms_retained": true
+          },
+          {
+            "frequency_hz": 80.0,
+            "total": [
+              -1252.9317714469933,
+              9.401417467507608
+            ],
+            "bulk": [
+              47.49408522560577,
+              6.9699546144712565
+            ],
+            "initial_stencils": [
+              -6.029361746623928e-15,
+              1.0708027614147626e-33
+            ],
+            "final_stencils": [
+              -1300.4258566726,
+              2.431462853035721
+            ],
+            "reconstruction_error_relative_to_component_scale": 9.641218553187324e-16,
+            "cancellation_ratio": 1.076190258294802,
+            "endpoint_terms_retained": true
+          }
+        ],
+        "changes_observer": false,
+        "interpretation": "signed decomposition only; neither cancellation nor conservation proves convergence"
+      },
+      "clock_refinement_factor": 1,
+      "asymptotic_rms_relative_error": 0.0004628029731773816,
+      "asymptotic_crosscheck_pass": true,
+      "asymptotic_window_file": "single-r1-asym-x1.csv",
+      "asymptotic_window_sha256": "323217a7b81cd6d1b0c86a328d8c5eb77fa1f28aaad9837d28e508e2d9614cb3",
+      "late_potential_rms": 0.028860947194695206,
+      "unfitted_envelope_last": 0.04110696722699024,
+      "predicted_final_stencils": [
+        [
+          -1300.3440024207055,
+          1.2132382943001638
+        ],
+        [
+          -1300.0955261521774,
+          2.4299749475069077
+        ]
+      ]
+    },
+    {
+      "file": "single-r1-clock-x2.csv",
+      "dt": 6.554237715004956e-05,
+      "Nt": 3815,
+      "impulse_area_s": 6.554237715004956e-05,
+      "waveform_sha256": "cd3a19b760e87a30c0f45d66e962393398c9dcf2c04e420b45bb768a7fbe60cf",
+      "signed_40_80": [
+        [
+          -183.34539039311073,
+          -17.25192190660676
+        ],
+        [
+          -151.65645975984646,
+          -3.890575860767232
+        ]
+      ],
+      "endpoint": {
+        "last_sample_s": 0.249978626450289,
+        "frequencies": [
+          {
+            "frequency_hz": 40.0,
+            "total": [
+              -183.3453903931126,
+              -17.251921906608228
+            ],
+            "bulk": [
+              16.04469122476634,
+              -18.498115783626623
+            ],
+            "initial_stencils": [
+              -1.224839633658303e-33,
+              -4.642540608580082e-51
+            ],
+            "final_stencils": [
+              -199.39008161787774,
+              1.2461938770199616
+            ],
+            "reconstruction_error_relative_to_component_scale": 8.797894113993152e-15,
+            "cancellation_ratio": 1.215718499521195,
+            "endpoint_terms_retained": true
+          },
+          {
+            "frequency_hz": 80.0,
+            "total": [
+              -151.65645975985595,
+              -3.8905758607532377
+            ],
+            "bulk": [
+              47.726496283418754,
+              -6.382916518541854
+            ],
+            "initial_stencils": [
+              -1.2248396336583029e-33,
+              -9.33789015115005e-51
+            ],
+            "final_stencils": [
+              -199.38295604327618,
+              2.4923406577895033
+            ],
+            "reconstruction_error_relative_to_component_scale": 6.9635263996738e-15,
+            "cancellation_ratio": 1.631770536307916,
+            "endpoint_terms_retained": true
+          }
+        ],
+        "changes_observer": false,
+        "interpretation": "signed decomposition only; neither cancellation nor conservation proves convergence"
+      },
+      "clock_refinement_factor": 2,
+      "asymptotic_rms_relative_error": 0.00022917701454487098,
+      "asymptotic_crosscheck_pass": true,
+      "asymptotic_window_file": "single-r1-asym-x2.csv",
+      "asymptotic_window_sha256": "436a4f4ce9944faa94643e32eb148388a596c5156024d5f775ab128dc47956a3",
+      "late_potential_rms": 0.020507154842869874,
+      "unfitted_envelope_last": 0.02906701528021796,
+      "predicted_final_stencils": [
+        [
+          -199.86807947140287,
+          1.247762413275872
+        ],
+        [
+          -199.86092462084528,
+          2.495477748585187
+        ]
+      ]
+    },
+    {
+      "file": "single-r1-clock-x4.csv",
+      "dt": 3.277118857502478e-05,
+      "Nt": 7629,
+      "impulse_area_s": 3.277118857502478e-05,
+      "waveform_sha256": "1bd0b3bd7407288e29547c6bf4bc41bbf0fd517351cf99d3236265169b0f7a5f",
+      "signed_40_80": [
+        [
+          -1969.1168675537142,
+          -6.964974161327753
+        ],
+        [
+          -1937.3431015128692,
+          16.678456477421662
+        ]
+      ],
+      "endpoint": {
+        "last_sample_s": 0.249978626450289,
+        "frequencies": [
+          {
+            "frequency_hz": 40.0,
+            "total": [
+              -1969.1168675537028,
+              -6.964974161329135
+            ],
+            "bulk": [
+              16.050249385964797,
+              -15.27001734398463
+            ],
+            "initial_stencils": [
+              -1.2088498880845913e-71,
+              6.422043483935674e-92
+            ],
+            "final_stencils": [
+              -1985.1671169396677,
+              8.30504318264226
+            ],
+            "reconstruction_error_relative_to_component_scale": 6.59362495683611e-15,
+            "cancellation_ratio": 1.0194039821332117,
+            "endpoint_terms_retained": true
+          },
+          {
+            "frequency_hz": 80.0,
+            "total": [
+              -1937.343101512898,
+              16.678456477409526
+            ],
+            "bulk": [
+              47.74696123917326,
+              0.06862670170011521
+            ],
+            "initial_stencils": [
+              -1.2088498880845913e-71,
+              -4.5422872281712796e-89
+            ],
+            "final_stencils": [
+              -1985.0900627520562,
+              16.60982977569422
+            ],
+            "reconstruction_error_relative_to_component_scale": 1.058290451269231e-14,
+            "cancellation_ratio": 1.0492881881431881,
+            "endpoint_terms_retained": true
+          }
+        ],
+        "changes_observer": false,
+        "interpretation": "signed decomposition only; neither cancellation nor conservation proves convergence"
+      },
+      "clock_refinement_factor": 4,
+      "asymptotic_rms_relative_error": 0.00011515725203238515,
+      "asymptotic_crosscheck_pass": true,
+      "asymptotic_window_file": "single-r1-asym-x4.csv",
+      "asymptotic_window_sha256": "5ff7288526d08c6e71d710513bc9f5f5cbafdbe4da3662230041068022dea469",
+      "late_potential_rms": 0.014464303162474776,
+      "unfitted_envelope_last": 0.02055348361349512,
+      "predicted_final_stencils": [
+        [
+          -1984.9140881178646,
+          8.303913348944537
+        ],
+        [
+          -1984.8370440196106,
+          16.607570142548415
+        ]
+      ]
+    },
+    {
+      "file": "single-r1-clock-x8.csv",
+      "dt": 1.638559428751239e-05,
+      "Nt": 15257,
+      "impulse_area_s": 1.638559428751239e-05,
+      "waveform_sha256": "93772b0887a4a93201451984f93d0cd3fce3f0aab5adca6ff69a59a97bc749d6",
+      "signed_40_80": [
+        [
+          -2887.628403841937,
+          -2.442058595535922
+        ],
+        [
+          -2855.82206963112,
+          25.723017748831836
+        ]
+      ],
+      "endpoint": {
+        "last_sample_s": 0.249978626450289,
+        "frequencies": [
+          {
+            "frequency_hz": 40.0,
+            "total": [
+              -2887.628403841959,
+              -2.442058595537315
+            ],
+            "bulk": [
+              16.049299595620248,
+              -16.75525102982509
+            ],
+            "initial_stencils": [
+              -2.880775555124308e-148,
+              -2.6983882232642913e-166
+            ],
+            "final_stencils": [
+              -2903.677703437575,
+              14.313192434283032
+            ],
+            "reconstruction_error_relative_to_component_scale": 2.140343535345985e-15,
+            "cancellation_ratio": 1.0136046662621658,
+            "endpoint_terms_retained": true
+          },
+          {
+            "frequency_hz": 80.0,
+            "total": [
+              -2855.822069631053,
+              25.723017748731834
+            ],
+            "bulk": [
+              47.7427200420759,
+              -2.902964773271398
+            ],
+            "initial_stencils": [
+              -2.880775555124309e-148,
+              7.597923401941326e-169
+            ],
+            "final_stencils": [
+              -2903.5647896731925,
+              28.625982522061154
+            ],
+            "reconstruction_error_relative_to_component_scale": 2.916160227369977e-14,
+            "cancellation_ratio": 1.0334737242014669,
+            "endpoint_terms_retained": true
+          }
+        ],
+        "changes_observer": false,
+        "interpretation": "signed decomposition only; neither cancellation nor conservation proves convergence"
+      },
+      "clock_refinement_factor": 8,
+      "asymptotic_rms_relative_error": 5.6692151489006376e-05,
+      "asymptotic_crosscheck_pass": true,
+      "asymptotic_window_file": "single-r1-asym-x8.csv",
+      "asymptotic_window_sha256": "c3611d0eab2998d96d912a1bc7e1c41a7676a02276af387ae474c02b04cd7ad2",
+      "late_potential_rms": 0.01030806916923402,
+      "unfitted_envelope_last": 0.01453350764010898,
+      "predicted_final_stencils": [
+        [
+          -2903.8515002749996,
+          14.314024778065514
+        ],
+        [
+          -2903.738579994347,
+          28.62764718644925
+        ]
+      ]
+    },
+    {
+      "file": "single-r1-clock-x16.csv",
+      "dt": 8.192797143756195e-06,
+      "Nt": 30513,
+      "impulse_area_s": 8.192797143756195e-06,
+      "waveform_sha256": "0c18cf801376fa1d076d4458cfcbf663cb4bfc305c4e9fcb1b2a233c9b2ce25e",
+      "signed_40_80": [
+        [
+          3388.781433136814,
+          -35.81469436527853
+        ],
+        [
+          3420.3215445658066,
+          -41.02159759650464
+        ]
+      ],
+      "endpoint": {
+        "last_sample_s": 0.249978626450289,
+        "frequencies": [
+          {
+            "frequency_hz": 40.0,
+            "total": [
+              3388.781433136815,
+              -35.81469436528478
+            ],
+            "bulk": [
+              16.043862478912455,
+              -18.395378187429515
+            ],
+            "initial_stencils": [
+              -4.046571999309999e-302,
+              1.8893e-320
+            ],
+            "final_stencils": [
+              3372.737570657899,
+              -17.41931617787466
+            ],
+            "reconstruction_error_relative_to_component_scale": 5.786329652095852e-15,
+            "cancellation_ratio": 1.0024257488426433,
+            "endpoint_terms_retained": true
+          },
+          {
+            "frequency_hz": 80.0,
+            "total": [
+              3420.321544565895,
+              -41.021597596382094
+            ],
+            "bulk": [
+              47.72086122548103,
+              -6.183447796075011
+            ],
+            "initial_stencils": [
+              -4.046571999309999e-302,
+              -3.7796e-320
+            ],
+            "final_stencils": [
+              3372.6006833402844,
+              -34.83814980027122
+            ],
+            "reconstruction_error_relative_to_component_scale": 3.930975884180031e-14,
+            "cancellation_ratio": 1.0000973190702576,
+            "endpoint_terms_retained": true
+          }
+        ],
+        "changes_observer": false,
+        "interpretation": "signed decomposition only; neither cancellation nor conservation proves convergence"
+      },
+      "clock_refinement_factor": 16,
+      "asymptotic_rms_relative_error": 2.823410177799596e-05,
+      "asymptotic_crosscheck_pass": true,
+      "asymptotic_window_file": "single-r1-asym-x16.csv",
+      "asymptotic_window_sha256": "06a489b52fdc308d76e526679a1c2fa10cf60ff70ca738f500ebed80f3a120d7",
+      "late_potential_rms": 0.00730304674253899,
+      "unfitted_envelope_last": 0.01027674180674756,
+      "predicted_final_stencils": [
+        [
+          3372.8774527587248,
+          -17.420028146907473
+        ],
+        [
+          3372.7405599003905,
+          -34.8395737189274
+        ]
+      ]
+    },
+    {
+      "file": "single-r1-clock-x32.csv",
+      "dt": 4.096398571878097e-06,
+      "Nt": 61025,
+      "impulse_area_s": 4.096398571878097e-06,
+      "waveform_sha256": "2faca662bdbb23348f925e9cfe414ddf1681ea8cb62fe7d93f18720b83340224",
+      "signed_40_80": [
+        [
+          2378.8675595645486,
+          -30.422188422029752
+        ],
+        [
+          2410.45078593229,
+          -30.236811394465892
+        ]
+      ],
+      "endpoint": {
+        "last_sample_s": 0.249978626450289,
+        "frequencies": [
+          {
+            "frequency_hz": 40.0,
+            "total": [
+              2378.867559564555,
+              -30.42218842180546
+            ],
+            "bulk": [
+              16.045911389263434,
+              -17.892932675248886
+            ],
+            "initial_stencils": [
+              0.0,
+              0.0
+            ],
+            "final_stencils": [
+              2362.8216481752947,
+              -12.529255746670174
+            ],
+            "reconstruction_error_relative_to_component_scale": 4.76126764394625e-14,
+            "cancellation_ratio": 1.003289820606871,
+            "endpoint_terms_retained": true
+          },
+          {
+            "frequency_hz": 80.0,
+            "total": [
+              2410.4507859326295,
+              -30.23681139406352
+            ],
+            "bulk": [
+              47.72902916507021,
+              -5.178654550377411
+            ],
+            "initial_stencils": [
+              0.0,
+              0.0
+            ],
+            "final_stencils": [
+              2362.7217567672565,
+              -25.058156843623106
+            ],
+            "reconstruction_error_relative_to_component_scale": 1.283128888733257e-13,
+            "cancellation_ratio": 1.0000926556535301,
+            "endpoint_terms_retained": true
+          }
+        ],
+        "changes_observer": false,
+        "interpretation": "signed decomposition only; neither cancellation nor conservation proves convergence"
+      },
+      "clock_refinement_factor": 32,
+      "asymptotic_rms_relative_error": 1.409679968263847e-05,
+      "asymptotic_crosscheck_pass": true,
+      "asymptotic_window_file": "single-r1-asym-x32.csv",
+      "asymptotic_window_sha256": "4df0c1ddf09309b5521ed1b84e2eb589f86ecd8cbf7a179d31c67fdaa604e9b5",
+      "late_potential_rms": 0.00516764391510563,
+      "unfitted_envelope_last": 0.00726675382005449,
+      "predicted_final_stencils": [
+        [
+          2362.9368630393888,
+          -12.52985920873196
+        ],
+        [
+          2362.8369668695364,
+          -25.05936375098503
+        ]
+      ]
+    },
+    {
+      "file": "single-r1-clock-x64.csv",
+      "dt": 2.0481992859390487e-06,
+      "Nt": 122049,
+      "impulse_area_s": 2.0481992859390487e-06,
+      "waveform_sha256": "d4d91a650ec21253b182ec518e155b0e431f4510b22f2af9b0e5e2edfdd463bc",
+      "signed_40_80": [
+        [
+          -4080.308847332905,
+          4.232012921153462
+        ],
+        [
+          -4048.4467595755787,
+          39.070575847904266
+        ]
+      ],
+      "endpoint": {
+        "last_sample_s": 0.249978626450289,
+        "frequencies": [
+          {
+            "frequency_hz": 40.0,
+            "total": [
+              -4080.308847332398,
+              4.2320129214550235
+            ],
+            "bulk": [
+              16.048319729727087,
+              -17.41085460353062
+            ],
+            "initial_stencils": [
+              0.0,
+              0.0
+            ],
+            "final_stencils": [
+              -4096.357167062204,
+              21.642867525080856
+            ],
+            "reconstruction_error_relative_to_component_scale": 3.0047818545795856e-14,
+            "cancellation_ratio": 1.0097497756211773,
+            "endpoint_terms_retained": true
+          },
+          {
+            "frequency_hz": 80.0,
+            "total": [
+              -4048.4467595748392,
+              39.070575847811085
+            ],
+            "bulk": [
+              47.73865549833088,
+              -4.2145526656590375
+            ],
+            "initial_stencils": [
+              0.0,
+              0.0
+            ],
+            "final_stencils": [
+              -4096.185415073178,
+              43.28512851299736
+            ],
+            "reconstruction_error_relative_to_component_scale": 1.1408885132476299e-13,
+            "cancellation_ratio": 1.0236383744645814,
+            "endpoint_terms_retained": true
+          }
+        ],
+        "changes_observer": false,
+        "interpretation": "signed decomposition only; neither cancellation nor conservation proves convergence"
+      },
+      "clock_refinement_factor": 64,
+      "asymptotic_rms_relative_error": 7.129152855092303e-06,
+      "asymptotic_crosscheck_pass": true,
+      "asymptotic_window_file": "single-r1-asym-x64.csv",
+      "asymptotic_window_sha256": "713393b5eac2cb1326606c1eab27054fb0468ad88184a2b4ab43625462d134f5",
+      "late_potential_rms": 0.003633428660242582,
+      "unfitted_envelope_last": 0.00513837090337378,
+      "predicted_final_stencils": [
+        [
+          -4096.277467992683,
+          21.642444281189032
+        ],
+        [
+          -4096.1057193783945,
+          43.28428203718406
+        ]
+      ]
+    }
+  ],
+  "status": "COMPLETE",
+  "source_only_fixed_clock44_pairs": [
+    [
+      0.1648291081654454,
+      0.17667216344872444,
+      1.0856837698716104
+    ],
+    [
+      1.580797943904539,
+      1.9152680469643213,
+      9.830963188338712
+    ],
+    [
+      1.2480237339898612,
+      0.7994836859973934,
+      176.37741970693267
+    ],
+    [
+      0.4459436147384081,
+      0.4581120026415593,
+      1.298818421084253
+    ]
+  ],
+  "clock_only_fixed_source44_pairs": [
+    [
+      0.14589258576019107,
+      0.13779959473195416,
+      4.272214488924926
+    ],
+    [
+      1.629001598619554,
+      0.4069954614358737,
+      177.1823913411988
+    ],
+    [
+      2.8685813421348607,
+      1.0032542248765093,
+      179.39264783506437
+    ],
+    [
+      0.4023558957036869,
+      0.41258083859500255,
+      2.596600666833067
+    ]
+  ],
+  "original_diagonal_free_pairs": [
+    [
+      0.24405454649382238,
+      0.25640435723028776,
+      3.011827076347206
+    ],
+    [
+      0.4973491606962891,
+      0.512968273843445,
+      1.2579253662526433
+    ],
+    [
+      2.413958796666584,
+      0.5282815639930929,
+      179.2954968143676
+    ],
+    [
+      0.40879085166434737,
+      0.4190769628925387,
+      2.767590455848457
+    ]
+  ],
+  "refined_native44_cloud_pairs": [
+    [
+      0.47737361387946636,
+      0.497093681835468,
+      0.7912372977128878
+    ],
+    [
+      2.4240619505983227,
+      0.5704046654813791,
+      178.42765804058504
+    ],
+    [
+      1.610524095537136,
+      0.43983578237240617,
+      178.50823331257854
+    ],
+    [
+      2.8979394608790066,
+      3.388812000751048,
+      5.4640028160291365
+    ],
+    [
+      0.9780540191598549,
+      0.9809087284326126,
+      7.395920407759246
+    ],
+    [
+      5.825868085862228,
+      3.9096565680753406,
+      179.7149728737855
+    ]
+  ],
+  "refined_single_distance_pairs": [
+    [
+      6.528018168021519,
+      7.259159854534913,
+      4.902017432631348
+    ],
+    [
+      0.9142322342585156,
+      0.9216965058188328,
+      5.1727704485167
+    ],
+    [
+      0.31983923844102724,
+      0.3216186939046734,
+      0.15420551773769878
+    ],
+    [
+      1.8434233771527078,
+      0.16506898718981403,
+      179.82891823467736
+    ],
+    [
+      0.4216989919301335,
+      0.4244986347887672,
+      0.1271741626185014
+    ],
+    [
+      1.5891900571825441,
+      0.41694099923879807,
+      179.83424713984638
+    ]
+  ],
+  "all_unfitted_asymptotic_crosschecks_pass": true,
+  "qualification": "ANALYTIC_DIAGNOSTICS_ONLY"
+}
