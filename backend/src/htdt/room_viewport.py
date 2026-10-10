@@ -1177,16 +1177,19 @@ class RoomViewport3D(QFrame):
         'directivity-',
     )
 
-    def _remove_overlay_actors(self) -> None:
+    def _remove_actors_with_prefix(
+        self, prefixes: tuple[str, ...]
+    ) -> None:
         renderer = getattr(self.plotter, 'renderer', None)
         actors = getattr(renderer, 'actors', None)
         if not actors:
             return
         for name in tuple(actors):
-            if isinstance(name, str) and name.startswith(
-                self._OVERLAY_ACTOR_PREFIXES
-            ):
+            if isinstance(name, str) and name.startswith(prefixes):
                 self.plotter.remove_actor(name)
+
+    def _remove_overlay_actors(self) -> None:
+        self._remove_actors_with_prefix(self._OVERLAY_ACTOR_PREFIXES)
         # Swept survey actors disarm the zoom-refresh cache; the
         # compositor re-arms it iff it re-renders the overlay right away.
         self._survey_overlay_scene = None
@@ -3949,6 +3952,11 @@ class RoomViewport3D(QFrame):
         scene rebuild unless the controller re-pushes it.
         """
 
+        # A repush replaces the whole draft set: actor names carry the
+        # point index, so a shorter point list — or the empty teardown
+        # push — must clear the namespace first or stale-name actors
+        # ghost behind the live draft until the next scene rebuild.
+        self._remove_actors_with_prefix(('cable-route-draft-',))
         color = DARK_THEME.semantic.stale.hex
         for segment in staged_segments:
             for leg, (first, second) in enumerate(

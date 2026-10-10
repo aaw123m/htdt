@@ -4425,6 +4425,7 @@ class RoomWorkspace(QWidget):
         root.addWidget(self.journey_card)
         self._journey_steps: tuple[RoomJourneyStep, ...] = ()
         self._journey_buttons: dict[str, QPushButton] = {}
+        self._journey_stretch_column: int | None = None
 
         content = QHBoxLayout()
         content.setContentsMargins(0, 0, 0, 0)
@@ -8708,7 +8709,16 @@ class RoomWorkspace(QWidget):
                 continue
             row, column = divmod(index, columns)
             self.journey_steps_grid.addWidget(button, row, column)
+        # Column stretch survives ``takeAt`` — clear the previously
+        # stretched column so only the freshly computed one carries it;
+        # compact↔wide reflows otherwise accumulate dead-stretch columns
+        # that squeeze the buttons mid-row.
+        if self._journey_stretch_column is not None:
+            self.journey_steps_grid.setColumnStretch(
+                self._journey_stretch_column, 0
+            )
         self.journey_steps_grid.setColumnStretch(columns, 1)
+        self._journey_stretch_column = columns
 
     def _open_journey_step(self, key: str) -> None:
         step = next(
@@ -8971,6 +8981,14 @@ class RoomWorkspace(QWidget):
             )
             if callable(render_cable_routes):
                 render_cable_routes(self._cable_route_items)
+            # #1011 M3: the in-progress recording draft rides the same
+            # pass — render_document's ``cable-route-`` sweep drops draft
+            # actors too, so the live preview must be re-pushed on every
+            # render or it is invisible from the very first recorded point
+            # (each one emits stateChanged, which lands back here).
+            waypoint_controller = self.cable_waypoint_controller
+            if waypoint_controller.is_active:
+                waypoint_controller._push_draft()
             # #999: 3D field overlay — acoustics context + overlay ON +
             # armed request + CURRENT head; anything else draws nothing.
             render_field = getattr(self.viewport, 'render_field_overlay', None)

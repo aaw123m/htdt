@@ -489,3 +489,34 @@ def test_panel_has_accessible_names(repo, qapp):
     panel = _panel(repo, rack=rack, layout=layout, devices=(device,))
     leftovers = list(_unnamed_controls(panel))
     assert leftovers == []
+
+
+def test_paint_surfaces_do_not_throw(qapp):
+    """``qcolor(painter.setPen(TOKEN))`` was a paren bug — ``setPen`` got the
+    ColorToken, threw ``TypeError`` on every paint, and aborted the whole
+    ``paintEvent`` at the first pen stroke (only the canvas fill ever
+    painted). Both widgets must paint cleanly in every state."""
+    from PySide6.QtGui import QPaintEvent
+    from htdt.rack_workspace import _LoadBarWidget
+
+    view = RackElevationView()
+    view.resize(480, 360)
+    # Empty rack: the 'ラック定義が保存されていません' branch set the
+    # muted pen — it threw before drawText ever ran.
+    view.paintEvent(QPaintEvent(view.rect()))
+    # Populated: faces + shelf + depth + ghost helpers all set pens.
+    rack = _rack()
+    amp = _profile('amp-1', ru_height=4)
+    layout = RackLayout(
+        rack_id=rack.rack_id,
+        placements=(RackPlacement(device_id='amp-1', ru_position=5),),
+    )
+    results = evaluate_rack_fit(layout, rack, (amp,))
+    view.set_scene(rack, layout, (amp,), results)
+    view.paintEvent(QPaintEvent(view.rect()))
+
+    bar = _LoadBarWidget()
+    bar.resize(480, 40)
+    bar.paintEvent(QPaintEvent(bar.rect()))
+    bar.set_segments((('amp', 120.0), ('dsp', 60.0)))
+    bar.paintEvent(QPaintEvent(bar.rect()))
