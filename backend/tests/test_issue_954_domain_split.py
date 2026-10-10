@@ -1,12 +1,13 @@
 """#954 domain-split — declared-package contracts.
 
 Phase 1 split the ``measurement`` domain, phase 2 the ``capture``
-domain, phase 3 the ``calibration`` domain, and phase 4 the
-``acoustics`` domain into layered packages
+domain, phase 3 the ``calibration`` domain, phase 4 the
+``acoustics`` domain, and phase 5 the ``optimization`` domain into
+layered packages
 (``domain/services/persistence/ui`` under ``htdt.<pkg>`` — calibration
 ships no ui layer: its user-facing surfaces live in the shared
-application pages, so services is its highest layer; acoustics ships
-all four layers).  These tests pin
+application pages, so services is its highest layer; acoustics and
+optimization ship all four layers).  These tests pin
 the migration's contracts for every declared package:
 
 - every old ``htdt.<stem>`` import path still resolves — and resolves to
@@ -169,6 +170,19 @@ def test_acoustics_package_name_reexports_old_flat_module_api():
         assert getattr(pkg, name) is getattr(canonical, name)
 
 
+def test_optimization_attribute_writes_through_flat_path():
+    flat = _import('htdt.cad_optimizer_qualification')
+    canonical = _import(
+        'htdt.optimization.domain.cad_optimizer_qualification')
+    sentinel = object()
+    original = flat._utc_now
+    try:
+        flat._utc_now = sentinel  # noqa: SLF001 — monkeypatch parity
+        assert canonical._utc_now is sentinel  # noqa: SLF001
+    finally:
+        canonical._utc_now = original  # noqa: SLF001
+
+
 def test_registry_is_exhaustive():
     """Every .py under each htdt.<pkg> is classified — nothing unlayered."""
     for pkg, layers in PACKAGES.items():
@@ -305,6 +319,31 @@ def test_acoustics_threshold_policy_hash_identically_via_old_and_new_paths():
     assert len(policy_a.policy_sha256) == 64
 
 
+def test_optimization_problem_hash_identically_via_old_and_new_paths():
+    """Hash-pinned optimization-problem identity: identical sha."""
+    old = _import('htdt.cad_optimizer_qualification')
+    new = _import(
+        'htdt.optimization.domain.cad_optimizer_qualification')
+    assert old.build_optimization_problem is new.build_optimization_problem
+    kwargs = dict(
+        document_id='opt-split-check',
+        problem_label='split-check',
+        decision_variables=(
+            old.DecisionVariableSpec(
+                name='speaker_x_m', kind='continuous', unit='m'),
+        ),
+        objectives=(
+            old.ObjectiveDefinition(
+                objective_id='seat_variance', direction='minimize'),
+        ),
+        declared_at_utc='2026-10-10T00:00:00+00:00',
+    )
+    problem_a = old.build_optimization_problem(**kwargs)
+    problem_b = new.build_optimization_problem(**kwargs)
+    assert problem_a == problem_b
+    assert len(problem_a.problem_sha256) == 64
+
+
 def _fresh_audit_report():
     return audit_mod.audit(audit_mod.ROOT)
 
@@ -366,4 +405,6 @@ def test_importing_flat_path_does_not_pull_qt_for_domain_modules():
     _import('htdt.cad_calibration_lifecycle')
     _import('htdt.acoustic_benchmark')
     _import('htdt.cad_acoustic_snapshot')
+    _import('htdt.pareto')
+    _import('htdt.cad_optimizer_qualification')
     assert 'PySide6' not in sys.modules
