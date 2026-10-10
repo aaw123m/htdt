@@ -1,0 +1,557 @@
+{
+  "schema_version": "htdt.r130d.rigid-box-semidiscrete-spectrum-evidence-1",
+  "preregistered_plan_sha256_lf": "ede0be89ede0dd84fb0ce93fd8188bd6d80626cf212339552723e494310e0877",
+  "preregistered_plan": {
+    "schema_version": "htdt.r130d.rigid-box-semidiscrete-spectrum-plan-1",
+    "date_jst": "2026-10-11",
+    "issue": 53,
+    "pr_base": "main",
+    "kind": "preregistered_independent_physics_validation",
+    "hypothesis": "The PHYSICALLY_VALIDATED check analytic_rigid_box_modal_spectrum recorded UNKNOWN because record-based peak detection resolved only 3-4 of 12 analytic mode clusters (250 ms record gives ~4 Hz resolution and degenerate box modes cluster inside it; source/receiver nodal planes kill others). The independent check must therefore compare the discrete Neumann-operator spectrum itself against analytic rigid-box modes \u2014 detection-resolution artifacts are not operator error.",
+    "preregistration": "Commit and push this fixed plan before any eigencomputation. The runner verifies plan bytes; tolerances and verdict vocabulary below are frozen.",
+    "box": {
+      "dimensions_m": {
+        "x": 2.5,
+        "y": 2.0,
+        "z": 1.6
+      },
+      "boundary": "rigid Neumann all walls",
+      "speed_of_sound_m_s": 343.2,
+      "grid_spacings_m": [
+        0.1,
+        0.05
+      ],
+      "cells_per_spacing": {
+        "0.1": [
+          25,
+          20,
+          16
+        ],
+        "0.05": [
+          50,
+          40,
+          32
+        ]
+      }
+    },
+    "operator": "seven-point second-difference Neumann Laplacian, cell-centered pressure, ghost-node Neumann convention identical to the canonical PFFDTD stencil",
+    "eigensolver": "scipy.sparse.linalg.eigsh(k lowest, sigma=-1, which='LM', tol<=1e-9); full basis for h=0.1",
+    "comparisons": [
+      {
+        "name": "discrete_operator_exactness",
+        "reference": "closed-form discrete Neumann eigenvalues lambda = (2/h)^2 * sum_i sin^2(pi*n_i/(2*N_i))",
+        "tolerance_relative": 1e-08
+      },
+      {
+        "name": "continuum_mode_agreement",
+        "reference": "analytic rigid-box modes f = (c/2)*sqrt(sum_i (n_i/L_i)^2)",
+        "metric": "relative frequency error per analytic mode vs nearest discrete mode; every analytic mode below the cutoff must be matched",
+        "tolerance_relative": 0.02
+      },
+      {
+        "name": "dispersion_bound",
+        "reference": "seven-point leading dispersion: relative error <= (pi*f*h/c)^2/12 times declared safety factor 2.0",
+        "per_mode": true
+      },
+      {
+        "name": "unresolved_cluster_coverage",
+        "reference": "the 12 analytic clusters unresolved under record-peak detection in evidence r130d_reproduction_isolation_diagnostic_evidence.json; every unresolved analytic mode must be present in the discrete spectrum",
+        "coverage_required": 1.0
+      }
+    ],
+    "verdict_vocabulary": [
+      "PHYSICS_VALIDATED_SEMIDISCRETE_SPECTRUM",
+      "PHYSICS_NOT_VALIDATED_SEMIDISCRETE_SPECTRUM",
+      "OPERATOR_DISCRETIZATION_CONFIRMED",
+      "RECORD_PEAK_DETECTION_LIMIT_CONFIRMED"
+    ],
+    "honesty": "This validates the discrete spatial operator's spectrum against physics, not the canonical impulse observable; the original contract remains SELF_CONVERGENCE_FAILED and product NO_GO. If any comparison fails, the verdict is PHYSICS_NOT_VALIDATED with the failing modes recorded verbatim.",
+    "limits": {
+      "no_time_domain_solver_runs": true,
+      "no_github_actions": true
+    }
+  },
+  "prior_evidence_sha256": "bb2fa6448cabfbca3ecab3609d166c3a2872a6657c31c387066ff79ab37e634b",
+  "box_dimensions_m": [
+    2.5,
+    2.0,
+    1.6
+  ],
+  "analytic_mode_count_below_cutoff": 18,
+  "unresolved_record_peak_modes_hz": [
+    68.5948456043027,
+    68.62870972973205,
+    85.7779493029823,
+    107.07779865307006,
+    107.20693410030307,
+    109.7805471017297,
+    109.85334034881606,
+    127.1648843347311,
+    127.29189494368659,
+    136.91897869100927,
+    137.15746659538584,
+    153.35391578418367,
+    153.49619899196054,
+    161.5342762520265,
+    161.79885030659983,
+    170.89519336779512,
+    171.42363522544915,
+    173.817322756325,
+    174.1101320805289,
+    184.65092069382072,
+    193.8013863950757,
+    213.01660715559623,
+    213.1243795704321,
+    218.97939136367407
+  ],
+  "levels": [
+    {
+      "grid_spacing_m": 0.1,
+      "cells": [
+        25,
+        20,
+        16
+      ],
+      "eigsh_modes": 25,
+      "discrete_operator_exactness": {
+        "max_relative": 2.693221475609501e-15,
+        "pass": true
+      },
+      "continuum_agreement": {
+        "max_relative": 0.006413148855794153,
+        "pass": true
+      },
+      "dispersion_bound_all_modes": true,
+      "unresolved_cluster_coverage": 1.0,
+      "per_mode": [
+        {
+          "triple": [
+            1,
+            0,
+            0
+          ],
+          "analytic_hz": 68.64,
+          "discrete_hz": 68.59484560430272,
+          "relative_error": 0.0006578437601585271,
+          "dispersion_bound": 0.0006579736267392906
+        },
+        {
+          "triple": [
+            0,
+            1,
+            0
+          ],
+          "analytic_hz": 85.8,
+          "discrete_hz": 85.7118176127246,
+          "relative_error": 0.0010277667514614862,
+          "dispersion_bound": 0.0010280837917801418
+        },
+        {
+          "triple": [
+            0,
+            0,
+            1
+          ],
+          "analytic_hz": 107.25,
+          "discrete_hz": 107.07779865307008,
+          "relative_error": 0.0016056069643815773,
+          "dispersion_bound": 0.0016063809246564713
+        },
+        {
+          "triple": [
+            1,
+            1,
+            0
+          ],
+          "analytic_hz": 109.87761191434768,
+          "discrete_hz": 109.78054710172971,
+          "relative_error": 0.000883390264193555,
+          "dispersion_bound": 0.0016860574185194321
+        },
+        {
+          "triple": [
+            1,
+            0,
+            1
+          ],
+          "analytic_hz": 127.33425344344703,
+          "discrete_hz": 127.16488433473111,
+          "relative_error": 0.0013301142790390983,
+          "dispersion_bound": 0.002264354551395762
+        },
+        {
+          "triple": [
+            2,
+            0,
+            0
+          ],
+          "analytic_hz": 137.28,
+          "discrete_hz": 136.91897869100927,
+          "relative_error": 0.0026298172274965693,
+          "dispersion_bound": 0.0026318945069571625
+        },
+        {
+          "triple": [
+            0,
+            1,
+            1
+          ],
+          "analytic_hz": 137.3470148929346,
+          "discrete_hz": 137.15746659538584,
+          "relative_error": 0.001380068563532389,
+          "dispersion_bound": 0.0026344647164366123
+        },
+        {
+          "triple": [
+            1,
+            1,
+            1
+          ],
+          "analytic_hz": 153.54364884292676,
+          "discrete_hz": 153.3539157841837,
+          "relative_error": 0.0012356946065359782,
+          "dispersion_bound": 0.0032924383431759043
+        },
+        {
+          "triple": [
+            2,
+            1,
+            0
+          ],
+          "analytic_hz": 161.88711622609134,
+          "discrete_hz": 161.53427625202653,
+          "relative_error": 0.002179543266259874,
+          "dispersion_bound": 0.0036599782987373065
+        },
+        {
+          "triple": [
+            0,
+            2,
+            0
+          ],
+          "analytic_hz": 171.6,
+          "discrete_hz": 170.89519336779512,
+          "relative_error": 0.0041072647564386845,
+          "dispersion_bound": 0.004112335167120567
+        },
+        {
+          "triple": [
+            2,
+            0,
+            1
+          ],
+          "analytic_hz": 174.20780952643887,
+          "discrete_hz": 173.81732275632504,
+          "relative_error": 0.002241499799436728,
+          "dispersion_bound": 0.004238275431613634
+        },
+        {
+          "triple": [
+            1,
+            2,
+            0
+          ],
+          "analytic_hz": 184.8188561808562,
+          "discrete_hz": 184.1478209474503,
+          "relative_error": 0.0036307725698141997,
+          "dispersion_bound": 0.004770308793859858
+        },
+        {
+          "triple": [
+            2,
+            1,
+            1
+          ],
+          "analytic_hz": 194.1906303094977,
+          "discrete_hz": 193.8013863950757,
+          "relative_error": 0.0020044423039444594,
+          "dispersion_bound": 0.0052663592233937765
+        },
+        {
+          "triple": [
+            0,
+            2,
+            1
+          ],
+          "analytic_hz": 202.35889528261413,
+          "discrete_hz": 201.67008226458256,
+          "relative_error": 0.003403917663562908,
+          "dispersion_bound": 0.005718716091777036
+        },
+        {
+          "triple": [
+            3,
+            0,
+            0
+          ],
+          "analytic_hz": 205.92,
+          "discrete_hz": 204.70275512115367,
+          "relative_error": 0.005911251354148776,
+          "dispersion_bound": 0.005921762640653614
+        },
+        {
+          "triple": [
+            1,
+            2,
+            1
+          ],
+          "analytic_hz": 213.68334539687459,
+          "discrete_hz": 213.01660715559623,
+          "relative_error": 0.0031202162248069355,
+          "dispersion_bound": 0.006376689718516328
+        },
+        {
+          "triple": [
+            0,
+            0,
+            2
+          ],
+          "analytic_hz": 214.5,
+          "discrete_hz": 213.12437957043215,
+          "relative_error": 0.006413148855794153,
+          "dispersion_bound": 0.006425523698625885
+        },
+        {
+          "triple": [
+            2,
+            2,
+            0
+          ],
+          "analytic_hz": 219.75522382869536,
+          "discrete_hz": 218.9793913636741,
+          "relative_error": 0.003530439238277438,
+          "dispersion_bound": 0.0067442296740777286
+        }
+      ],
+      "pass": true
+    },
+    {
+      "grid_spacing_m": 0.05,
+      "cells": [
+        50,
+        40,
+        32
+      ],
+      "eigsh_modes": 25,
+      "discrete_operator_exactness": {
+        "max_relative": 4.037838800084359e-14,
+        "pass": true
+      },
+      "continuum_agreement": {
+        "max_relative": 0.0016056069643815773,
+        "pass": true
+      },
+      "dispersion_bound_all_modes": true,
+      "unresolved_cluster_coverage": 1.0,
+      "per_mode": [
+        {
+          "triple": [
+            1,
+            0,
+            0
+          ],
+          "analytic_hz": 68.64,
+          "discrete_hz": 68.62870972973207,
+          "relative_error": 0.00016448528945126666,
+          "dispersion_bound": 0.00016449340668482266
+        },
+        {
+          "triple": [
+            0,
+            1,
+            0
+          ],
+          "analytic_hz": 85.8,
+          "discrete_hz": 85.77794930298231,
+          "relative_error": 0.0002570011307423067,
+          "dispersion_bound": 0.00025702094794503546
+        },
+        {
+          "triple": [
+            0,
+            0,
+            1
+          ],
+          "analytic_hz": 107.25,
+          "discrete_hz": 107.20693410030309,
+          "relative_error": 0.000401546850320866,
+          "dispersion_bound": 0.00040159523116411783
+        },
+        {
+          "triple": [
+            1,
+            1,
+            0
+          ],
+          "analytic_hz": 109.87761191434768,
+          "discrete_hz": 109.85334034881608,
+          "relative_error": 0.00022089636923058019,
+          "dispersion_bound": 0.00042151435462985803
+        },
+        {
+          "triple": [
+            1,
+            0,
+            1
+          ],
+          "analytic_hz": 127.33425344344703,
+          "discrete_hz": 127.2918949436866,
+          "relative_error": 0.00033265597131126894,
+          "dispersion_bound": 0.0005660886378489405
+        },
+        {
+          "triple": [
+            2,
+            0,
+            0
+          ],
+          "analytic_hz": 137.28,
+          "discrete_hz": 137.18969120860544,
+          "relative_error": 0.0006578437601585271,
+          "dispersion_bound": 0.0006579736267392906
+        },
+        {
+          "triple": [
+            0,
+            1,
+            1
+          ],
+          "analytic_hz": 137.3470148929346,
+          "discrete_hz": 137.29961145542887,
+          "relative_error": 0.00034513627793566294,
+          "dispersion_bound": 0.0006586161791091531
+        },
+        {
+          "triple": [
+            1,
+            1,
+            1
+          ],
+          "analytic_hz": 153.54364884292676,
+          "discrete_hz": 153.49619899196057,
+          "relative_error": 0.00030903167486093214,
+          "dispersion_bound": 0.0008231095857939761
+        },
+        {
+          "triple": [
+            2,
+            1,
+            0
+          ],
+          "analytic_hz": 161.88711622609134,
+          "discrete_hz": 161.79885030659986,
+          "relative_error": 0.0005452312793576759,
+          "dispersion_bound": 0.0009149945746843266
+        },
+        {
+          "triple": [
+            0,
+            2,
+            0
+          ],
+          "analytic_hz": 171.6,
+          "discrete_hz": 171.4236352254492,
+          "relative_error": 0.0010277667514614862,
+          "dispersion_bound": 0.0010280837917801418
+        },
+        {
+          "triple": [
+            2,
+            0,
+            1
+          ],
+          "analytic_hz": 174.20780952643887,
+          "discrete_hz": 174.11013208052896,
+          "relative_error": 0.0005606949893660471,
+          "dispersion_bound": 0.0010595688579034086
+        },
+        {
+          "triple": [
+            1,
+            2,
+            0
+          ],
+          "analytic_hz": 184.8188561808562,
+          "discrete_hz": 184.65092069382078,
+          "relative_error": 0.0009086490983965007,
+          "dispersion_bound": 0.0011925771984649645
+        },
+        {
+          "triple": [
+            2,
+            1,
+            1
+          ],
+          "analytic_hz": 194.1906303094977,
+          "discrete_hz": 194.09326283960561,
+          "relative_error": 0.000501401482331536,
+          "dispersion_bound": 0.0013165898058484441
+        },
+        {
+          "triple": [
+            0,
+            2,
+            1
+          ],
+          "analytic_hz": 202.35889528261413,
+          "discrete_hz": 202.18652139322887,
+          "relative_error": 0.0008518226448336676,
+          "dispersion_bound": 0.001429679022944259
+        },
+        {
+          "triple": [
+            3,
+            0,
+            0
+          ],
+          "analytic_hz": 205.92,
+          "discrete_hz": 205.61528302536803,
+          "relative_error": 0.001479783287839735,
+          "dispersion_bound": 0.0014804406601634035
+        },
+        {
+          "triple": [
+            1,
+            2,
+            1
+          ],
+          "analytic_hz": 213.68334539687459,
+          "discrete_hz": 213.51648468505286,
+          "relative_error": 0.0007808784138596103,
+          "dispersion_bound": 0.001594172429629082
+        },
+        {
+          "triple": [
+            0,
+            0,
+            2
+          ],
+          "analytic_hz": 214.5,
+          "discrete_hz": 214.15559730614015,
+          "relative_error": 0.0016056069643815773,
+          "dispersion_bound": 0.0016063809246564713
+        },
+        {
+          "triple": [
+            2,
+            2,
+            0
+          ],
+          "analytic_hz": 219.75522382869536,
+          "discrete_hz": 219.56109420345942,
+          "relative_error": 0.000883390264193555,
+          "dispersion_bound": 0.0016860574185194321
+        }
+      ],
+      "pass": true
+    }
+  ],
+  "verdicts": [
+    "PHYSICS_VALIDATED_SEMIDISCRETE_SPECTRUM",
+    "OPERATOR_DISCRETIZATION_CONFIRMED",
+    "RECORD_PEAK_DETECTION_LIMIT_CONFIRMED"
+  ],
+  "canonical_original_contract": "SELF_CONVERGENCE_FAILED",
+  "product": "NO_GO",
+  "time_domain_solver_runs": 0
+}
